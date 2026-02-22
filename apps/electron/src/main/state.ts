@@ -634,6 +634,9 @@ export const ipcStateHandlers = () => {
         };
       }
 
+      case "environmentEditor":
+        return { type: "environmentEditor", tabId, title };
+
       default:
         throw new Error("unsupported tab type");
     }

@@ -2,14 +2,26 @@ import { cn } from "@/core/lib/utils";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import { Command } from "cmdk";
 import { useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useEnvironments, useSetActiveEnvironment } from "@/core/environment/hooks";
-import { ChevronRight, FileText, Ban, Check } from "lucide-react";
+import { useAddPanelTab, useActivateTab, useGetPanelTabs } from "@/core/layout/hooks";
+import { ChevronRight, FileText, Ban, Check, Settings2 } from "lucide-react";
 import { Kbd } from "@/core/components/ui/kbd";
 
 export const EnvSelector = () => {
+  const queryClient = useQueryClient();
   const { data: envs } = useEnvironments();
   const { mutate: setActiveEnv } = useSetActiveEnvironment();
+  const { mutate: addPanelTab } = useAddPanelTab();
+  const { mutate: activateTab } = useActivateTab();
+  const { data: mainTabs } = useGetPanelTabs("main");
   const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      queryClient.invalidateQueries({ queryKey: ["environments"] });
+    }
+  }, [open, queryClient]);
 
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
@@ -42,6 +54,19 @@ export const EnvSelector = () => {
   const handleEnvSelect = (envPath: string) => {
     setActiveEnv(envPath);
     setOpen(false);
+  };
+
+  const handleOpenEditor = () => {
+    setOpen(false);
+    const existing = mainTabs?.tabs?.find((t: { type: string; id: string }) => t.type === "environmentEditor");
+    if (existing) {
+      activateTab({ panelId: "main", tabId: existing.id });
+      return;
+    }
+    addPanelTab({
+      panelId: "main",
+      tab: { id: crypto.randomUUID(), type: "environmentEditor", title: "Environments", source: null },
+    });
   };
   const [search, setSearch] = useState("");
 
@@ -161,7 +186,13 @@ export const EnvSelector = () => {
                 {/* Footer with keyboard hint */}
                 <div className="px-4 py-2 border-t border-border bg-editor/50">
                   <div className="flex items-center justify-between text-comment">
-                    <span className="text-sm">Use ↑↓ to navigate</span>
+                    <button
+                      onClick={handleOpenEditor}
+                      className="flex items-center gap-1.5 text-sm hover:text-text transition-colors"
+                    >
+                      <Settings2 size={14} />
+                      Edit Environments
+                    </button>
                     <span className="flex items-center gap-1.5">
                       <Kbd keys="⌥⌘E" size="sm" />
                       <span className="text-sm">to toggle</span>

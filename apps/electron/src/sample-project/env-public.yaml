@@ -1,0 +1,3 @@
+test:
+  variables:
+    BASE_URL: https://echo.apyhub.com

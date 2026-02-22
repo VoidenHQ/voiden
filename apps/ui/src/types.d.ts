@@ -238,8 +238,11 @@ declare global {
       env: {
         load: () => Promise<any>;
         setActive: (envPath: string) => Promise<any>;
-        extendEnvs:(comment:string,variables:[{key:string,value:Record<string,string>}])=>Promise<void>
-        replaceVariables:(text:string)=>Promise<string>
+        extendEnvs: (comment: string, variables: [{ key: string; value: Record<string, string> }]) => Promise<void>;
+        replaceVariables: (text: string) => Promise<string>;
+        getKeys: () => Promise<string[]>;
+        getYamlTrees: () => Promise<{ public: Record<string, unknown>; private: Record<string, unknown> }>;
+        saveYamlTrees: (publicTree: Record<string, unknown>, privateTree: Record<string, unknown>) => Promise<void>;
       };
       fileLink: {
         exists: (absolutePath: string) => Promise<boolean>;
