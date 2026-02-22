@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Plus, Settings2, ChevronsDownUp, ChevronsUpDown, ChevronDown, Trash2, Check } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useYamlEnvironments } from "@/core/environment/hooks";
+import { useYamlEnvironments, useEnvironments } from "@/core/environment/hooks";
 import { useSaveYamlEnvironments } from "@/core/environment/hooks";
 import { useProfiles } from "../hooks/useProfiles.ts";
 import { useCreateProfile } from "@/core/environment/hooks";
@@ -162,7 +162,8 @@ const AddEnvironmentButton = ({ onClick }: { onClick: () => void }) => (
 
 export const EnvironmentEditor = () => {
   const queryClient = useQueryClient();
-  const [selectedProfile, setSelectedProfile] = useState<string>("default");
+  const { data: envData } = useEnvironments();
+  const [selectedProfile, setSelectedProfile] = useState<string>(envData?.activeProfile ?? "default");
   const profileParam = selectedProfile === "default" ? undefined : selectedProfile;
   const { data, isLoading } = useYamlEnvironments(profileParam);
   const { mutate: save } = useSaveYamlEnvironments(profileParam);

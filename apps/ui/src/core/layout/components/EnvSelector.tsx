@@ -234,7 +234,7 @@ export const EnvSelector = () => {
                       className="flex items-center gap-1.5 text-sm hover:text-text transition-colors"
                     >
                       <Settings2 size={14} />
-                      Edit Environments
+                      Edit Environments & Profiles
                     </button>
                     <span className="flex items-center gap-1.5">
                       <Kbd keys="⌥⌘E" size="sm" />
