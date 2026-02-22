@@ -9,6 +9,30 @@ export function genVarId(): string {
 }
 
 /**
+ * Generate a unique name that doesn't collide with existing keys.
+ * Produces "new-environment", "new-environment-1", "new-environment-2", etc.
+ */
+export function generateUniqueName(existingKeys: Record<string, unknown>, base = "new-environment"): string {
+  let name = base;
+  let counter = 1;
+  while (name in existingKeys) {
+    name = `${base}-${counter++}`;
+  }
+  return name;
+}
+
+/**
+ * Rename a key in a record while preserving insertion order.
+ */
+export function renameKey<T>(record: Record<string, T>, oldKey: string, newKey: string): Record<string, T> {
+  const result: Record<string, T> = {};
+  for (const [key, val] of Object.entries(record)) {
+    result[key === oldKey ? newKey : key] = val;
+  }
+  return result;
+}
+
+/**
  * Merge public and private JSON trees into a single editable tree.
  * Public variables get isPrivate=false, private variables get isPrivate=true.
  */

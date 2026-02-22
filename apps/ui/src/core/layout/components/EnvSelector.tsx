@@ -197,14 +197,14 @@ export const EnvSelector = () => {
 
                     {/* Render available environments */}
                     {envs?.data &&
-                      Object.entries(envs.data).filter(([fileName])=>{
-                       const normalizedPath = fileName.replace(/\\/g, "/");
-                       const projectName = normalizedPath.split("/").pop()||normalizedPath;
-                       return projectName.toLowerCase().includes(search.toLowerCase());
-                    }).map(([fileName]) => {
+                      Object.entries(envs.data).map(([fileName]) => {
                         const displayName = fileName.replace(/\\/g, "/").split("/").pop() || fileName;
+                        return { fileName, displayName };
+                      }).filter(({ displayName }) =>
+                        displayName.toLowerCase().includes(search.toLowerCase())
+                      ).map(({ fileName, displayName }) => {
                         const isActive = fileName === envs.activeEnv;
-                        
+
                         return (
                           <Command.Item
                             key={fileName}

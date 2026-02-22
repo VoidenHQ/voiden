@@ -8,6 +8,8 @@
  * - Manage environment profiles
  */
 
+export { invalidateEnvQueries } from "./envQueryKeys";
+
 export { useEnvironments } from "./useEnvironments";
 export { useActiveEnvironment } from "./useActiveEnvironment";
 export { useSetActiveEnvironment } from "./useSetActiveEnvironment";

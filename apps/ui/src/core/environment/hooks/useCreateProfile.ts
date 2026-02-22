@@ -1,4 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { invalidateEnvQueries } from "./envQueryKeys";
 
 export const useCreateProfile = () => {
   const queryClient = useQueryClient();
@@ -7,7 +8,7 @@ export const useCreateProfile = () => {
       await window.electron?.env.createProfile(profile);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["env-profiles"] });
+      invalidateEnvQueries(queryClient);
     },
   });
 };

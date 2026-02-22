@@ -7,7 +7,7 @@ import { useProfiles } from "../hooks/useProfiles.ts";
 import { useCreateProfile } from "@/core/environment/hooks";
 import { useDeleteProfile } from "@/core/environment/hooks";
 import { EnvironmentNode, EditableEnvNode, ExpandSignal } from "./EnvironmentNode";
-import { type EditableEnvTree, mergeToEditable, splitFromEditable } from "./envTreeUtils";
+import { type EditableEnvTree, mergeToEditable, splitFromEditable, generateUniqueName, renameKey } from "./envTreeUtils";
 
 const DEBOUNCE_MS = 800;
 const PROFILE_NAME_REGEX = /^[a-z0-9][a-z0-9-]*$/;
@@ -235,11 +235,7 @@ export const EnvironmentEditor = () => {
   );
 
   const handleAddRoot = () => {
-    let envName = "new-environment";
-    let counter = 1;
-    while (tree[envName]) {
-      envName = `new-environment-${counter++}`;
-    }
+    const envName = generateUniqueName(tree);
     setNewRootName(envName);
     handleUpdateTree({
       ...tree,
@@ -258,12 +254,7 @@ export const EnvironmentEditor = () => {
 
   const handleRenameNode = (oldName: string, newName: string) => {
     if (oldName === newName || tree[newName]) return;
-    const entries = Object.entries(tree);
-    const newTree: EditableEnvTree = {};
-    for (const [key, val] of entries) {
-      newTree[key === oldName ? newName : key] = val;
-    }
-    handleUpdateTree(newTree);
+    handleUpdateTree(renameKey(tree, oldName, newName));
   };
 
   if (isLoading) {

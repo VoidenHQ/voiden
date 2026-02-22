@@ -4,7 +4,6 @@ import fs from "node:fs/promises";
 import { ipcMain, IpcMainInvokeEvent } from "electron";
 import { saveState } from "./persistState";
 import merge from "lodash/merge";
-import yaml from "js-yaml";
 import YAML from "yaml";
 
 /**
@@ -182,7 +181,7 @@ async function loadYamlEnvironment(projectPath: string, envPath: string): Promis
   const envFilePath = path.join(projectPath, envPath);
   try {
     const content = await fs.readFile(envFilePath, 'utf8');
-    return (yaml.load(content) as YamlEnvTree) || {};
+    return (YAML.parse(content) as YamlEnvTree) || {};
   } catch {
     return {};
   }
@@ -199,6 +198,28 @@ async function loadYamlEnvironments(projectPath: string, profile?: string | null
 
   // Merge and return
   return flattenYamlEnvironments(merge({}, await publicTree, await privateTree));
+}
+
+/**
+ * Load environment data for a project, resolving YAML environments or falling back to legacy .env files.
+ * Shared by env:load, replaceVariablesSecure, and env:getKeys.
+ */
+async function resolveEnvironmentData(
+  projectPath: string,
+  activeProfile: string | null | undefined,
+  activeEnvPath?: string | null
+): Promise<Record<string, Record<string, string>>> {
+  const yamlEnvs = await loadYamlEnvironments(projectPath, activeProfile);
+  if (Object.keys(yamlEnvs).length > 0) {
+    return yamlEnvs;
+  }
+  const envFiles = await loadProjectEnv(projectPath);
+  if (activeEnvPath && envFiles[activeEnvPath]) {
+    envFiles[activeEnvPath] = getEnvHierarchy(activeEnvPath).reduce((acc, envKey) => {
+      return envFiles[envKey] ? { ...acc, ...envFiles[envKey] } : acc;
+    }, {} as Record<string, string>);
+  }
+  return envFiles;
 }
 
 /**
@@ -227,23 +248,7 @@ ipcMain.handle("env:load", async (event:IpcMainInvokeEvent): Promise<EnvLoadResu
   const activeProfile = appState.directories[activeProject].activeProfile || null;
   if (!activeProject) return { activeEnv: null, activeProfile: null, data: {} };
 
-  const yamlEnvs = await loadYamlEnvironments(activeProject, activeProfile);
-  const hasYamlEnvs = Object.keys(yamlEnvs).length > 0;
-
-  // Legacy .env files are only used when no YAML environments exist
-  let envs: Record<string, Record<string, string>>;
-  if (hasYamlEnvs) {
-    envs = yamlEnvs;
-  } else {
-    const envFiles = await loadProjectEnv(activeProject);
-    envs = envFiles;
-
-    if (activeEnv && envFiles[activeEnv]) {
-      envs[activeEnv] = getEnvHierarchy(activeEnv).reduce((acc, envKey) => {
-        return envs[envKey] ? { ...acc, ...envs[envKey] } : acc;
-      }, {} as Record<string, string>);
-    }
-  }
+  const envs = await resolveEnvironmentData(activeProject, activeProfile, activeEnv);
 
   if (activeEnv && !envs[activeEnv]) {
     activeEnv = null;
@@ -279,22 +284,7 @@ export async function replaceVariablesSecure(text: string, projectPath: string):
     return text;
   }
 
-  const yamlEnvs = await loadYamlEnvironments(projectPath, activeProfile);
-  const hasYamlEnvs = Object.keys(yamlEnvs).length > 0;
-
-  let envData: Record<string, Record<string, string>>;
-  if (hasYamlEnvs) {
-    envData = yamlEnvs;
-  } else {
-    const envFiles = await loadProjectEnv(projectPath);
-    envData = envFiles;
-
-    if (activeEnvPath && envFiles[activeEnvPath]) {
-      envData[activeEnvPath] = getEnvHierarchy(activeEnvPath).reduce((acc, envKey) => {
-        return envData[envKey] ? { ...acc, ...envData[envKey] } : acc;
-      }, {} as Record<string, string>);
-    }
-  }
+  const envData = await resolveEnvironmentData(projectPath, activeProfile, activeEnvPath);
 
   if (!envData[activeEnvPath]) {
     return text;
@@ -359,28 +349,13 @@ ipcMain.handle("env:getKeys", async (event:IpcMainInvokeEvent) => {
     return [];
   }
 
-  const yamlEnvs = await loadYamlEnvironments(activeProject, activeProfile);
-  const hasYamlEnvs = Object.keys(yamlEnvs).length > 0;
-
-  let envData: Record<string, Record<string, string>>;
-  if (hasYamlEnvs) {
-    envData = yamlEnvs;
-  } else {
-    const envFiles = await loadProjectEnv(activeProject);
-    envData = envFiles;
-  }
+  const envData = await resolveEnvironmentData(activeProject, activeProfile, activeEnvPath);
 
   if (!envData[activeEnvPath]) {
     return [];
   }
 
-  if (!hasYamlEnvs && envData[activeEnvPath]) {
-    const keys = getEnvHierarchy(activeEnvPath)
-        .flatMap(envPath => envData[envPath] ? Object.keys(envData[envPath]) : []);
-    return Array.from(new Set(keys));
-  } else {
-    return Object.keys(envData[activeEnvPath]);
-  }
+  return Object.keys(envData[activeEnvPath]);
 });
 
 ipcMain.handle("env:getYamlTrees", async (event, params?: { profile?: string }) => {
@@ -426,9 +401,14 @@ ipcMain.handle("env:setActiveProfile", async (event, profile: string) => {
   await saveState(appState);
 });
 
+const PROFILE_NAME_REGEX = /^[a-z0-9][a-z0-9-]*$/;
+
 ipcMain.handle("env:createProfile", async (event, profile: string) => {
   const activeProject = await getActiveProject(event);
   if (!activeProject || !profile || profile === "default") return;
+  if (!PROFILE_NAME_REGEX.test(profile)) {
+    throw new Error(`Invalid profile name: "${profile}". Must match ${PROFILE_NAME_REGEX}`);
+  }
   const { publicFile, privateFile } = profileFileNames(profile);
   const publicPath = path.join(activeProject, publicFile);
   const privatePath = path.join(activeProject, privateFile);
@@ -440,6 +420,9 @@ ipcMain.handle("env:createProfile", async (event, profile: string) => {
 ipcMain.handle("env:deleteProfile", async (event, profile: string) => {
   const activeProject = await getActiveProject(event);
   if (!activeProject || !profile || profile === "default") return;
+  if (!PROFILE_NAME_REGEX.test(profile)) {
+    throw new Error(`Invalid profile name: "${profile}". Must match ${PROFILE_NAME_REGEX}`);
+  }
   const { publicFile, privateFile } = profileFileNames(profile);
   const publicPath = path.join(activeProject, publicFile);
   const privatePath = path.join(activeProject, privateFile);
@@ -455,27 +438,26 @@ ipcMain.handle("env:deleteProfile", async (event, profile: string) => {
 
 // Simple handler to extend all .env files
 ipcMain.handle('env:extend-env-files', async (event, { comment, variables }) => {
-  try {
-    // Use your existing function to find all .env files
-    const activeProject = await getActiveProject(event);
-    const envFiles = await findEnvFilesRecursively(activeProject);
+  const activeProject = await getActiveProject(event);
+  const envFiles = await findEnvFilesRecursively(activeProject);
 
-    const results = [];
-    // Process each .env file
-    for (const filePath of envFiles) {
-      try {
-        await extendEnvFile(filePath, comment, variables);
-        results.push({
-          file: path.relative(process.cwd(), filePath),
-          success: true
-        });
-      } catch (error) {
-        console.log(error)
-      }
+  const results = [];
+  for (const filePath of envFiles) {
+    try {
+      await extendEnvFile(filePath, comment, variables);
+      results.push({
+        file: path.relative(process.cwd(), filePath),
+        success: true
+      });
+    } catch (error) {
+      results.push({
+        file: path.relative(process.cwd(), filePath),
+        success: false,
+        error: String(error),
+      });
     }
-  } catch (error) {
-    console.log(error)
   }
+  return results;
 });
 
 // Function to extend a single .env file

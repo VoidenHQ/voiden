@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import { ChevronRight, ChevronDown, Plus, Trash2, FolderPlus } from "lucide-react";
 import { VariableRow } from "./VariableRow";
 import { handleTreeKeyDown } from "./envNavigation";
-import { genVarId } from "./envTreeUtils";
+import { genVarId, generateUniqueName, renameKey } from "./envTreeUtils";
 
 const FOCUS_ITEM_CLASS = "outline-none rounded -mx-1 px-1 focus:bg-active";
 
@@ -105,11 +105,7 @@ export const EnvironmentNode = ({
   };
 
   const handleAddChild = () => {
-    let childName = "new-environment";
-    let counter = 1;
-    while (node.children[childName]) {
-      childName = `new-environment-${counter++}`;
-    }
+    const childName = generateUniqueName(node.children);
     setNewChildName(childName);
     setExpanded(true);
     onUpdate({
@@ -135,12 +131,7 @@ export const EnvironmentNode = ({
 
   const handleRenameChild = (oldName: string, newName: string) => {
     if (oldName === newName || node.children[newName]) return;
-    const entries = Object.entries(node.children);
-    const newChildren: Record<string, EditableEnvNode> = {};
-    for (const [key, val] of entries) {
-      newChildren[key === oldName ? newName : key] = val;
-    }
-    onUpdate({ ...node, children: newChildren });
+    onUpdate({ ...node, children: renameKey(node.children, oldName, newName) });
   };
 
   const handleDelete = () => {

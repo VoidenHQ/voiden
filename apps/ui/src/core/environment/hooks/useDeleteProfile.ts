@@ -1,4 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { invalidateEnvQueries } from "./envQueryKeys";
 
 export const useDeleteProfile = () => {
   const queryClient = useQueryClient();
@@ -7,10 +8,7 @@ export const useDeleteProfile = () => {
       await window.electron?.env.deleteProfile(profile);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["env-profiles"] });
-      queryClient.invalidateQueries({ queryKey: ["environments"] });
-      queryClient.invalidateQueries({ queryKey: ["environment-keys"] });
-      queryClient.invalidateQueries({ queryKey: ["yaml-environments"] });
+      invalidateEnvQueries(queryClient);
     },
   });
 };
