@@ -5,6 +5,7 @@
  * - Load .env files from the project
  * - Get active environment variables for substitution
  * - Set active environment file
+ * - Manage environment profiles
  */
 
 export { useEnvironments } from "./useEnvironments";
@@ -13,6 +14,10 @@ export { useSetActiveEnvironment } from "./useSetActiveEnvironment";
 export { useEnvironmentKeys } from "./useEnvironmentKeys";
 export { useYamlEnvironments } from "./useYamlEnvironments.ts";
 export { useSaveYamlEnvironments } from "./useSaveYamlEnvironments.ts";
+export { useProfiles } from "./useProfiles";
+export { useSetActiveProfile } from "./useSetActiveProfile";
+export { useCreateProfile } from "./useCreateProfile";
+export { useDeleteProfile } from "./useDeleteProfile";
 
 export type { EnvironmentData } from "./useEnvironments";
 export type { YamlEnvNode, YamlEnvTree, YamlEnvTrees } from "./useYamlEnvironments.ts";

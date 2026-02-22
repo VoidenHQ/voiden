@@ -137,6 +137,44 @@ function flattenYamlEnvironments(
 }
 
 /**
+ * Return the public/private filenames for a given profile.
+ * Default profile (undefined/null/"default") uses env-public.yaml / env-private.yaml.
+ * Named profiles use env-{name}-public.yaml / env-{name}-private.yaml.
+ */
+function profileFileNames(profile?: string | null): { publicFile: string; privateFile: string } {
+  if (!profile || profile === "default") {
+    return { publicFile: "env-public.yaml", privateFile: "env-private.yaml" };
+  }
+  return {
+    publicFile: `env-${profile}-public.yaml`,
+    privateFile: `env-${profile}-private.yaml`,
+  };
+}
+
+/**
+ * Discover all environment profiles in a project directory.
+ * Scans for env-*-public.yaml / env-*-private.yaml files and extracts profile names.
+ * Always includes "default".
+ */
+async function discoverProfiles(projectPath: string): Promise<string[]> {
+  const profiles = new Set<string>(["default"]);
+  try {
+    const entries = await fs.readdir(projectPath, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isFile()) continue;
+      // Match env-{name}-public.yaml or env-{name}-private.yaml
+      const match = entry.name.match(/^env-([a-z0-9-]+)-(public|private)\.yaml$/);
+      if (match) {
+        profiles.add(match[1]);
+      }
+    }
+  } catch {
+    // Directory not readable, return just default
+  }
+  return Array.from(profiles);
+}
+
+/**
  * Load and parse a single YAML environment file.
  * @return empty object if the file doesn't exist or is invalid
  */
@@ -151,12 +189,13 @@ async function loadYamlEnvironment(projectPath: string, envPath: string): Promis
 }
 
 /**
- * Load and parse environment files (env-public.yaml and env-private.yaml).
+ * Load and parse environment files for a given profile.
  * Returns a merged tree structure, or null if no files exist.
  */
-async function loadYamlEnvironments(projectPath: string): Promise<Record<string, Record<string, string>>> {
-  const publicTree = loadYamlEnvironment(projectPath, 'env-public.yaml');
-  const privateTree = loadYamlEnvironment(projectPath, 'env-private.yaml');
+async function loadYamlEnvironments(projectPath: string, profile?: string | null): Promise<Record<string, Record<string, string>>> {
+  const { publicFile, privateFile } = profileFileNames(profile);
+  const publicTree = loadYamlEnvironment(projectPath, publicFile);
+  const privateTree = loadYamlEnvironment(projectPath, privateFile);
 
   // Merge and return
   return flattenYamlEnvironments(merge({}, await publicTree, await privateTree));
@@ -180,14 +219,15 @@ function getEnvHierarchy(activeEnvPath: string): string[] {
   return hierarchy.sort((a, b) => a.length - b.length);
 }
 
-ipcMain.handle("env:load", async (event:IpcMainInvokeEvent): Promise<EnvLoadResult> => {
+ipcMain.handle("env:load", async (event:IpcMainInvokeEvent): Promise<EnvLoadResult & { activeProfile: string | null }> => {
   const appState = getAppState(event);
   const activeProject = await getActiveProject(event);
-  if (!appState.directories[activeProject]) return { activeEnv: null, data: {} };
+  if (!appState.directories[activeProject]) return { activeEnv: null, activeProfile: null, data: {} };
   let activeEnv = appState.directories[activeProject].activeEnv;
-  if (!activeProject) return { activeEnv: null, data: {} };
+  const activeProfile = appState.directories[activeProject].activeProfile || null;
+  if (!activeProject) return { activeEnv: null, activeProfile: null, data: {} };
 
-  const yamlEnvs = loadYamlEnvironments(activeProject);
+  const yamlEnvs = loadYamlEnvironments(activeProject, activeProfile);
   const envFiles = await loadProjectEnv(activeProject);
   const envs = { ... envFiles, ... await yamlEnvs };
 
@@ -203,6 +243,7 @@ ipcMain.handle("env:load", async (event:IpcMainInvokeEvent): Promise<EnvLoadResu
 
   return {
     activeEnv,
+    activeProfile,
     data: envs,
   };
 });
@@ -224,12 +265,13 @@ export async function replaceVariablesSecure(text: string, projectPath: string):
 
   const appState = getAppState();
   const activeEnvPath = appState.directories[projectPath]?.activeEnv;
+  const activeProfile = appState.directories[projectPath]?.activeProfile || null;
 
   if (!activeEnvPath) {
     return text;
   }
 
-  const yamlEnvs = loadYamlEnvironments(projectPath);
+  const yamlEnvs = loadYamlEnvironments(projectPath, activeProfile);
   const envFiles = await loadProjectEnv(projectPath);
   const envData = { ... envFiles, ... await yamlEnvs };
 
@@ -296,12 +338,13 @@ ipcMain.handle("env:getKeys", async (event:IpcMainInvokeEvent) => {
   }
 
   const activeEnvPath = appState.directories[activeProject]?.activeEnv;
+  const activeProfile = appState.directories[activeProject]?.activeProfile || null;
 
   if (!activeEnvPath) {
     return [];
   }
 
-  const yamlEnvs = loadYamlEnvironments(activeProject);
+  const yamlEnvs = loadYamlEnvironments(activeProject, activeProfile);
   const envFiles = await loadProjectEnv(activeProject);
   const envData = { ... envFiles, ... await yamlEnvs };
 
@@ -318,19 +361,21 @@ ipcMain.handle("env:getKeys", async (event:IpcMainInvokeEvent) => {
   }
 });
 
-ipcMain.handle("env:getYamlTrees", async (event) => {
+ipcMain.handle("env:getYamlTrees", async (event, params?: { profile?: string }) => {
   const activeProject = await getActiveProject(event);
   if (!activeProject) return { public: {}, private: {} };
-  const publicTree = await loadYamlEnvironment(activeProject, 'env-public.yaml');
-  const privateTree = await loadYamlEnvironment(activeProject, 'env-private.yaml');
+  const { publicFile, privateFile } = profileFileNames(params?.profile);
+  const publicTree = await loadYamlEnvironment(activeProject, publicFile);
+  const privateTree = await loadYamlEnvironment(activeProject, privateFile);
   return { public: publicTree, private: privateTree };
 });
 
-ipcMain.handle("env:saveYamlTrees", async (event, { publicTree, privateTree }: { publicTree: YamlEnvTree; privateTree: YamlEnvTree }) => {
+ipcMain.handle("env:saveYamlTrees", async (event, { publicTree, privateTree, profile }: { publicTree: YamlEnvTree; privateTree: YamlEnvTree; profile?: string }) => {
   const activeProject = await getActiveProject(event);
   if (!activeProject) return;
-  const publicPath = path.join(activeProject, 'env-public.yaml');
-  const privatePath = path.join(activeProject, 'env-private.yaml');
+  const { publicFile, privateFile } = profileFileNames(profile);
+  const publicPath = path.join(activeProject, publicFile);
+  const privatePath = path.join(activeProject, privateFile);
   const yamlSettings: YAML.ToStringOptions = {
     lineWidth: 0, // Don't wrap lines
     defaultStringType: 'QUOTE_DOUBLE',
@@ -342,6 +387,47 @@ ipcMain.handle("env:saveYamlTrees", async (event, { publicTree, privateTree }: {
   } catch (err) {
     console.error('Failed to save environment YAML files:', err);
     throw err;
+  }
+});
+
+ipcMain.handle("env:getProfiles", async (event) => {
+  const activeProject = await getActiveProject(event);
+  if (!activeProject) return ["default"];
+  return discoverProfiles(activeProject);
+});
+
+ipcMain.handle("env:setActiveProfile", async (event, profile: string) => {
+  const appState = getAppState(event);
+  const activeProject = await getActiveProject(event);
+  if (!activeProject || !appState.directories[activeProject]) return;
+  appState.directories[activeProject].activeProfile = profile === "default" ? undefined : profile;
+  await saveState(appState);
+});
+
+ipcMain.handle("env:createProfile", async (event, profile: string) => {
+  const activeProject = await getActiveProject(event);
+  if (!activeProject || !profile || profile === "default") return;
+  const { publicFile, privateFile } = profileFileNames(profile);
+  const publicPath = path.join(activeProject, publicFile);
+  const privatePath = path.join(activeProject, privateFile);
+  // Create empty YAML files if they don't exist
+  try { await fs.access(publicPath); } catch { await fs.writeFile(publicPath, "", "utf8"); }
+  try { await fs.access(privatePath); } catch { await fs.writeFile(privatePath, "", "utf8"); }
+});
+
+ipcMain.handle("env:deleteProfile", async (event, profile: string) => {
+  const activeProject = await getActiveProject(event);
+  if (!activeProject || !profile || profile === "default") return;
+  const { publicFile, privateFile } = profileFileNames(profile);
+  const publicPath = path.join(activeProject, publicFile);
+  const privatePath = path.join(activeProject, privateFile);
+  try { await fs.unlink(publicPath); } catch { /* file may not exist */ }
+  try { await fs.unlink(privatePath); } catch { /* file may not exist */ }
+  // If deleted profile was active, reset to default
+  const appState = getAppState(event);
+  if (appState.directories[activeProject]?.activeProfile === profile) {
+    appState.directories[activeProject].activeProfile = undefined;
+    await saveState(appState);
   }
 });
 

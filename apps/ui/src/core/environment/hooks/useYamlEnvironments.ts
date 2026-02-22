@@ -12,15 +12,15 @@ export interface YamlEnvTrees {
   private: YamlEnvTree;
 }
 
-const loadYamlTrees = async (): Promise<YamlEnvTrees> => {
-  const result = await window.electron?.env.getYamlTrees();
+const loadYamlTrees = async (profile?: string): Promise<YamlEnvTrees> => {
+  const result = await window.electron?.env.getYamlTrees(profile);
   return result || { public: {}, private: {} };
 };
 
-export const useYamlEnvironments = () => {
+export const useYamlEnvironments = (profile?: string) => {
   return useQuery({
-    queryKey: ["yaml-environments"],
-    queryFn: loadYamlTrees,
+    queryKey: ["yaml-environments", profile],
+    queryFn: () => loadYamlTrees(profile),
     staleTime: Infinity,
   });
 };

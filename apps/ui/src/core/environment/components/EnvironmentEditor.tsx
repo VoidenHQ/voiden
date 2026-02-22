@@ -1,12 +1,153 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Plus, Settings2, ChevronsDownUp, ChevronsUpDown } from "lucide-react";
+import { Plus, Settings2, ChevronsDownUp, ChevronsUpDown, ChevronDown, Trash2, Check } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useYamlEnvironments } from "../hooks/useYamlEnvironments.ts";
-import { useSaveYamlEnvironments } from "../hooks/useSaveYamlEnvironments.ts";
+import { useYamlEnvironments } from "@/core/environment/hooks";
+import { useSaveYamlEnvironments } from "@/core/environment/hooks";
+import { useProfiles } from "../hooks/useProfiles.ts";
+import { useCreateProfile } from "@/core/environment/hooks";
+import { useDeleteProfile } from "@/core/environment/hooks";
 import { EnvironmentNode, EditableEnvNode, ExpandSignal } from "./EnvironmentNode";
 import { type EditableEnvTree, mergeToEditable, splitFromEditable } from "./envTreeUtils";
 
 const DEBOUNCE_MS = 800;
+const PROFILE_NAME_REGEX = /^[a-z0-9][a-z0-9-]*$/;
+
+const ProfileSelector = ({
+  selectedProfile,
+  onSelectProfile,
+}: {
+  selectedProfile: string;
+  onSelectProfile: (profile: string) => void;
+}) => {
+  const { data: profiles } = useProfiles();
+  const { mutate: createProfile } = useCreateProfile();
+  const { mutate: deleteProfile } = useDeleteProfile();
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [nameError, setNameError] = useState<string | null>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (creating && inputRef.current) inputRef.current.focus();
+  }, [creating]);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setDropdownOpen(false);
+        setCreating(false);
+        setNewName("");
+        setNameError(null);
+      }
+    };
+    if (dropdownOpen) document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [dropdownOpen]);
+
+  const handleCreate = () => {
+    const trimmed = newName.trim();
+    if (!trimmed) return;
+    if (!PROFILE_NAME_REGEX.test(trimmed)) {
+      setNameError("Lowercase letters, numbers, and hyphens only");
+      return;
+    }
+    if (trimmed === "default" || profiles?.includes(trimmed)) {
+      setNameError("Profile already exists");
+      return;
+    }
+    createProfile(trimmed);
+    onSelectProfile(trimmed);
+    setCreating(false);
+    setNewName("");
+    setNameError(null);
+    setDropdownOpen(false);
+  };
+
+  const handleDelete = (profile: string) => {
+    deleteProfile(profile);
+    if (selectedProfile === profile) onSelectProfile("default");
+    setDropdownOpen(false);
+  };
+
+  const displayName = selectedProfile === "default" ? "default" : selectedProfile;
+
+  return (
+    <div className="relative" ref={dropdownRef}>
+      <button
+        onClick={() => setDropdownOpen(!dropdownOpen)}
+        className="flex items-center gap-1 text-sm px-2 py-1 rounded hover:bg-active transition-colors text-comment hover:text-text"
+      >
+        <span>{displayName}</span>
+        <ChevronDown size={12} />
+      </button>
+
+      {dropdownOpen && (
+        <div className="absolute right-0 top-full mt-1 w-56 bg-panel border border-border rounded-lg shadow-lg z-50 overflow-hidden">
+          {/* Profile list */}
+          <div className="max-h-48 overflow-y-auto py-1">
+            {profiles?.map((profile) => (
+              <div
+                key={profile}
+                className="flex items-center px-3 py-1.5 text-sm hover:bg-active cursor-pointer group"
+                onClick={() => {
+                  onSelectProfile(profile);
+                  setDropdownOpen(false);
+                }}
+              >
+                <span className="flex-1 truncate">{profile}</span>
+                {profile === selectedProfile && (
+                  <Check size={14} className="flex-shrink-0 mr-1" style={{ color: 'var(--icon-success)' }} />
+                )}
+                {profile !== "default" && (
+                  <button
+                    className="p-0.5 rounded hover:bg-border opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+                    title={`Delete ${profile}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDelete(profile);
+                    }}
+                  >
+                    <Trash2 size={12} className="text-comment" />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* Create new */}
+          <div className="border-t border-border px-3 py-2">
+            {creating ? (
+              <div>
+                <input
+                  ref={inputRef}
+                  value={newName}
+                  onChange={(e) => { setNewName(e.target.value); setNameError(null); }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleCreate();
+                    if (e.key === "Escape") { setCreating(false); setNewName(""); setNameError(null); }
+                  }}
+                  placeholder="profile-name"
+                  className="w-full text-sm px-2 py-1 bg-editor border border-border rounded outline-none text-text placeholder:text-comment"
+                />
+                {nameError && <p className="text-xs mt-1" style={{ color: 'var(--icon-danger)' }}>{nameError}</p>}
+              </div>
+            ) : (
+              <button
+                onClick={() => setCreating(true)}
+                className="flex items-center gap-1.5 text-sm text-comment hover:text-text transition-colors w-full"
+              >
+                <Plus size={14} />
+                New profile
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
 
 const AddEnvironmentButton = ({ onClick }: { onClick: () => void }) => (
   <button
@@ -21,8 +162,10 @@ const AddEnvironmentButton = ({ onClick }: { onClick: () => void }) => (
 
 export const EnvironmentEditor = () => {
   const queryClient = useQueryClient();
-  const { data, isLoading } = useYamlEnvironments();
-  const { mutate: save } = useSaveYamlEnvironments();
+  const [selectedProfile, setSelectedProfile] = useState<string>("default");
+  const profileParam = selectedProfile === "default" ? undefined : selectedProfile;
+  const { data, isLoading } = useYamlEnvironments(profileParam);
+  const { mutate: save } = useSaveYamlEnvironments(profileParam);
   const [tree, setTree] = useState<EditableEnvTree>({});
   const [newRootName, setNewRootName] = useState<string | null>(null);
   const [expandSignal, setExpandSignal] = useState<ExpandSignal | null>(null);
@@ -35,6 +178,11 @@ export const EnvironmentEditor = () => {
   useEffect(() => {
     queryClient.invalidateQueries({ queryKey: ["yaml-environments"] });
   }, [queryClient]);
+
+  // Reset dirty flag when switching profiles so data reloads
+  useEffect(() => {
+    dirtyRef.current = false;
+  }, [selectedProfile]);
 
   // Initialize from fetched data
   useEffect(() => {
@@ -136,6 +284,7 @@ export const EnvironmentEditor = () => {
           <h2 className="text-sm font-semibold">Environments</h2>
         </div>
         <div className="flex items-center gap-2">
+          <ProfileSelector selectedProfile={selectedProfile} onSelectProfile={setSelectedProfile} />
           {!isEmpty && (
             <>
               <button
