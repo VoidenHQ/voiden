@@ -227,18 +227,26 @@ ipcMain.handle("env:load", async (event:IpcMainInvokeEvent): Promise<EnvLoadResu
   const activeProfile = appState.directories[activeProject].activeProfile || null;
   if (!activeProject) return { activeEnv: null, activeProfile: null, data: {} };
 
-  const yamlEnvs = loadYamlEnvironments(activeProject, activeProfile);
-  const envFiles = await loadProjectEnv(activeProject);
-  const envs = { ... envFiles, ... await yamlEnvs };
+  const yamlEnvs = await loadYamlEnvironments(activeProject, activeProfile);
+  const hasYamlEnvs = Object.keys(yamlEnvs).length > 0;
+
+  // Legacy .env files are only used when no YAML environments exist
+  let envs: Record<string, Record<string, string>>;
+  if (hasYamlEnvs) {
+    envs = yamlEnvs;
+  } else {
+    const envFiles = await loadProjectEnv(activeProject);
+    envs = envFiles;
+
+    if (activeEnv && envFiles[activeEnv]) {
+      envs[activeEnv] = getEnvHierarchy(activeEnv).reduce((acc, envKey) => {
+        return envs[envKey] ? { ...acc, ...envs[envKey] } : acc;
+      }, {} as Record<string, string>);
+    }
+  }
 
   if (activeEnv && !envs[activeEnv]) {
     activeEnv = null;
-  }
-
-  if (activeEnv && envFiles[activeEnv]) {
-    envs[activeEnv] = getEnvHierarchy(activeEnv).reduce((acc, envKey) => {
-      return envs[envKey] ? { ...acc, ...envs[envKey] } : acc;
-    }, {} as Record<string, string>);
   }
 
   return {
@@ -271,21 +279,28 @@ export async function replaceVariablesSecure(text: string, projectPath: string):
     return text;
   }
 
-  const yamlEnvs = loadYamlEnvironments(projectPath, activeProfile);
-  const envFiles = await loadProjectEnv(projectPath);
-  const envData = { ... envFiles, ... await yamlEnvs };
+  const yamlEnvs = await loadYamlEnvironments(projectPath, activeProfile);
+  const hasYamlEnvs = Object.keys(yamlEnvs).length > 0;
+
+  let envData: Record<string, Record<string, string>>;
+  if (hasYamlEnvs) {
+    envData = yamlEnvs;
+  } else {
+    const envFiles = await loadProjectEnv(projectPath);
+    envData = envFiles;
+
+    if (activeEnvPath && envFiles[activeEnvPath]) {
+      envData[activeEnvPath] = getEnvHierarchy(activeEnvPath).reduce((acc, envKey) => {
+        return envData[envKey] ? { ...acc, ...envData[envKey] } : acc;
+      }, {} as Record<string, string>);
+    }
+  }
 
   if (!envData[activeEnvPath]) {
     return text;
   }
 
-  let env = envData[activeEnvPath];
-
-  if (activeEnvPath && envFiles[activeEnvPath]) {
-    env = getEnvHierarchy(activeEnvPath).reduce((acc, envKey) => {
-      return envData[envKey] ? { ...acc, ...envData[envKey] } : acc;
-    }, {} as Record<string, string>);
-  }
+  const env = envData[activeEnvPath];
 
   // Replace {{VAR_NAME}} patterns
   const result = text.replace(/\{\{([^}]+)\}\}/g, (match, varName) => {
@@ -344,15 +359,22 @@ ipcMain.handle("env:getKeys", async (event:IpcMainInvokeEvent) => {
     return [];
   }
 
-  const yamlEnvs = loadYamlEnvironments(activeProject, activeProfile);
-  const envFiles = await loadProjectEnv(activeProject);
-  const envData = { ... envFiles, ... await yamlEnvs };
+  const yamlEnvs = await loadYamlEnvironments(activeProject, activeProfile);
+  const hasYamlEnvs = Object.keys(yamlEnvs).length > 0;
+
+  let envData: Record<string, Record<string, string>>;
+  if (hasYamlEnvs) {
+    envData = yamlEnvs;
+  } else {
+    const envFiles = await loadProjectEnv(activeProject);
+    envData = envFiles;
+  }
 
   if (!envData[activeEnvPath]) {
     return [];
   }
 
-  if (envFiles[activeEnvPath]) {
+  if (!hasYamlEnvs && envData[activeEnvPath]) {
     const keys = getEnvHierarchy(activeEnvPath)
         .flatMap(envPath => envData[envPath] ? Object.keys(envData[envPath]) : []);
     return Array.from(new Set(keys));
