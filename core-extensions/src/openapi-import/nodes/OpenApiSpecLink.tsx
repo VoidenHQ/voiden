@@ -66,10 +66,11 @@ export const createOpenApiSpecLink = (context: ExtendedPluginContextExplicit) =>
                 // Resolve full path
                 let fullPath = filePath;
                 if (!isExternal && activeProject && !filePath.startsWith(activeProject)) {
-                    fullPath = `${activeProject}${filePath}`;
+                    const separator = filePath.startsWith('/') ? '' : '/';
+                    fullPath = `${activeProject}${separator}${filePath}`;
                 }
 
-                await context.project.openFile(filePath, true);
+                await context.project.openFile(fullPath, true);
 
             } catch (error) {
                 console.error("Failed to open file:", error);

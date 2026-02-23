@@ -316,10 +316,21 @@ export const OpenAPIImportPanel: React.FC<Props> = ({ context }) => {
     else refreshFromEditor();
     const fetchActiveTab = async ()=>{
       try {
-      const tab = await context.tab?.getActiveTab() as DocumentTab;
-        setActiveSource(tab.source);
-    } catch {
-    }
+        const tab = await context.tab?.getActiveTab() as DocumentTab;
+        const project = await context.project?.getActiveProject();
+
+        let relativePath = tab.source;
+        if (project && tab.source.startsWith(project)) {
+          relativePath = tab.source.slice(project.length);
+          if (relativePath.startsWith('/')) {
+            relativePath = relativePath.slice(1);
+          }
+        }
+
+        setActiveSource(relativePath);
+      } catch {
+
+      }
     }
     fetchActiveTab();
   }, []);
