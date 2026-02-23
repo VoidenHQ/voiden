@@ -640,9 +640,9 @@ function TreeNode({ node, style, dragHandle, activeFile, removeTemporaryNode }: 
       ref={dragHandle}
       className={cn(
         "group h-6 transition-colors",
-        !isDragOver && 'hover:bg-hover',
-        (activeFile?.source === node.data.path || node.isSelected) && !isDragOver && "bg-active",
-        node.isFocused && !isDragOver && "bg-active ring-0",
+        !isDragOver && activeFile?.source !== node.data.path && 'hover:bg-hover',
+        activeFile?.source === node.data.path && !isDragOver && "bg-active",
+        node.isFocused && !isDragOver && "ring-0",
         (isDragOver || isInternalDropTargetFolder) && 'bg-accent/30 border-l-2 border-accent',
         // Highlight all siblings when any sibling is being dragged over
         isSiblingHighlight && !isDragOver && !isInternalDropTargetFolder && "bg-accent/30 border-l-2 border-accent"
@@ -880,6 +880,13 @@ export const FileSystemList = () => {
       setTreeData([data as ExtendedFileTree]);
     }
   }, [data]);
+
+  // Scroll to active file in the tree (also opens parent folders)
+  useEffect(() => {
+    if (activeFile?.source && treeRef.current) {
+      treeRef.current.scrollTo(activeFile.source, "center");
+    }
+  }, [activeFile?.source]);
 
   // Provide an initial open state for the root folder.
   const getInitialOpenState = (root: ExtendedFileTree) => {
