@@ -1,3 +1,5 @@
+import { parseCookies } from '@voiden/core-extensions/shared/utils/cookieParser';
+
 interface RuntimeVariable {
     key: string;
     value: string;
@@ -127,6 +129,17 @@ function getValueByPath(obj: any, path: string): any {
         }
         // Check if current is an array of key-value pairs
         if (Array.isArray(current) && current.length > 0) {
+            if ('key' in current[0] && 'value' in current[0] && key.toLowerCase() === 'set-cookie') {
+                const cookies = parseCookies(current);
+
+                if (i === keys.length - 1) {
+                    return cookies;
+                }
+
+                current = cookies;
+                continue;
+            }
+
             let value = ""
             if( 'key' in current[0] && 'value' in current[0]){
                 value = findInKeyValueInKeyValue(current);

@@ -3,6 +3,8 @@
  * Executes assertions against HTTP responses
  */
 
+import { parseCookies } from '../../shared/utils/cookieParser';
+
 export interface Assertion {
   description: string;
   field: string;
@@ -52,7 +54,20 @@ export function extractFieldValue(field: string, context: AssertionContext): any
 
   // Handle header access: header.Content-Type or headers.Content-Type
   if (normalizedField.startsWith('header.') || normalizedField.startsWith('headers.')) {
-    const headerName = normalizedField.split('.')[1];
+    const parts = normalizedField.split('.');
+    const headerName = parts[1];
+
+    if (headerName.toLowerCase() === 'set-cookie') {
+      const cookies = parseCookies(context.response.headers);
+
+      if (parts.length === 2) {
+        return cookies;
+      }
+
+      const remainingPath = parts.slice(2).join('.');
+      return extractFromObject(cookies, remainingPath);
+    }
+
     const header = context.response.headers.find(
       (h) => h.key.toLowerCase() === headerName.toLowerCase()
     );
