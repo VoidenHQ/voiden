@@ -35,11 +35,6 @@
       "types": "./dist/simple-assertions/help/index.d.ts",
       "import": "./dist/simple-assertions/help/index.js",
       "default": "./dist/simple-assertions/help/index.js"
-    },
-    "./shared/utils/cookieParser": {
-      "types": "./dist/shared/utils/cookieParser.d.ts",
-      "import": "./dist/shared/utils/cookieParser.js",
-      "default": "./dist/shared/utils/cookieParser.js"
     }
   },
   "scripts": {
@@ -52,7 +47,7 @@
   },
   "dependencies": {
     "@faker-js/faker": "^9.0.3",
-    "@voiden/sdk": "^1.0.0",
+    "@voiden/sdk": "^1.0.4",
     "js-yaml": "^4.1.0",
     "lodash": "^4.17.21",
     "shell-quote": "^1.8.1"

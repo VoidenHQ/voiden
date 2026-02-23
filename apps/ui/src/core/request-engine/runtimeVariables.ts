@@ -1,4 +1,4 @@
-import { parseCookies } from '@voiden/core-extensions/shared/utils/cookieParser';
+import { parseCookies } from "@voiden/sdk/shared";
 
 interface RuntimeVariable {
     key: string;

@@ -3,7 +3,7 @@
  * Executes assertions against HTTP responses
  */
 
-import { parseCookies } from '../../shared/utils/cookieParser';
+import { parseCookies } from '@voiden/sdk/shared';
 
 export interface Assertion {
   description: string;
