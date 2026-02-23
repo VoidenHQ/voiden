@@ -35,6 +35,11 @@
       "types": "./dist/simple-assertions/help/index.d.ts",
       "import": "./dist/simple-assertions/help/index.js",
       "default": "./dist/simple-assertions/help/index.js"
+    },
+    "./shared/utils/cookieParser": {
+      "types": "./dist/shared/utils/cookieParser.d.ts",
+      "import": "./dist/shared/utils/cookieParser.js",
+      "default": "./dist/shared/utils/cookieParser.js"
     }
   },
   "scripts": {
