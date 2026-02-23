@@ -58,7 +58,7 @@ Open a general issue or leave a note.
 
 We host weekly Voiden Office Hours on Discord. It’s meant to be a casual space to hang out and discuss about new  ideas, features, roadmap updates, and answer contributor and user questions.
 
-If you are using Voiden or thinking about contributing, come join the conversation: https://discord.gg/kxnmsUDe?event=1473246419006656617
+If you are using Voiden or thinking about contributing, come join the conversation: [https://discord.gg/kxnmsUDe?event=1473246419006656617](https://discord.gg/dsJjScpN3u?event=1473246419006656617)
 
 ---
 
