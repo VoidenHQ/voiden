@@ -1,5 +1,30 @@
 # Changelog
 
+## v1.2.0-beta.1 — 24/02/2026
+
+Beta release introducing pre/post request scripting, YAML environment configuration, improved file explorer navigation, drag-and-drop file management, YAML content-type support, and response preview improvements.
+
+### Added
+- Pre & Post Script support on Request blocks for setup and teardown logic
+- YAML-based environment configuration support for easier management of complex environment variables
+- Keyboard navigation in the sidebar file explorer
+- Expand All and Collapse All buttons in the file explorer for convenience
+- Drag and drop files into folders directly inside Voiden
+- Drag and drop folders from the file explorer into Voiden
+- Content-Type `application/yaml` support for request and response handling
+- Faker.js parameter support and usage guidance for dynamic test data generation
+- Response preview toggle on the response body sidebar
+
+### Fixed
+- Selected file indicator sometimes showing multiple files highlighted simultaneously in the navigation pane
+- "Close Project" option incorrectly appearing on subfolders — it now only appears on root project folders
+- Postman collection import crashing with "Cannot read property of undefined" when variables are absent
+- Command Palette reliability issues
+- Fixed cURL copy to use current in-memory content instead of requiring a saved file, enabling quick sharing and debugging of unsaved requests
+- Fixed settings panel unexpectedly scrolling to top when a setting is changed
+
+---
+
 ## v1.1.22 — 24/02/2026
 
 Patch release adding timeout configuration and streamlining the startup process to prevent race conditions.
@@ -10,7 +35,7 @@ Patch release adding timeout configuration and streamlining the startup process 
 
 ---
 
-## v1.1.2 — 23/02/2026
+## v1.1.21 — 23/02/2026
 
 Stable patch release focusing on cookie handling, environment variable merging, import accuracy, and developer workflow improvements.
 
