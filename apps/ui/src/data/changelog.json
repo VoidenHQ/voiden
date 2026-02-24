@@ -1,5 +1,41 @@
 [
   {
+    "version": "v1.1.22",
+    "date": "24/02/2026",
+    "title": "Timeout Settings & Startup Reliability",
+    "description": "Patch release adding timeout configuration and streamlining the startup process to prevent race conditions.",
+    "icon": "Zap",
+    "iconColor": "text-yellow-500",
+    "bgColor": "bg-gradient-to-br from-yellow-900 to-amber-900",
+    "changes": {
+      "Added": [
+        "Timeout setting for requests",
+        "Streamlined startup process to prevent race conditions"
+      ]
+    }
+  },
+  {
+    "version": "v1.1.2",
+    "date": "23/02/2026",
+    "title": "Stability & Import Improvements",
+    "description": "Stable patch release focusing on cookie handling, environment variable merging, import accuracy, and developer workflow improvements.",
+    "icon": "Wrench",
+    "iconColor": "text-blue-500",
+    "bgColor": "bg-gradient-to-br from-blue-900 to-cyan-900",
+    "changes": {
+      "Improved": [
+        "Improved cookie support and handling across requests",
+        "Automatically quote URLs by default when importing collections",
+        "Environment hierarchy merging — base, production, and nested environments now merge correctly, with proper override order consistently enforced across complex setups",
+        "Support for importing the Runtime Variables block, making it easier to reuse runtime configurations across projects",
+        "Copy any request as a cURL command for easier debugging, sharing, and reproducing requests outside the client"
+      ],
+      "Fixed": [
+        "Fixed OpenAPI imports incorrectly referencing absolute file paths instead of relative paths, eliminating portability issues across machines and environments"
+      ]
+    }
+  },
+  {
     "version": "v1.1.1",
     "date": "06/02/2026",
     "title": "Bug Fixes & Update Flow Improvements",

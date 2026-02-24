@@ -1,5 +1,31 @@
 # Changelog
 
+## v1.1.22 — 24/02/2026
+
+Patch release adding timeout configuration and streamlining the startup process to prevent race conditions.
+
+### Added
+- Timeout setting for requests
+- Streamlined startup process to prevent race conditions
+
+---
+
+## v1.1.2 — 23/02/2026
+
+Stable patch release focusing on cookie handling, environment variable merging, import accuracy, and developer workflow improvements.
+
+### Improved
+- Improved cookie support and handling across requests
+- Automatically quote URLs by default when importing collections
+- Environment hierarchy merging — base, production, and nested environments now merge correctly, with proper override order consistently enforced across complex setups
+- Support for importing the Runtime Variables block, making it easier to reuse runtime configurations across projects
+- Copy any request as a cURL command for easier debugging, sharing, and reproducing requests outside the client
+
+### Fixed
+- Fixed OpenAPI imports incorrectly referencing absolute file paths instead of relative paths, eliminating portability issues across machines and environments
+
+---
+
 ## v1.1.1 — 06/02/2026
 
 Bug fix release addressing multi-window state management, CLI improvements for Windows and Linux, and update flow enhancements.
