@@ -15,6 +15,7 @@
 import { ipcMain } from "electron";
 import { spawn, execFile } from "child_process";
 import fs from "node:fs/promises";
+import { constants as fsConstants } from "node:fs";
 import path from "node:path";
 import { getActiveProject } from "../state";
 
@@ -23,29 +24,74 @@ const NODE_TIMEOUT_MS = 10_000;
 let cachedNodePath: string | null = null;
 
 /**
+ * Common Node.js install paths that may not be in Electron's default PATH.
+ */
+const COMMON_NODE_PATHS = process.platform === "win32"
+  ? [
+      "C:\\Program Files\\nodejs\\node.exe",
+      "C:\\Program Files (x86)\\nodejs\\node.exe",
+    ]
+  : [
+      "/usr/local/bin/node",
+      "/opt/homebrew/bin/node",
+      "/usr/bin/node",
+      path.join(process.env.HOME || "~", ".nvm/current/bin/node"),
+      path.join(process.env.HOME || "~", ".volta/bin/node"),
+      path.join(process.env.HOME || "~", ".fnm/current/bin/node"),
+      path.join(process.env.HOME || "~", ".local/bin/node"),
+    ];
+
+/**
+ * Extended PATH for shell lookups — Electron GUI apps on macOS often
+ * launch with a minimal PATH that excludes Homebrew / nvm / volta dirs.
+ */
+const EXTENDED_PATH = [
+  process.env.PATH || "",
+  "/usr/local/bin",
+  "/opt/homebrew/bin",
+  "/usr/bin",
+  path.join(process.env.HOME || "~", ".nvm/current/bin"),
+  path.join(process.env.HOME || "~", ".volta/bin"),
+  path.join(process.env.HOME || "~", ".fnm/current/bin"),
+].join(path.delimiter);
+
+/**
  * Detect available Node.js binary.
  */
 async function detectNodePath(): Promise<string | null> {
   if (cachedNodePath) return cachedNodePath;
 
+  // 1. Try `which`/`where` with an extended PATH
   const whichCmd = process.platform === "win32" ? "where" : "which";
-  const candidates = ["node"];
-
-  for (const candidate of candidates) {
-    try {
-      const result = await new Promise<string | null>((resolve) => {
-        execFile(whichCmd, [candidate], { timeout: 3000 }, (error, stdout) => {
+  try {
+    const result = await new Promise<string | null>((resolve) => {
+      execFile(
+        whichCmd,
+        ["node"],
+        { timeout: 3000, env: { ...process.env, PATH: EXTENDED_PATH } },
+        (error, stdout) => {
           if (error || !stdout.trim()) {
             resolve(null);
           } else {
             resolve(stdout.trim().split(/\r?\n/)[0]);
           }
-        });
-      });
-      if (result) {
-        cachedNodePath = result;
-        return result;
-      }
+        },
+      );
+    });
+    if (result) {
+      cachedNodePath = result;
+      return result;
+    }
+  } catch {
+    // Fall through to direct path checks
+  }
+
+  // 2. Check common install paths directly
+  for (const candidate of COMMON_NODE_PATHS) {
+    try {
+      await fs.access(candidate, fsConstants.X_OK);
+      cachedNodePath = candidate;
+      return candidate;
     } catch {
       continue;
     }
@@ -142,6 +188,7 @@ export function registerNodeScriptIpcHandler() {
           timeout: NODE_TIMEOUT_MS,
           stdio: ["pipe", "pipe", "pipe"],
           cwd: projectPath || undefined,
+          env: { ...process.env, PATH: EXTENDED_PATH },
         });
 
         let stdout = "";
