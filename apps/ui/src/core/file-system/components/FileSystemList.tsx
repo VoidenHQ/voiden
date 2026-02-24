@@ -388,7 +388,7 @@ function TreeNode({ node, style, dragHandle, activeFile, removeTemporaryNode }: 
     renameMutation.mutate(newName);
   };
 
-  // Handle file drop from external sources (Finder, File Explorer, etc.)
+  // Handle file/folder drop from external sources (Finder, File Explorer, etc.)
   const handleDrop = async (e: React.DragEvent) => {
     setIsDragOver(false);
     setDragOverParentId(null);
@@ -404,30 +404,58 @@ function TreeNode({ node, style, dragHandle, activeFile, removeTemporaryNode }: 
     e.preventDefault();
     e.stopPropagation();
 
-    const files = Array.from(e.dataTransfer.files);
+    // Determine target folder: if dropped on a file, use its parent folder
+    let targetFolder = node;
+    let targetPath = node.data.path;
 
-    if (files.length > 0) {
-      // Determine target folder: if dropped on a file, use its parent folder
-      let targetFolder = node;
-      let targetPath = node.data.path;
+    if (node.data.type === "file") {
+      if (node.parent) {
+        targetFolder = node.parent;
+        targetPath = node.parent.data.path;
+      }
+    }
 
-      if (node.data.type === "file") {
-        // VS Code behavior: drop on file uploads to parent folder
-        if (node.parent) {
-          targetFolder = node.parent;
-          targetPath = node.parent.data.path;
+    // Separate files and folders using the DataTransfer items API
+    const regularFiles: File[] = [];
+    const folderPaths: string[] = [];
+
+    for (const item of Array.from(e.dataTransfer.items)) {
+      const entry = item.webkitGetAsEntry?.();
+      if (entry?.isDirectory) {
+        // In Electron, getAsFile() on a directory item returns a File with a .path property
+        const file = item.getAsFile() as (File & { path?: string }) | null;
+        if (file?.path) {
+          folderPaths.push(file.path);
+        }
+      } else {
+        const file = item.getAsFile();
+        if (file) regularFiles.push(file);
+      }
+    }
+
+    try {
+      if (regularFiles.length > 0) {
+        await dropFilesMutation.mutateAsync({ files: regularFiles, targetPath });
+      }
+
+      for (const folderPath of folderPaths) {
+        const result = await window.electron?.files.dropFolder(targetPath, folderPath);
+        if (result && !result.success) {
+          throw new Error(result.error ?? `Failed to drop folder "${folderPath}"`);
         }
       }
-      try {
-        await dropFilesMutation.mutateAsync({ files, targetPath });
 
-        // Open the folder if it was closed
-        if (targetFolder.data.type === "folder" && !targetFolder.isOpen) {
-          targetFolder.open();
-        }
-      } catch (error) {
-        console.error("Failed to drop files:", error);
+      if (folderPaths.length > 0) {
+        queryClient.invalidateQueries({ queryKey: ["files:tree"] });
+        queryClient.invalidateQueries({ queryKey: ["env"] });
       }
+
+      // Open the target folder if it was closed
+      if (targetFolder.data.type === "folder" && !targetFolder.isOpen) {
+        targetFolder.open();
+      }
+    } catch (error) {
+      console.error("Failed to drop items:", error);
     }
   };
   const isSiblingHighlight = dragOverParentId === node.parent?.id;
@@ -643,7 +671,7 @@ function TreeNode({ node, style, dragHandle, activeFile, removeTemporaryNode }: 
         "group h-6 transition-colors",
         !isDragOver && activeFile?.source !== node.data.path && !node.isSelected && 'hover:bg-hover',
         activeFile?.source === node.data.path && !isDragOver && "bg-active",
-        node.isSelected && activeFile?.source !== node.data.path && !isDragOver && "bg-accent/20",
+        node.isSelected && node.tree.selectedNodes.length > 1 && activeFile?.source !== node.data.path && !isDragOver && "bg-accent/20",
         node.isFocused && !isDragOver && "ring-0",
         (isDragOver || isInternalDropTargetFolder) && 'bg-accent/30 border-l-2 border-accent',
         // Highlight all siblings when any sibling is being dragged over

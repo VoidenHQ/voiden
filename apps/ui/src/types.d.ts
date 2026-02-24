@@ -120,6 +120,7 @@ declare global {
         ) => Promise<{ filePath: string; fileName: string; mimeType: string | null; data: string | null; error?: string }[]>;
         getVoidFiles: () => Promise<{ id: string; type: string; title: string; source: string; content: string }[]>;
         drop:(targetPath: string, fileName: string, fileData: Uint8Array)=>Promise<{ success: boolean; error?: string }>
+        dropFolder: (targetPath: string, sourcePath: string) => Promise<{ success: boolean; name?: string; path?: string; error?: string }>;
         onReferencesUpdated: (callback: (filePaths: string[]) => void) => () => void;
       };
       searchFiles: (query: string) => Promise<SearchResult[]>;

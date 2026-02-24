@@ -284,13 +284,36 @@ export async function findVoidenProjects() {
 export async function dropFiles(targetPath: string, fileName: string, fileData: Uint8Array) {
   try {
     const fullPath = path.join(targetPath, fileName);
-    console.log(fullPath)
     await fs.promises.writeFile(fullPath, Buffer.from(fileData));
     return { name: fileName, path: fullPath };
   } catch (error) {
     return { success: false, error: error.message };
   }
+}
 
+async function copyDirRecursive(src: string, dest: string) {
+  await fs.promises.mkdir(dest, { recursive: true });
+  const entries = await fs.promises.readdir(src, { withFileTypes: true });
+  for (const entry of entries) {
+    const srcPath = path.join(src, entry.name);
+    const destPath = path.join(dest, entry.name);
+    if (entry.isDirectory()) {
+      await copyDirRecursive(srcPath, destPath);
+    } else {
+      await fs.promises.copyFile(srcPath, destPath);
+    }
+  }
+}
+
+export async function dropFolder(targetPath: string, sourcePath: string) {
+  try {
+    const folderName = path.basename(sourcePath);
+    const destPath = path.join(targetPath, folderName);
+    await copyDirRecursive(sourcePath, destPath);
+    return { success: true, name: folderName, path: destPath };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
 }
 
 export type MoveConflict = { dragId: string; targetPath: string; fileName: string };

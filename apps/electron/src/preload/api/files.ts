@@ -31,7 +31,9 @@ export const filesApi = {
   moveForce: (conflicts: { dragId: string; targetPath: string; fileName: string }[]): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke("files:moveForce", conflicts),
   drop: (targetPath: string, fileName: string, fileData: Uint8Array): Promise<{ success: boolean; error?: string }> =>
-    ipcRenderer.invoke("files:drop", targetPath,fileName,fileData),
+    ipcRenderer.invoke("files:drop", targetPath, fileName, fileData),
+  dropFolder: (targetPath: string, sourcePath: string): Promise<{ success: boolean; name?: string; path?: string; error?: string }> =>
+    ipcRenderer.invoke("files:dropFolder", targetPath, sourcePath),
   deleteDirectory: (path: string) => ipcRenderer.invoke("files:deleteDirectory", path),
   bulkDelete: (items: FileTreeItem[]) => ipcRenderer.invoke("files:bulkDelete", items),
   getVoidFiles: () => ipcRenderer.invoke("files:getVoidFiles"),
