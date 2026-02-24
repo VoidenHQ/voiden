@@ -300,24 +300,26 @@ function getDispatcher(
   requestUrl: string,
 ): { dispatcher?: Agent | ProxyAgent; proxyInfo?: { name: string; host: string; port: number } } {
   const disableTls = settings?.requests?.disable_tls_verification === true;
+  const timeoutSec = settings?.requests?.timeout ?? 300;
+  const timeoutMs = timeoutSec > 0 ? timeoutSec * 1000 : 0;
   const proxyEnabled = settings?.proxy?.enabled === true;
   const activeProxyId = settings?.proxy?.activeProxyId;
 
   // If no proxy is enabled, return TLS agent if needed
   if (!proxyEnabled || !activeProxyId) {
     if (disableTls) {
-      return { dispatcher: new Agent({ connect: { rejectUnauthorized: false } }) };
+      return { dispatcher: new Agent({ connect: { rejectUnauthorized: false }, bodyTimeout: timeoutMs, headersTimeout: timeoutMs }) };
     }
-    return {};
+    return { dispatcher: new Agent({ bodyTimeout: timeoutMs, headersTimeout: timeoutMs }) };
   }
 
   // Find the active proxy configuration
   const activeProxy = settings.proxy.proxies?.find((p: any) => p.id === activeProxyId);
   if (!activeProxy) {
     if (disableTls) {
-      return { dispatcher: new Agent({ connect: { rejectUnauthorized: false } }) };
+      return { dispatcher: new Agent({ connect: { rejectUnauthorized: false }, bodyTimeout: timeoutMs, headersTimeout: timeoutMs }) };
     }
-    return {};
+    return { dispatcher: new Agent({ bodyTimeout: timeoutMs, headersTimeout: timeoutMs }) };
   }
 
   // Check if domain is excluded from proxy
@@ -336,9 +338,9 @@ function getDispatcher(
 
       if (isExcluded) {
         if (disableTls) {
-          return { dispatcher: new Agent({ connect: { rejectUnauthorized: false } }) };
+          return { dispatcher: new Agent({ connect: { rejectUnauthorized: false }, bodyTimeout: timeoutMs, headersTimeout: timeoutMs }) };
         }
-        return {};
+        return { dispatcher: new Agent({ bodyTimeout: timeoutMs, headersTimeout: timeoutMs }) };
       }
     } catch (error) {
       // Continue with proxy on parse error
@@ -361,6 +363,8 @@ function getDispatcher(
     dispatcher: new ProxyAgent({
       uri: proxyUrl,
       connect: disableTls ? { rejectUnauthorized: false } : undefined,
+      bodyTimeout: timeoutMs,
+      headersTimeout: timeoutMs,
     }),
     proxyInfo: {
       name: activeProxy.name,

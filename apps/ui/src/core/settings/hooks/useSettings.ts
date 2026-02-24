@@ -42,6 +42,15 @@ function validateSettings(settings: UserSettings): UserSettings {
     }
   }
 
+  // Validate request timeout
+  if (typeof validated.requests?.timeout !== 'number' || validated.requests.timeout < 0) {
+    if (!validated.requests) {
+      (validated as any).requests = { disable_tls_verification: false, timeout: 300 };
+    } else {
+      validated.requests.timeout = 300;
+    }
+  }
+
   // Validate proxy settings
   if (!validated.proxy) {
     validated.proxy = {
@@ -173,6 +182,7 @@ export type UserSettings = {
   };
   requests: {
     disable_tls_verification: boolean;
+    timeout: number; // seconds, 0 = no limit
   };
   proxy: {
     enabled: boolean;

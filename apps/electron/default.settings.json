@@ -11,7 +11,8 @@
     "auto_save_delay": 10
   },
   "requests": {
-    "disable_tls_verification": false
+    "disable_tls_verification": false,
+    "timeout": 300
   },
   "proxy": {
     "enabled": false,

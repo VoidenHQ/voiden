@@ -27,6 +27,7 @@ export type Settings = {
   };
   requests: {
     disable_tls_verification: boolean;
+    timeout: number; // seconds, 0 = no limit
   };
   proxy: {
     enabled: boolean;

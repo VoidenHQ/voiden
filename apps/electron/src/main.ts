@@ -105,17 +105,8 @@ app.on("ready", async () => {
   splashWindow.loadFile(splashPath);
   setSplash(splashWindow);
 
-  // Create main window
-  const cliArgs = getCliArguments();
-  if (cliArgs.length > 0) {
-    await handleCliArguments(cliArgs);
-    setupMacOSFileHandler(windowManager.browserWindow as BrowserWindow);
-    if (windowManager.getAllWindows().length === 0) {
-      splashWindow?.destroy();
-    }
-  } else {
-    await windowManager.loadAllWindows();
-  }
+  // Register all IPC handlers BEFORE creating windows so the renderer
+  // can call them as soon as it loads without hanging.
   ipcMain.handle('mainwindow:minimize', () => {
     if (!windowManager.browserWindow) return;
     windowManager.browserWindow.minimize();
@@ -147,7 +138,7 @@ app.on("ready", async () => {
     // Close window and delete its state (explicit "Close Window" from menu)
     windowManager.closeWindowFromSender(event.sender);
   })
-  // Register all IPC handlers
+
   registerSettingsIpc();
   registerFontsIpc();
   registerUpdateIpcHandlers();
@@ -165,6 +156,23 @@ app.on("ready", async () => {
   registerPythonScriptIpcHandler();
   registerNodeScriptIpcHandler();
   ipcStateHandlers();
+
+  // Initialize auto-updates with the configured channel
+  const settings = getSettings();
+  const updateChannel = settings.updates?.channel || "stable";
+  initializeUpdates(updateChannel);
+
+  // Create main window (after IPC handlers are ready)
+  const cliArgs = getCliArguments();
+  if (cliArgs.length > 0) {
+    await handleCliArguments(cliArgs);
+    setupMacOSFileHandler(windowManager.browserWindow as BrowserWindow);
+    if (windowManager.getAllWindows().length === 0) {
+      splashWindow?.destroy();
+    }
+  } else {
+    await windowManager.loadAllWindows();
+  }
 });
 
 // Handle Second Command line
@@ -186,12 +194,5 @@ app.on("activate", async () => {
 app.on("before-quit", async () => {
   closeAllWatchers();
 });
-
-// Initialize auto-updates with the configured channel
-const settings = getSettings();
-const updateChannel = settings.updates?.channel || "stable";
-initializeUpdates(updateChannel);
-
-
 
 
