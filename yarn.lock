@@ -8796,7 +8796,7 @@ __metadata:
     "@types/react": "npm:^18.2.15"
     "@types/react-dom": "npm:^18.2.7"
     "@types/shell-quote": "npm:^1.7.1"
-    "@voiden/sdk": "npm:^1.0.0"
+    "@voiden/sdk": "npm:^1.0.4"
     js-yaml: "npm:^4.1.0"
     lodash: "npm:^4.17.21"
     react: "npm:^18.2.0"
@@ -8819,9 +8819,9 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@voiden/sdk@npm:^1.0.0":
-  version: 1.0.1
-  resolution: "@voiden/sdk@npm:1.0.1"
+"@voiden/sdk@npm:^1.0.4":
+  version: 1.0.4
+  resolution: "@voiden/sdk@npm:1.0.4"
   dependencies:
     jsonc-parser: "npm:^3.2.0"
   peerDependencies:
@@ -8830,7 +8830,7 @@ __metadata:
     "@tiptap/react": ^2.8.0
     react: ^18.2.0
     react-dom: ^18.2.0
-  checksum: 10c0/cabafa388daf41d2390506e86ebd914c74b345b06df4b67b65a2d3c53ad577e20612ed336c6338909d289696c33684e7a6888e70c221841c5a3b261aa5bb1f7f
+  checksum: 10c0/fcf84a822683932388204c33667a42cfd21d8c23e198286df6325f2b7ef78352774ab8f87b704324f3472a6b6b35471d331788ea2fcd015dc2b5099f464ee847
   languageName: node
   linkType: hard
 
@@ -21624,7 +21624,7 @@ __metadata:
     "@vitejs/plugin-react": "npm:^4.0.3"
     "@vitest/ui": "npm:2.1.9"
     "@voiden/core-extensions": "workspace:*"
-    "@voiden/sdk": "npm:^1.0.0"
+    "@voiden/sdk": "npm:^1.0.4"
     "@xterm/addon-fit": "npm:^0.10.0"
     "@xterm/addon-webgl": "npm:^0.18.0"
     "@xterm/xterm": "npm:^5.5.0"

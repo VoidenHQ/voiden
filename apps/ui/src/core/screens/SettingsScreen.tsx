@@ -1,5 +1,5 @@
 import { useSettings, ProxyConfig } from "@/core/settings/hooks/useSettings";
-import { Check, RefreshCw, Plus, Trash2, Edit2, Palette, Type, FileText, Globe, Network, Terminal as TerminalIcon, Download, Search, Keyboard, WrapText  } from "lucide-react";
+import { Check, RefreshCw, Plus, Trash2, Edit2, Palette, Type, FileText, Globe, Network, Terminal as TerminalIcon, Download, Search, Keyboard, WrapText, Timer  } from "lucide-react";
 import { useEffect, useMemo, useState, useRef } from "react";
 import { loadThemeById, getAvailableThemes } from "@/utils/themeLoader";
 import { Kbd } from "@/core/components/ui/kbd";
@@ -819,6 +819,29 @@ export const SettingsScreen = () => {
                       onChange={(v) => save({ requests: { disable_tls_verification: v } })}
                     />
                   }
+                  />
+                )}
+                {matchesSearch("Request Timeout timeout limit seconds minutes") && (
+                  <Row
+                    icon={<Timer className="w-4 h-4" />}
+                    title="Request Timeout"
+                    description="Maximum time to wait for a response before aborting the request."
+                    control={
+                      <select
+                        className="px-3 py-1.5 rounded-md bg-editor text-text border border-[--panel-border] focus:outline-none focus:ring-2 focus:ring-[var(--icon-primary)] min-w-[180px]"
+                        value={settings.requests.timeout}
+                        onChange={(e) => {
+                          save({ requests: { timeout: Number(e.target.value) } });
+                        }}
+                      >
+                        <option value={30}>30 seconds</option>
+                        <option value={60}>1 minute</option>
+                        <option value={120}>2 minutes</option>
+                        <option value={300}>5 minutes</option>
+                        <option value={600}>10 minutes</option>
+                        <option value={0}>No limit</option>
+                      </select>
+                    }
                   />
                 )}
               </div>

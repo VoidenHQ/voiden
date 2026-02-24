@@ -28,23 +28,24 @@ class WindowManager {
   private stateDir = '';
   activeWindowId: string | null = null;
   private activeStateDir = ''
+  private initialized = false;
 
-  constructor() {
+  /** Lazily resolve paths and create directories (must not run before app.ready) */
+  private ensureInitialized() {
+    if (this.initialized) return;
     this.stateDir = path.join(app.getPath("userData"), "window-states");
     this.activeStateDir = path.join(app.getPath("userData"), "active-states");
-    this.ensureStateDirExists();
-  }
-
-  private ensureStateDirExists() {
     if (!fs.existsSync(this.stateDir)) {
       fs.mkdirSync(this.stateDir, { recursive: true });
     }
     if (!fs.existsSync(this.activeStateDir)) {
       fs.mkdirSync(this.activeStateDir, { recursive: true });
     }
+    this.initialized = true;
   }
 
   getStateFilePath(windowId?: string): string {
+    this.ensureInitialized();
     const id = windowId || this.activeWindowId;
     if (!id) {
       throw new Error("No window ID available");
@@ -52,6 +53,7 @@ class WindowManager {
     return path.join(this.stateDir, `voiden-state-${id}.json`);
   }
   getActiveStateFilePath(windowId?: string): string {
+    this.ensureInitialized();
     const id = windowId || this.activeWindowId;
     if (!id) {
       throw new Error("No window ID available");
@@ -136,6 +138,7 @@ class WindowManager {
   }
 
   private getAllStateFiles(): string[] {
+    this.ensureInitialized();
     try {
       if (!fs.existsSync(this.stateDir)) return [];
 
