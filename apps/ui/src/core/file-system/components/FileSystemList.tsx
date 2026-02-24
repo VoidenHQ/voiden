@@ -149,6 +149,7 @@ function TreeNode({ node, style, dragHandle, activeFile, removeTemporaryNode }: 
   const [error, setError] = useState<string | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [dragOverTimer, setDragOverTimer] = useState<NodeJS.Timeout | null>(null);
+  const [isContextMenuOpen, setIsContextMenuOpen] = useState(false);
   const { dragOverParentId, setDragOverParentId } = useContext(DragOverContext);
   const queryClient = useQueryClient();
   const setIsRenaming = useFocusStore((state) => state.setIsRenaming);
@@ -608,9 +609,22 @@ function TreeNode({ node, style, dragHandle, activeFile, removeTemporaryNode }: 
     }
   };
 
+  useEffect(() => {
+    if (!isContextMenuOpen) return;
+    const reset = () => setIsContextMenuOpen(false);
+    // mousedown fires before contextmenu, so right-clicking elsewhere resets the
+    // previous node first. Unlike 'click', mousedown also fires after Electron's
+    // native context menu is dismissed by clicking back in the window.
+    window.addEventListener("mousedown", reset, { once: true });
+    return () => {
+      window.removeEventListener("mousedown", reset);
+    };
+  }, [isContextMenuOpen]);
+
   const handleContextMenu = (event: React.MouseEvent<HTMLDivElement>) => {
     event.preventDefault();
     event.stopPropagation();
+    setIsContextMenuOpen(true);
 
     if (!node.isSelected) {
       node.select();
@@ -668,8 +682,9 @@ function TreeNode({ node, style, dragHandle, activeFile, removeTemporaryNode }: 
       style={style}
       ref={dragHandle}
       className={cn(
-        "group h-6 transition-colors",
+        "group h-6 transition-colors border border-transparent",
         !isDragOver && activeFile?.source !== node.data.path && !node.isSelected && 'hover:bg-hover',
+        isContextMenuOpen && "border-active",
         activeFile?.source === node.data.path && !isDragOver && "bg-active",
         node.isSelected && node.tree.selectedNodes.length > 1 && activeFile?.source !== node.data.path && !isDragOver && "bg-accent/20",
         node.isFocused && !isDragOver && "ring-0",

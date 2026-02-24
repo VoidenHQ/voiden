@@ -18,20 +18,28 @@ export const CopyCurlButton: React.FC<CopyCurlButtonProps> = ({ tab, context }) 
     const [copied, setCopied] = useState(false);
 
 
-    const readActiveEditorJSON = () => {
+    const readActiveEditorJSON = async () => {
         try {
+            // Prefer the in-memory unsaved content so curl reflects edits
+            // without requiring a save first.
+            if (tab?.tabId) {
+                // @ts-ignore - resolved at runtime in app context
+                const { useEditorStore } = await import(/* @vite-ignore */ '@/core/editors/voiden/VoidenEditor');
+                const unsaved = useEditorStore.getState().unsaved[tab.tabId];
+                if (unsaved) {
+                    return JSON.parse(unsaved);
+                }
+            }
+            // Fall back to live editor instance
             const voiden = context.project.getActiveEditor?.("voiden");
-            const value =
-                (voiden && typeof voiden.getJSON === "function" && voiden.getJSON()) ||
-                [];
-            return value || [];
+            return (voiden && typeof voiden.getJSON === "function" && voiden.getJSON()) || [];
         } catch {
             return [];
         }
     };
     const handleCopyCurl = async () => {
         try {
-            const jsonContent = readActiveEditorJSON();
+            const jsonContent = await readActiveEditorJSON();
 
             if (!jsonContent || jsonContent.length === 0) {
                 console.warn('No content available to copy');

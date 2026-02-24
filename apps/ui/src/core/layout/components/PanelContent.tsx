@@ -11,6 +11,7 @@ import SettingsScreen from "@/core/screens/SettingsScreen";
 import logo from "@/assets/logo-dark.png";
 import ChangeLogScreen from "@/core/screens/ChangeLogScreen";
 import { useCodeEditorStore } from "@/core/editors/code/CodeEditorStore";
+import { useEditorStore } from "@/core/editors/voiden/VoidenEditor";
 import { Settings, Menu } from "lucide-react";
 import { Kbd } from "@/core/components/ui/kbd";
 import { ErrorBoundary } from "@/core/components/ErrorBoundary";
@@ -269,6 +270,11 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
   const { data: tabs } = useGetPanelTabs(panelId);
   const editorActions = usePluginStore((state) => state.editorActions);
   const activeEditor = useCodeEditorStore((state) => state.activeEditor);
+
+  // Subscribe to unsaved Voiden editor content for the active tab so predicates
+  // are re-evaluated whenever the editor content changes (not just on file save).
+  const activeTabId = tabContent?.tabId;
+  useEditorStore((state) => activeTabId ? state.unsaved[activeTabId] : undefined);
 
   // Get md-preview helpers dynamically if plugin is loaded
   // IMPORTANT: Only call the hook if it exists to prevent crashes during plugin reload
