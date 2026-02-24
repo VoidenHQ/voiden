@@ -12,10 +12,12 @@ import {
   deleteDirectory,
   renameFileOrDirectory,
   moveFiles,
+  moveFilesForce,
   createFile,
   createVoidFile,
   dropFiles,
 } from "../fileSystem";
+import type { MoveConflict } from "../fileSystem";
 import { getActiveStates, saveActiveStates } from "../tabs";
 import { getCachedGitStatus } from "../git";
 import { getActiveProject, findTabById, getAppState } from "../state";
@@ -205,6 +207,11 @@ export function registerFileIpcHandlers() {
   ipcMain.handle("files:move", async (_event, dragIds: string[], parentId: string) => {
     return await moveFiles(dragIds, parentId);
   });
+
+  ipcMain.handle("files:moveForce", async (_event, conflicts: MoveConflict[]) => {
+    return await moveFilesForce(conflicts);
+  });
+
   ipcMain.handle("files:drop", async (_event, targetPath: string, fileName: string, fileData: Uint8Array) => {
     return await dropFiles(targetPath,fileName,fileData);
   });

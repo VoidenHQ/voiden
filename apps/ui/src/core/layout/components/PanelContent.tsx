@@ -495,7 +495,26 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
 export const PanelContent = ({ panelId }: { panelId: string }) => {
   // Force remount when plugin state changes to prevent stale hook references
   const isInitialized = usePluginStore((state) => state.isInitialized);
-  const { data: tabs } = useGetPanelTabs(panelId);
+  const { data: tabs, dataUpdatedAt } = useGetPanelTabs(panelId);
+
+  // Track re-clicks on the already-active tab so we can reset the ErrorBoundary.
+  // When useActivateTab fires for the same tab, panel:tabs refetches (dataUpdatedAt
+  // changes) while activeTabId stays the same — increment resetCounter to force reset.
+  const [resetCounter, setResetCounter] = useState(0);
+  const prevDataUpdatedAtRef = useRef(0);
+  const prevActiveTabIdRef = useRef<string | undefined>(undefined);
+
+  useEffect(() => {
+    if (
+      dataUpdatedAt > prevDataUpdatedAtRef.current &&
+      prevActiveTabIdRef.current === tabs?.activeTabId &&
+      tabs?.activeTabId !== undefined
+    ) {
+      setResetCounter((c) => c + 1);
+    }
+    prevDataUpdatedAtRef.current = dataUpdatedAt;
+    prevActiveTabIdRef.current = tabs?.activeTabId;
+  }, [dataUpdatedAt, tabs?.activeTabId]);
 
   // Don't render content while plugins are reloading to prevent accessing stale references
   if (!isInitialized) {
@@ -507,7 +526,7 @@ export const PanelContent = ({ panelId }: { panelId: string }) => {
   }
 
   return (
-    <ErrorBoundary level="component" resetKey={tabs?.activeTabId} key={`panel-${panelId}-${isInitialized}`}>
+    <ErrorBoundary level="component" resetKey={`${tabs?.activeTabId}-${resetCounter}`} key={`panel-${panelId}-${isInitialized}`}>
       <PanelContentInner panelId={panelId} />
     </ErrorBoundary>
   );

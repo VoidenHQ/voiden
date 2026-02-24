@@ -110,7 +110,8 @@ declare global {
         showFileContextMenu: (data: FileTreeItem) => void;
         showBulkDeleteMenu: (data: FileTreeItem[]) => void;
         onFileMenuCommand: (callback: (command: string, data: FileTreeItem) => void) => () => void;
-        move: (dragIds: string[], parentId: string) => Promise<{ success: boolean; error?: string }>;
+        move: (dragIds: string[], parentId: string) => Promise<{ success: boolean; moved: string[]; conflicts: { dragId: string; targetPath: string; fileName: string }[]; error?: string }>;
+        moveForce: (conflicts: { dragId: string; targetPath: string; fileName: string }[]) => Promise<{ success: boolean; error?: string }>;
         deleteDirectory: (path: string) => Promise<boolean>;
         bulkDelete: (items: FileTreeItem[]) => Promise<boolean>;
         getFiles: (
@@ -119,6 +120,7 @@ declare global {
         ) => Promise<{ filePath: string; fileName: string; mimeType: string | null; data: string | null; error?: string }[]>;
         getVoidFiles: () => Promise<{ id: string; type: string; title: string; source: string; content: string }[]>;
         drop:(targetPath: string, fileName: string, fileData: Uint8Array)=>Promise<{ success: boolean; error?: string }>
+        onReferencesUpdated: (callback: (filePaths: string[]) => void) => () => void;
       };
       searchFiles: (query: string) => Promise<SearchResult[]>;
       git: {

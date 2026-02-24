@@ -26,11 +26,18 @@ export const filesApi = {
       ipcRenderer.removeListener("file-menu-command", handler);
     };
   },
-  move: (dragIds: string[], parentId: string): Promise<{ success: boolean; error?: string }> =>
+  move: (dragIds: string[], parentId: string): Promise<{ success: boolean; moved: string[]; conflicts: { dragId: string; targetPath: string; fileName: string }[]; error?: string }> =>
     ipcRenderer.invoke("files:move", dragIds, parentId),
+  moveForce: (conflicts: { dragId: string; targetPath: string; fileName: string }[]): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke("files:moveForce", conflicts),
   drop: (targetPath: string, fileName: string, fileData: Uint8Array): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke("files:drop", targetPath,fileName,fileData),
   deleteDirectory: (path: string) => ipcRenderer.invoke("files:deleteDirectory", path),
   bulkDelete: (items: FileTreeItem[]) => ipcRenderer.invoke("files:bulkDelete", items),
   getVoidFiles: () => ipcRenderer.invoke("files:getVoidFiles"),
+  onReferencesUpdated: (callback: (filePaths: string[]) => void) => {
+    const handler = (_: unknown, filePaths: string[]) => callback(filePaths);
+    ipcRenderer.on("files:referencesUpdated", handler);
+    return () => ipcRenderer.removeListener("files:referencesUpdated", handler);
+  },
 };

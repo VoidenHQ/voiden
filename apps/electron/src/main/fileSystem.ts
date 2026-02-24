@@ -293,47 +293,73 @@ export async function dropFiles(targetPath: string, fileName: string, fileData: 
 
 }
 
-export async function moveFiles(dragIds: string[], parentId: string): Promise<{ success: boolean; error?: string }> {
+export type MoveConflict = { dragId: string; targetPath: string; fileName: string };
+export type MoveResult = { success: boolean; moved: string[]; conflicts: MoveConflict[]; error?: string };
+
+async function collectVoidFiles(
+  oldBasePath: string,
+  newBasePath: string,
+  out: Array<{ oldPath: string; newPath: string }>
+) {
+  const stat = await fs.promises.stat(oldBasePath);
+  if (stat.isFile()) {
+    if (oldBasePath.endsWith(".void")) out.push({ oldPath: oldBasePath, newPath: newBasePath });
+    return;
+  }
+  if (!stat.isDirectory()) return;
+  const entries = await fs.promises.readdir(oldBasePath, { withFileTypes: true });
+  for (const entry of entries) {
+    const oldEntry = path.join(oldBasePath, entry.name);
+    const newEntry = path.join(newBasePath, entry.name);
+    if (entry.isDirectory()) {
+      await collectVoidFiles(oldEntry, newEntry, out);
+    } else if (entry.isFile() && entry.name.endsWith(".void")) {
+      out.push({ oldPath: oldEntry, newPath: newEntry });
+    }
+  }
+}
+
+export async function moveFiles(dragIds: string[], parentId: string): Promise<MoveResult> {
+  const moved: string[] = [];
+  const conflicts: MoveConflict[] = [];
+  const movedVoidFiles: Array<{ oldPath: string; newPath: string }> = [];
+
   try {
-    const movedVoidFiles: Array<{ oldPath: string; newPath: string }> = [];
-
-    const collectMovedVoidFiles = async (oldBasePath: string, newBasePath: string) => {
-      const stat = await fs.promises.stat(oldBasePath);
-
-      if (stat.isFile()) {
-        if (oldBasePath.endsWith(".void")) {
-          movedVoidFiles.push({ oldPath: oldBasePath, newPath: newBasePath });
-        }
-        return;
-      }
-
-      if (!stat.isDirectory()) return;
-
-      const entries = await fs.promises.readdir(oldBasePath, { withFileTypes: true });
-      for (const entry of entries) {
-        const oldEntryPath = path.join(oldBasePath, entry.name);
-        const newEntryPath = path.join(newBasePath, entry.name);
-
-        if (entry.isDirectory()) {
-          await collectMovedVoidFiles(oldEntryPath, newEntryPath);
-        } else if (entry.isFile() && entry.name.endsWith(".void")) {
-          movedVoidFiles.push({ oldPath: oldEntryPath, newPath: newEntryPath });
-        }
-      }
-    };
-
     for (const dragId of dragIds) {
       const fileName = path.basename(dragId);
       const newPath = path.join(parentId, fileName);
 
-      // Check if target already exists
       if (fs.existsSync(newPath)) {
-        return { success: false, error: `A file/folder with name "${fileName}" already exists in the target folder` };
+        conflicts.push({ dragId, targetPath: newPath, fileName });
+        continue;
       }
 
-      await collectMovedVoidFiles(dragId, newPath);
-
+      await collectVoidFiles(dragId, newPath, movedVoidFiles);
       await fs.promises.rename(dragId, newPath);
+      moved.push(dragId);
+    }
+
+    await maybeUpdateLinkedBlockReferencesAfterMove(movedVoidFiles);
+    return { success: true, moved, conflicts };
+  } catch (error) {
+    return { success: false, moved, conflicts, error: error.message };
+  }
+}
+
+export async function moveFilesForce(conflicts: MoveConflict[]): Promise<{ success: boolean; error?: string }> {
+  const movedVoidFiles: Array<{ oldPath: string; newPath: string }> = [];
+
+  try {
+    for (const { dragId, targetPath } of conflicts) {
+      const targetStat = await fs.promises.stat(targetPath).catch(() => null);
+      if (targetStat?.isDirectory()) {
+        return { success: false, error: `Cannot replace folder "${path.basename(targetPath)}"` };
+      }
+      if (targetStat?.isFile()) {
+        await fs.promises.unlink(targetPath);
+      }
+      await collectVoidFiles(dragId, targetPath, movedVoidFiles);
+      await fs.promises.rename(dragId, targetPath);
     }
 
     await maybeUpdateLinkedBlockReferencesAfterMove(movedVoidFiles);
@@ -374,44 +400,56 @@ async function maybeUpdateLinkedBlockReferencesAfterMove(movedVoidFiles: Array<{
   await collectAllVoidFiles(activeProject);
 
   const originalFileLineRegex = /^(\s*originalFile:\s*)(['"]?)([^'"\r\n]+)\2(\s*)$/gm;
-  const linkedBlockFenceRegex = /```void\s*\r?\n([\s\S]*?)```/g;
+  const filePathLineRegex = /^(\s*filePath:\s*)(['"]?)([^'"\r\n]+)\2(\s*)$/gm;
+  const voidFenceRegex = /```void\s*\r?\n([\s\S]*?)```/g;
   const fileUpdates = new Map<string, string>();
   let totalReferences = 0;
+
+  /** Rewrite a path value if it matches a moved file, invoking onMatch on update. */
+  function rewritePathLine(
+    lineText: string, prefix: string, quote: string, refValue: string, suffix: string,
+    onMatch: () => void,
+  ): string {
+    const normalizedRef = normalizeRefPath(refValue.trim());
+    const newRel = movedByOldRel.get(normalizedRef);
+    if (!newRel) return lineText;
+    const keepBackslash = refValue.includes("\\");
+    const sep = keepBackslash ? "\\" : "/";
+    const relWithSep = newRel.replace(/\//g, sep);
+    let nextRefValue = relWithSep;
+    if (refValue.startsWith("./") || refValue.startsWith(".\\")) {
+      nextRefValue = `.${sep}${relWithSep}`;
+    } else if (refValue.startsWith("/") || refValue.startsWith("\\")) {
+      nextRefValue = `${sep}${relWithSep}`;
+    }
+    onMatch();
+    return `${prefix}${quote}${nextRefValue}${quote}${suffix}`;
+  }
 
   for (const voidFilePath of allVoidFiles) {
     const source = await fs.promises.readFile(voidFilePath, "utf8");
     let fileReferenceCount = 0;
 
-    const updatedSource = source.replace(linkedBlockFenceRegex, (fenceText, body: string) => {
-      if (!/^\s*type:\s*linkedBlock\s*$/m.test(body)) return fenceText;
+    const updatedSource = source.replace(voidFenceRegex, (fenceText, body: string) => {
+      // linkedBlock: update originalFile
+      if (/^\s*type:\s*linkedBlock\s*$/m.test(body)) {
+        const uidMatch = body.match(/^\s*blockUid:\s*([^\r\n]+)\s*$/m);
+        if (!uidMatch || !isUuid(uidMatch[1].trim())) return fenceText;
+        const updatedBody = body.replace(originalFileLineRegex, (l, p, q, v, s) =>
+          rewritePathLine(l, p, q, v, s, () => { fileReferenceCount += 1; }),
+        );
+        return fenceText.replace(body, updatedBody);
+      }
 
-      const uidMatch = body.match(/^\s*blockUid:\s*([^\r\n]+)\s*$/m);
-      if (!uidMatch || !isUuid(uidMatch[1].trim())) return fenceText;
+      // fileLink: update filePath
+      if (/^\s*type:\s*fileLink\s*$/m.test(body)) {
+        const updatedBody = body.replace(filePathLineRegex, (l, p, q, v, s) =>
+          rewritePathLine(l, p, q, v, s, () => { fileReferenceCount += 1; }),
+        );
+        return fenceText.replace(body, updatedBody);
+      }
 
-      const updatedBody = body.replace(
-        originalFileLineRegex,
-        (lineText: string, prefix: string, quote: string, refValue: string, suffix: string) => {
-          const normalizedRef = normalizeRefPath(refValue.trim());
-          const newRel = movedByOldRel.get(normalizedRef);
-          if (!newRel) return lineText;
-
-          const keepBackslash = refValue.includes("\\");
-          const sep = keepBackslash ? "\\" : "/";
-          const relWithSep = newRel.replace(/\//g, sep);
-
-          let nextRefValue = relWithSep;
-          if (refValue.startsWith("./") || refValue.startsWith(".\\")) {
-            nextRefValue = `.${sep}${relWithSep}`;
-          } else if (refValue.startsWith("/") || refValue.startsWith("\\")) {
-            nextRefValue = `${sep}${relWithSep}`;
-          }
-
-          fileReferenceCount += 1;
-          return `${prefix}${quote}${nextRefValue}${quote}${suffix}`;
-        },
-      );
-
-      return fenceText.replace(body, updatedBody);
+      return fenceText;
     });
 
     if (fileReferenceCount > 0 && updatedSource !== source) {
@@ -430,7 +468,7 @@ async function maybeUpdateLinkedBlockReferencesAfterMove(movedVoidFiles: Array<{
     cancelId: 0,
     title: "Update References?",
     message: "A .void file was moved.",
-    detail: `Linked blocks in other file(s) still reference the old path. Found ${totalReferences} reference(s) in ${fileUpdates.size} file(s). Update them to the new location?`,
+    detail: `References in other file(s) still point to the old path. Found ${totalReferences} reference(s) in ${fileUpdates.size} file(s). Update them to the new location?`,
   });
 
 
@@ -438,6 +476,12 @@ async function maybeUpdateLinkedBlockReferencesAfterMove(movedVoidFiles: Array<{
 
   for (const [filePath, content] of fileUpdates) {
     await fs.promises.writeFile(filePath, content, "utf8");
+  }
+
+  // Notify the renderer so it can reload any open tabs whose content was rewritten
+  const updatedPaths = Array.from(fileUpdates.keys());
+  for (const w of BrowserWindow.getAllWindows()) {
+    w.webContents.send("files:referencesUpdated", updatedPaths);
   }
 }
 

@@ -38,6 +38,7 @@ import { cn } from "@/core/lib/utils";
 import { FileTree } from "@/types";
 import type { SearchResult } from "@/types";
 import { useFileTree, useMove } from "@/core/file-system/hooks";
+import { toast } from "@/core/components/ui/sonner";
 import useResizeObserver from "use-resize-observer";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useActivateTab, useBottomPanel } from "@/core/layout/hooks";
@@ -640,8 +641,9 @@ function TreeNode({ node, style, dragHandle, activeFile, removeTemporaryNode }: 
       ref={dragHandle}
       className={cn(
         "group h-6 transition-colors",
-        !isDragOver && activeFile?.source !== node.data.path && 'hover:bg-hover',
+        !isDragOver && activeFile?.source !== node.data.path && !node.isSelected && 'hover:bg-hover',
         activeFile?.source === node.data.path && !isDragOver && "bg-active",
+        node.isSelected && activeFile?.source !== node.data.path && !isDragOver && "bg-accent/20",
         node.isFocused && !isDragOver && "ring-0",
         (isDragOver || isInternalDropTargetFolder) && 'bg-accent/30 border-l-2 border-accent',
         // Highlight all siblings when any sibling is being dragged over
@@ -784,6 +786,29 @@ export const FileSystemList = () => {
   const { mutateAsync: setActiveProject } = useSetActiveProject();
   const { mutateAsync: activateTab } = useActivateTab();
   const treeRef = useRef<TreeApi<ExtendedFileTree>>(null);
+
+  // Open file / toggle folder on Enter key (react-arborist fires onActivate for Enter)
+  const handleActivate = async (node: NodeApi<ExtendedFileTree>) => {
+    if (node.data.type === "file") {
+      const newTab = {
+        id: crypto.randomUUID(),
+        type: "document" as const,
+        title: node.data.name,
+        source: node.data.path,
+        directory: null,
+      };
+      try {
+        const { tabId = null } = (await window.electron?.state.addPanelTab("main", newTab)) ?? {};
+        if (tabId) {
+          activateTab({ panelId: "main", tabId });
+        }
+      } catch {
+        // ignore
+      }
+    } else {
+      node.toggle();
+    }
+  };
   const dndRootElement = useRef<HTMLDivElement>(null);
   const pendingFileKindRef = useRef<"void" | null>(null);
   const queryClient = useQueryClient();
@@ -942,10 +967,55 @@ export const FileSystemList = () => {
     const isSameDirectory = draggedItems.some((node) => node?.data.parent === parentId);
     if (isSameDirectory) return;
     const result = await move({ dragIds, parentId });
-    if (!result?.success) {
-      // console.error(result?.error);
+    if (!result) return;
+
+    if (result.error) {
+      toast.error("Move failed", { description: result.error });
+      return;
+    }
+
+    for (const conflict of result.conflicts ?? []) {
+      toast.warning(`"${conflict.fileName}" already exists`, {
+        description: "A file with this name already exists in the target folder.",
+        action: {
+          label: "Replace",
+          onClick: async () => {
+            const replaceResult = await window.electron?.files.moveForce([conflict]);
+            if (replaceResult?.success) {
+              queryClient.invalidateQueries({ queryKey: ["files:tree"] });
+            } else {
+              toast.error("Replace failed", { description: replaceResult?.error ?? "Unknown error" });
+            }
+          },
+        },
+      });
     }
   };
+
+  // When linkedBlock / fileLink references are updated after a file move, reload any
+  // open tabs whose source file was rewritten so editors pick up the new paths.
+  useEffect(() => {
+    const off = window.electron?.files.onReferencesUpdated((updatedPaths: string[]) => {
+      // Clear cached block content (linkedBlock originalFile paths may have changed)
+      queryClient.removeQueries({ queryKey: ["voiden-wrapper:blockContent"] });
+      // Clear file-existence cache (fileLink filePath paths may have changed)
+      queryClient.removeQueries({ queryKey: ["file:exists"] });
+
+      // Reload tabs whose source file was rewritten
+      for (const panelId of ["main", "right"]) {
+        const panelTabs = queryClient.getQueryData<{ tabs: { id: string; source: string | null }[]; activeTabId: string }>(["panel:tabs", panelId]);
+        for (const tab of panelTabs?.tabs ?? []) {
+          if (tab.source && updatedPaths.includes(tab.source)) {
+            queryClient.removeQueries({ queryKey: ["tab:content", panelId, tab.id] });
+          }
+        }
+      }
+
+      // Trigger ErrorBoundary reset for any panel showing the stale content
+      queryClient.invalidateQueries({ queryKey: ["panel:tabs"] });
+    });
+    return () => off?.();
+  }, [queryClient]);
 
   // Listen for the "file:create" event.
   useElectronEvent<{ path: string; type: string }>("file:create", async (eventData) => {
@@ -1287,7 +1357,16 @@ export const FileSystemList = () => {
       ) : (
         <div ref={ref} className="flex-1 overflow-hidden">
           <DragOverContext.Provider value={{ dragOverParentId, setDragOverParentId }}>
-            <div ref={dndRootElement}>
+            <div
+              ref={dndRootElement}
+              onKeyDown={async (e) => {
+                if (e.key !== "Enter") return;
+                const focused = treeRef.current?.focusedNode ?? treeRef.current?.selectedNodes?.[0];
+                if (!focused) return;
+                e.preventDefault();
+                await handleActivate(focused);
+              }}
+            >
               {treeData && (
                 <Tree
                   dndRootElement={dndRootElement.current}

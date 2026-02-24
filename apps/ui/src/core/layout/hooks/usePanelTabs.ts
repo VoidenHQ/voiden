@@ -44,7 +44,8 @@ export const useActivateTab = () => {
     mutationFn: async ({ panelId, tabId }: { panelId: string; tabId: string }) => window.electron?.tab.activate(panelId, tabId),
     onSuccess: async ({ panelId, tabId }: { panelId: string; tabId: string }) => {
       queryClient.invalidateQueries({ queryKey: ["panel:tabs", panelId] });
-      queryClient.invalidateQueries({ queryKey: ["tab:content", panelId, tabId] });
+      // Remove (not just invalidate) so ErrorBoundary gets a fresh fetch on reset
+      queryClient.removeQueries({ queryKey: ["tab:content", panelId, tabId] });
 
       // Get the active tab content to check its type
       const tabContent = await window.electron?.tab.getContent({ id: tabId, type: "document", title: "", source: null });
