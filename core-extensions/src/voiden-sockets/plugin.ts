@@ -11,6 +11,19 @@ import React from 'react';
 import { CopyWebsocatButton } from './components/CopyWebsocatButton';
 import { CopyGrpcurlButton } from './components/CopyGrpcurlButton';
 
+// Lazily cached store reference so the synchronous predicates can read unsaved content.
+// Lazily cached store reference so the synchronous predicate can read unsaved content.
+let _editorStore: any = null;
+function getEditorStore() {
+  if (!_editorStore) {
+    // @ts-ignore - resolved at runtime in app context
+    (import(/* @vite-ignore */ '@/core/editors/voiden/VoidenEditor') as Promise<any>)
+      .then((m: any) => { _editorStore = m.useEditorStore; })
+      .catch(() => {});
+  }
+  return _editorStore;
+}
+
 export default function createSocketPlugin(context: PluginContext) {
   const extendedContext = {
     ...context,
@@ -94,6 +107,23 @@ export default function createSocketPlugin(context: PluginContext) {
           const name = tab?.title?.toLowerCase() || "";
           if (!name.endsWith(".void")) return false;
 
+          const store = getEditorStore();
+          // Check unsaved content first
+          if (tab?.tabId && store) {
+            const unsaved = store.getState().unsaved[tab.tabId];
+            if (unsaved) {
+              try {
+                const doc = JSON.parse(unsaved);
+                const hasWs = doc?.content?.some((node: any) => {
+                  if (node.type !== 'socket-request') return false;
+                  const method = node.content?.find((c: any) => c.type === 'smethod')?.content?.[0]?.text || '';
+                  return /^wss?$/i.test(method.trim());
+                });
+                if (hasWs) return true;
+              } catch {}
+            }
+          }
+
           const content = tab?.content;
           if (typeof content !== 'string' || content.trim().length === 0) return false;
 
@@ -129,6 +159,23 @@ export default function createSocketPlugin(context: PluginContext) {
           // Show copy grpcurl button for .void files that contain a socket-request inside a ```void fenced block
           const name = tab?.title?.toLowerCase() || "";
           if (!name.endsWith(".void")) return false;
+
+          const store = getEditorStore();
+          // Check unsaved content first
+          if (tab?.tabId && store) {
+            const unsaved = store.getState().unsaved[tab.tabId];
+            if (unsaved) {
+              try {
+                const doc = JSON.parse(unsaved);
+                const hasGrpc = doc?.content?.some((node: any) => {
+                  if (node.type !== 'socket-request') return false;
+                  const method = node.content?.find((c: any) => c.type === 'smethod')?.content?.[0]?.text || '';
+                  return /^grpcs?$/i.test(method.trim());
+                });
+                if (hasGrpc) return true;
+              } catch {}
+            }
+          }
 
           const content = tab?.content;
           if (typeof content !== 'string' || content.trim().length === 0) return false;
