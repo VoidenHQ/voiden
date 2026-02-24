@@ -23,21 +23,19 @@ export async function handleCliArguments(
 
 
   const firstArg = userArgs[0];
-  // No arguments = open default Voiden directory
-  if (userArgs.length === 0 || firstArg === '.') {
-    const defaultDir = await resolveToAbsolutePath('');
-    if (windowManager.focusWindowByProject(defaultDir)) {
-      return;
-    }
-    const main = await windowManager.createWindow(undefined, true);
-    main.webContents.on('did-finish-load', async () => {
-      const activeWindowId = main?.windowInfo.id || "";
-      if (fs.existsSync(defaultDir)) {
-        await windowManager.setActiveDirectory(activeWindowId as string, defaultDir);
-      }
-      main.focus();
-    })
 
+  // No arguments (e.g. launched by NSIS after update) — open a clean window
+  if (userArgs.length === 0) {
+    const main = await windowManager.createWindow(undefined, true);
+    main.webContents.on('did-finish-load', () => {
+      main.focus();
+    });
+    return;
+  }
+
+  // Explicit "." — open current terminal working directory
+  if (firstArg === '.') {
+    await openPath(await resolveToAbsolutePath('.'));
     return;
   }
 
