@@ -6,6 +6,8 @@
 import * as React from "react";
 import { Node } from "@tiptap/core";
 import { ReactNodeViewRenderer } from "@tiptap/react";
+import { useParentResponseDoc } from "./ResponseDocNode";
+import { Copy } from "lucide-react";
 
 // --- INTERFACES ---
 
@@ -44,14 +46,26 @@ const renderTLSSection = (
   url: string,
   method: string,
   httpVersion: string | undefined,
-  isSummaryCollapsed: boolean,
-  setIsSummaryCollapsed: (collapsed: boolean) => void,
-  handleCopy: () => void
+  handleCopy: () => void,
+  activeNode: string | null,
+  editor: any
+
 ) => {
   if (!tls && !url) return null;
 
   const isSecure = tls?.isSecure === true;
   const statusText = isSecure ? "Secure Connection (HTTPS)" : tls ? "Insecure Connection" : "HTTP Connection";
+
+  const isCollapsed = activeNode !== "request-headers-security";
+
+  // Handle click - call the editor command to set active node
+  const handleSetActive = () => {
+    if (isCollapsed) {
+      editor.commands.setActiveResponseNode("request-headers-security");
+    } else {
+      editor.commands.setActiveResponseNode("");
+    }
+  };
 
   // Build the summary text for CodeMirror
   const summaryLines: string[] = [];
@@ -77,8 +91,9 @@ const renderTLSSection = (
     <div className="my-2">
       {/* Header bar - collapsible */}
       <div
-        className="bg-bg border-b !border-solid !border-[rgba(0,0,0,0.2)] px-2 py-1.5 flex items-center justify-between header-bar"
-        onClick={() => setIsSummaryCollapsed(!isSummaryCollapsed)}
+  className={`flex items-center justify-between ${!isCollapsed ? "bg-panel" : "bg-bg"} hover:bg-panel border-b  border-border  px-2 py-1.5 header-bar`}
+        onClick={handleSetActive}
+
         style={{ cursor: 'pointer', userSelect: 'none' }}
       >
         <div className="flex items-center gap-2">
@@ -90,7 +105,7 @@ const renderTLSSection = (
             fill="none"
             className="text-comment"
             style={{
-              transform: isSummaryCollapsed ? "rotate(-90deg)" : "rotate(0deg)",
+      transform: isCollapsed ? "rotate(-90deg)" : "rotate(0deg)",
               transition: "transform 0.2s",
               pointerEvents: "none",
             }}
@@ -103,25 +118,25 @@ const renderTLSSection = (
         </div>
 
         {/* Copy Button */}
-        {!isSummaryCollapsed && (
+        {!isCollapsed && (
           <div className="flex items-center gap-1" style={{ userSelect: "none" }}>
             <button
               onClick={(e) => {
                 e.stopPropagation();
                 handleCopy();
               }}
-              className="px-3 py-1 text-xs text-comment hover:bg-active/50 rounded"
+              className="response-action-btn px-3 py-1 text-xs text-comment rounded"
               title="Copy to clipboard"
               style={{ cursor: "pointer", userSelect: "none" }}
             >
-              Copy
+              <Copy size={14}/>
             </button>
           </div>
         )}
       </div>
 
       {/* Content - CodeMirror display */}
-      {!isSummaryCollapsed &&
+      {!isCollapsed &&
         (() => {
           // Calculate adaptive height based on number of lines
           const lineHeight = 20;
@@ -168,11 +183,21 @@ const renderTLSSection = (
 // --- FACTORY FUNCTION ---
 
 export const createRequestHeadersNode = (NodeViewWrapper: any, CodeEditor: any) => {
-  const RequestHeadersComponent = ({ node }: any) => {
+  const RequestHeadersComponent = ({ node ,getPos,editor}: any) => {
     // Destructure all required attributes
     const { headers, url, method, httpVersion, tls } = node.attrs as RequestHeadersAttrs;
-    const [isCollapsed, setIsCollapsed] = React.useState(false); // Default to expanded to show request headers
-    const [isSummaryCollapsed, setIsSummaryCollapsed] = React.useState(false); // Summary also expanded by default
+     // Read parent's activeNode state - automatically updates when parent changes
+    const { activeNode } = useParentResponseDoc(editor, getPos);
+    const isCollapsed = activeNode !== "request-headers";
+
+    // Handle click - call the editor command to set active node
+    const handleSetActive = () => {
+      if (isCollapsed) {
+        editor.commands.setActiveResponseNode("request-headers");
+      } else {
+        editor.commands.setActiveResponseNode("");
+      }
+    };
 
     const headersText = (headers || []).map((header) => `${header.key}: ${header.value}`).join("\n");
 
@@ -205,12 +230,18 @@ export const createRequestHeadersNode = (NodeViewWrapper: any, CodeEditor: any) 
       };
 
       return (
-        <NodeViewWrapper className="request-headers-node" style={{ userSelect: "text", paddingBottom: "80px" }}>
-          {/* Render summary section even without headers */}
-          {renderTLSSection(CodeEditor, tls, url, method, httpVersion, isSummaryCollapsed, setIsSummaryCollapsed, handleCopySummaryEmpty)}
+        <NodeViewWrapper className="request-headers-node" style={{ userSelect: "text"}}>
+             <style>{`
+          .response-action-btn:hover {
+            color: var(--accent) !important;
+          }
+        `}</style>
 
-          <div className="my-2">
-            <div className="bg-bg p-2 text-comment text-sm border-b !border-solid !border-[rgba(0,0,0,0.2)]">No Request Headers Sent</div>
+          {/* Render summary section even without headers */}
+          {renderTLSSection(CodeEditor, tls, url, method, httpVersion, handleCopySummaryEmpty, activeNode, editor)}
+
+          <div >
+            <div className="bg-bg p-2 text-comment text-sm border-b border-border">No Request Headers Sent</div>
           </div>
         </NodeViewWrapper>
       );
@@ -252,18 +283,26 @@ export const createRequestHeadersNode = (NodeViewWrapper: any, CodeEditor: any) 
     };
 
     return (
-      <NodeViewWrapper className="request-headers-node" style={{ userSelect: "text", paddingBottom: "80px" }}>
+      <NodeViewWrapper className="request-headers-node" style={{ userSelect: "text"}}>
+          <style>{`
+          .response-action-btn:hover {
+            color: var(--accent) !important;
+          }
+        `}</style>
+
         {/* 1. RENDER REQUEST SUMMARY / SECURITY SECTION */}
-        {renderTLSSection(CodeEditor, tls, url, method, httpVersion, isSummaryCollapsed, setIsSummaryCollapsed, handleCopySummary)}
+        {renderTLSSection(CodeEditor, tls, url, method, httpVersion, handleCopySummary, activeNode, editor)}
 
         {/* 2. RENDER REQUEST HEADERS COLLAPSIBLE BLOCK (Copied structure) */}
         <div className="my-2">
           {/* Header bar */}
           <div
-            className="bg-bg border-b !border-solid !border-[rgba(0,0,0,0.2)] px-2 py-1.5 flex items-center justify-between header-bar"
-            onClick={() => setIsCollapsed(!isCollapsed)}
+              className={`flex items-center justify-between ${!isCollapsed ? "bg-panel" : "bg-bg"} hover:bg-panel border-b  border-border  px-2 py-1.5 header-bar`}
+            onClick={handleSetActive}
+            style={{ cursor: 'pointer', userSelect: 'none' }}
+
           >
-            <div className="flex items-center gap-2" style={{ userSelect: "none" }}>
+            <div className="flex items-center gap-2">
               {/* Collapse Icon (Copied SVG) */}
               <svg
                 width="12"
@@ -295,11 +334,11 @@ export const createRequestHeadersNode = (NodeViewWrapper: any, CodeEditor: any) 
                     e.stopPropagation();
                     handleCopy();
                   }}
-                  className="px-3 py-1 text-xs text-comment hover:bg-active/50 rounded"
+                  className="response-action-btn  px-3 py-1 text-xs text-comment rounded"
                   title="Copy to clipboard"
                   style={{ cursor: "pointer", userSelect: "none" }}
                 >
-                  Copy
+                  <Copy size={14}/>
                 </button>
               )}
               {/* ... Download button if needed ... */}
@@ -341,7 +380,7 @@ export const createRequestHeadersNode = (NodeViewWrapper: any, CodeEditor: any) 
                     }
                   `}</style>
                   <div className="request-headers-editor" style={{ height: "100%", overflow: "auto" }}>
-                    <CodeEditor readOnly lang="text" value={headersText} showReplace={false} />
+                    <CodeEditor autoFocus={false} readOnly lang="text" value={headersText} showReplace={false} />
                   </div>
                 </div>
               );

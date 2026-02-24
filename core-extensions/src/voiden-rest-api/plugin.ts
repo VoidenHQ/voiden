@@ -13,6 +13,7 @@ import { createRequestHeadersNode } from './nodes/RequestHeadersNode';
 import { createResponseBodyNode } from './nodes/ResponseBodyNode';
 import manifest from './manifest.json';
 import React from 'react';
+import { createResponseDocNode } from './nodes/ResponseDocNode';
 import { CopyCurlButton } from './components/CopyCurlButton';
 
 type EditorTab = { title?: string; content?: string; tabId?: string };
@@ -176,11 +177,12 @@ const voidenRestApiPlugin = (context: PluginContext) => {
       const ResponseHeadersNode = createResponseHeadersNode(NodeViewWrapper, CodeEditor);
       const RequestHeadersNode = createRequestHeadersNode(NodeViewWrapper, CodeEditor);
       const ResponseBodyNode = createResponseBodyNode(NodeViewWrapper, CodeEditor);
-
+      const ResponseDocNode = createResponseDocNode(NodeViewWrapper);
       context.registerVoidenExtension(ResponseStatusNode);
       context.registerVoidenExtension(ResponseHeadersNode);
       context.registerVoidenExtension(ResponseBodyNode);
       context.registerVoidenExtension(RequestHeadersNode);
+      context.registerVoidenExtension(ResponseDocNode);
 
       // Register linkable node types (for external file linking)
 
@@ -190,6 +192,7 @@ const voidenRestApiPlugin = (context: PluginContext) => {
         'rest-request',
         'method',
         'url',
+        'response-doc',
         'headers-table',
         'query-table',
         'path-table',
@@ -218,6 +221,7 @@ const voidenRestApiPlugin = (context: PluginContext) => {
         'path-table': 'Path Params',
         'rest-params': 'Path Params',
         'rest-file': 'File Upload',
+        'response-doc': 'Response',
         'response-body': 'Response Body',
         'response-headers': 'Response Headers',
         'request-headers': 'Request Headers',
@@ -230,7 +234,7 @@ const voidenRestApiPlugin = (context: PluginContext) => {
       context.registerEditorAction({
         id: "copy-curl-button",
         component: (props: any) =>
-          React.createElement(CopyCurlButton, { 
+          React.createElement(CopyCurlButton, {
             tab: props?.tab,
             context: context
           }),

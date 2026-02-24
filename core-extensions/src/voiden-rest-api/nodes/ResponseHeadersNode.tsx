@@ -8,6 +8,8 @@
 import * as React from "react";
 import { Node } from "@tiptap/core";
 import { ReactNodeViewRenderer } from "@tiptap/react";
+import { useParentResponseDoc } from "./ResponseDocNode";
+import { Copy, Download } from "lucide-react";
 
 export interface ResponseHeader {
   key: string;
@@ -23,14 +25,24 @@ export const createResponseHeadersNode = (
   NodeViewWrapper: any,
   CodeEditor: any
 ) => {
-  const ResponseHeadersComponent = ({ node }: any) => {
+  const ResponseHeadersComponent = ({ node,getPos,editor }: any) => {
     const { headers } = node.attrs as ResponseHeadersAttrs;
-    const [isCollapsed, setIsCollapsed] = React.useState(false);
+ const { activeNode } = useParentResponseDoc(editor, getPos);
+    const isCollapsed = activeNode !== "response-headers";
+
+    // Handle click - call the editor command to set active node
+    const handleSetActive = () => {
+      if(isCollapsed){
+        editor.commands.setActiveResponseNode("response-headers");
+      }else{
+        editor.commands.setActiveResponseNode("");
+      }
+    };
 
     if (!headers || headers.length === 0) {
       return (
         <NodeViewWrapper className="response-headers-node" style={{ userSelect: 'text' }}>
-          <div className="my-2">
+          <div>
             <div className="bg-bg p-2 text-comment text-sm border-b !border-solid !border-[rgba(0,0,0,0.2)]">No headers</div>
           </div>
         </NodeViewWrapper>
@@ -70,11 +82,18 @@ export const createResponseHeadersNode = (
 
     return (
       <NodeViewWrapper className="response-headers-node" style={{ userSelect: 'text' }}>
+           <style>{`
+          .response-action-btn:hover {
+            color: var(--accent) !important;
+          }
+        `}</style>
+
         <div className="my-2">
           {/* Header with collapse button */}
           <div
-            className="bg-bg border-b !border-solid !border-[rgba(0,0,0,0.2)] px-2 py-1.5 flex items-center justify-between header-bar"
-            onClick={() => setIsCollapsed(!isCollapsed)}
+         className={`flex items-center justify-between ${!isCollapsed ? "bg-panel" : "bg-bg"} hover:bg-panel border-b  border-border  px-2 py-1.5 header-bar`}
+            onClick={handleSetActive}
+
           >
             <div className="flex items-center gap-2" style={{ userSelect: 'none' }}>
               <svg
@@ -106,11 +125,11 @@ export const createResponseHeadersNode = (
               {!isCollapsed && (
                 <button
                   onClick={(e) => { e.stopPropagation(); handleCopy(); }}
-                  className="px-3 py-1 text-xs text-comment hover:bg-active/50 rounded"
+                  className="response-action-btn px-3 py-1 text-xs text-comment rounded"
                   title="Copy to clipboard"
                   style={{ cursor: 'pointer', userSelect: 'none' }}
                 >
-                  Copy
+                  <Copy size={14} />
                 </button>
               )}
 
@@ -118,11 +137,11 @@ export const createResponseHeadersNode = (
               {!isCollapsed && (
                 <button
                   onClick={(e) => { e.stopPropagation(); handleDownload(); }}
-                  className="px-3 py-1 text-xs text-comment hover:bg-active/50 rounded"
+                  className="response-action-btn px-3 py-1 text-xs text-comment rounded"
                   title="Download"
                   style={{ cursor: 'pointer', userSelect: 'none' }}
                 >
-                  Download
+                  <Download size={14} />
                 </button>
               )}
             </div>

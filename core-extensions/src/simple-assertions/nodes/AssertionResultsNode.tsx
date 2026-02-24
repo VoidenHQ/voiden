@@ -2,6 +2,7 @@ import * as React from "react";
 import { Node } from "@tiptap/core";
 import { ReactNodeViewRenderer } from "@tiptap/react";
 import type { AssertionResult } from "../lib/assertionEngine";
+import { Copy } from "lucide-react";
 
 export interface AssertionResultsAttrs {
   results: AssertionResult[];
@@ -9,13 +10,81 @@ export interface AssertionResultsAttrs {
   passedAssertions: number;
   failedAssertions: number;
 }
+export type ResponseChildNodeType =
+  | "response-body"
+  | "response-headers"
+  | "request-headers"
+  | "assertion-results"
+  | "openapi-validation-results";
+
+export interface ResponseDocAttrs {
+  activeNode: ResponseChildNodeType | null;
+}
+
+
+const useParentResponseDoc = (editor: any, getPos: () => number) => {
+  const [parentState, setParentState] = React.useState<{
+    activeNode: ResponseChildNodeType | null;
+    parentPos: number | null;
+  }>({
+    activeNode: null,
+    parentPos: null,
+  });
+
+  React.useEffect(() => {
+    const updateParentState = () => {
+      try {
+        const pos = getPos();
+        const $pos = editor.state.doc.resolve(pos);
+
+        // Walk up to find response-doc parent
+        for (let d = $pos.depth; d > 0; d--) {
+          const node = $pos.node(d);
+          if (node.type.name === "response-doc") {
+            setParentState({
+              activeNode: node.attrs.activeNode,
+              parentPos: $pos.before(d),
+            });
+            return;
+          }
+        }
+      } catch (e) {
+        // Position might not be valid during unmount
+      }
+    };
+
+    // Initial read
+    updateParentState();
+
+    // Listen to editor updates using the correct TipTap API
+    editor.on('update', updateParentState);
+    editor.on('transaction', updateParentState);
+
+    return () => {
+      editor.off('update', updateParentState);
+      editor.off('transaction', updateParentState);
+    };
+  }, [editor, getPos]);
+
+  return parentState;
+};
+
 
 // Factory function pattern
 export const createAssertionResultsNode = (NodeViewWrapper: any) => {
-  const AssertionResultsComponent = ({ node }: any) => {
+  const AssertionResultsComponent = ({ node, getPos, editor }: any) => {
     const { results, totalAssertions, passedAssertions, failedAssertions } =
       node.attrs as AssertionResultsAttrs;
-    const [isCollapsed, setIsCollapsed] = React.useState(false);
+
+    const { activeNode } = useParentResponseDoc(editor, getPos);
+    const isCollapsed = activeNode !== "assertion-results";
+    const handleSetActive = () => {
+      if (isCollapsed) {
+        editor.commands.setActiveResponseNode("assertion-results");
+      } else {
+        editor.commands.setActiveResponseNode("");
+      }
+    };
 
     const getStatusColor = (passed: boolean) => {
       return passed ? "text-green-400" : "text-red-400";
@@ -48,11 +117,18 @@ export const createAssertionResultsNode = (NodeViewWrapper: any) => {
         className="assertion-results-node"
         style={{ userSelect: "text" }}
       >
+        <style>{`
+          .response-action-btn:hover {
+            color: var(--accent) !important;
+          }
+        `}</style>
+
         <div className="my-2">
           {/* Header with collapse */}
           <div
-            className="bg-bg border-b !border-solid !border-[rgba(0,0,0,0.2)] px-2 py-1.5 flex items-center justify-between header-bar cursor-pointer"
-            onClick={() => setIsCollapsed(!isCollapsed)}
+            className={`bg-bg border-b border-border ${!isCollapsed ? "bg-panel" : "bg-bg"} hover:bg-panel px-2 py-1.5 flex items-center justify-between header-bar cursor-pointer`}
+            onClick={handleSetActive}
+
           >
             <div className="flex items-center gap-2" style={{ userSelect: "none" }}>
               <svg
@@ -79,11 +155,11 @@ export const createAssertionResultsNode = (NodeViewWrapper: any) => {
                 Assertion Results
               </span>
               <span
-                className={`text-xs px-2 py-0.5 rounded ${
-                  failedAssertions === 0
-                    ? "bg-green-500/20 text-green-400"
-                    : "bg-red-500/20 text-red-400"
-                }`}
+                className={`text-xs px-2 py-0.5 rounded ${failedAssertions === 0
+                  ? "bg-green-500/20 text-green-400"
+                  : "bg-red-500/20 text-red-400"
+                  }`}
+
                 style={{ pointerEvents: "none" }}
               >
                 {passedAssertions}/{totalAssertions} passed ({passRate}%)
@@ -97,10 +173,10 @@ export const createAssertionResultsNode = (NodeViewWrapper: any) => {
                     e.stopPropagation();
                     handleCopy();
                   }}
-                  className="px-3 py-1 text-xs text-comment hover:bg-active/50 rounded"
+                  className="response-action-btn  px-3 py-1 text-xs text-comment rounded"
                   style={{ cursor: "pointer", userSelect: "none" }}
                 >
-                  Copy
+                  <Copy size={14} />
                 </button>
               )}
             </div>
@@ -141,9 +217,9 @@ export const createAssertionResultsNode = (NodeViewWrapper: any) => {
                     {results.map((result, index) => (
                       <tr
                         key={index}
-                        className={`border-b !border-solid !border-[rgba(0,0,0,0.1)] hover:bg-active/30 transition-colors ${
-                          result.passed ? "" : "bg-red-500/5"
-                        }`}
+                         className={`border-b !border-solid !border-[rgba(0,0,0,0.1)] hover:bg-active/30 transition-colors ${result.passed ? "" : "bg-red-500/5"
+                          }`}
+
                       >
                         <td className="px-2 py-2">
                           <span className={`font-medium text-xs ${getStatusColor(result.passed)}`}>
@@ -167,9 +243,8 @@ export const createAssertionResultsNode = (NodeViewWrapper: any) => {
                         </td>
                         <td className="px-2 py-2">
                           <span
-                            className={`font-mono break-all ${
-                              result.passed ? "text-green-400" : "text-red-400"
-                            }`}
+                            className={`font-mono break-all ${result.passed ? "text-green-400" : "text-red-400"
+                              }`}
                           >
                             {result.actualValue !== null && result.actualValue !== undefined
                               ? typeof result.actualValue === "object"

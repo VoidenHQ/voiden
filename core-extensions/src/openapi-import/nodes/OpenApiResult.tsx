@@ -1,7 +1,7 @@
 import * as React from "react";
 import { Node } from "@tiptap/core";
 import { ReactNodeViewRenderer } from "@tiptap/react";
-import { Check, CircleAlert, X } from "lucide-react";
+import { Check, CircleAlert,Copy, X } from "lucide-react";
 
 export interface ValidationError {
   type: 'schema' | 'status' | 'header' | 'content-type';
@@ -10,6 +10,18 @@ export interface ValidationError {
   expected?: any;
   actual?: any;
 }
+
+export type ResponseChildNodeType =
+  | "response-body"
+  | "response-headers"
+  | "request-headers"
+  | "assertion-results"
+  | "openapi-validation-results";
+
+export interface ResponseDocAttrs {
+  activeNode: ResponseChildNodeType | null;
+}
+
 
 export interface ValidationWarning {
   type: 'missing-field' | 'extra-field' | 'deprecated';
@@ -30,9 +42,56 @@ export interface OpenApiValidationAttrs {
   totalWarnings: number;
 }
 
+const useParentResponseDoc = (editor: any, getPos: () => number) => {
+  const [parentState, setParentState] = React.useState<{
+    activeNode: ResponseChildNodeType | null;
+    parentPos: number | null;
+  }>({
+    activeNode: null,
+    parentPos: null,
+  });
+
+  React.useEffect(() => {
+    const updateParentState = () => {
+      try {
+        const pos = getPos();
+        const $pos = editor.state.doc.resolve(pos);
+
+        // Walk up to find response-doc parent
+        for (let d = $pos.depth; d > 0; d--) {
+          const node = $pos.node(d);
+          if (node.type.name === "response-doc") {
+            setParentState({
+              activeNode: node.attrs.activeNode,
+              parentPos: $pos.before(d),
+            });
+            return;
+          }
+        }
+      } catch (e) {
+        // Position might not be valid during unmount
+      }
+    };
+
+    // Initial read
+    updateParentState();
+
+    // Listen to editor updates using the correct TipTap API
+    editor.on('update', updateParentState);
+    editor.on('transaction', updateParentState);
+
+    return () => {
+      editor.off('update', updateParentState);
+      editor.off('transaction', updateParentState);
+    };
+  }, [editor, getPos]);
+
+  return parentState;
+};
+
 // Factory function pattern
 export const createOpenApiValidationResultsNode = (NodeViewWrapper: any) => {
-  const OpenApiValidationComponent = ({ node }: any) => {
+  const OpenApiValidationComponent = ({ node,getPos,editor }: any) => {
     const {
       passed,
       errors,
@@ -42,8 +101,17 @@ export const createOpenApiValidationResultsNode = (NodeViewWrapper: any) => {
       totalWarnings
     } = node.attrs as OpenApiValidationAttrs;
 
-    const [isCollapsed, setIsCollapsed] = React.useState(false);
     const [selectedTab, setSelectedTab] = React.useState<'all' | 'errors' | 'warnings'>('all');
+
+      const { activeNode } = useParentResponseDoc(editor, getPos);
+    const isCollapsed = activeNode !== "openapi-validation-results";
+    const handleSetActive = () => {
+      if (isCollapsed) {
+        editor.commands.setActiveResponseNode("openapi-validation-results");
+      } else {
+        editor.commands.setActiveResponseNode("");
+      }
+    };
 
     // SAFETY CHECK: Ensure validatedAgainst has the correct structure
     const safeValidatedAgainst = React.useMemo(() => {
@@ -137,11 +205,18 @@ export const createOpenApiValidationResultsNode = (NodeViewWrapper: any) => {
         className="openapi-validation-results-node"
         style={{ userSelect: "text" }}
       >
+         <style>{`
+          .response-action-btn:hover {
+            color: var(--accent) !important;
+          }
+        `}</style>
+
         <div className="my-2">
           {/* Header with collapse */}
           <div
-            className="bg-bg border-b !border-solid !border-[rgba(0,0,0,0.2)] px-2 py-1.5 flex items-center justify-between header-bar cursor-pointer"
-            onClick={() => setIsCollapsed(!isCollapsed)}
+              className={`bg-bg border-b border-border ${!isCollapsed?'bg-panel':"bg-bg"} hover:bg-panel  px-2 py-1.5 flex items-center justify-between header-bar cursor-pointer`}
+            onClick={handleSetActive}
+
           >
             <div className="flex items-center gap-2" style={{ userSelect: "none" }}>
               <svg
@@ -188,10 +263,10 @@ export const createOpenApiValidationResultsNode = (NodeViewWrapper: any) => {
                     e.stopPropagation();
                     handleCopy();
                   }}
-                  className="px-3 py-1 text-xs text-comment hover:bg-active/50 rounded"
+                  className="response-action-btn px-3 py-1 text-xs text-comment rounded"
                   style={{ cursor: "pointer", userSelect: "none" }}
                 >
-                  Copy
+                  <Copy size={14}/>
                 </button>
               )}
             </div>

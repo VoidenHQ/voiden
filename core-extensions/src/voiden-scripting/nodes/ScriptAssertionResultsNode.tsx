@@ -1,6 +1,7 @@
 import * as React from "react";
 import { Node } from "@tiptap/core";
 import { ReactNodeViewRenderer } from "@tiptap/react";
+import { useParentResponseDoc } from "../../voiden-rest-api/nodes/ResponseDocNode";
 
 export interface ScriptAssertionResultsAttrs {
   results: Array<{ passed: boolean; message: string; condition?: string; actualValue?: any; operator?: string; expectedValue?: any; reason?: string }>;
@@ -10,10 +11,11 @@ export interface ScriptAssertionResultsAttrs {
 }
 
 export const createScriptAssertionResultsNode = (NodeViewWrapper: any) => {
-  const ScriptAssertionResultsComponent = ({ node }: any) => {
+  const ScriptAssertionResultsComponent = ({ node, editor, getPos }: any) => {
     const { results, totalAssertions, passedAssertions, failedAssertions } =
       node.attrs as ScriptAssertionResultsAttrs;
-    const [isCollapsed, setIsCollapsed] = React.useState(false);
+    const { activeNode } = useParentResponseDoc(editor, getPos);
+    const isCollapsed = activeNode !== "script-assertion-results";
     const [expanded, setExpanded] = React.useState<Record<number, boolean>>({});
 
     const stringifyValue = (value: any) => {
@@ -80,7 +82,7 @@ export const createScriptAssertionResultsNode = (NodeViewWrapper: any) => {
         <div className="my-2">
           <div
             className="bg-bg border-b !border-solid !border-[rgba(0,0,0,0.2)] px-2 py-1.5 flex items-center justify-between header-bar cursor-pointer"
-            onClick={() => setIsCollapsed(!isCollapsed)}
+            onClick={() => editor.commands.setActiveResponseNode(isCollapsed ? "script-assertion-results" : "")}
           >
             <div className="flex items-center gap-2" style={{ userSelect: "none" }}>
               <svg

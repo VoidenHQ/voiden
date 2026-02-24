@@ -113,7 +113,7 @@ export function convertResponseToVoidenDoc(response: HttpResponse): any {
 
   // Build the Voiden document structure
   // Store metadata in doc attrs for ResponsePanelContainer to access
-  const content: any[] = [
+  const responseDocContent: any[] = [
     // Response Body Node (shown first, before headers)
     {
       type: 'response-body',
@@ -128,7 +128,7 @@ export function convertResponseToVoidenDoc(response: HttpResponse): any {
   if (response.metadata?.assertionResults) {
     console.log('[Response Converter] ✓ Found assertion results, injecting into response doc');
     console.log('[Response Converter] Assertion results:', response.metadata.assertionResults);
-    content.push({
+    responseDocContent.push({
       type: 'assertion-results',
       attrs: {
         results: response.metadata.assertionResults.results,
@@ -145,7 +145,7 @@ export function convertResponseToVoidenDoc(response: HttpResponse): any {
   if (response.metadata?.openAPIValidation) {
     console.log('[Response Converter] ✓ Found OpenAPI validation results, injecting into response doc');
     console.log('[Response Converter] OpenAPI validation:', response.metadata.openAPIValidation);
-    content.push({
+    responseDocContent.push({
       type: 'openapi-validation-results',
       attrs: {
         passed: response.metadata.openAPIValidation.passed,
@@ -168,7 +168,7 @@ export function convertResponseToVoidenDoc(response: HttpResponse): any {
 
   if (scriptAssertions) {
     console.log('[Response Converter] ✓ Found script assertion results, injecting into response doc');
-    content.push({
+    responseDocContent.push({
       type: 'script-assertion-results',
       attrs: {
         results: scriptAssertions.results || [],
@@ -182,7 +182,7 @@ export function convertResponseToVoidenDoc(response: HttpResponse): any {
   }
 
   // Add response headers and request info
-  content.push(
+  responseDocContent.push(
     {
       type: "response-headers",
       attrs: {
@@ -200,6 +200,18 @@ export function convertResponseToVoidenDoc(response: HttpResponse): any {
       },
     }
   );
+   const responseDocNode = {
+    type: 'response-doc',
+    attrs: {
+      activeNode: 'response-body', // Default to showing response body
+      statusCode: response.statusCode,
+      statusMessage: response.statusMessage || getDefaultStatusMessage(response.statusCode),
+      elapsedTime: response.elapsedTime || 0,
+      url: response.url || null,
+    },
+    content: responseDocContent,
+  };
+
 
   const doc = {
     type: 'doc',
@@ -210,7 +222,7 @@ export function convertResponseToVoidenDoc(response: HttpResponse): any {
       url: response.url || null,
       requestMeta: response.requestMeta || null,
     },
-    content,
+    content: [responseDocNode],
   };
 
   return doc;
