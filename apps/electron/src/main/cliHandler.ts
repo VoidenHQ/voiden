@@ -23,21 +23,19 @@ export async function handleCliArguments(
 
 
   const firstArg = userArgs[0];
-  // No arguments = open default Voiden directory
-  if (userArgs.length === 0 || firstArg === '.') {
-    const defaultDir = await resolveToAbsolutePath('');
-    if (windowManager.focusWindowByProject(defaultDir)) {
-      return;
-    }
-    const main = await windowManager.createWindow(undefined, true);
-    main.webContents.on('did-finish-load', async () => {
-      const activeWindowId = main?.windowInfo.id || "";
-      if (fs.existsSync(defaultDir)) {
-        await windowManager.setActiveDirectory(activeWindowId as string, defaultDir);
-      }
-      main.focus();
-    })
 
+  // No arguments (e.g. launched by NSIS after update) — open a clean window
+  if (userArgs.length === 0) {
+    const main = await windowManager.createWindow(undefined, true);
+    main.webContents.on('did-finish-load', () => {
+      main.focus();
+    });
+    return;
+  }
+
+  // Explicit "." — open current terminal working directory
+  if (firstArg === '.') {
+    await openPath(await resolveToAbsolutePath('.'));
     return;
   }
 
@@ -142,7 +140,9 @@ async function openPath(inputPath: string): Promise<void> {
 }
 
 /**
- * Get CLI arguments, handling different execution contexts
+ * Get CLI arguments, handling different execution contexts.
+ * Filters out installer/updater flags (e.g. NSIS --updated, --force-run)
+ * so they don't trigger the CLI code path on restart after an update.
  */
 export function getCliArguments(): string[] {
   let args: string[];
@@ -158,7 +158,15 @@ export function getCliArguments(): string[] {
     args = process.argv.slice(1);
   }
 
-  return args;
+  // Filter out installer/updater flags that are not real user arguments.
+  // NSIS adds --updated and --force-run after a Windows update; Squirrel
+  // adds --squirrel-* flags. If these are the only args present, the app
+  // should go through the normal loadAllWindows() path, not the CLI path.
+  return args.filter(arg =>
+    !arg.startsWith('--updated') &&
+    !arg.startsWith('--force-run') &&
+    !arg.startsWith('--squirrel')
+  );
 }
 
 /**
