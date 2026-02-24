@@ -15,6 +15,7 @@ import { Settings, Menu } from "lucide-react";
 import { Kbd } from "@/core/components/ui/kbd";
 import { ErrorBoundary } from "@/core/components/ErrorBoundary";
 import { DiffViewer } from "@/core/git/components/DiffViewer";
+import { EnvironmentEditor } from "@/core/environment/components/EnvironmentEditor";
 
 // TypeScript interface for md-preview plugin helpers
 interface MdPreviewHelpers {
@@ -461,6 +462,15 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
 
   if (tabContent.type === "settings") {
     return <SettingsContent />;
+  }
+
+  if (tabContent.type === "environmentEditor") {
+    editorActions.forEach((action) => {
+      if (action && action.predicate) {
+        action.predicate({ title: '' });
+      }
+    });
+    return <EnvironmentEditor />;
   }
 
   if (tabContent.type === "extensionDetails") {

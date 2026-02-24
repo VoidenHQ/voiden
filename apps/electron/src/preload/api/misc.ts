@@ -102,7 +102,14 @@ export const envApi = {
    * @returns Array of variable names (no values)
    */
   getKeys: () => ipcRenderer.invoke("env:getKeys"),
-  extendEnvs: (comment: string, variables: [{ key: string, value: string }]) => ipcRenderer.invoke('env:extend-env-files', { comment, variables })
+  extendEnvs: (comment: string, variables: [{ key: string, value: string }]) => ipcRenderer.invoke('env:extend-env-files', { comment, variables }),
+  getYamlTrees: (profile?: string) => ipcRenderer.invoke("env:getYamlTrees", profile ? { profile } : undefined) as Promise<{ public: Record<string, unknown>; private: Record<string, unknown> }>,
+  saveYamlTrees: (publicTree: Record<string, unknown>, privateTree: Record<string, unknown>, profile?: string) =>
+    ipcRenderer.invoke("env:saveYamlTrees", { publicTree, privateTree, profile }),
+  getProfiles: () => ipcRenderer.invoke("env:getProfiles") as Promise<string[]>,
+  setActiveProfile: (profile: string) => ipcRenderer.invoke("env:setActiveProfile", profile),
+  createProfile: (profile: string) => ipcRenderer.invoke("env:createProfile", profile),
+  deleteProfile: (profile: string) => ipcRenderer.invoke("env:deleteProfile", profile),
 };
 
 export const requestApi = {

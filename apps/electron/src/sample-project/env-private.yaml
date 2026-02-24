@@ -1,0 +1,3 @@
+test:
+  variables:
+    AUTH_TOKEN: NoTests.NoPeace.DeployAnyway

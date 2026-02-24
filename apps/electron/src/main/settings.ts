@@ -41,9 +41,6 @@ export type Settings = {
   updates: {
     channel: "stable" | "early-access";
   };
-  environment: {
-    use_hierarchy: boolean; // Merge base .env with other environment files
-  };
   cli: {
     installed: boolean; // Whether CLI is currently installed in PATH
   };

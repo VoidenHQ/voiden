@@ -33,6 +33,7 @@ export type PanelElement = Panel | PanelGroup;
 interface LayoutState {
   layout: PanelElement;
   activeEnv?: string;
+  activeProfile?: string;
   hidden?:boolean
 }
 
