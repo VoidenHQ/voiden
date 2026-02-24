@@ -270,11 +270,9 @@ export function useSettings() {
   };
 
   useElectronEvent("settings:changed", async () => {
-    setLoading(true);
     const settings: UserSettings = await window.electron?.userSettings.get()
     const validatedSettings = validateSettings(settings);
     setSettings(validatedSettings);
-    setLoading(false);
     if (settings && settings.appearance && settings.appearance.theme) {
       await loadThemeById(settings.appearance.theme);
     }
