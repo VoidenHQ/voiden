@@ -5,8 +5,16 @@ Complete setup guide for a fresh clone of the Voiden repository.
 ## Prerequisites
 
 - **Node.js** v21.x ([Download](https://nodejs.org/))
-- **Yarn** v4.3.1 (installed automatically, see below)
 - **Git** (for cloning the repository)
+- Corepack (comes with Node.js, but must be enabled manually)
+- **Yarn** v4.3.1 (installed automatically, see below)
+
+  #### Setup Instructions
+  After installing Node.js
+  ```bash
+  corepack enable
+  yarn set version 4.3.1
+  ```
 
 ## Quick Start
 
@@ -24,7 +32,10 @@ yarn install
 # 4. Build core-extensions
 yarn workspace @voiden/core-extensions build
 
-# 5. Start the app
+# 5. Navigate to electron main folder
+cd apps/electron
+
+# 6. Start the app
 yarn start
 ```
 
