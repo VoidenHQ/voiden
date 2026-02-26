@@ -14,6 +14,13 @@ const sidebarTabIconMap = {
   gitSourceControl: <GitBranch size={14} />,
 };
 
+const sidebarTabLabelMap: Record<string, string> = {
+  fileExplorer: "File Explorer",
+  responsePanel: "Response Panel",
+  extensionBrowser: "Extensions",
+  gitSourceControl: "Source Control",
+};
+
 // Helper to safely render lucide icons
 const renderLucideIcon = (iconName: string | undefined, size: number = 14) => {
   if (!iconName) {
@@ -79,22 +86,28 @@ export const SidePanelTabs = ({ side }: { side: "left" | "right" }) => {
           return null;
         }
 
+        const tabLabel = tab.type === "custom" && extensionTab
+          ? extensionTab.title || extensionTab.id
+          : sidebarTabLabelMap[tab.type] || tab.type;
+
         return (
           <React.Fragment key={tab.id}>
-            <button
-              onClick={() => {
-                activateTab.mutate({ sidebarId: side, tabId: tab.id });
-                setStoreIsSearching(false);
-              }}
-              className={cn(
-                "px-2 h-full flex items-center justify-center hover:bg-active",
-                sidebarTabs.activeTabId === tab.id && !storeIsSearching && "bg-active",
-              )}
-            >
-              {tab.type === "custom" && extensionTab
-                ? renderLucideIcon(extensionTab.icon, 14)
-                : sidebarTabIconMap[tab.type as keyof typeof sidebarTabIconMap]}
-            </button>
+            <Tip label={tabLabel} side="bottom">
+              <button
+                onClick={() => {
+                  activateTab.mutate({ sidebarId: side, tabId: tab.id });
+                  setStoreIsSearching(false);
+                }}
+                className={cn(
+                  "px-2 h-full flex items-center justify-center hover:bg-active",
+                  sidebarTabs.activeTabId === tab.id && !storeIsSearching && "bg-active",
+                )}
+              >
+                {tab.type === "custom" && extensionTab
+                  ? renderLucideIcon(extensionTab.icon, 14)
+                  : sidebarTabIconMap[tab.type as keyof typeof sidebarTabIconMap]}
+              </button>
+            </Tip>
             {idx === 0 && side === "left" && (
               <Tip label={<span className="flex items-center gap-2"><span>Search</span><Kbd keys="⇧⌘F" size="sm" /></span>} side="bottom">
                 <button
