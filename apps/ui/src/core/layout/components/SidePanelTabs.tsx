@@ -4,8 +4,8 @@ import { cn } from "@/core/lib/utils";
 import { useGetSidebarTabs, useActivateSidebarTab } from "@/core/layout/hooks";
 import { usePluginStore } from "@/plugins";
 import { useSearchStore } from "@/core/stores/searchStore";
-import * as Tooltip from "@radix-ui/react-tooltip";
 import { Kbd } from "@/core/components/ui/kbd";
+import { Tip } from "@/core/components/ui/Tip";
 
 const sidebarTabIconMap = {
   fileExplorer: <Files size={14} />,
@@ -96,33 +96,20 @@ export const SidePanelTabs = ({ side }: { side: "left" | "right" }) => {
                 : sidebarTabIconMap[tab.type as keyof typeof sidebarTabIconMap]}
             </button>
             {idx === 0 && side === "left" && (
-              <Tooltip.Root>
-                <Tooltip.Trigger asChild>
-                  <button
-                    onClick={() => {
-                      setStoreIsSearching(!storeIsSearching);
-                      activateTab.mutate({ sidebarId: side, tabId: tab.id });
-                    }}
-                    className={cn(
-                      "px-2 h-full flex items-center justify-center hover:bg-active",
-                      sidebarTabs.activeTabId === tab.id && storeIsSearching && "bg-active",
-                    )}
-                  >
-                    <Search size={14} />
-                  </button>
-                </Tooltip.Trigger>
-
-                <Tooltip.Content
-                  align="start"
-                  sideOffset={4}
-                  alignOffset={4}
-                  side="bottom"
-                  className="border flex items-center gap-2 text-comment bg-panel border-border p-1 text-sm z-10"
+              <Tip label={<span className="flex items-center gap-2"><span>Search</span><Kbd keys="⇧⌘F" size="sm" /></span>} side="bottom">
+                <button
+                  onClick={() => {
+                    setStoreIsSearching(!storeIsSearching);
+                    activateTab.mutate({ sidebarId: side, tabId: tab.id });
+                  }}
+                  className={cn(
+                    "px-2 h-full flex items-center justify-center hover:bg-active",
+                    sidebarTabs.activeTabId === tab.id && storeIsSearching && "bg-active",
+                  )}
                 >
-                  <span>Search</span>
-                  <Kbd keys="⇧⌘F" size="sm"></Kbd>
-                </Tooltip.Content>
-              </Tooltip.Root>
+                  <Search size={14} />
+                </button>
+              </Tip>
             )}
           </React.Fragment>
         );

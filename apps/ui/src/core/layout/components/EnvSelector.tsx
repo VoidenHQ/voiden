@@ -1,5 +1,4 @@
 import { cn } from "@/core/lib/utils";
-import * as Tooltip from "@radix-ui/react-tooltip";
 import { Command } from "cmdk";
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -7,6 +6,7 @@ import { useEnvironments, useSetActiveEnvironment, useProfiles, useSetActiveProf
 import { useAddPanelTab, useActivateTab, useGetPanelTabs } from "@/core/layout/hooks";
 import { ChevronRight, FileText, Ban, Check, Settings2, Layers } from "lucide-react";
 import { Kbd } from "@/core/components/ui/kbd";
+import { Tip } from "@/core/components/ui/Tip";
 
 export const EnvSelector = () => {
   const queryClient = useQueryClient();
@@ -81,33 +81,21 @@ export const EnvSelector = () => {
       <div className="px-1">
         <ChevronRight size={14} className="text-comment" />
       </div>
-      <Tooltip.Root>
-        <Tooltip.Trigger asChild>
-          <button
-            className={cn("text-sm h-full px-2 flex items-center gap-2 hover:bg-active no-drag", !envs?.activeEnv && "text-comment")}
-            onClick={() => setOpen(true)}
-          >
-            <span>
-              {envs?.activeEnv
-                ? (envs.displayNames?.[envs.activeEnv] || envs.activeEnv.replace(/\\/g, "/").split("/").pop())
-                : "No environment"}
-              {hasMultipleProfiles && activeProfile !== "default" && (
-                <span className="text-comment ml-1">({activeProfile})</span>
-              )}
-            </span>
-          </button>
-        </Tooltip.Trigger>
-        <Tooltip.Content
-          align="start"
-          sideOffset={4}
-          alignOffset={4}
-          side="top"
-          className="border bg-panel border-border p-1 text-sm z-20 text-comment flex items-center gap-2"
+      <Tip label={<span className="flex items-center gap-2"><span>Select an environment</span><Kbd keys="⌥⌘E" size="sm" /></span>}>
+        <button
+          className={cn("text-sm h-full px-2 flex items-center gap-2 hover:bg-active no-drag", !envs?.activeEnv && "text-comment")}
+          onClick={() => setOpen(true)}
         >
-          <span>Select an environment</span>
-          <Kbd keys="⌥⌘E" size="sm" />
-        </Tooltip.Content>
-      </Tooltip.Root>
+          <span>
+            {envs?.activeEnv
+              ? (envs.displayNames?.[envs.activeEnv] || envs.activeEnv.replace(/\\/g, "/").split("/").pop())
+              : "No environment"}
+            {hasMultipleProfiles && activeProfile !== "default" && (
+              <span className="text-comment ml-1">({activeProfile})</span>
+            )}
+          </span>
+        </button>
+      </Tip>
       {
         open && (
           <div

@@ -1,7 +1,7 @@
 import { useRef, useEffect } from "react";
 import { Lock, LockOpen, Trash2 } from "lucide-react";
 import { handleTreeKeyDown } from "./envNavigation";
-import { Tip } from "./Tip";
+import { Tip } from "@/core/components/ui/Tip";
 
 interface VariableRowProps {
   varKey: string;

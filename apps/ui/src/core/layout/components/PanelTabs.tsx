@@ -27,9 +27,9 @@ import { getSchema } from "@tiptap/core";
 import { voidenExtensions } from "@/core/editors/voiden/extensions";
 import { prosemirrorToMarkdown } from "@/core/file-system/hooks";
 import { useEditorEnhancementStore } from "@/plugins";
-import * as Tooltip from "@radix-ui/react-tooltip";
 import { usePanelStore } from "@/core/stores/panelStore";
 import { Kbd } from "@/core/components/ui/kbd";
+import { Tip } from "@/core/components/ui/Tip";
 
 const PANEL_STATES_KEY = "panelStates";
 
@@ -319,23 +319,11 @@ const TabComponent = ({
             {getTabIcon(tab)}
             <span className="truncate">{tab.title}</span>
           </div>
-          <Tooltip.Root>
-            <Tooltip.Trigger asChild>
-              <button className="p-0.5 hover:bg-active rounded-sm opacity-0 group-hover:opacity-100" onClick={handleClose}>
-                <X size={14} className="text-comment" strokeWidth={2.5} />
-              </button>
-            </Tooltip.Trigger>
-            <Tooltip.Content
-              align="start"
-              sideOffset={4}
-              alignOffset={4}
-              side="bottom"
-              className="border bg-panel border-border p-1 text-sm z-10 text-comment"
-            >
-              <span className="">Close tab</span>
-              {isActive && <span className="ml-4 ">{isMac ? "⌘W" : "Ctrl+W"}</span>}
-            </Tooltip.Content>
-          </Tooltip.Root>
+          <Tip label={<><span>Close tab</span>{isActive && <span className="ml-4">{isMac ? "⌘W" : "Ctrl+W"}</span>}</>} side="bottom">
+            <button className="p-0.5 hover:bg-active rounded-sm opacity-0 group-hover:opacity-100" onClick={handleClose}>
+              <X size={14} className="text-comment" strokeWidth={2.5} />
+            </button>
+          </Tip>
         </div>
       </ContextMenu.Trigger>
       <ContextMenu.Portal>

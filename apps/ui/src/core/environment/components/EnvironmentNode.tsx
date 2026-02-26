@@ -3,7 +3,7 @@ import { ChevronRight, ChevronDown, Plus, Trash2, FolderPlus, EyeOff, Eye, Tag }
 import { VariableRow } from "./VariableRow";
 import { handleTreeKeyDown } from "./envNavigation";
 import { genVarId, generateUniqueName, renameKey } from "./envTreeUtils";
-import { Tip } from "./Tip";
+import { Tip } from "@/core/components/ui/Tip";
 
 const FOCUS_ITEM_CLASS = "outline-none rounded -mx-1 px-1 focus:bg-active";
 
