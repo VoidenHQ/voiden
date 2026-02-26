@@ -7,6 +7,7 @@ import { useProfiles } from "../hooks/useProfiles.ts";
 import { useCreateProfile } from "@/core/environment/hooks";
 import { useDeleteProfile } from "@/core/environment/hooks";
 import { EnvironmentNode, EditableEnvNode, ExpandSignal } from "./EnvironmentNode";
+import { Tip } from "@/core/components/ui/Tip";
 import { type EditableEnvTree, mergeToEditable, splitFromEditable, generateUniqueName, renameKey, filterTree } from "./envTreeUtils";
 
 const DEBOUNCE_MS = 800;
@@ -104,9 +105,9 @@ const ProfileSelector = ({
                   <Check size={14} className="flex-shrink-0 mr-1" style={{ color: 'var(--icon-success)' }} />
                 )}
                 {profile !== "default" && (
+                  <Tip label={`Delete ${profile}`}>
                   <button
                     className="p-0.5 rounded hover:bg-border opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
-                    title={`Delete ${profile}`}
                     onClick={(e) => {
                       e.stopPropagation();
                       handleDelete(profile);
@@ -114,6 +115,7 @@ const ProfileSelector = ({
                   >
                     <Trash2 size={12} className="text-comment" />
                   </button>
+                  </Tip>
                 )}
               </div>
             ))}
