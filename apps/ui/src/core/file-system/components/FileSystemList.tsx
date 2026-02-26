@@ -748,7 +748,6 @@ function TreeNode({ node, style, dragHandle, activeFile, removeTemporaryNode }: 
                       collapseAllFromFolder(node);
                     }}
                     className="p-0.5 rounded hover:bg-hover ml-1"
-                    title="Collapse all inside this folder"
                   >
                     <ChevronsDownUp size={12} />
                   </button>
@@ -773,7 +772,6 @@ function TreeNode({ node, style, dragHandle, activeFile, removeTemporaryNode }: 
                       expandAllFromFolder(node);
                     }}
                     className="p-0.5 rounded hover:bg-hover"
-                    title="Expand all inside this folder"
                   >
                     <ChevronsUpDown size={12} />
                   </button>
