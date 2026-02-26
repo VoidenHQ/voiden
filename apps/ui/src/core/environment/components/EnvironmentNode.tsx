@@ -32,6 +32,7 @@ interface EnvironmentNodeProps {
   depth: number;
   initialEditing?: boolean;
   expandSignal?: ExpandSignal | null;
+  searchTerm?: string;
   onUpdate: (node: EditableEnvNode) => void;
   onDelete: () => void;
   onRename: (newName: string) => void;
@@ -43,6 +44,7 @@ export const EnvironmentNode = ({
   depth,
   initialEditing = false,
   expandSignal = null,
+  searchTerm,
   onUpdate,
   onDelete,
   onRename,
@@ -65,6 +67,14 @@ export const EnvironmentNode = ({
   }, [expandSignal]);
 
   const hasChildren = Object.keys(node.children).length > 0;
+
+  // Auto-expand all sections when a search term is active
+  useEffect(() => {
+    if (searchTerm) {
+      setExpanded(true);
+      setVarsExpanded(true);
+    }
+  }, [searchTerm]);
 
   // Auto-expand variables when the node is expanded and has no children
   useEffect(() => {
@@ -363,8 +373,8 @@ export const EnvironmentNode = ({
       {/* Content */}
       {expanded && (
         <div className="ml-5 border-l border-border pl-3 space-y-1 pb-2">
-          {/* Variables (collapsible) */}
-          <div>
+          {/* Variables (collapsible) — hidden when empty but env has children */}
+          {!(node.variables.length === 0 && hasChildren) && <div>
             <div
               data-env-item
               tabIndex={-1}
@@ -421,7 +431,7 @@ export const EnvironmentNode = ({
                 )}
               </div>
             )}
-          </div>
+          </div>}
 
           {/* Children */}
           {Object.entries(node.children).map(([childName, childNode]) => (
@@ -432,6 +442,7 @@ export const EnvironmentNode = ({
               depth={depth + 1}
               initialEditing={childName === newChildName}
               expandSignal={expandSignal}
+              searchTerm={searchTerm}
               onUpdate={(updated) => handleUpdateChild(childName, updated)}
               onDelete={() => { handleDeleteChild(childName); setNewChildName(null); }}
               onRename={(newName) => { handleRenameChild(childName, newName); setNewChildName(null); }}

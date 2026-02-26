@@ -104,6 +104,54 @@ export function splitFromEditable(tree: EditableEnvTree): { publicTree: YamlEnvT
   return { publicTree, privateTree };
 }
 
+/**
+ * Filter an editable tree by a search term.
+ * An env node is included when:
+ *   - its name or displayName matches, OR
+ *   - it has any variable whose key or value matches, OR
+ *   - any descendant matches.
+ * When a node is included only because of descendants, its own variables
+ * are filtered to those that match (may be empty).
+ * When a node itself matches by name, all its variables are kept.
+ */
+export function filterTree(tree: EditableEnvTree, term: string): EditableEnvTree {
+  const lower = term.toLowerCase();
+  const result: EditableEnvTree = {};
+  for (const [name, node] of Object.entries(tree)) {
+    const filtered = filterNode(name, node, lower);
+    if (filtered) result[name] = filtered;
+  }
+  return result;
+}
+
+function filterNode(name: string, node: EditableEnvNode, term: string): EditableEnvNode | null {
+  const nameMatch = name.toLowerCase().includes(term) ||
+    (node.displayName?.toLowerCase().includes(term) ?? false);
+
+  const matchingVars = node.variables.filter(
+    (v) => v.key.toLowerCase().includes(term) || v.value.toLowerCase().includes(term)
+  );
+
+  // Recurse into children
+  const filteredChildren: Record<string, EditableEnvNode> = {};
+  for (const [childName, childNode] of Object.entries(node.children)) {
+    const filtered = filterNode(childName, childNode, term);
+    if (filtered) filteredChildren[childName] = filtered;
+  }
+
+  const hasChildMatches = Object.keys(filteredChildren).length > 0;
+  const hasVarMatches = matchingVars.length > 0;
+
+  if (!nameMatch && !hasVarMatches && !hasChildMatches) return null;
+
+  return {
+    ...node,
+    // If the env name itself matches, keep all variables visible; otherwise only matching ones
+    variables: nameMatch ? node.variables : matchingVars,
+    children: nameMatch ? node.children : filteredChildren,
+  };
+}
+
 function splitNode(node: EditableEnvNode): { pub: YamlEnvNode | null; priv: YamlEnvNode | null } {
   const pubVars: Record<string, string> = {};
   const privVars: Record<string, string> = {};
