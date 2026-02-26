@@ -52,7 +52,7 @@ export const Route = createRootRouteWithContext<{
       <ElectronEventProvider>
         <AppProvider>
           <PluginProvider>
-            <TooltipProvider delayDuration={300}>
+            <TooltipProvider delayDuration={300} skipDelayDuration={1000}>
               <div className="cursor-dark flex flex-col h-screen">
                 <Outlet />
                 <CommandPalette

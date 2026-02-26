@@ -88,7 +88,9 @@ export const EnvSelector = () => {
             onClick={() => setOpen(true)}
           >
             <span>
-              {envs?.activeEnv ? envs?.activeEnv.replace(/\\/g, "/").split("/").pop() : "No environment"}
+              {envs?.activeEnv
+                ? (envs.displayNames?.[envs.activeEnv] || envs.activeEnv.replace(/\\/g, "/").split("/").pop())
+                : "No environment"}
               {hasMultipleProfiles && activeProfile !== "default" && (
                 <span className="text-comment ml-1">({activeProfile})</span>
               )}
@@ -198,24 +200,30 @@ export const EnvSelector = () => {
                     {/* Render available environments */}
                     {envs?.data &&
                       Object.entries(envs.data).map(([fileName]) => {
-                        const displayName = fileName.replace(/\\/g, "/").split("/").pop() || fileName;
-                        return { fileName, displayName };
-                      }).filter(({ displayName }) =>
-                        displayName.toLowerCase().includes(search.toLowerCase())
-                      ).map(({ fileName, displayName }) => {
+                        const customName = envs.displayNames?.[fileName];
+                        const fallbackName = fileName.replace(/\\/g, "/").split("/").pop() || fileName;
+                        const displayName = customName || fallbackName;
+                        return { fileName, displayName, fallbackName, hasCustomName: !!customName };
+                      }).filter(({ displayName, fallbackName }) =>
+                        displayName.toLowerCase().includes(search.toLowerCase()) ||
+                        fallbackName.toLowerCase().includes(search.toLowerCase())
+                      ).map(({ fileName, displayName, fallbackName, hasCustomName }) => {
                         const isActive = fileName === envs.activeEnv;
 
                         return (
                           <Command.Item
                             key={fileName}
                             value={fileName}
+                            keywords={hasCustomName ? [fallbackName, displayName] : undefined}
                             className="cursor-pointer px-3 py-2.5 rounded-md mb-1 text-text data-[selected=true]:bg-active hover:bg-active flex items-center gap-3 outline-none"
                             onSelect={() => handleEnvSelect(fileName)}
                           >
                             <FileText size={16} className="flex-shrink-0" style={{ color: 'var(--icon-primary)' }} />
                             <div className="flex-1 min-w-0">
                               <div className="text-sm font-medium truncate">{displayName}</div>
-                              <div className="text-xs text-comment truncate">{fileName}</div>
+                              {hasCustomName && (
+                                <div className="text-xs text-comment truncate">{fileName}</div>
+                              )}
                             </div>
                             {isActive && (
                               <Check size={16} className="flex-shrink-0" style={{ color: 'var(--icon-success)' }} />

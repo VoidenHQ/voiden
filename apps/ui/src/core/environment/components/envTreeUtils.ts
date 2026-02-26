@@ -77,7 +77,15 @@ function mergeNode(pubNode?: YamlEnvNode, privNode?: YamlEnvNode): EditableEnvNo
     children[ck] = mergeNode(pubNode?.children?.[ck], privNode?.children?.[ck]);
   }
 
-  return { variables, children };
+  const intermediate = pubNode?.intermediate || privNode?.intermediate || false;
+  const displayName = pubNode?.displayName || privNode?.displayName;
+
+  return {
+    variables,
+    children,
+    ...(intermediate ? { intermediate } : {}),
+    ...(displayName ? { displayName } : {}),
+  };
 }
 
 /**
@@ -123,12 +131,16 @@ function splitNode(node: EditableEnvNode): { pub: YamlEnvNode | null; priv: Yaml
   const hasPrivVars = Object.keys(privVars).length > 0;
   const hasPrivChildren = Object.keys(privChildren).length > 0;
 
-  // Ensure the node exists in at least the public tree for structure
+  // Ensure the node exists in at least the public tree for structure.
+  // Also force a public node when metadata flags are set so they are persisted.
+  const hasMetadata = node.intermediate || node.displayName;
   const pub: YamlEnvNode | null =
-    hasPubVars || hasPubChildren || (!hasPrivVars && !hasPrivChildren)
+    hasPubVars || hasPubChildren || hasMetadata || (!hasPrivVars && !hasPrivChildren)
       ? {
           ...(hasPubVars ? { variables: pubVars } : {}),
           ...(hasPubChildren ? { children: pubChildren } : {}),
+          ...(node.intermediate ? { intermediate: true } : {}),
+          ...(node.displayName ? { displayName: node.displayName } : {}),
         }
       : null;
 

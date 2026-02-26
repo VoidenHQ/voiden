@@ -11,11 +11,12 @@ export interface EnvironmentData {
   activeEnv: string | null;
   activeProfile: string | null;
   data: Record<string, Record<string, string>>;
+  displayNames: Record<string, string>;
 }
 
 const loadEnvironments = async (): Promise<EnvironmentData> => {
   const result = await window.electron?.env.load();
-  return result || { activeEnv: null, activeProfile: null, data: {} };
+  return result || { activeEnv: null, activeProfile: null, data: {}, displayNames: {} };
 };
 
 export const useEnvironments = () => {

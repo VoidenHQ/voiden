@@ -12,6 +12,9 @@ import { type EditableEnvTree, mergeToEditable, splitFromEditable, generateUniqu
 const DEBOUNCE_MS = 800;
 const PROFILE_NAME_REGEX = /^[a-z0-9][a-z0-9-]*$/;
 
+// Persists the selected profile across tab switches (component mount/unmount cycles)
+let rememberedProfile: string | null = null;
+
 const ProfileSelector = ({
   selectedProfile,
   onSelectProfile,
@@ -163,7 +166,9 @@ const AddEnvironmentButton = ({ onClick }: { onClick: () => void }) => (
 export const EnvironmentEditor = () => {
   const queryClient = useQueryClient();
   const { data: envData } = useEnvironments();
-  const [selectedProfile, setSelectedProfile] = useState<string>(envData?.activeProfile ?? "default");
+  const [selectedProfile, setSelectedProfile] = useState<string>(
+    rememberedProfile ?? envData?.activeProfile ?? "default"
+  );
   const profileParam = selectedProfile === "default" ? undefined : selectedProfile;
   const { data, isLoading } = useYamlEnvironments(profileParam);
   const { mutate: save } = useSaveYamlEnvironments(profileParam);
@@ -173,7 +178,13 @@ export const EnvironmentEditor = () => {
   const expandCounterRef = useRef(0);
   const dirtyRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const treeRef = useRef<HTMLDivElement>(null);
+  const treeDataRef = useRef<EditableEnvTree>({});
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Remember the selected profile so it persists across tab switches
+  useEffect(() => {
+    rememberedProfile = selectedProfile;
+  }, [selectedProfile]);
 
   // Re-read from filesystem whenever this tab is opened or switched to
   useEffect(() => {
@@ -190,13 +201,23 @@ export const EnvironmentEditor = () => {
     if (data && !dirtyRef.current) {
       const merged = mergeToEditable(data.public, data.private);
       setTree(merged);
+      treeDataRef.current = merged;
     }
   }, [data]);
 
-  // Clean up debounce timer on unmount
+  // Keep a ref to the save function so the unmount cleanup always uses the latest
+  const saveRef = useRef(save);
+  useEffect(() => { saveRef.current = save; }, [save]);
+
+  // Flush any pending save on unmount instead of discarding it
   useEffect(() => {
     return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+        const { publicTree, privateTree } = splitFromEditable(treeDataRef.current);
+        saveRef.current({ publicTree, privateTree });
+      }
     };
   }, []);
 
@@ -205,9 +226,9 @@ export const EnvironmentEditor = () => {
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       const active = document.activeElement;
       const hasItemFocus = active?.closest("[data-env-item]");
-      if (!hasItemFocus && treeRef.current) {
+      if (!hasItemFocus && containerRef.current) {
         e.preventDefault();
-        const first = treeRef.current.querySelector<HTMLElement>("[data-env-item]");
+        const first = containerRef.current.querySelector<HTMLElement>("[data-env-item]");
         first?.focus();
       }
     }
@@ -229,6 +250,7 @@ export const EnvironmentEditor = () => {
     (newTree: EditableEnvTree) => {
       dirtyRef.current = true;
       setTree(newTree);
+      treeDataRef.current = newTree;
       scheduleSave(newTree);
     },
     [scheduleSave]
@@ -311,7 +333,7 @@ export const EnvironmentEditor = () => {
             <AddEnvironmentButton onClick={handleAddRoot} />
           </div>
         ) : (
-          <div ref={treeRef} className="space-y-1 max-w-4xl" data-env-tree>
+          <div ref={containerRef} className="space-y-1 max-w-4xl" data-env-tree>
             {Object.entries(tree).map(([name, node]) => (
               <EnvironmentNode
                 key={name}
