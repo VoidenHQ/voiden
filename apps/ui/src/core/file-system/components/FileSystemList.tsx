@@ -22,8 +22,8 @@ import {
   ArrowBigDown,
   Info,
   ChevronRight,
-  ChevronsDown,
-  ChevronsUp,
+  ChevronsDownUp,
+  ChevronsUpDown,
   File,
   Folder,
   FolderOpen,
@@ -750,7 +750,7 @@ function TreeNode({ node, style, dragHandle, activeFile, removeTemporaryNode }: 
                     className="p-0.5 rounded hover:bg-hover ml-1"
                     title="Collapse all inside this folder"
                   >
-                    <ChevronsUp size={12} />
+                    <ChevronsDownUp size={12} />
                   </button>
                 </Tooltip.Trigger>
                 <Tooltip.Content
@@ -775,7 +775,7 @@ function TreeNode({ node, style, dragHandle, activeFile, removeTemporaryNode }: 
                     className="p-0.5 rounded hover:bg-hover"
                     title="Expand all inside this folder"
                   >
-                    <ChevronsDown size={12} />
+                    <ChevronsUpDown size={12} />
                   </button>
                 </Tooltip.Trigger>
                 <Tooltip.Content
