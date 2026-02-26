@@ -372,7 +372,15 @@ export const EnvironmentNode = ({
 
       {/* Content */}
       {expanded && (
-        <div className="ml-5 border-l border-border pl-3 space-y-1 pb-2">
+        <div className="ml-5 flex">
+          <button
+            onClick={() => setExpanded(false)}
+            className="flex-shrink-0 px-1 cursor-pointer group/line"
+            aria-label="Collapse"
+          >
+            <div className="w-px h-full bg-border group-hover/line:bg-text transition-colors" />
+          </button>
+          <div className="pl-3 space-y-1 pb-2 flex-1 min-w-0">
           {/* Variables (collapsible) — hidden when empty but env has children */}
           {!(node.variables.length === 0 && hasChildren) && <div>
             <div
@@ -448,6 +456,7 @@ export const EnvironmentNode = ({
               onRename={(newName) => { handleRenameChild(childName, newName); setNewChildName(null); }}
             />
           ))}
+          </div>
         </div>
       )}
     </div>
