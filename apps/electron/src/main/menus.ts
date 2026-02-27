@@ -205,11 +205,40 @@ export const createFileTreeContextMenu = (mainWindow: BrowserWindow) => {
             // Delete all items
             for (const item of data) {
               if (item.type === "folder") {
-                 await fs.promises.rm(item.path,{recursive:true,force:true});
+                await fs.promises.rm(item.path, { recursive: true, force: true });
                 bulkSenderWindow?.webContents.send("directory:delete", item);
               } else {
                 await shell.trashItem(item.path);
                 bulkSenderWindow?.webContents.send("file:delete", item);
+
+
+                const appState = getAppState(event);
+                const layout = appState.activeDirectory ? appState.directories[appState.activeDirectory]?.layout : appState.unsaved.layout;
+                if (!layout) {
+                  throw new Error("No layout found to close tab.");
+                }
+
+                // Build a dummy tab that represents the file tab.
+                // We assume that file tabs are of type "document" and that their 'source' field is the file path.
+                const dummyTab: Tab = {
+                  id: "", // not used in the search
+                  type: "document",
+                  title: item.name,
+                  source: item.path,
+                  directory: null,
+                };
+
+                // Use the helper to search for the tab in the "main" panel.
+                const tabToRemove = findTabInPanel(layout, "main", dummyTab);
+                if (!tabToRemove) {
+                  // console.warn("No matching tab found for file:", data.path);
+                } else {
+                  // Remove the tab using its real id.
+                  const removed = removeTabFromPanel(layout, "main", tabToRemove.id);
+                  if (removed) {
+                    await saveState(appState);
+                  }
+                }
               }
             }
           }

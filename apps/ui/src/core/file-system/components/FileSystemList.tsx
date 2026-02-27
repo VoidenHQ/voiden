@@ -682,7 +682,7 @@ function TreeNode({ node, style, dragHandle, activeFile, removeTemporaryNode }: 
       style={style}
       ref={dragHandle}
       className={cn(
-        "group h-6 transition-colors border border-transparent",
+        "group h-6 overflow-hidden transition-colors border border-transparent",
         !isDragOver && activeFile?.source !== node.data.path && !node.isSelected && 'hover:bg-hover',
         isContextMenuOpen && "border-active",
         activeFile?.source === node.data.path && !isDragOver && "bg-active",
@@ -704,7 +704,7 @@ function TreeNode({ node, style, dragHandle, activeFile, removeTemporaryNode }: 
         ))}
       </div>
       <div className="pl-2 relative flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 w-full">
           {node.data.type === "folder" && (
             <>
               <ChevronRight size={14} className={`transition-transform ${node.isOpen ? "rotate-90" : ""}`} />
@@ -712,7 +712,9 @@ function TreeNode({ node, style, dragHandle, activeFile, removeTemporaryNode }: 
               {!node.isOpen && <Folder size={14} />}
             </>
           )}
-          {node.data.type !== "folder" && getFileIcon(node.data.name, node.data.path)}
+          <div className="w-30">
+            {node.data.type !== "folder" && getFileIcon(node.data.name, node.data.path)}
+          </div>
           {node.isEditing ? (
           <RenameInput node={node} error={error} setError={setError} onSubmit={onSubmit} setIsRenaming={setIsRenaming} />
         ) : (
@@ -1367,7 +1369,7 @@ export const FileSystemList = () => {
               onKeyDown={async (e) => {
                 if (e.key !== "Enter") return;
                 const focused = treeRef.current?.focusedNode ?? treeRef.current?.selectedNodes?.[0];
-                if (!focused) return;
+                if (!focused || focused.data.isTemporary) return;
                 e.preventDefault();
                 await handleActivate(focused);
               }}
