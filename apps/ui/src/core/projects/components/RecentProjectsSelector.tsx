@@ -1,10 +1,10 @@
 import { cn } from "@/core/lib/utils";
-import * as Tooltip from "@radix-ui/react-tooltip";
 import { Command } from "cmdk";
 import { useEffect, useState } from "react";
 import { useGetProjects, useSetActiveProject, removeProjectFromList } from "@/core/projects/hooks";
 import { X, Folder, Check } from "lucide-react";
 import { Kbd } from "@/core/components/ui/kbd";
+import { Tip } from "@/core/components/ui/Tip";
 
 const SHORTCUT_KEYS = "⌥⌘O";
 
@@ -52,29 +52,17 @@ export const RecentProjectsSelector = () => {
   if (!projects) return null;
   return (
     <>
-      <Tooltip.Root>
-        <Tooltip.Trigger asChild>
-          <button
-            className={cn(
-              "text-sm h-full px-2 flex items-center gap-2 hover:bg-active no-drag text-comment",
-              !projects?.activeProject && "text-stone-400",
-            )}
-            onClick={() => setOpen(true)}
-          >
-            <span>{(projects?.activeProject || "").replace(/\\/g, "/")?.split("/").pop() || "Open recent project"}</span>
-          </button>
-      </Tooltip.Trigger>
-        <Tooltip.Content
-          align="start"
-          sideOffset={4}
-          alignOffset={4}
-          side="top"
-          className="border bg-panel border-border p-1 text-sm z-20 text-comment flex items-center gap-2"
+      <Tip label={<span className="flex items-center gap-2"><span>Open recent project</span><Kbd keys={SHORTCUT_KEYS} size="sm" /></span>}>
+        <button
+          className={cn(
+            "text-sm h-full px-2 flex items-center gap-2 hover:bg-active no-drag text-comment",
+            !projects?.activeProject && "text-stone-400",
+          )}
+          onClick={() => setOpen(true)}
         >
-          <span>Open recent project</span>
-          <Kbd keys={SHORTCUT_KEYS} size="sm" />
-        </Tooltip.Content>
-      </Tooltip.Root>
+          <span>{(projects?.activeProject || "").replace(/\\/g, "/")?.split("/").pop() || "Open recent project"}</span>
+        </button>
+      </Tip>
 
       {
         open && (

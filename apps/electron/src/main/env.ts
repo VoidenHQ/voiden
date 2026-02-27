@@ -12,6 +12,8 @@ import YAML from "yaml";
 interface YamlEnvNode {
   variables?: Record<string, string>;
   children?: Record<string, YamlEnvNode>;
+  intermediate?: boolean;
+  displayName?: string;
 }
 
 interface YamlEnvTree {
@@ -21,6 +23,7 @@ interface YamlEnvTree {
 interface EnvLoadResult {
   activeEnv: string | null;
   data: Record<string, Record<string, string>>;
+  displayNames: Record<string, string>;
 }
 
 /**
@@ -114,25 +117,39 @@ async function loadProjectEnv(projectPath: string) {
  * @param prefix Current path prefix (for recursion)
  * @param parentVars Variables inherited from parent (for recursion)
  */
+interface FlattenResult {
+  data: Record<string, Record<string, string>>;
+  displayNames: Record<string, string>;
+}
+
 function flattenYamlEnvironments(
   tree: YamlEnvTree,
   prefix: string | null = null,
   parentVars: Record<string, string> = {}
-): Record<string, Record<string, string>> {
-  const result: Record<string, Record<string, string>> = {};
+): FlattenResult {
+  const data: Record<string, Record<string, string>> = {};
+  const displayNames: Record<string, string> = {};
 
   for (const [key, node] of Object.entries(tree)) {
     const envName = prefix ? `${prefix}.${key}` : key;
     const currentVars = { ...parentVars, ...(node.variables || {}) };
-    result[envName] = currentVars;
+    // Intermediate environments are used only for grouping/inheritance,
+    // they don't appear in the env selector as selectable options
+    if (!node.intermediate) {
+      data[envName] = currentVars;
+      if (node.displayName) {
+        displayNames[envName] = node.displayName;
+      }
+    }
 
     if (node.children) {
-      const childEnvs = flattenYamlEnvironments(node.children, envName, currentVars);
-      Object.assign(result, childEnvs);
+      const childResult = flattenYamlEnvironments(node.children, envName, currentVars);
+      Object.assign(data, childResult.data);
+      Object.assign(displayNames, childResult.displayNames);
     }
   }
 
-  return result;
+  return { data, displayNames };
 }
 
 /**
@@ -191,7 +208,7 @@ async function loadYamlEnvironment(projectPath: string, envPath: string): Promis
  * Load and parse environment files for a given profile.
  * Returns a merged tree structure, or null if no files exist.
  */
-async function loadYamlEnvironments(projectPath: string, profile?: string | null): Promise<Record<string, Record<string, string>>> {
+async function loadYamlEnvironments(projectPath: string, profile?: string | null): Promise<FlattenResult> {
   const { publicFile, privateFile } = profileFileNames(profile);
   const publicTree = loadYamlEnvironment(projectPath, publicFile);
   const privateTree = loadYamlEnvironment(projectPath, privateFile);
@@ -208,10 +225,10 @@ async function resolveEnvironmentData(
   projectPath: string,
   activeProfile: string | null | undefined,
   activeEnvPath?: string | null
-): Promise<Record<string, Record<string, string>>> {
-  const yamlEnvs = await loadYamlEnvironments(projectPath, activeProfile);
-  if (Object.keys(yamlEnvs).length > 0) {
-    return yamlEnvs;
+): Promise<FlattenResult> {
+  const yamlResult = await loadYamlEnvironments(projectPath, activeProfile);
+  if (Object.keys(yamlResult.data).length > 0) {
+    return yamlResult;
   }
   const envFiles = await loadProjectEnv(projectPath);
   if (activeEnvPath && envFiles[activeEnvPath]) {
@@ -219,7 +236,7 @@ async function resolveEnvironmentData(
       return envFiles[envKey] ? { ...acc, ...envFiles[envKey] } : acc;
     }, {} as Record<string, string>);
   }
-  return envFiles;
+  return { data: envFiles, displayNames: {} };
 }
 
 /**
@@ -243,21 +260,22 @@ function getEnvHierarchy(activeEnvPath: string): string[] {
 ipcMain.handle("env:load", async (event:IpcMainInvokeEvent): Promise<EnvLoadResult & { activeProfile: string | null }> => {
   const appState = getAppState(event);
   const activeProject = await getActiveProject(event);
-  if (!appState.directories[activeProject]) return { activeEnv: null, activeProfile: null, data: {} };
+  if (!appState.directories[activeProject]) return { activeEnv: null, activeProfile: null, data: {}, displayNames: {} };
   let activeEnv = appState.directories[activeProject].activeEnv;
   const activeProfile = appState.directories[activeProject].activeProfile || null;
-  if (!activeProject) return { activeEnv: null, activeProfile: null, data: {} };
+  if (!activeProject) return { activeEnv: null, activeProfile: null, data: {}, displayNames: {} };
 
   const envs = await resolveEnvironmentData(activeProject, activeProfile, activeEnv);
 
-  if (activeEnv && !envs[activeEnv]) {
+  if (activeEnv && !envs.data[activeEnv]) {
     activeEnv = null;
   }
 
   return {
     activeEnv,
     activeProfile,
-    data: envs,
+    data: envs.data,
+    displayNames: envs.displayNames,
   };
 });
 
@@ -284,7 +302,7 @@ export async function replaceVariablesSecure(text: string, projectPath: string):
     return text;
   }
 
-  const envData = await resolveEnvironmentData(projectPath, activeProfile, activeEnvPath);
+  const { data: envData } = await resolveEnvironmentData(projectPath, activeProfile, activeEnvPath);
 
   if (!envData[activeEnvPath]) {
     return text;
@@ -349,7 +367,7 @@ ipcMain.handle("env:getKeys", async (event:IpcMainInvokeEvent) => {
     return [];
   }
 
-  const envData = await resolveEnvironmentData(activeProject, activeProfile, activeEnvPath);
+  const { data: envData } = await resolveEnvironmentData(activeProject, activeProfile, activeEnvPath);
 
   if (!envData[activeEnvPath]) {
     return [];

@@ -1,6 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 
 export interface YamlEnvNode {
+  intermediate?: boolean;
+  displayName?: string;
   variables?: Record<string, string>;
   children?: Record<string, YamlEnvNode>;
 }
