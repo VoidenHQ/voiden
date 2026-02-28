@@ -742,8 +742,7 @@ function TreeNode({ node, style, dragHandle, activeFile, removeTemporaryNode }: 
          {
           node.data.type === "folder" && (
             <div className="flex items-center px-2 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity">
-              <Tooltip.Root>
-                <Tooltip.Trigger asChild>
+              <Tip label="Collapse all" side="bottom" align="end">
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -753,21 +752,8 @@ function TreeNode({ node, style, dragHandle, activeFile, removeTemporaryNode }: 
                   >
                     <ChevronsDownUp size={12} />
                   </button>
-                </Tooltip.Trigger>
-                <Tooltip.Content
-                  align="end"
-                  sideOffset={4}
-                  alignOffset={4}
-                  side="bottom"
-                  avoidCollisions
-                  collisionPadding={8}
-                  className="border text-comment bg-panel border-border p-1 text-sm z-10"
-                >
-                  Collapse all
-                </Tooltip.Content>
-              </Tooltip.Root>
-              <Tooltip.Root>
-                <Tooltip.Trigger asChild>
+              </Tip>
+              <Tip label="Expand all" side="bottom" align="end">
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -777,19 +763,7 @@ function TreeNode({ node, style, dragHandle, activeFile, removeTemporaryNode }: 
                   >
                     <ChevronsUpDown size={12} />
                   </button>
-                </Tooltip.Trigger>
-                <Tooltip.Content
-                  align="end"
-                  sideOffset={4}
-                  alignOffset={4}
-                  side="bottom"
-                  avoidCollisions
-                  collisionPadding={8}
-                  className="border text-comment bg-panel border-border p-1 text-sm z-10"
-                >
-                  Expand all
-                </Tooltip.Content>
-              </Tooltip.Root>
+              </Tip>
             </div>
           )
         }
