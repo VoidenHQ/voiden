@@ -563,6 +563,7 @@ function TreeNode({ node, style, dragHandle, activeFile, removeTemporaryNode }: 
     js: <FileCode size={14} />,
     py: <FileCode size={14} />,
     go: <FileCode size={14} />,
+    sh: <FileCode size={14} />,
     void: <Infinity size={14} className="text-accent" />,
   };
 
