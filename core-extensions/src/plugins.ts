@@ -14,6 +14,7 @@ import voiden_fakerPlugin from './voiden-faker';
 import md_previewPlugin from './md-preview';
 import openapi_importPlugin from './openapi-import';
 import postman_importPlugin from './postman-import';
+import voiden_collection_runnerPlugin from './voiden-collection-runner';
 
 // Plugin map for UI app (has React/DOM access)
 export const coreExtensionPlugins: Record<string, any> = {
@@ -26,5 +27,6 @@ export const coreExtensionPlugins: Record<string, any> = {
   'voiden-faker': voiden_fakerPlugin,
   'md-preview': md_previewPlugin,
   'openapi-import': openapi_importPlugin,
-  'postman-import': postman_importPlugin
+  'postman-import': postman_importPlugin,
+  'voiden-collection-runner': voiden_collection_runnerPlugin,
 };

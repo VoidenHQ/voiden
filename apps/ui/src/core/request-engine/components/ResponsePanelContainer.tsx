@@ -21,7 +21,7 @@ export function ResponsePanelContainer() {
   const activeTab = panelData?.tabs?.find((tab) => tab.id === activeTabId);
   const isVoidFile = activeTab?.title?.endsWith(".void") ?? false;
 
-  const { isLoading, setActiveTabId, getResponse } = useResponseStore();
+  const { isLoading, currentRequestTabId, setActiveTabId, getResponse } = useResponseStore();
 
   // Update the active tab ID in response store when the panel tab changes
   useEffect(() => {
@@ -32,6 +32,9 @@ export function ResponsePanelContainer() {
 
   // Get response for the current active tab
   const tabResponse = activeTabId ? getResponse(activeTabId) : null;
+
+  // Only show loading when the in-flight request belongs to this tab
+  const isLoadingForThisTab = isLoading && currentRequestTabId === activeTabId;
   const responseDoc = tabResponse?.responseDoc || null;
   const error = tabResponse?.error || null;
 
@@ -58,7 +61,7 @@ export function ResponsePanelContainer() {
   };
 
   // Show loading state
-  if (isLoading) {
+  if (isLoadingForThisTab) {
     return (
       <div className="h-full bg-bg flex flex-col">
         {/* Top bar */}

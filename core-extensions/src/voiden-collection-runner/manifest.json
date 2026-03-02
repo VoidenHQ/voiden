@@ -1,0 +1,48 @@
+{
+  "id": "voiden-collection-runner",
+  "name": "Collection Runner",
+  "description": "Run multiple linked .void files in serial order. Insert a Collection Runner block, add .void file references, and execute them sequentially — optionally after the current file's own request.",
+  "version": "1.0.0",
+  "author": "Voiden Team",
+  "enabled": true,
+  "priority": 35,
+  "type": "core",
+  "readme": "Insert a Collection Runner block with /collection-runner, link any .void files from your project, then click Run to execute them in series. Results are viewable per-file in the Collection Runner sidebar tab.",
+  "capabilities": {
+    "blocks": {
+      "owns": ["collection-runner"],
+      "allowExtensions": false,
+      "description": "Owns 1 block type for linking and running multiple .void files in order"
+    },
+    "slashCommands": {
+      "groups": [
+        {
+          "name": "collection",
+          "commands": ["Insert Collection Runner block"]
+        }
+      ]
+    },
+    "panels": {
+      "sidebarTab": {
+        "side": "right",
+        "id": "collection-runner",
+        "description": "Shows per-file run status and response viewer with file selector"
+      }
+    }
+  },
+  "dependencies": {
+    "core": "^1.0.0",
+    "sdk": "^1.0.0"
+  },
+  "features": [
+    "Link multiple .void files in a numbered table",
+    "Execute files serially in defined order",
+    "Optional: run current file's request first before the collection",
+    "Per-file status indicators (pending / running / done / error)",
+    "Reorder files with up/down buttons",
+    "Add and remove file entries",
+    "Dedicated right sidebar with file selector dropdown",
+    "Response viewer per file matching current response panel style",
+    "Insert with /collection-runner slash command"
+  ]
+}

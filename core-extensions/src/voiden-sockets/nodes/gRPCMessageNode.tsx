@@ -548,7 +548,7 @@ export const createGrpcMessagesNode = (NodeViewWrapper: any, context: PluginCont
             switch (msg.kind) {
                 case "stream-open":
                     return (
-                        <div key={idx} className={`${lineBase} flex items-center  text-green-400 border-l-2 border-green-400`}>
+                        <div key={idx} className={`${lineBase} flex items-center  text-green-400`}>
                             <div className="flex-1">
                                 <div className="font-mono font-semibold">CONNECTED</div>
                                 <div className="text-xs text-comment">

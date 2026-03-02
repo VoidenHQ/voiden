@@ -549,6 +549,45 @@ export const coreExtensions: ExtensionMetadata[] = [
     "type": "core"
   },
   {
+    "id": "voiden-collection-runner",
+    "name": "Collection Runner",
+    "description": "Run multiple linked .void files in serial order. Insert a Collection Runner block, add .void file references, and execute them sequentially — optionally after the current file's own request.",
+    "version": "1.0.0",
+    "author": "Voiden Team",
+    "enabled": true,
+    "priority": 35,
+    "readme": "Insert a Collection Runner block with /collection-runner, link any .void files from your project, then click Run to execute them in series. Results are viewable per-file in the Collection Runner sidebar tab.",
+    "capabilities": {
+      "blocks": {
+        "owns": ["collection-runner"],
+        "allowExtensions": false,
+        "description": "Owns 1 block type for linking and running multiple .void files in order"
+      },
+      "slashCommands": {
+        "groups": [
+          {
+            "name": "collection",
+            "commands": ["Insert Collection Runner block"]
+          }
+        ]
+      }
+    },
+    "dependencies": {
+      "core": "^1.0.0",
+      "sdk": "^1.0.0"
+    },
+    "features": [
+      "Link multiple .void files in a numbered table",
+      "Execute files serially in defined order",
+      "Optional: run current file's request first before the collection",
+      "Per-file status indicators (pending / running / done / error)",
+      "Reorder files with up/down buttons",
+      "Dedicated right sidebar with file selector dropdown and response viewer",
+      "Insert with /collection-runner slash command"
+    ],
+    "type": "core"
+  },
+  {
     "id": "postman-import",
     "name": "Postman Collection Importer",
     "description": "Seamlessly migrate from Postman by importing v2.1 collections and automatically converting them to native Voiden request files with full support for nested folders, environment variables, headers, auth, and all request body types",
