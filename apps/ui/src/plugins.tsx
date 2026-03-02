@@ -424,7 +424,7 @@ export const createPlugin = (pluginModule: (context: PluginContext) => Plugin, e
     registerResponseSection: (section) => {
       requestOrchestrator.registerResponseSection(section);
     },
-    openVoidenTab: async (title: string, content: any, options?: { readOnly?: boolean }) => {
+    openVoidenTab: async (title: string, content: any, options?: { readOnly?: boolean; activateSidebarTab?: boolean }) => {
       try {
         const { useResponseStore } = await import('@/core/request-engine/stores/responseStore');
 
@@ -434,6 +434,17 @@ export const createPlugin = (pluginModule: (context: PluginContext) => Plugin, e
           useResponseStore.getState().setResponse('__default__', content, null);
         } else {
           useResponseStore.getState().setResponse(tabId, content, null);
+        }
+
+        if (options?.activateSidebarTab) {
+          const sidebarData = await (window.electron as any)?.sidebar?.getTabs('right');
+          const tabs = sidebarData?.tabs || [];
+          const responseTab = tabs.find((t: any) => t.type === 'responsePanel');
+          if (responseTab?.id) {
+            usePanelStore.getState().openRightPanel();
+            await window.electron?.sidebar?.activateTab('right', responseTab.id);
+            getQueryClient().invalidateQueries({ queryKey: ["sidebar:tabs", "right"] });
+          }
         }
       } catch (error) {
         extensionLogger.error("Error storing response:", error);

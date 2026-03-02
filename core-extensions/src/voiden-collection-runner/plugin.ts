@@ -105,8 +105,6 @@ export default function createCollectionRunnerPlugin(context: PluginContext) {
           isCollectionRunning = true;
           try {
             await runCollection(files, context);
-            // Open the sidebar so the user can see per-file results
-            await context.ui.openRightSidebarTab('collection-runner');
           } finally {
             isCollectionRunning = false;
           }

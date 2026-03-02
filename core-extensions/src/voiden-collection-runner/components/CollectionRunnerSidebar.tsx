@@ -92,7 +92,6 @@ export function CollectionRunnerSidebar() {
           onChange={(e) => setSelectedFile(e.target.value || null)}
           className="flex-1 text-xs bg-bg border border-border rounded px-2 py-1 text-text"
         >
-          <option value="">Select a file…</option>
           {runFiles.map((f) => (
             <option key={f.id} value={f.id}>
               {f.name || 'Unnamed'}

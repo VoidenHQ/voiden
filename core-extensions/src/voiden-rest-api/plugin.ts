@@ -368,7 +368,7 @@ const voidenRestApiPlugin = (context: PluginContext) => {
           await context.openVoidenTab(
             `Response ${response.statusCode}`,
             responseDoc,
-            { readOnly: true }
+            { readOnly: true, activateSidebarTab: true }
           );
         } catch (error) {
         }
