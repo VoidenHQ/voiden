@@ -705,6 +705,11 @@ function sanitizeDoc(node: any): any {
 
     const reloadFromFile = async () => {
       try {
+        // If the user has unsaved changes, skip the external reload to preserve their work.
+        // This prevents git:changed events (triggered by saveRuntimeVariables writing
+        // .voiden/.process.env.json / .gitignore) from wiping the editor mid-session.
+        if (useEditorStore.getState().unsaved[tabId]) return;
+
         // Read fresh content from disk
         const freshContent = await window.electron?.files.read(source);
         if (!freshContent) {
