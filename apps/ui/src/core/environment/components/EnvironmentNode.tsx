@@ -29,10 +29,12 @@ export interface ExpandSignal {
 interface EnvironmentNodeProps {
   name: string;
   node: EditableEnvNode;
+  path: string;
   depth: number;
   initialEditing?: boolean;
   expandSignal?: ExpandSignal | null;
   searchTerm?: string;
+  highlightTarget?: { varKey: string; envPath: string } | null;
   onUpdate: (node: EditableEnvNode) => void;
   onDelete: () => void;
   onRename: (newName: string) => void;
@@ -41,10 +43,12 @@ interface EnvironmentNodeProps {
 export const EnvironmentNode = ({
   name,
   node,
+  path,
   depth,
   initialEditing = false,
   expandSignal = null,
   searchTerm,
+  highlightTarget,
   onUpdate,
   onDelete,
   onRename,
@@ -75,6 +79,21 @@ export const EnvironmentNode = ({
       setVarsExpanded(true);
     }
   }, [searchTerm]);
+
+  // Auto-expand when the highlight target is in this node or its descendants
+  useEffect(() => {
+    if (!highlightTarget) return;
+    const { varKey, envPath } = highlightTarget;
+    // Check if this node is the target, or a global (empty) envPath matches any node
+    const isTarget = envPath === "" || envPath === path;
+    const hasVar = isTarget && node.variables.some((v) => v.key === varKey);
+    // Check descendants only when envPath starts with this node's path
+    const targetIsDescendant = envPath.startsWith(path + ".");
+    if (hasVar || targetIsDescendant) {
+      setExpanded(true);
+      if (hasVar) setVarsExpanded(true);
+    }
+  }, [highlightTarget, node, path]);
 
   // Auto-expand variables when the node is expanded and has no children
   useEffect(() => {
@@ -422,6 +441,7 @@ export const EnvironmentNode = ({
                     value={variable.value}
                     isPrivate={variable.isPrivate}
                     autoFocusKey={variable.id === focusVarId}
+                    highlighted={!!highlightTarget && variable.key === highlightTarget.varKey && (highlightTarget.envPath === "" || highlightTarget.envPath === path)}
                     onChangeKey={(newKey) => handleUpdateVariable(index, { key: newKey })}
                     onChangeValue={(newValue) => handleUpdateVariable(index, { value: newValue })}
                     onTogglePrivate={() => handleUpdateVariable(index, { isPrivate: !variable.isPrivate })}
@@ -447,10 +467,12 @@ export const EnvironmentNode = ({
               key={childName}
               name={childName}
               node={childNode}
+              path={`${path}.${childName}`}
               depth={depth + 1}
               initialEditing={childName === newChildName}
               expandSignal={expandSignal}
               searchTerm={searchTerm}
+              highlightTarget={highlightTarget}
               onUpdate={(updated) => handleUpdateChild(childName, updated)}
               onDelete={() => { handleDeleteChild(childName); setNewChildName(null); }}
               onRename={(newName) => { handleRenameChild(childName, newName); setNewChildName(null); }}

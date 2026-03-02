@@ -17,6 +17,8 @@ import type { Tab } from "../../../../electron/src/shared/types";
 import { MainEditor } from "./components/MainEditor";
 import { useElectronEvent } from "@/core/providers/ElectronEventProvider";
 import { useGetPanelTabs, useAddPanelTab, useActivateTab } from "./hooks";
+import { setEnvJumpTarget } from "@/core/environment/components/EnvironmentEditor";
+import { useEnvironments } from "@/core/environment/hooks";
 
 export const AppLayout = () => {
   const { toggle: toggleLeft, panelProps: leftPanelProps, isCollapsed: isLeftCollapsed } = useLeftPanel();
@@ -30,6 +32,7 @@ export const AppLayout = () => {
   const { mutate: addPanelTab } = useAddPanelTab();
   const { mutate: activateTab } = useActivateTab();
   const { data: panelTabs } = useGetPanelTabs("main");
+  const { data: envData } = useEnvironments();
 
   // Get app version
   useEffect(() => {
@@ -124,6 +127,35 @@ export const AppLayout = () => {
     });
     return off;
   }, [onChange]);
+
+  // Navigate to EnvironmentEditor when a variable is Cmd+clicked in any editor
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { variableName, variableType } = (e as CustomEvent).detail;
+      // Only env variables are navigable to the environment editor
+      if (variableType !== "env") return;
+
+      setEnvJumpTarget({
+        envPath: envData?.activeEnv ?? "",
+        varKey: variableName,
+        profile: envData?.activeProfile ?? "default",
+      });
+
+      const existing = panelTabs?.tabs?.find((t: Tab) => t.type === "environmentEditor");
+      if (existing) {
+        activateTab({ panelId: "main", tabId: existing.id });
+        // Give the tab time to render, then notify the already-mounted editor
+        setTimeout(() => window.dispatchEvent(new Event("voiden:env-editor-focus")), 100);
+      } else {
+        addPanelTab({
+          panelId: "main",
+          tab: { id: crypto.randomUUID(), type: "environmentEditor", title: "Environments", source: null },
+        });
+      }
+    };
+    window.addEventListener("variable-click", handler);
+    return () => window.removeEventListener("variable-click", handler);
+  }, [panelTabs, activateTab, addPanelTab, envData]);
 
   // Handle menu events
   useElectronEvent("menu:open-settings", () => {

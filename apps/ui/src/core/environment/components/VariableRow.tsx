@@ -8,6 +8,7 @@ interface VariableRowProps {
   value: string;
   isPrivate: boolean;
   autoFocusKey?: boolean;
+  highlighted?: boolean;
   onChangeKey: (newKey: string) => void;
   onChangeValue: (newValue: string) => void;
   onTogglePrivate: () => void;
@@ -20,6 +21,7 @@ export const VariableRow = ({
   value,
   isPrivate,
   autoFocusKey = false,
+  highlighted = false,
   onChangeKey,
   onChangeValue,
   onTogglePrivate,
@@ -35,6 +37,12 @@ export const VariableRow = ({
       keyRef.current?.focus();
     }
   }, [autoFocusKey]);
+
+  useEffect(() => {
+    if (highlighted && rowRef.current) {
+      rowRef.current.scrollIntoView({ block: "center", behavior: "smooth" });
+    }
+  }, [highlighted]);
 
   const handleRowKeyDown = (e: React.KeyboardEvent) => {
     if (!rowRef.current) return;
@@ -67,7 +75,8 @@ export const VariableRow = ({
       data-env-item
       tabIndex={-1}
       onKeyDown={handleRowKeyDown}
-      className="flex items-center gap-2 group outline-none rounded -mx-1 px-1 focus:bg-active"
+      className={`flex items-center gap-2 group outline-none rounded -mx-1 px-1 focus:bg-active${highlighted ? " ring-1" : ""}`}
+      style={highlighted ? { '--tw-ring-color': 'var(--icon-primary)' } as React.CSSProperties : undefined}
     >
       <input
         ref={keyRef}

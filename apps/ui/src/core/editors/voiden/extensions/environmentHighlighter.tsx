@@ -1,7 +1,8 @@
-import { Extension, InputRule } from "@tiptap/core";
+import { Extension } from "@tiptap/core";
 import { Node } from "@tiptap/pm/model";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
+import { dispatchVariableClick, findEnvVariableEl, createCursorHandlers, isModKey } from "@/core/editors/variableClickHelpers";
 
 // Global state to hold current environment keys
 let currentEnvKeys = new Set<string>();
@@ -49,7 +50,12 @@ function findVariable(doc: Node): DecorationSet {
           : "font-mono rounded-sm font-medium px-1 text-base variable-highlight-invalid"; // Red for non-existing variables
       }
 
-      decorations.push(Decoration.inline(from, to, { class: decorationClass }));
+      const variableType = isFakerVariable ? "faker" : isVariableCapture ? "capture" : "env";
+      decorations.push(Decoration.inline(from, to, {
+        class: decorationClass,
+        "data-variable": variableName,
+        "data-variable-type": variableType,
+      }));
     });
   });
 
@@ -90,6 +96,26 @@ export const environmentHighlighter = (envKeys: string[] = []) => {
             decorations(state) {
               return this.getState(state);
             },
+            handleClick(view, _pos, event) {
+              if (!isModKey(event)) return false;
+              const variableEl = findEnvVariableEl(event);
+              if (!variableEl) return false;
+              dispatchVariableClick(variableEl, view.dom);
+              event.preventDefault();
+              return true;
+            },
+            handleDOMEvents: (() => {
+              let cursor: ReturnType<typeof createCursorHandlers> | null = null;
+              const get = (view: { dom: HTMLElement }) => {
+                if (!cursor) cursor = createCursorHandlers(() => view.dom);
+                return cursor;
+              };
+              return {
+                mousemove(view, event) { get(view).mousemove(event); return false; },
+                keydown(view, event) { get(view).keydown(event); return false; },
+                keyup(view, event) { get(view).keyup(event); return false; },
+              };
+            })(),
           },
         }),
       ];
