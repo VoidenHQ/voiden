@@ -6,21 +6,24 @@
  */
 
 import { useEditor, EditorContent } from '@tiptap/react';
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { voidenExtensions } from '@/core/editors/voiden/extensions';
 import { useEditorEnhancementStore } from '@/plugins';
 import { getSchema } from '@tiptap/core';
 import { parseMarkdown } from '@/core/editors/voiden/markdownConverter';
 import { proseClasses } from '@/core/editors/voiden/VoidenEditor';
 import UniqueID from '@/core/editors/voiden/extensions/uniqueId';
+import { useResponseStore } from '../stores/responseStore';
 
 interface ResponseViewerProps {
   content: string | any; // Can be markdown string or doc JSON
+  tabId: string;
 }
 
-export function ResponseViewer({ content }: ResponseViewerProps) {
+export function ResponseViewer({ content, tabId }: ResponseViewerProps) {
   // Get plugin extensions
   const pluginExtensions = useEditorEnhancementStore((state) => state.voidenExtensions);
+  const { getOpenNodes, setOpenNodes } = useResponseStore();
 
   // Build extensions list
   const finalExtensions = useMemo(() => {
@@ -33,17 +36,40 @@ export function ResponseViewer({ content }: ResponseViewerProps) {
     ];
   }, [pluginExtensions]);
 
-  // Parse content based on type
+  // Parse content based on type, applying persisted openNodes if available
   const parsedContent = useMemo(() => {
     try {
+      let doc: any;
       // If it's already a document object (has type: 'doc'), use it directly
       if (typeof content === 'object' && content?.type === 'doc') {
-        return content;
+        doc = content;
+      } else {
+        // Otherwise, parse as markdown (legacy path)
+        const schema = getSchema(finalExtensions);
+        doc = parseMarkdown(content, schema);
       }
 
-      // Otherwise, parse as markdown (legacy path)
-      const schema = getSchema(finalExtensions);
-      return parseMarkdown(content, schema);
+      // Apply persisted openNodes from the store if available
+      const persistedOpenNodes = getOpenNodes(tabId);
+      if (persistedOpenNodes && doc?.content) {
+        doc = {
+          ...doc,
+          content: doc.content.map((node: any) => {
+            if (node.type === 'response-doc') {
+              return {
+                ...node,
+                attrs: {
+                  ...node.attrs,
+                  openNodes: persistedOpenNodes,
+                },
+              };
+            }
+            return node;
+          }),
+        };
+      }
+
+      return doc;
     } catch (error) {
       // console.error('[ResponseViewer] Error parsing content:', error);
       return null;
@@ -62,6 +88,34 @@ export function ResponseViewer({ content }: ResponseViewerProps) {
       },
     },
   }, [parsedContent]);
+
+  // Sync openNodes changes back to the store for persistence across tab switches
+  const tabIdRef = useRef(tabId);
+  tabIdRef.current = tabId;
+
+  useEffect(() => {
+    if (!editor) return;
+
+    const handleTransaction = () => {
+      editor.state.doc.descendants((node: any) => {
+        if (node.type.name === 'response-doc') {
+          const rawOpenNodes = node.attrs.openNodes;
+          const openNodes: string[] = Array.isArray(rawOpenNodes)
+            ? rawOpenNodes
+            : typeof rawOpenNodes === 'string'
+              ? JSON.parse(rawOpenNodes)
+              : [];
+          setOpenNodes(tabIdRef.current, openNodes);
+          return false; // Stop iteration
+        }
+      });
+    };
+
+    editor.on('transaction', handleTransaction);
+    return () => {
+      editor.off('transaction', handleTransaction);
+    };
+  }, [editor, setOpenNodes]);
 
   if (!editor) {
     return <div className="p-4 text-comment">Loading response...</div>;
@@ -122,10 +176,7 @@ export function ResponseViewer({ content }: ResponseViewerProps) {
           padding-left: 0 !important;
           padding-right: 0 !important;
         }
-        .response-body-node .cm-editor,
         .response-body-node .cm-scroller {
-          height: 100% !important;
-          max-height: 400px !important;
           overflow-y: auto !important;
         }
       `}</style>

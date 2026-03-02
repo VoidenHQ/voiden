@@ -18,7 +18,7 @@ export type ResponseChildNodeType =
   | "script-assertion-results";
 
 export interface ResponseDocAttrs {
-  activeNode: ResponseChildNodeType | null;
+  openNodes: ResponseChildNodeType[];
   statusCode: number;
   statusMessage: string;
   elapsedTime: number;
@@ -43,13 +43,13 @@ const RESPONSE_TABS: { type: ResponseChildNodeType; label: string }[] = [
 // HELPER HOOK - Get Parent Response Doc State (exported for child nodes)
 // ============================================================================
 
-// Custom hook that children can use to read parent's activeNode
+// Custom hook that children can use to read parent's openNodes
 export const useParentResponseDoc = (editor: any, getPos: () => number) => {
   const [parentState, setParentState] = React.useState<{
-    activeNode: ResponseChildNodeType | null;
+    openNodes: ResponseChildNodeType[];
     parentPos: number | null;
   }>({
-    activeNode: null,
+    openNodes: [],
     parentPos: null,
   });
 
@@ -63,8 +63,14 @@ export const useParentResponseDoc = (editor: any, getPos: () => number) => {
         for (let d = $pos.depth; d > 0; d--) {
           const node = $pos.node(d);
           if (node.type.name === "response-doc") {
+            const rawOpenNodes = node.attrs.openNodes;
+            const openNodes: ResponseChildNodeType[] = Array.isArray(rawOpenNodes)
+              ? rawOpenNodes
+              : typeof rawOpenNodes === "string"
+                ? JSON.parse(rawOpenNodes)
+                : [];
             setParentState({
-              activeNode: node.attrs.activeNode,
+              openNodes,
               parentPos: $pos.before(d),
             });
             return;
@@ -101,14 +107,11 @@ export const createResponseDocNode = (NodeViewWrapper: any) => {
     updateAttributes,
     editor
   }: any) => {
-    const { activeNode, statusCode, statusMessage, elapsedTime, url } =
+    const { openNodes, statusCode, statusMessage, elapsedTime, url } =
       node.attrs as ResponseDocAttrs;
 
     const isSuccess = statusCode >= 200 && statusCode < 300;
     const isError = statusCode >= 400;
-
-    // When activeNode changes, it automatically triggers re-render in all children
-    // because they're reading from the parent's node.attrs via editor state
 
     return (
       <NodeViewWrapper className="response-doc-node">
@@ -131,8 +134,18 @@ export const createResponseDocNode = (NodeViewWrapper: any) => {
 
     addAttributes() {
       return {
-        activeNode: {
-          default: "response-body",
+        openNodes: {
+          default: ["response-body", "response-headers", "request-headers"],
+          parseHTML: (element: HTMLElement) => {
+            const val = element.getAttribute("data-open-nodes");
+            if (val) {
+              try { return JSON.parse(val); } catch { return ["response-body", "response-headers", "request-headers"]; }
+            }
+            return ["response-body", "response-headers", "request-headers"];
+          },
+          renderHTML: (attributes: any) => {
+            return { "data-open-nodes": JSON.stringify(attributes.openNodes || []) };
+          },
         },
         statusCode: {
           default: 200,
@@ -167,9 +180,9 @@ export const createResponseDocNode = (NodeViewWrapper: any) => {
 
     addCommands() {
       return {
-        // Command that children can call to set active node
-        setActiveResponseNode:
-          (nodeType: ResponseChildNodeType) =>
+        // Command that children can call to toggle a node open/closed
+        toggleResponseNode:
+          (nodeType: string) =>
           ({ tr, state, dispatch }: any) => {
             // Find the response-doc node in the document
             let responseDocPos: number | null = null;
@@ -183,11 +196,21 @@ export const createResponseDocNode = (NodeViewWrapper: any) => {
 
             if (responseDocPos === null) return false;
 
-            // Update the activeNode attribute
             if (dispatch) {
+              const currentAttrs = state.doc.nodeAt(responseDocPos)?.attrs;
+              const rawOpenNodes = currentAttrs?.openNodes;
+              const currentOpen: string[] = Array.isArray(rawOpenNodes)
+                ? rawOpenNodes
+                : typeof rawOpenNodes === "string"
+                  ? JSON.parse(rawOpenNodes)
+                  : [];
+              const newOpen = currentOpen.includes(nodeType)
+                ? currentOpen.filter((n: string) => n !== nodeType)
+                : [...currentOpen, nodeType];
+
               tr.setNodeMarkup(responseDocPos, undefined, {
-                ...state.doc.nodeAt(responseDocPos)?.attrs,
-                activeNode: nodeType,
+                ...currentAttrs,
+                openNodes: newOpen,
               });
               dispatch(tr);
             }

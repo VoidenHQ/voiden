@@ -27,16 +27,12 @@ export const createResponseHeadersNode = (
 ) => {
   const ResponseHeadersComponent = ({ node,getPos,editor }: any) => {
     const { headers } = node.attrs as ResponseHeadersAttrs;
- const { activeNode } = useParentResponseDoc(editor, getPos);
-    const isCollapsed = activeNode !== "response-headers";
+ const { openNodes } = useParentResponseDoc(editor, getPos);
+    const isCollapsed = !openNodes.includes("response-headers");
 
-    // Handle click - call the editor command to set active node
+    // Handle click - toggle this node open/closed
     const handleSetActive = () => {
-      if(isCollapsed){
-        editor.commands.setActiveResponseNode("response-headers");
-      }else{
-        editor.commands.setActiveResponseNode("");
-      }
+      editor.commands.toggleResponseNode("response-headers");
     };
 
     if (!headers || headers.length === 0) {
