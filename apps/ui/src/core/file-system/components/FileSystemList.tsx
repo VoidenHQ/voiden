@@ -705,13 +705,13 @@ function TreeNode({ node, style, dragHandle, activeFile, removeTemporaryNode }: 
         ))}
       </div>
       <div className="pl-2 relative flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2 w-full">
+        <div className={`flex items-center ${node.data.type === "folder" ? "gap-1" : "gap-2"} w-full`}>
           {node.data.type === "folder" && (
-            <>
+            <div className="w-30 flex items-center">
               <ChevronRight size={14} className={`transition-transform ${node.isOpen ? "rotate-90" : ""}`} />
               {node.isOpen && <FolderOpen size={14} />}
               {!node.isOpen && <Folder size={14} />}
-            </>
+            </div>
           )}
           <div className="w-30">
             {node.data.type !== "folder" && getFileIcon(node.data.name, node.data.path)}
