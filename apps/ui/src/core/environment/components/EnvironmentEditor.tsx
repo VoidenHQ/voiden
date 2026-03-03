@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef, useCallback } from "react";
-import { Plus, Settings2, ChevronsDownUp, ChevronsUpDown, ChevronDown, Trash2, Check } from "lucide-react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { Plus, Settings2, ChevronsDownUp, ChevronsUpDown, ChevronDown, Trash2, Check, Search, X } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useYamlEnvironments, useEnvironments } from "@/core/environment/hooks";
 import { useSaveYamlEnvironments } from "@/core/environment/hooks";
@@ -7,10 +7,59 @@ import { useProfiles } from "../hooks/useProfiles.ts";
 import { useCreateProfile } from "@/core/environment/hooks";
 import { useDeleteProfile } from "@/core/environment/hooks";
 import { EnvironmentNode, EditableEnvNode, ExpandSignal } from "./EnvironmentNode";
-import { type EditableEnvTree, mergeToEditable, splitFromEditable, generateUniqueName, renameKey } from "./envTreeUtils";
+import { Tip } from "@/core/components/ui/Tip";
+import { type EditableEnvTree, mergeToEditable, splitFromEditable, generateUniqueName, genVarId, renameKey, filterTree } from "./envTreeUtils";
 
 const DEBOUNCE_MS = 800;
 const PROFILE_NAME_REGEX = /^[a-z0-9][a-z0-9-]*$/;
+
+// Persists the selected profile across tab switches (component mount/unmount cycles)
+let rememberedProfile: string | null = null;
+
+// Set by external callers (e.g. Cmd+click in code editor) to jump to a variable on next open
+export interface EnvJumpTarget {
+  /** Dot-notation path of the active env, e.g. "production.eu" */
+  envPath: string;
+  /** Variable key to highlight */
+  varKey: string;
+  /** Profile that was active at the time (e.g. "default") */
+  profile?: string;
+}
+let pendingJumpTarget: EnvJumpTarget | null = null;
+export function setEnvJumpTarget(target: EnvJumpTarget | null) {
+  pendingJumpTarget = target;
+  // Override the remembered profile so the EnvironmentEditor opens on (or
+  // switches to) the correct profile — whether it remounts or is already mounted.
+  if (target?.profile) {
+    rememberedProfile = target.profile;
+  }
+}
+
+/**
+ * Walk the envPath through the tree and find the deepest node along the path
+ * that contains the variable. Returns the dot-path of that node, or null if
+ * the variable wasn't found anywhere along the path.
+ */
+function findVarInLineage(tree: EditableEnvTree, envPath: string, varKey: string): string | null {
+  const segments = envPath.split(".");
+  let node: EditableEnvNode | undefined = tree[segments[0]];
+  if (!node) return null;
+
+  // Walk from root → leaf, tracking the deepest match
+  let deepestMatch: string | null = node.variables.some((v) => v.key === varKey) ? segments[0] : null;
+  let currentPath = segments[0];
+
+  for (let i = 1; i < segments.length; i++) {
+    node = node.children[segments[i]];
+    if (!node) break;
+    currentPath = `${currentPath}.${segments[i]}`;
+    if (node.variables.some((v) => v.key === varKey)) {
+      deepestMatch = currentPath;
+    }
+  }
+
+  return deepestMatch;
+}
 
 const ProfileSelector = ({
   selectedProfile,
@@ -101,9 +150,9 @@ const ProfileSelector = ({
                   <Check size={14} className="flex-shrink-0 mr-1" style={{ color: 'var(--icon-success)' }} />
                 )}
                 {profile !== "default" && (
+                  <Tip label={`Delete ${profile}`}>
                   <button
                     className="p-0.5 rounded hover:bg-border opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
-                    title={`Delete ${profile}`}
                     onClick={(e) => {
                       e.stopPropagation();
                       handleDelete(profile);
@@ -111,6 +160,7 @@ const ProfileSelector = ({
                   >
                     <Trash2 size={12} className="text-comment" />
                   </button>
+                  </Tip>
                 )}
               </div>
             ))}
@@ -163,17 +213,38 @@ const AddEnvironmentButton = ({ onClick }: { onClick: () => void }) => (
 export const EnvironmentEditor = () => {
   const queryClient = useQueryClient();
   const { data: envData } = useEnvironments();
-  const [selectedProfile, setSelectedProfile] = useState<string>(envData?.activeProfile ?? "default");
+  const [selectedProfile, setSelectedProfile] = useState<string>(
+    rememberedProfile ?? envData?.activeProfile ?? "default"
+  );
   const profileParam = selectedProfile === "default" ? undefined : selectedProfile;
   const { data, isLoading } = useYamlEnvironments(profileParam);
   const { mutate: save } = useSaveYamlEnvironments(profileParam);
   const [tree, setTree] = useState<EditableEnvTree>({});
+  const [searchTerm, setSearchTerm] = useState("");
   const [newRootName, setNewRootName] = useState<string | null>(null);
   const [expandSignal, setExpandSignal] = useState<ExpandSignal | null>(null);
+  const [highlightTarget, setHighlightTarget] = useState<{ varKey: string; envPath: string } | null>(null);
+  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const selectedProfileRef = useRef(selectedProfile);
   const expandCounterRef = useRef(0);
   const dirtyRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const treeRef = useRef<HTMLDivElement>(null);
+  const treeDataRef = useRef<EditableEnvTree>({});
+  const editorRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  const isSearching = searchTerm.trim().length > 0;
+  const displayTree = useMemo(
+    () => (isSearching ? filterTree(tree, searchTerm.trim()) : tree),
+    [tree, searchTerm, isSearching]
+  );
+
+  // Remember the selected profile so it persists across tab switches
+  useEffect(() => {
+    rememberedProfile = selectedProfile;
+    selectedProfileRef.current = selectedProfile;
+  }, [selectedProfile]);
 
   // Re-read from filesystem whenever this tab is opened or switched to
   useEffect(() => {
@@ -190,14 +261,41 @@ export const EnvironmentEditor = () => {
     if (data && !dirtyRef.current) {
       const merged = mergeToEditable(data.public, data.private);
       setTree(merged);
+      treeDataRef.current = merged;
     }
   }, [data]);
 
-  // Clean up debounce timer on unmount
+  // Keep a ref to the save function so the unmount cleanup always uses the latest
+  const saveRef = useRef(save);
+  useEffect(() => { saveRef.current = save; }, [save]);
+
+  // Flush any pending save on unmount instead of discarding it
   useEffect(() => {
     return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+        const { publicTree, privateTree } = splitFromEditable(treeDataRef.current);
+        saveRef.current({ publicTree, privateTree });
+      }
     };
+  }, []);
+
+  // Cmd/Ctrl+F focuses search — works even without prior click into the editor
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key !== "f" || !(e.metaKey || e.ctrlKey)) return;
+      const el = editorRef.current;
+      if (!el) return;
+      // Only activate when the editor is visible and either has focus or nothing else claims it
+      if (el.contains(document.activeElement) || document.activeElement === document.body) {
+        e.preventDefault();
+        searchRef.current?.focus();
+        searchRef.current?.select();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
   }, []);
 
   // Focus first item on arrow key if nothing is focused
@@ -205,9 +303,9 @@ export const EnvironmentEditor = () => {
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       const active = document.activeElement;
       const hasItemFocus = active?.closest("[data-env-item]");
-      if (!hasItemFocus && treeRef.current) {
+      if (!hasItemFocus && containerRef.current) {
         e.preventDefault();
-        const first = treeRef.current.querySelector<HTMLElement>("[data-env-item]");
+        const first = containerRef.current.querySelector<HTMLElement>("[data-env-item]");
         first?.focus();
       }
     }
@@ -229,10 +327,81 @@ export const EnvironmentEditor = () => {
     (newTree: EditableEnvTree) => {
       dirtyRef.current = true;
       setTree(newTree);
+      treeDataRef.current = newTree;
       scheduleSave(newTree);
     },
     [scheduleSave]
   );
+
+  // Consume a pending jump target: switch profile if needed, find the variable
+  // in the active env's lineage, highlight it, or create it if missing.
+  // Uses selectedProfileRef (not the closed-over state) so that the [tree]
+  // effect — which intentionally omits this callback from its deps — always
+  // reads the current profile value after a profile switch.
+  const consumeJumpTarget = useCallback((currentTree: EditableEnvTree) => {
+    if (!pendingJumpTarget || Object.keys(currentTree).length === 0) return;
+    const { varKey, envPath, profile } = pendingJumpTarget;
+
+    // Switch profile if the target specifies one that differs
+    if (profile && profile !== selectedProfileRef.current) {
+      // Don't consume yet — switch profile first; the tree will reload and
+      // this function will be called again via the [tree] effect.
+      setSelectedProfile(profile === "default" ? "default" : profile);
+      return;
+    }
+
+    pendingJumpTarget = null;
+
+    if (!envPath) {
+      // No env context — highlight globally (legacy fallback)
+      setHighlightTarget({ varKey, envPath: "" });
+      if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+      highlightTimerRef.current = setTimeout(() => setHighlightTarget(null), 2500);
+      return;
+    }
+
+    // Walk the lineage to find which node owns this variable
+    const foundPath = findVarInLineage(currentTree, envPath, varKey);
+
+    if (foundPath) {
+      setHighlightTarget({ varKey, envPath: foundPath });
+      if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+      highlightTimerRef.current = setTimeout(() => setHighlightTarget(null), 2500);
+    } else {
+      // Variable doesn't exist anywhere in the lineage — create it in the
+      // active env node and highlight it.
+      const segments = envPath.split(".");
+      const newTree = structuredClone(currentTree);
+      let node: EditableEnvNode | undefined = newTree[segments[0]];
+      for (let i = 1; i < segments.length && node; i++) {
+        node = node.children[segments[i]];
+      }
+      if (node) {
+        node.variables.push({ id: genVarId(), key: varKey, value: "", isPrivate: false });
+        handleUpdateTree(newTree);
+        setHighlightTarget({ varKey, envPath });
+        if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+        highlightTimerRef.current = setTimeout(() => setHighlightTarget(null), 2500);
+      }
+    }
+  }, [handleUpdateTree]);
+
+  // Case 1: tab newly opened or profile switched — tree loads after mount.
+  // consumeJumpTarget is intentionally omitted from deps: we only want to
+  // re-run when the tree data itself changes (e.g. after a profile switch
+  // loads new data), not when the callback identity changes.
+  useEffect(() => {
+    consumeJumpTarget(tree);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tree]);
+
+  // Case 2: tab already open with a loaded tree
+  useEffect(() => {
+    consumeJumpTarget(treeDataRef.current);
+    const tryConsume = () => consumeJumpTarget(treeDataRef.current);
+    window.addEventListener("voiden:env-editor-focus", tryConsume);
+    return () => window.removeEventListener("voiden:env-editor-focus", tryConsume);
+  }, [consumeJumpTarget]);
 
   const handleAddRoot = () => {
     const envName = generateUniqueName(tree);
@@ -266,9 +435,10 @@ export const EnvironmentEditor = () => {
   }
 
   const isEmpty = Object.keys(tree).length === 0;
+  const noResults = isSearching && Object.keys(displayTree).length === 0;
 
   return (
-    <div className="h-full w-full bg-editor text-text flex flex-col" onKeyDown={handleContainerKeyDown} tabIndex={-1}>
+    <div ref={editorRef} className="h-full w-full bg-editor text-text flex flex-col" onKeyDown={handleContainerKeyDown} tabIndex={-1}>
       {/* Toolbar */}
       <div className="flex items-center justify-between px-5 py-3 border-b border-border flex-shrink-0">
         <div className="flex items-center gap-2">
@@ -299,6 +469,39 @@ export const EnvironmentEditor = () => {
         </div>
       </div>
 
+      {/* Search */}
+      {!isEmpty && (
+        <div className="px-5 pt-3 flex-shrink-0">
+          <div className="relative max-w-sm">
+            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-comment pointer-events-none" />
+            <input
+              ref={searchRef}
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  setSearchTerm("");
+                  editorRef.current?.focus();
+                }
+              }}
+              placeholder="Search environments and variables..."
+              className="w-full pl-8 pr-8 py-1.5 text-sm bg-panel border border-border rounded-md text-text placeholder:text-comment focus:outline-none focus:ring-1"
+              style={{ '--tw-ring-color': 'var(--icon-primary)' } as React.CSSProperties}
+            />
+            {isSearching && (
+              <button
+                onClick={() => { setSearchTerm(""); searchRef.current?.focus(); }}
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded hover:bg-active transition-colors"
+              >
+                <X size={14} className="text-comment" />
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Content */}
       <div className="flex-1 overflow-y-auto px-5 py-4">
         {isEmpty ? (
@@ -310,16 +513,24 @@ export const EnvironmentEditor = () => {
             </p>
             <AddEnvironmentButton onClick={handleAddRoot} />
           </div>
+        ) : noResults ? (
+          <div className="flex flex-col items-center justify-center h-32 text-comment">
+            <Search size={24} className="mb-2 opacity-50" />
+            <p className="text-sm">No matches for &ldquo;{searchTerm.trim()}&rdquo;</p>
+          </div>
         ) : (
-          <div ref={treeRef} className="space-y-1 max-w-4xl" data-env-tree>
-            {Object.entries(tree).map(([name, node]) => (
+          <div ref={containerRef} className="space-y-1 max-w-4xl" data-env-tree>
+            {Object.entries(displayTree).map(([name, node]) => (
               <EnvironmentNode
                 key={name}
                 name={name}
                 node={node}
+                path={name}
                 depth={0}
                 initialEditing={name === newRootName}
                 expandSignal={expandSignal}
+                searchTerm={isSearching ? searchTerm.trim() : undefined}
+                highlightTarget={highlightTarget}
                 onUpdate={(updated) => handleUpdateNode(name, updated)}
                 onDelete={() => { handleDeleteNode(name); setNewRootName(null); }}
                 onRename={(newName) => { handleRenameNode(name, newName); setNewRootName(null); }}

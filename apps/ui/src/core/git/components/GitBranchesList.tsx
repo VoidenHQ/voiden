@@ -1,12 +1,12 @@
 import { GitBranch, Loader2, Plus, Check } from "lucide-react";
 import { cn } from "@/core/lib/utils";
-import * as Tooltip from "@radix-ui/react-tooltip";
 import { Command } from "cmdk";
 import { useEffect, useState, useRef } from "react";
 import { useCheckoutBranch, useGetGitBranches, useCreateBranch } from "@/core/git/hooks";
 import { useGetProjects } from "@/core/projects/hooks";
 import { toast } from "@/core/components/ui/sonner";
 import { Kbd } from "@/core/components/ui/kbd";
+import { Tip } from "@/core/components/ui/Tip";
 
 export const GitBranchesList = () => {
   // Get branches and active branch data.
@@ -141,21 +141,15 @@ export const GitBranchesList = () => {
 
   return (
     <>
-      <Tooltip.Root>
-        <Tooltip.Trigger asChild>
-          <button
-            className={cn("text-sm h-full px-2 flex items-center gap-2 hover:bg-active no-drag text-comment", !data?.activeBranch && "text-comment")}
-            onClick={() => setOpen(true)}
-          >
-            <GitBranch size={14} />
-            <span>{data?.activeBranch || "Branches"}</span>
-          </button>
-        </Tooltip.Trigger>
-        <Tooltip.Content align="start" sideOffset={4} alignOffset={4} side="top" className="border flex items-center gap-2 bg-panel border-border p-1 text-sm z-10 text-comment">
-          <span>Checkout branch</span>
-          <Kbd keys="⌥⌘B" size="sm"></Kbd>
-        </Tooltip.Content>
-      </Tooltip.Root>
+      <Tip label={<span className="flex items-center gap-2"><span>Checkout branch</span><Kbd keys="⌥⌘B" size="sm" /></span>}>
+        <button
+          className={cn("text-sm h-full px-2 flex items-center gap-2 hover:bg-active no-drag text-comment", !data?.activeBranch && "text-comment")}
+          onClick={() => setOpen(true)}
+        >
+          <GitBranch size={14} />
+          <span>{data?.activeBranch || "Branches"}</span>
+        </button>
+      </Tip>
       {open && (
         <div className="fixed inset-0 z-[9999] flex items-start justify-center pt-[20vh] bg-black/50" onClick={() => setOpen(false)}>
           <div className="w-full max-w-2xl mx-4" onClick={(e) => e.stopPropagation()}>

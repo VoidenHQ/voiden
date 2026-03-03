@@ -1,11 +1,11 @@
 import { PanelLeft, Terminal, Github, MessageCircle, PanelRight, GitCompareArrows, Download } from "lucide-react";
 import { cn } from "@/core/lib/utils";
-import * as Tooltip from "@radix-ui/react-tooltip";
 import { GitBranchesList } from "@/core/git/components/GitBranchesList";
 import { BranchComparisonDialog } from "@/core/git/components/BranchComparisonDialog";
 import { useSettings } from "@/core/settings/hooks/useSettings";
 import { useState, useEffect } from "react";
 import { Kbd } from "@/core/components/ui/kbd";
+import { Tip } from "@/core/components/ui/Tip";
 
 const handleExternalLink = (url: string) => (e: React.MouseEvent) => {
   e.preventDefault();
@@ -110,34 +110,23 @@ export const StatusBar = ({
     <div className="h-8 flex-none border-t border-border flex items-center justify-between bg-panel">
       {/* Left Status Items */}
       <div className="flex items-center h-full">
-        <Tooltip.Root>
-          <Tooltip.Trigger className={cn("h-full px-2 hover:bg-active text-comment", !isLeftCollapsed && "bg-active")} onClick={toggleLeft}>
+        <Tip label={<span className="flex items-center gap-2"><span>Toggle left panel</span><Kbd keys={'⌘B'} size="sm" /></span>}>
+          <button className={cn("h-full px-2 hover:bg-active text-comment", !isLeftCollapsed && "bg-active")} onClick={toggleLeft}>
             <PanelLeft size={14} />
-          </Tooltip.Trigger>
-
-          <Tooltip.Content align="start" sideOffset={4} alignOffset={4} side="top" className="flex items-center gap-2 border bg-panel border-border p-1 text-sm z-10 text-comment">
-            <span>Toggle left panel</span>
-            <Kbd keys={'⌘B'} size="sm"></Kbd>
-          </Tooltip.Content>
-        </Tooltip.Root>
+          </button>
+        </Tip>
 
         <GitBranchesList />
 
-        <Tooltip.Root>
-          <Tooltip.Trigger asChild>
-            <button
-              className={cn("text-sm h-full px-2 flex items-center gap-2 hover:bg-active no-drag text-comment")}
-              onClick={() => setIsCompareDialogOpen(true)}
-            >
-              <GitCompareArrows size={14} />
-              <span>Compare</span>
-            </button>
-          </Tooltip.Trigger>
-          <Tooltip.Content align="start" sideOffset={4} alignOffset={4} side="top" className="flex items-center gap-2 border bg-panel border-border p-1 text-sm z-10 text-comment">
-            <span>Compare branches</span>
-            <Kbd keys={'⌥⌘D'} size="sm"></Kbd>
-          </Tooltip.Content>
-        </Tooltip.Root>
+        <Tip label={<span className="flex items-center gap-2"><span>Compare branches</span><Kbd keys={'⌥⌘D'} size="sm" /></span>}>
+          <button
+            className={cn("text-sm h-full px-2 flex items-center gap-2 hover:bg-active no-drag text-comment")}
+            onClick={() => setIsCompareDialogOpen(true)}
+          >
+            <GitCompareArrows size={14} />
+            <span>Compare</span>
+          </button>
+        </Tip>
       </div>
 
       {/* Right Status Items */}
@@ -145,25 +134,7 @@ export const StatusBar = ({
         <div className="flex h-full justify-between">
           {/* App Version / Update Progress */}
           {updateProgress && (updateProgress.status === "downloading" || updateProgress.status === "installing" || updateProgress.status === "checking" || updateProgress.status === "ready") ? (
-            <Tooltip.Root>
-              <Tooltip.Trigger asChild>
-                <div className="h-full px-3 flex items-center gap-2 text-comment select-none">
-                  <Download className="w-3 h-3 animate-pulse" style={{ color: 'var(--icon-primary)' }} />
-                  {updateProgress.status === "checking" && (
-                    <span className="text-xs animate-pulse">Checking...</span>
-                  )}
-                  {updateProgress.status === "downloading" && (
-                    <span className="text-xs animate-pulse">Downloading...</span>
-                  )}
-                  {updateProgress.status === "ready" && (
-                    <span className="text-xs">Downloaded</span>
-                  )}
-                  {updateProgress.status === "installing" && (
-                    <span className="text-xs animate-pulse">Installing...</span>
-                  )}
-                </div>
-              </Tooltip.Trigger>
-              <Tooltip.Content align="start" sideOffset={4} alignOffset={4} side="top" className="border bg-panel border-border p-2 text-sm z-10 text-comment">
+            <Tip label={<>
                 {updateProgress.status === "checking" && <span>Checking for updates...</span>}
                 {updateProgress.status === "downloading" && (
                   <div className="space-y-1">
@@ -175,75 +146,67 @@ export const StatusBar = ({
                 )}
                 {updateProgress.status === "ready" && <span>Update downloaded and ready to install</span>}
                 {updateProgress.status === "installing" && <span>Installing update...</span>}
-              </Tooltip.Content>
-            </Tooltip.Root>
+              </>}>
+              <div className="h-full px-3 flex items-center gap-2 text-comment select-none">
+                <Download className="w-3 h-3 animate-pulse" style={{ color: 'var(--icon-primary)' }} />
+                {updateProgress.status === "checking" && (
+                  <span className="text-xs animate-pulse">Checking...</span>
+                )}
+                {updateProgress.status === "downloading" && (
+                  <span className="text-xs animate-pulse">Downloading...</span>
+                )}
+                {updateProgress.status === "ready" && (
+                  <span className="text-xs">Downloaded</span>
+                )}
+                {updateProgress.status === "installing" && (
+                  <span className="text-xs animate-pulse">Installing...</span>
+                )}
+              </div>
+            </Tip>
           ) : (
-            <Tooltip.Root>
-              <Tooltip.Trigger asChild>
-                <button
-                  onClick={handleCheckForUpdates}
-                  disabled={isCheckingUpdates}
-                  className={cn(
-                    "h-full pt-1 px-2 hover:bg-active text-comment select-none transition-opacity",
-                    isCheckingUpdates ? "opacity-50 cursor-wait" : "cursor-pointer"
-                  )}
-                >
-                  <span className="font-mono text-sm">
-                    {isCheckingUpdates ? "Checking..." : `v${version}`}
-                  </span>
-                </button>
-              </Tooltip.Trigger>
-              <Tooltip.Content align="start" sideOffset={4} alignOffset={4} side="top" className="border bg-panel border-border p-1 text-sm z-10 text-comment">
-                <span>Click to check for updates</span>
-              </Tooltip.Content>
-            </Tooltip.Root>
+            <Tip label="Click to check for updates">
+              <button
+                onClick={handleCheckForUpdates}
+                disabled={isCheckingUpdates}
+                className={cn(
+                  "h-full pt-1 px-2 hover:bg-active text-comment select-none transition-opacity",
+                  isCheckingUpdates ? "opacity-50 cursor-wait" : "cursor-pointer"
+                )}
+              >
+                <span className="font-mono text-sm">
+                  {isCheckingUpdates ? "Checking..." : `v${version}`}
+                </span>
+              </button>
+            </Tip>
           )}
 
           {/* GitHub Link */}
-          <Tooltip.Root>
-            <Tooltip.Trigger className="h-full pt-2 px-2 hover:bg-active text-comment" asChild>
-              <a href="https://github.com/VoidenHQ/voiden" onClick={handleExternalLink("https://github.com/VoidenHQ/voiden")}>
-                <Github size={14} />
-              </a>
-            </Tooltip.Trigger>
-            <Tooltip.Content align="end" sideOffset={4} alignOffset={4} side="top" className="border bg-panel border-border p-1 text-sm text-comment">
-              <span>Visit GitHub</span>
-            </Tooltip.Content>
-          </Tooltip.Root>
+          <Tip label="Visit GitHub" align="end">
+            <a href="https://github.com/VoidenHQ/voiden" onClick={handleExternalLink("https://github.com/VoidenHQ/voiden")} className="h-full pt-2 px-2 hover:bg-active text-comment flex items-center">
+              <Github size={14} />
+            </a>
+          </Tip>
 
           {/* Discord Link */}
-          <Tooltip.Root>
-            <Tooltip.Trigger className="h-full pt-2 px-2 hover:bg-active text-comment" asChild>
-              <a href="https://discord.gg/XSYCf7JF4F" onClick={handleExternalLink("https://discord.gg/XSYCf7JF4F")}>
-                <MessageCircle size={14} />
-              </a>
-            </Tooltip.Trigger>
-            <Tooltip.Content align="end" sideOffset={4} alignOffset={4} side="top" className="border bg-panel border-border p-1 text-sm text-comment">
-              <span>Join Discord</span>
-            </Tooltip.Content>
-          </Tooltip.Root>
+          <Tip label="Join Discord" align="end">
+            <a href="https://discord.gg/XSYCf7JF4F" onClick={handleExternalLink("https://discord.gg/XSYCf7JF4F")} className="h-full pt-2 px-2 hover:bg-active text-comment flex items-center">
+              <MessageCircle size={14} />
+            </a>
+          </Tip>
 
           {/* Bottom Panel Toggle */}
-          <Tooltip.Root>
-            <Tooltip.Trigger className={cn("h-full px-2 hover:bg-active text-comment", !isBottomCollapsed && "bg-active")} onClick={toggleBottom}>
+          <Tip label={<span className="flex items-center gap-2"><span>Toggle bottom panel</span><Kbd keys={'⌘J'} size="sm" /></span>} align="end">
+            <button className={cn("h-full px-2 hover:bg-active text-comment", !isBottomCollapsed && "bg-active")} onClick={toggleBottom}>
               <Terminal size={14} />
-            </Tooltip.Trigger>
-            <Tooltip.Content align="end" sideOffset={4} alignOffset={4} side="top" className="flex items-center gap-2 border bg-panel border-border p-1 text-sm text-comment">
-              <span>Toggle bottom panel</span>
-              <Kbd keys={'⌘J'} size="sm"></Kbd>
-            </Tooltip.Content>
-          </Tooltip.Root>
+            </button>
+          </Tip>
 
           {/* Right Panel Toggle */}
-          <Tooltip.Root>
-            <Tooltip.Trigger className={cn("h-full px-2 hover:bg-active text-comment", !isRightCollapsed && "bg-active")} onClick={toggleRight}>
+          <Tip label={<span className="flex items-center gap-2"><span>Toggle right panel</span><Kbd keys={'⌘Y'} size="sm" /></span>} align="end">
+            <button className={cn("h-full px-2 hover:bg-active text-comment", !isRightCollapsed && "bg-active")} onClick={toggleRight}>
               <PanelRight size={14} />
-            </Tooltip.Trigger>
-            <Tooltip.Content align="end" sideOffset={4} alignOffset={4} side="top" className="flex items-center gap-2 border bg-panel border-border p-1 text-sm text-comment">
-              <span>Toggle right panel</span>
-              <Kbd keys={'⌘Y'} size="sm"></Kbd>
-            </Tooltip.Content>
-          </Tooltip.Root>
+            </button>
+          </Tip>
         </div>
       </div>
 

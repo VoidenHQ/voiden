@@ -5,6 +5,7 @@ import { useState } from "react";
 import { toast } from "@/core/components/ui/sonner";
 import { useAddPanelTab } from "@/core/layout/hooks";
 import { GitGraph } from "./GitGraph";
+import { Tip } from "@/core/components/ui/Tip";
 
 export const GitSourceControl = () => {
   const [showGraph, setShowGraph] = useState(true);
@@ -201,13 +202,14 @@ export const GitSourceControl = () => {
                 <span className="text-xs font-medium text-text">
                   Staged Changes ({status.staged.length})
                 </span>
-                <button
-                  onClick={handleUnstageAll}
-                  className="text-xs text-comment hover:text-text"
-                  title="Unstage all"
-                >
-                  <Minus size={14} />
-                </button>
+                <Tip label="Unstage all" side="bottom">
+                  <button
+                    onClick={handleUnstageAll}
+                    className="text-xs text-comment hover:text-text"
+                  >
+                    <Minus size={14} />
+                  </button>
+                </Tip>
               </div>
               <div>
                 {status.staged.map((file) => (
@@ -222,16 +224,17 @@ export const GitSourceControl = () => {
                     >
                       {file}
                     </span>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleUnstage(file);
-                      }}
-                      className="opacity-0 group-hover:opacity-100 text-comment hover:text-text"
-                      title="Unstage"
-                    >
-                      <Minus size={14} />
-                    </button>
+                    <Tip label="Unstage" side="bottom">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleUnstage(file);
+                        }}
+                        className="opacity-0 group-hover:opacity-100 text-comment hover:text-text"
+                      >
+                        <Minus size={14} />
+                      </button>
+                    </Tip>
                   </div>
                 ))}
               </div>
@@ -245,13 +248,14 @@ export const GitSourceControl = () => {
                 <span className="text-xs font-medium text-text">
                   Changes ({status.modified.length + status.untracked.length + status.deleted.length})
                 </span>
-                <button
-                  onClick={handleStageAll}
-                  className="text-xs text-comment hover:text-text"
-                  title="Stage all"
-                >
-                  <Plus size={14} />
-                </button>
+                <Tip label="Stage all" side="bottom">
+                  <button
+                    onClick={handleStageAll}
+                    className="text-xs text-comment hover:text-text"
+                  >
+                    <Plus size={14} />
+                  </button>
+                </Tip>
               </div>
               <div>
                 {[...status.modified, ...status.untracked, ...status.deleted].map((file) => {
@@ -271,26 +275,28 @@ export const GitSourceControl = () => {
                         {file}
                       </span>
                       <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleStage(file);
-                          }}
-                          className="text-comment hover:text-text"
-                          title="Stage"
-                        >
-                          <Plus size={14} />
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDiscard(file);
-                          }}
-                          className="text-comment hover:text-red-500"
-                          title="Discard changes"
-                        >
-                          <RotateCcw size={14} />
-                        </button>
+                        <Tip label="Stage" side="bottom">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleStage(file);
+                            }}
+                            className="text-comment hover:text-text"
+                          >
+                            <Plus size={14} />
+                          </button>
+                        </Tip>
+                        <Tip label="Discard changes" side="bottom">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDiscard(file);
+                            }}
+                            className="text-comment hover:text-red-500"
+                          >
+                            <RotateCcw size={14} />
+                          </button>
+                        </Tip>
                       </div>
                     </div>
                   );
@@ -317,12 +323,14 @@ export const GitSourceControl = () => {
               <GitCommit size={14} className="text-accent" />
               <span className="text-xs font-medium text-text">Commit History</span>
             </div>
-            <button
-              onClick={() => setShowGraph(false)}
-              className="text-xs text-comment hover:text-text"
-            >
-              <X size={14} />
-            </button>
+            <Tip label="Hide commit history" side="bottom">
+              <button
+                onClick={() => setShowGraph(false)}
+                className="text-xs text-comment hover:text-text"
+              >
+                <X size={14} />
+              </button>
+            </Tip>
           </div>
           <GitGraph />
         </div>

@@ -12,11 +12,14 @@ import logo from "@/assets/logo-dark.png";
 import ChangeLogScreen from "@/core/screens/ChangeLogScreen";
 import { useCodeEditorStore } from "@/core/editors/code/CodeEditorStore";
 import { useEditorStore } from "@/core/editors/voiden/VoidenEditor";
-import { Settings, Menu } from "lucide-react";
+import { Settings, Menu, Play } from "lucide-react";
 import { Kbd } from "@/core/components/ui/kbd";
 import { ErrorBoundary } from "@/core/components/ErrorBoundary";
 import { DiffViewer } from "@/core/git/components/DiffViewer";
 import { EnvironmentEditor } from "@/core/environment/components/EnvironmentEditor";
+import { useNewTerminalTab } from "@/core/terminal/hooks/useTerminal";
+import { usePanelStore } from "@/core/stores/panelStore";
+import { Tip } from "@/core/components/ui/Tip";
 
 // TypeScript interface for md-preview plugin helpers
 interface MdPreviewHelpers {
@@ -30,6 +33,43 @@ const getMdPreviewHelpers = (): MdPreviewHelpers | undefined => {
     return window.__voidenHelpers__['md-preview'] as MdPreviewHelpers;
   }
   return undefined;
+};
+
+// Run script button for .sh files
+const RunScriptButton = ({ source }: { source: string }) => {
+  const { mutateAsync: newTerminalTab } = useNewTerminalTab();
+  const { bottomPanelRef, openBottomPanel } = usePanelStore();
+
+  const handleRun = async () => {
+    // Ensure bottom panel is open
+    if (bottomPanelRef?.current) {
+      bottomPanelRef.current.expand();
+    }
+    openBottomPanel();
+
+    // Create a new terminal tab and send the run command
+    const result = await newTerminalTab("bottom");
+    if (result?.tabId) {
+      // Small delay to let the terminal initialize
+      setTimeout(() => {
+        window.electron?.terminal.sendInput({
+          id: result.tabId,
+          data: `bash ${source}\n`,
+        });
+      }, 500);
+    }
+  };
+
+  return (
+    <Tip label="Run script" side="bottom">
+      <button
+        onClick={handleRun}
+        className="p-1 hover:bg-active rounded-sm"
+      >
+        <Play size={14} className="text-comment hover:text-fg" />
+      </button>
+    </Tip>
+  );
 };
 
 // Action menu component for .void files
@@ -354,6 +394,9 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
           <div className="flex items-center justify-between space-x-2 w-full">
             <div className="flex-1">{/* todo things go here */}</div>
             <div className="flex space-x-2">
+              {tabContent.title.endsWith(".sh") && tabContent.source && (
+                <RunScriptButton source={tabContent.source} />
+              )}
               {tabContent.title.endsWith(".void") ? (
                 // For .void files, show actions in a dropdown menu
                 <ActionMenu actionsToDisplay={actionsToDisplay} tab={tabContent} />

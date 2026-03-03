@@ -1,6 +1,5 @@
 import { Plus } from "lucide-react";
 import { Panel, PanelGroup } from "react-resizable-panels";
-import * as Tooltip from "@radix-ui/react-tooltip";
 import { PanelTabs } from "./PanelTabs";
 import { PanelContent } from "./PanelContent";
 import { SidePanelTabs } from "./SidePanelTabs";
@@ -9,6 +8,7 @@ import { ResizeHandle } from "./ResizeHandle";
 import { useAddPanelTab, useGetPanelTabs } from "@/core/layout/hooks";
 import { useNewTerminalTab } from "@/core/terminal/hooks";
 import { Kbd } from "@/core/components/ui/kbd";
+import { Tip } from "@/core/components/ui/Tip";
 
 interface MainEditorProps {
   bottomPanelProps: any;
@@ -77,24 +77,11 @@ export const MainEditor = ({ bottomPanelProps, rightPanelProps }: MainEditorProp
 
                   {/* Editor Actions */}
                   <div className=" flex border-l border-b border-border">
-                    <Tooltip.Root>
-                      <Tooltip.Trigger asChild>
-                        <button className="px-2 hover:bg-active text-comment" onClick={handleNewDocument}>
-                          <Plus size={14} />
-                        </button>
-                      </Tooltip.Trigger>
-
-                      <Tooltip.Content
-                        align="start"
-                        sideOffset={4}
-                        alignOffset={4}
-                        side="bottom"
-                        className="flex items-center gap-2 panel border text-comment bg-panel border-border p-1 text-sm z-10"
-                      >
-                        <span>New Voiden File</span>
-                        <Kbd keys="⌘N" size="sm"></Kbd>
-                      </Tooltip.Content>
-                    </Tooltip.Root>
+                    <Tip label={<span className="flex items-center gap-2"><span>New Voiden File</span><Kbd keys="⌘N" size="sm" /></span>} side="bottom">
+                      <button className="px-2 hover:bg-active text-comment" onClick={handleNewDocument}>
+                        <Plus size={14} />
+                      </button>
+                    </Tip>
                   </div>
                 </div>
 

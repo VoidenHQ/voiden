@@ -593,7 +593,7 @@ const FileLinkTippyContent = forwardRef((props: FileLinkListProps, ref) => {
                   <div className="flex flex-col min-w-0 flex-1">
                     <span className="truncate font-medium">{fileItem.filename}</span>
                     {folderPath && (
-                      <Tooltip.Root delayDuration={300}>
+                      <Tooltip.Root delayDuration={300} disableHoverableContent>
                         <Tooltip.Trigger asChild>
                           <span className="truncate text-xs text-comment cursor-default">
                             {truncatePath(folderPath, 50)}
@@ -710,7 +710,7 @@ const FileLinkNodeView = ({ node }: NodeViewProps) => {
 
   if (!fileExists) {
     return (
-      <Tooltip.Root>
+      <Tooltip.Root disableHoverableContent>
         <Tooltip.Trigger asChild>{fileLinkElement}</Tooltip.Trigger>
         <Tooltip.Content side="top" className="px-2 py-1 bg-panel text-sm border border-border text-text">
           File not found: {filename}

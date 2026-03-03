@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useContext } from "react";
+import * as Tooltip from "@radix-ui/react-tooltip";
 // Debounce hook
 function useDebounce<T>(value: T, delay: number): T {
   const [debounced, setDebounced] = useState<T>(value);
@@ -10,7 +11,7 @@ function useDebounce<T>(value: T, delay: number): T {
 }
 import { useQuery } from "@tanstack/react-query";
 import { NodeRendererProps, Tree, NodeApi, TreeApi } from "react-arborist";
-import * as Tooltip from "@radix-ui/react-tooltip";
+import { Tip } from "@/core/components/ui/Tip";
 import {
   Infinity,
   FileText,
@@ -22,8 +23,8 @@ import {
   ArrowBigDown,
   Info,
   ChevronRight,
-  ChevronsDown,
-  ChevronsUp,
+  ChevronsDownUp,
+  ChevronsUpDown,
   File,
   Folder,
   FolderOpen,
@@ -562,6 +563,7 @@ function TreeNode({ node, style, dragHandle, activeFile, removeTemporaryNode }: 
     js: <FileCode size={14} />,
     py: <FileCode size={14} />,
     go: <FileCode size={14} />,
+    sh: <FileCode size={14} />,
     void: <Infinity size={14} className="text-accent" />,
   };
 
@@ -682,7 +684,7 @@ function TreeNode({ node, style, dragHandle, activeFile, removeTemporaryNode }: 
       style={style}
       ref={dragHandle}
       className={cn(
-        "group h-6 transition-colors border border-transparent",
+        "group h-6 overflow-hidden transition-colors border border-transparent",
         !isDragOver && activeFile?.source !== node.data.path && !node.isSelected && 'hover:bg-hover',
         isContextMenuOpen && "border-active",
         activeFile?.source === node.data.path && !isDragOver && "bg-active",
@@ -704,15 +706,17 @@ function TreeNode({ node, style, dragHandle, activeFile, removeTemporaryNode }: 
         ))}
       </div>
       <div className="pl-2 relative flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
+        <div className={`flex items-center ${node.data.type === "folder" ? "gap-1" : "gap-2"} w-full`}>
           {node.data.type === "folder" && (
-            <>
+            <div className="w-30 flex items-center">
               <ChevronRight size={14} className={`transition-transform ${node.isOpen ? "rotate-90" : ""}`} />
               {node.isOpen && <FolderOpen size={14} />}
               {!node.isOpen && <Folder size={14} />}
-            </>
+            </div>
           )}
-          {node.data.type !== "folder" && getFileIcon(node.data.name, node.data.path)}
+          <div className="w-30">
+            {node.data.type !== "folder" && getFileIcon(node.data.name, node.data.path)}
+          </div>
           {node.isEditing ? (
           <RenameInput node={node} error={error} setError={setError} onSubmit={onSubmit} setIsRenaming={setIsRenaming} />
         ) : (
@@ -737,59 +741,31 @@ function TreeNode({ node, style, dragHandle, activeFile, removeTemporaryNode }: 
           </span>
         )}
         </div>
-        {
+         {
           node.data.type === "folder" && (
             <div className="flex items-center px-2 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity">
-              <Tooltip.Root>
-                <Tooltip.Trigger asChild>
+              <Tip label="Collapse all" side="bottom" align="end">
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
                       collapseAllFromFolder(node);
                     }}
                     className="p-0.5 rounded hover:bg-hover ml-1"
-                    title="Collapse all inside this folder"
                   >
-                    <ChevronsUp size={12} />
+                    <ChevronsDownUp size={12} />
                   </button>
-                </Tooltip.Trigger>
-                <Tooltip.Content
-                  align="end"
-                  sideOffset={4}
-                  alignOffset={4}
-                  side="bottom"
-                  avoidCollisions
-                  collisionPadding={8}
-                  className="border text-comment bg-panel border-border p-1 text-sm z-10"
-                >
-                  Collapse all
-                </Tooltip.Content>
-              </Tooltip.Root>
-              <Tooltip.Root>
-                <Tooltip.Trigger asChild>
+              </Tip>
+              <Tip label="Expand all" side="bottom" align="end">
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
                       expandAllFromFolder(node);
                     }}
                     className="p-0.5 rounded hover:bg-hover"
-                    title="Expand all inside this folder"
                   >
-                    <ChevronsDown size={12} />
+                    <ChevronsUpDown size={12} />
                   </button>
-                </Tooltip.Trigger>
-                <Tooltip.Content
-                  align="end"
-                  sideOffset={4}
-                  alignOffset={4}
-                  side="bottom"
-                  avoidCollisions
-                  collisionPadding={8}
-                  className="border text-comment bg-panel border-border p-1 text-sm z-10"
-                >
-                  Expand all
-                </Tooltip.Content>
-              </Tooltip.Root>
+              </Tip>
             </div>
           )
         }
@@ -1291,64 +1267,28 @@ export const FileSystemList = () => {
               onMouseDown={(e) => e.stopPropagation()}
               autoFocus
             />
-            <Tooltip.Root>
-              <Tooltip.Trigger asChild>
-                <button onClick={() => setMatchCase((c) => !c)} className={matchCase ? "bg-active" : ""}>
-                  <Type size={16} />
-                </button>
-              </Tooltip.Trigger>
+            <Tip label="Match case" side="bottom">
+              <button onClick={() => setMatchCase((c) => !c)} className={matchCase ? "bg-active" : ""}>
+                <Type size={16} />
+              </button>
+            </Tip>
 
-              <Tooltip.Content
-                align="start"
-                sideOffset={4}
-                alignOffset={4}
-                side="bottom"
-                className="border text-comment bg-panel border-border p-1 text-sm z-10"
+            <Tip label="Match whole word" side="bottom">
+              <button onClick={() => setMatchWholeWord((w) => !w)} className={matchWholeWord ? "bg-active" : ""}>
+                <Hash size={16} />
+              </button>
+            </Tip>
+            <Tip label="Close search" side="bottom">
+              <button
+                onClick={() => {
+                  setStoreIsSearching(false);
+                  setRawQuery("");
+                }}
+                className="p-1 rounded hover:bg-active"
               >
-                Match case
-              </Tooltip.Content>
-            </Tooltip.Root>
-
-            <Tooltip.Root>
-              <Tooltip.Trigger asChild>
-                <button onClick={() => setMatchWholeWord((w) => !w)} className={matchWholeWord ? "bg-active" : ""}>
-                  <Hash size={16} />
-                </button>
-              </Tooltip.Trigger>
-
-              <Tooltip.Content
-                align="start"
-                sideOffset={4}
-                alignOffset={4}
-                side="bottom"
-                className="border text-comment bg-panel border-border p-1 text-sm z-10"
-              >
-                Match whole word
-              </Tooltip.Content>
-            </Tooltip.Root>
-            <Tooltip.Root>
-              <Tooltip.Trigger asChild>
-                <button
-                  onClick={() => {
-                    setStoreIsSearching(false);
-                    setRawQuery("");
-                  }}
-                  className="p-1 rounded hover:bg-active"
-                >
-                  <X size={16} />
-                </button>
-              </Tooltip.Trigger>
-
-              <Tooltip.Content
-                align="start"
-                sideOffset={4}
-                alignOffset={4}
-                side="bottom"
-                className="border text-comment bg-panel border-border p-1 text-sm z-10"
-              >
-                Close search
-              </Tooltip.Content>
-            </Tooltip.Root>
+                <X size={16} />
+              </button>
+            </Tip>
           </>
         )}
         {storeIsSearching && isSearching && <Loader size={14} className="animate-spin" />}
@@ -1405,7 +1345,7 @@ export const FileSystemList = () => {
               onKeyDown={async (e) => {
                 if (e.key !== "Enter") return;
                 const focused = treeRef.current?.focusedNode ?? treeRef.current?.selectedNodes?.[0];
-                if (!focused) return;
+                if (!focused || focused.data.isTemporary) return;
                 e.preventDefault();
                 await handleActivate(focused);
               }}

@@ -2,7 +2,7 @@ import React, { useEffect, useReducer } from "react";
 import { Editor, Node, NodeViewWrapper, ReactNodeViewRenderer, mergeAttributes } from "@tiptap/react";
 import { BlockPreviewEditor, openFile } from "./ExternalFile";
 import { useBlockContentStore } from "@/core/stores/blockContentStore";
-import * as Tooltip from "@radix-ui/react-tooltip";
+import { Tip } from "@/core/components/ui/Tip";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { parseMarkdown } from "@/core/editors/voiden/markdownConverter";
 import { useElectronEvent } from "@/core/providers";
@@ -67,16 +67,11 @@ interface TooltipButtonProps {
 }
 
 const TooltipButton: React.FC<TooltipButtonProps> = ({ title, description, onClick }) => (
-  <Tooltip.Root>
-    <Tooltip.Trigger asChild>
-      <button onClick={onClick} className="text-comment hover:text-text px-1 py-0.5 hover:bg-active">
-        {title}
-      </button>
-    </Tooltip.Trigger>
-    <Tooltip.Content align="start" sideOffset={4} alignOffset={4} side="top" className="border bg-panel border-border p-1.5 text-sm z-20">
-      <div>{description}</div>
-    </Tooltip.Content>
-  </Tooltip.Root>
+  <Tip label={description}>
+    <button onClick={onClick} className="text-comment hover:text-text px-1 py-0.5 hover:bg-active">
+      {title}
+    </button>
+  </Tip>
 );
 
 // Note: We now accept "getPos" from TipTap’s NodeView props.
@@ -200,21 +195,14 @@ const LinkedBlockNodeView = ({ node, editor, getPos }: any) => {
           </button>
         </div>
 
-        <Tooltip.Root>
-          <Tooltip.Trigger asChild>
-            <button
-              onClick={handleUnlink}
-              className="p-1 hover:bg-accent/20 rounded text-comment hover:text-text transition-colors"
-              title="Unlink to edit"
-            >
-              <Unlink size={12} />
-            </button>
-          </Tooltip.Trigger>
-          <Tooltip.Content side="top" className="px-2 py-1 bg-panel text-xs border border-border text-text rounded shadow-lg">
-            Unlink to edit locally
-            <Tooltip.Arrow className="fill-bg" />
-          </Tooltip.Content>
-        </Tooltip.Root>
+        <Tip label="Unlink to edit locally">
+          <button
+            onClick={handleUnlink}
+            className="p-1 hover:bg-accent/20 rounded text-comment hover:text-text transition-colors"
+          >
+            <Unlink size={12} />
+          </button>
+        </Tip>
       </div>
 
       {/* Block content */}
