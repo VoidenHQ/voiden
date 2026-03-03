@@ -1,4 +1,5 @@
 import { Decoration, DecorationSet, EditorView, Extension, Prec, Range, ViewPlugin, ViewUpdate } from "@uiw/react-codemirror";
+import { dispatchVariableClick, findEnvVariableEl, createCursorHandlers, isModKey } from "@/core/editors/variableClickHelpers";
 
 // Style classes for highlighting - uses CSS variables for theme support
 const styleClasses = {
@@ -40,7 +41,13 @@ function applyHighlighting(view: EditorView, envKeys: Set<string>,processKeys:Se
       className = envKeys.has(variableName) ? styleClasses.green : styleClasses.red;
     }
 
-    const decoration = Decoration.mark({ class: className });
+    const decoration = Decoration.mark({
+      class: className,
+      attributes: {
+        "data-variable": variableName,
+        "data-variable-type": isFakerVariable ? "faker" : isProcessVariable ? "process" : "env",
+      },
+    });
     marks.push(decoration.range(start, end));
   }
 
@@ -55,22 +62,50 @@ function applyHighlighting(view: EditorView, envKeys: Set<string>,processKeys:Se
 export function createHighlightPlugin(envKeys: string[] = [],processVariables:string[]=[]): Extension {
   const envKeysSet = new Set(envKeys);
   const processKeysSet=new Set(processVariables);
-  return Prec.highest(
-    ViewPlugin.fromClass(
-      class {
-        decorations: DecorationSet;
+  const highlightView = ViewPlugin.fromClass(
+    class {
+      decorations: DecorationSet;
 
-        constructor(view: EditorView) {
-          this.decorations = applyHighlighting(view, envKeysSet,processKeysSet);
-        }
+      constructor(view: EditorView) {
+        this.decorations = applyHighlighting(view, envKeysSet, processKeysSet);
+      }
 
-        update(update: ViewUpdate) {
-          if (update.docChanged || update.viewportChanged) {
-            this.decorations = applyHighlighting(update.view, envKeysSet,processKeysSet);
-          }
+      update(update: ViewUpdate) {
+        if (update.docChanged || update.viewportChanged) {
+          this.decorations = applyHighlighting(update.view, envKeysSet, processKeysSet);
         }
-      },
-      { decorations: (view) => view.decorations },
-    ),
+      }
+    },
+    { decorations: (view) => view.decorations },
   );
+
+  let cursorHandlers: ReturnType<typeof createCursorHandlers> | null = null;
+
+  const clickHandler = EditorView.domEventHandlers({
+    click(event: MouseEvent, view: EditorView) {
+      if (!isModKey(event)) return false;
+      const variableEl = findEnvVariableEl(event);
+      if (!variableEl) return false;
+      dispatchVariableClick(variableEl, view.dom);
+      event.preventDefault();
+      return true;
+    },
+    mousemove(event: MouseEvent, view: EditorView) {
+      if (!cursorHandlers) cursorHandlers = createCursorHandlers(() => view.dom);
+      cursorHandlers.mousemove(event);
+      return false;
+    },
+    keydown(event: KeyboardEvent, view: EditorView) {
+      if (!cursorHandlers) cursorHandlers = createCursorHandlers(() => view.dom);
+      cursorHandlers.keydown(event);
+      return false;
+    },
+    keyup(event: KeyboardEvent, view: EditorView) {
+      if (!cursorHandlers) cursorHandlers = createCursorHandlers(() => view.dom);
+      cursorHandlers.keyup(event);
+      return false;
+    },
+  });
+
+  return Prec.highest([highlightView, clickHandler]);
 }

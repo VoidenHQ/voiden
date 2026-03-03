@@ -111,8 +111,8 @@ import { useEditorEnhancementStore } from "@/plugins";
 import { parseMarkdown } from "./markdownConverter";
 import UniqueID from "./extensions/uniqueId";
 import { VoidenDragMenu } from "./components/VoidenDragMenu";
-import { useEnvironmentKeys, useEnvironments } from "@/core/environment/hooks";
-import { environmentHighlighter } from "./extensions/environmentHighlighter";
+import { useEnvironments, useActiveEnvironment } from "@/core/environment/hooks";
+import { environmentHighlighter, updateEnvironmentData } from "./extensions/environmentHighlighter";
 import { ReqSuggestion } from "./extensions/VariableReqSuggesion";
 import { ResSuggestion } from "./extensions/VariableResSuggestion";
 import { useContentStore } from "@/core/stores/ContentStore";
@@ -120,11 +120,11 @@ import { saveFileUtil } from "@/core/file-system/hooks";
 import { ArrowDownIcon, ArrowUpIcon, X } from "lucide-react";
 import { Input } from "@/core/components/ui/input";
 import { cn } from "@/core/lib/utils";
-import { variableHighlighter } from "./extensions/variableHighlighter";
+import { variableHighlighter, updateVariableData } from "./extensions/variableHighlighter";
 import { useSearchStore } from "@/core/stores/searchParamsStore";
 import { usePanelStore } from "@/core/stores/panelStore";
 import { useGetActiveDocument } from "@/core/documents/hooks";
-import {useVoidVariables} from "@/core/runtimeVariables/hook/useVariableCapture";
+import { useVoidVariableData } from "@/core/runtimeVariables/hook/useVariableCapture";
 
 interface VoidenEditorStore {
   editor: Editor | null;
@@ -154,9 +154,8 @@ export const useVoidenExtensionsAndSchema = () => {
   // Compute the schema based on your current extensions.
   const memoizedSchema = useMemo(() => getSchema(memoizedExtensions), [memoizedExtensions]);
 
-  // Get environment variable keys (secure - no values exposed to UI)
-  const { data: envKeys = [] } = useEnvironmentKeys();
-  const {data : voidVariableKeys=[]} = useVoidVariables();
+  const { data: voidVariableData = {} } = useVoidVariableData();
+  const envData = useActiveEnvironment() ?? {};
   const defaultNodeTypes = useMemo(
     () => [
       "doc",
@@ -199,12 +198,12 @@ export const useVoidenExtensionsAndSchema = () => {
       CustomCode,
       ReqSuggestion,
       ResSuggestion,
-      environmentHighlighter(envKeys),
-      variableHighlighter(voidVariableKeys),
+      environmentHighlighter(envData),
+      variableHighlighter(voidVariableData),
       DocumentPreserver, // Preserves unknown nodes from disabled plugins
     ];
     return baseExtensions;
-  }, [memoizedExtensions, uniqueIdExtension, envKeys]);
+  }, [memoizedExtensions, uniqueIdExtension, envData, voidVariableData]);
 
   return { finalExtensions, memoizedSchema };
 };
@@ -593,6 +592,22 @@ function sanitizeDoc(node: any): any {
 
   const initialContent = useMemo(() => validateAndParseContent(content, initialUnsaved), [content, initialUnsaved, validateAndParseContent]);
 
+  // Stores the JSON string of the document as it exists on disk, so we can
+  // detect when edits restore the document back to its saved state.
+  // Updated whenever the `content` prop changes (e.g. after save + query re-fetch).
+  const savedContentJSONRef = useRef<string | null>(null);
+  useEffect(() => {
+    try {
+      console.error("expensive operation")
+      const parsed = parseMarkdown(content, memoizedSchema);
+      const sanitized = sanitizeDoc(parsed);
+      const node = memoizedSchema.nodeFromJSON(sanitized);
+      savedContentJSONRef.current = JSON.stringify(node.toJSON());
+    } catch {
+      savedContentJSONRef.current = null;
+    }
+  }, [content, memoizedSchema]);
+
   const handleEditorCreate = useCallback(
     ({ editor }: { editor: Editor }) => {
       try {
@@ -646,7 +661,13 @@ function sanitizeDoc(node: any): any {
     ({ editor }: { editor: Editor }) => {
       const updatedContent = editor.getJSON();
       const contentString = JSON.stringify(updatedContent);
-      setUnsaved(tabId, contentString);
+
+      // Compare against saved content to detect when edits restore the original
+      if (savedContentJSONRef.current && contentString === savedContentJSONRef.current) {
+        clearUnsaved(tabId);
+      } else {
+        setUnsaved(tabId, contentString);
+      }
 
       // Auto-save to AppData for unsaved files (source is null)
       if (!source) {
@@ -656,7 +677,7 @@ function sanitizeDoc(node: any): any {
         }
       }
     },
-    [setUnsaved, tabId, source],
+    [setUnsaved, clearUnsaved, tabId, source],
   );
 
   const editor = useEditor(
@@ -740,16 +761,20 @@ function sanitizeDoc(node: any): any {
     };
   }, [editor, source, tabId, clearUnsaved, memoizedSchema]);
 
-  // Also force update when envKeys data changes (for initial load)
-  const { data: envKeys } = useEnvironmentKeys();
-    const {data : voidVariableKeys} = useVoidVariables();
+  // Force update when env / variable data changes (covers initial load)
+  const envDataEffect = useActiveEnvironment();
+  const { data: voidVariableDataEffect } = useVoidVariableData();
   useEffect(() => {
-    if (!editor || !envKeys) return;
-    // Small delay to ensure the extension has been initialized
+    if (!editor) return;
+    if (envDataEffect) updateEnvironmentData(envDataEffect);
+    if (voidVariableDataEffect) updateVariableData(voidVariableDataEffect);
     setTimeout(() => {
-      editor.view.dispatch(editor.state.tr.setMeta("forceHighlightUpdate", true));
+      const tr = editor.state.tr;
+      tr.setMeta("forceHighlightUpdate", true);
+      tr.setMeta("forceVariableHighlightUpdate", true);
+      editor.view.dispatch(tr);
     }, 100);
-  }, [editor, envKeys,voidVariableKeys]);
+  }, [editor, envDataEffect, voidVariableDataEffect]);
 
   // Restore scroll position and set up scroll tracking after editor is ready
   useEffect(() => {

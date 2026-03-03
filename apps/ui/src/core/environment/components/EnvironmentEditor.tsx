@@ -8,13 +8,58 @@ import { useCreateProfile } from "@/core/environment/hooks";
 import { useDeleteProfile } from "@/core/environment/hooks";
 import { EnvironmentNode, EditableEnvNode, ExpandSignal } from "./EnvironmentNode";
 import { Tip } from "@/core/components/ui/Tip";
-import { type EditableEnvTree, mergeToEditable, splitFromEditable, generateUniqueName, renameKey, filterTree } from "./envTreeUtils";
+import { type EditableEnvTree, mergeToEditable, splitFromEditable, generateUniqueName, genVarId, renameKey, filterTree } from "./envTreeUtils";
 
 const DEBOUNCE_MS = 800;
 const PROFILE_NAME_REGEX = /^[a-z0-9][a-z0-9-]*$/;
 
 // Persists the selected profile across tab switches (component mount/unmount cycles)
 let rememberedProfile: string | null = null;
+
+// Set by external callers (e.g. Cmd+click in code editor) to jump to a variable on next open
+export interface EnvJumpTarget {
+  /** Dot-notation path of the active env, e.g. "production.eu" */
+  envPath: string;
+  /** Variable key to highlight */
+  varKey: string;
+  /** Profile that was active at the time (e.g. "default") */
+  profile?: string;
+}
+let pendingJumpTarget: EnvJumpTarget | null = null;
+export function setEnvJumpTarget(target: EnvJumpTarget | null) {
+  pendingJumpTarget = target;
+  // Override the remembered profile so the EnvironmentEditor opens on (or
+  // switches to) the correct profile — whether it remounts or is already mounted.
+  if (target?.profile) {
+    rememberedProfile = target.profile;
+  }
+}
+
+/**
+ * Walk the envPath through the tree and find the deepest node along the path
+ * that contains the variable. Returns the dot-path of that node, or null if
+ * the variable wasn't found anywhere along the path.
+ */
+function findVarInLineage(tree: EditableEnvTree, envPath: string, varKey: string): string | null {
+  const segments = envPath.split(".");
+  let node: EditableEnvNode | undefined = tree[segments[0]];
+  if (!node) return null;
+
+  // Walk from root → leaf, tracking the deepest match
+  let deepestMatch: string | null = node.variables.some((v) => v.key === varKey) ? segments[0] : null;
+  let currentPath = segments[0];
+
+  for (let i = 1; i < segments.length; i++) {
+    node = node.children[segments[i]];
+    if (!node) break;
+    currentPath = `${currentPath}.${segments[i]}`;
+    if (node.variables.some((v) => v.key === varKey)) {
+      deepestMatch = currentPath;
+    }
+  }
+
+  return deepestMatch;
+}
 
 const ProfileSelector = ({
   selectedProfile,
@@ -178,6 +223,9 @@ export const EnvironmentEditor = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [newRootName, setNewRootName] = useState<string | null>(null);
   const [expandSignal, setExpandSignal] = useState<ExpandSignal | null>(null);
+  const [highlightTarget, setHighlightTarget] = useState<{ varKey: string; envPath: string } | null>(null);
+  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const selectedProfileRef = useRef(selectedProfile);
   const expandCounterRef = useRef(0);
   const dirtyRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -195,6 +243,7 @@ export const EnvironmentEditor = () => {
   // Remember the selected profile so it persists across tab switches
   useEffect(() => {
     rememberedProfile = selectedProfile;
+    selectedProfileRef.current = selectedProfile;
   }, [selectedProfile]);
 
   // Re-read from filesystem whenever this tab is opened or switched to
@@ -283,6 +332,76 @@ export const EnvironmentEditor = () => {
     },
     [scheduleSave]
   );
+
+  // Consume a pending jump target: switch profile if needed, find the variable
+  // in the active env's lineage, highlight it, or create it if missing.
+  // Uses selectedProfileRef (not the closed-over state) so that the [tree]
+  // effect — which intentionally omits this callback from its deps — always
+  // reads the current profile value after a profile switch.
+  const consumeJumpTarget = useCallback((currentTree: EditableEnvTree) => {
+    if (!pendingJumpTarget || Object.keys(currentTree).length === 0) return;
+    const { varKey, envPath, profile } = pendingJumpTarget;
+
+    // Switch profile if the target specifies one that differs
+    if (profile && profile !== selectedProfileRef.current) {
+      // Don't consume yet — switch profile first; the tree will reload and
+      // this function will be called again via the [tree] effect.
+      setSelectedProfile(profile === "default" ? "default" : profile);
+      return;
+    }
+
+    pendingJumpTarget = null;
+
+    if (!envPath) {
+      // No env context — highlight globally (legacy fallback)
+      setHighlightTarget({ varKey, envPath: "" });
+      if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+      highlightTimerRef.current = setTimeout(() => setHighlightTarget(null), 2500);
+      return;
+    }
+
+    // Walk the lineage to find which node owns this variable
+    const foundPath = findVarInLineage(currentTree, envPath, varKey);
+
+    if (foundPath) {
+      setHighlightTarget({ varKey, envPath: foundPath });
+      if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+      highlightTimerRef.current = setTimeout(() => setHighlightTarget(null), 2500);
+    } else {
+      // Variable doesn't exist anywhere in the lineage — create it in the
+      // active env node and highlight it.
+      const segments = envPath.split(".");
+      const newTree = structuredClone(currentTree);
+      let node: EditableEnvNode | undefined = newTree[segments[0]];
+      for (let i = 1; i < segments.length && node; i++) {
+        node = node.children[segments[i]];
+      }
+      if (node) {
+        node.variables.push({ id: genVarId(), key: varKey, value: "", isPrivate: false });
+        handleUpdateTree(newTree);
+        setHighlightTarget({ varKey, envPath });
+        if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+        highlightTimerRef.current = setTimeout(() => setHighlightTarget(null), 2500);
+      }
+    }
+  }, [handleUpdateTree]);
+
+  // Case 1: tab newly opened or profile switched — tree loads after mount.
+  // consumeJumpTarget is intentionally omitted from deps: we only want to
+  // re-run when the tree data itself changes (e.g. after a profile switch
+  // loads new data), not when the callback identity changes.
+  useEffect(() => {
+    consumeJumpTarget(tree);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tree]);
+
+  // Case 2: tab already open with a loaded tree
+  useEffect(() => {
+    consumeJumpTarget(treeDataRef.current);
+    const tryConsume = () => consumeJumpTarget(treeDataRef.current);
+    window.addEventListener("voiden:env-editor-focus", tryConsume);
+    return () => window.removeEventListener("voiden:env-editor-focus", tryConsume);
+  }, [consumeJumpTarget]);
 
   const handleAddRoot = () => {
     const envName = generateUniqueName(tree);
@@ -406,10 +525,12 @@ export const EnvironmentEditor = () => {
                 key={name}
                 name={name}
                 node={node}
+                path={name}
                 depth={0}
                 initialEditing={name === newRootName}
                 expandSignal={expandSignal}
                 searchTerm={isSearching ? searchTerm.trim() : undefined}
+                highlightTarget={highlightTarget}
                 onUpdate={(updated) => handleUpdateNode(name, updated)}
                 onDelete={() => { handleDeleteNode(name); setNewRootName(null); }}
                 onRename={(newName) => { handleRenameNode(name, newName); setNewRootName(null); }}
