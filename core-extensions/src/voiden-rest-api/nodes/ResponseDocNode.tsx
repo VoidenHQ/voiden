@@ -5,20 +5,11 @@
  * No need to navigate or find parent - everything goes through the editor state
  */
 
-import * as React from "react";
 import { Node, mergeAttributes } from "@tiptap/core";
 import { ReactNodeViewRenderer, NodeViewContent } from "@tiptap/react";
 
-export type ResponseChildNodeType =
-  | "response-body"
-  | "response-headers"
-  | "request-headers"
-  | "assertion-results"
-  | "openapi-validation-results"
-  | "script-assertion-results";
-
 export interface ResponseDocAttrs {
-  openNodes: ResponseChildNodeType[];
+  openNodes: string[];
   statusCode: number;
   statusMessage: string;
   elapsedTime: number;
@@ -31,70 +22,6 @@ const formatTime = (ms: number): string => {
   const minutes = Math.floor(ms / 60000);
   const seconds = ((ms % 60000) / 1000).toFixed(0);
   return `${minutes}m ${seconds}s`;
-};
-
-const RESPONSE_TABS: { type: ResponseChildNodeType; label: string }[] = [
-  { type: "response-body", label: "Body" },
-  { type: "response-headers", label: "Headers" },
-  { type: "request-headers", label: "Request" },
-];
-
-// ============================================================================
-// HELPER HOOK - Get Parent Response Doc State (exported for child nodes)
-// ============================================================================
-
-// Custom hook that children can use to read parent's openNodes
-export const useParentResponseDoc = (editor: any, getPos: () => number) => {
-  const [parentState, setParentState] = React.useState<{
-    openNodes: ResponseChildNodeType[];
-    parentPos: number | null;
-  }>({
-    openNodes: [],
-    parentPos: null,
-  });
-
-  React.useEffect(() => {
-    const updateParentState = () => {
-      try {
-        const pos = getPos();
-        const $pos = editor.state.doc.resolve(pos);
-
-        // Walk up to find response-doc parent
-        for (let d = $pos.depth; d > 0; d--) {
-          const node = $pos.node(d);
-          if (node.type.name === "response-doc") {
-            const rawOpenNodes = node.attrs.openNodes;
-            const openNodes: ResponseChildNodeType[] = Array.isArray(rawOpenNodes)
-              ? rawOpenNodes
-              : typeof rawOpenNodes === "string"
-                ? JSON.parse(rawOpenNodes)
-                : [];
-            setParentState({
-              openNodes,
-              parentPos: $pos.before(d),
-            });
-            return;
-          }
-        }
-      } catch (e) {
-        // Position might not be valid during unmount
-      }
-    };
-
-    // Initial read
-    updateParentState();
-
-    // Listen to editor updates using the correct TipTap API
-    editor.on('update', updateParentState);
-    editor.on('transaction', updateParentState);
-
-    return () => {
-      editor.off('update', updateParentState);
-      editor.off('transaction', updateParentState);
-    };
-  }, [editor, getPos]);
-
-  return parentState;
 };
 
 // ============================================================================

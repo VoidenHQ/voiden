@@ -6,7 +6,7 @@
 # ============================================
 # VERSION - Replaced at build time by forge.config.ts
 # ============================================
-VOIDEN_VERSION="1.1.22"
+VOIDEN_VERSION="1.2.0"
 
 # Show version
 show_version() {

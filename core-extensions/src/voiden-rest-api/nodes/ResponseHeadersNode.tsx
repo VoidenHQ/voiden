@@ -8,7 +8,6 @@
 import * as React from "react";
 import { Node } from "@tiptap/core";
 import { ReactNodeViewRenderer } from "@tiptap/react";
-import { useParentResponseDoc } from "./ResponseDocNode";
 import { Copy, Download } from "lucide-react";
 
 export interface ResponseHeader {
@@ -23,7 +22,8 @@ export interface ResponseHeadersAttrs {
 // Factory function to create the node with context components
 export const createResponseHeadersNode = (
   NodeViewWrapper: any,
-  CodeEditor: any
+  CodeEditor: any,
+  useParentResponseDoc: (editor: any, getPos: () => number) => { openNodes: string[]; parentPos: number | null }
 ) => {
   const ResponseHeadersComponent = ({ node,getPos,editor }: any) => {
     const { headers } = node.attrs as ResponseHeadersAttrs;

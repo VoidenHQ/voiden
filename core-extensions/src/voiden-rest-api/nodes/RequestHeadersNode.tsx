@@ -6,7 +6,6 @@
 import * as React from "react";
 import { Node } from "@tiptap/core";
 import { ReactNodeViewRenderer } from "@tiptap/react";
-import { useParentResponseDoc } from "./ResponseDocNode";
 import { Copy } from "lucide-react";
 
 // --- INTERFACES ---
@@ -178,7 +177,7 @@ const renderTLSSection = (
 
 // --- FACTORY FUNCTION ---
 
-export const createRequestHeadersNode = (NodeViewWrapper: any, CodeEditor: any) => {
+export const createRequestHeadersNode = (NodeViewWrapper: any, CodeEditor: any, useParentResponseDoc: (editor: any, getPos: () => number) => { openNodes: string[]; parentPos: number | null }) => {
   const RequestHeadersComponent = ({ node ,getPos,editor}: any) => {
     // Destructure all required attributes
     const { headers, url, method, httpVersion, tls } = node.attrs as RequestHeadersAttrs;

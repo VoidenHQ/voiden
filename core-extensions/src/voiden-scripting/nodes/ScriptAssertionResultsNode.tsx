@@ -1,8 +1,6 @@
 import * as React from "react";
 import { Node } from "@tiptap/core";
 import { ReactNodeViewRenderer } from "@tiptap/react";
-import { useParentResponseDoc, type ResponseChildNodeType } from "../../voiden-rest-api/nodes/ResponseDocNode";
-
 export interface ScriptAssertionResultsAttrs {
   results: Array<{ passed: boolean; message: string; condition?: string; actualValue?: any; operator?: string; expectedValue?: any; reason?: string }>;
   totalAssertions: number;
@@ -10,7 +8,7 @@ export interface ScriptAssertionResultsAttrs {
   failedAssertions: number;
 }
 
-export const createScriptAssertionResultsNode = (NodeViewWrapper: any) => {
+export const createScriptAssertionResultsNode = (NodeViewWrapper: any, useParentResponseDoc: (editor: any, getPos: () => number) => { openNodes: string[]; parentPos: number | null }) => {
   const ScriptAssertionResultsComponent = ({ node, editor, getPos }: any) => {
     const { results, totalAssertions, passedAssertions, failedAssertions } =
       node.attrs as ScriptAssertionResultsAttrs;
