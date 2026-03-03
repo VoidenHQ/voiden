@@ -82,7 +82,6 @@ export const variableHighlighter = (variableKeys: string[] = []) => {
                             return findProcessVariables(doc);
                         },
                         apply(transaction, oldState) {
-                            // Always recompute if there's a meta flag or doc changed
                             if (transaction.getMeta("forceVariableHighlightUpdate") || transaction.docChanged) {
                                 return findProcessVariables(transaction.doc);
                             }

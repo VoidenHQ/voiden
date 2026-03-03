@@ -1,5 +1,5 @@
 import { ImperativePanelHandle } from "react-resizable-panels";
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, useCallback } from "react";
 import { cn } from "@/core/lib/utils";
 import { usePanelStore } from "@/core/stores/panelStore";
 import { useGetPanelTabs } from "./usePanelTabs";
@@ -207,8 +207,9 @@ export const useRightPanel = ({ defaultSize = 0, minSize = 30 }: UseRightPanelPr
     }
   };
 
-  // Listen for changes in the global state
-  useEffect(() => {
+  // Sync the imperative panel ref to global state before the browser paints,
+  // preventing a flash where the panel is visually open on a tab that has no response.
+  useLayoutEffect(() => {
     if (ref.current) {
       if (rightPanelOpen && ref.current.isCollapsed()) {
         ref.current.expand();

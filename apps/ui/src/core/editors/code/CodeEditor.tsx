@@ -1,6 +1,6 @@
 // CodeEditor.tsx
 import { search, highlightSelectionMatches, searchKeymap, closeSearchPanel } from '@codemirror/search';
-import { useCallback, useMemo, useRef, useEffect, memo } from "react";
+import { useCallback, useMemo, useState, useEffect, useLayoutEffect, memo } from "react";
 import ReactCodeMirror from "@uiw/react-codemirror";
 import { EditorView, keymap } from "@codemirror/view";
 import { useEditorStore } from "../voiden/VoidenEditor";
@@ -32,6 +32,7 @@ interface CodeEditorProps {
   content: string;
   source: string; // The file path used for saving and determining the language.
   panelId: string;
+  isActive?: boolean;
 }
 
 // File size threshold for performance optimizations (5MB)
@@ -43,7 +44,7 @@ function debounce<T extends (...args: any[]) => any>(
   wait: number
 ): (...args: Parameters<T>) => void {
   let timeout: NodeJS.Timeout;
-  return function(...args: Parameters<T>) {
+  return function (...args: Parameters<T>) {
     clearTimeout(timeout);
     timeout = setTimeout(() => func(...args), wait);
   };
@@ -329,12 +330,15 @@ const getLanguageExtension = (filename: string) => {
   }
 };
 
-export const CodeEditor = memo(({ tabId, content, source, panelId }: CodeEditorProps) => {
-  const editorRef = useRef<EditorView>(null);
+export const CodeEditor = memo(({ tabId, content, source, panelId, isActive = true }: CodeEditorProps) => {
+  const [editorView, setEditorView] = useState<EditorView | null>(null);
 
   // const isRenaming = useFocusStore((state) => state.isRenaming);
-  const { setUnsaved } = useEditorStore((state) => ({
+  const { setUnsaved, clearUnsaved, setScrollPosition, getScrollPosition } = useEditorStore((state) => ({
     setUnsaved: state.setUnsaved,
+    clearUnsaved: state.clearUnsaved,
+    setScrollPosition: state.setScrollPosition,
+    getScrollPosition: state.getScrollPosition,
   }));
 
   const { setActiveEditor, updateContent, setEditor } = useCodeEditorStore();
@@ -371,16 +375,59 @@ export const CodeEditor = memo(({ tabId, content, source, panelId }: CodeEditorP
     return useEditorStore.getState().unsaved[tabId] || content;
   }, [tabId, content]);
 
-  // Store editor instance when created
+  // Store editor instance when created — state-driven so scroll effect re-runs when ready.
   const onCreateEditor = useCallback(
     (view: EditorView) => {
       if (view) {
         setEditor(view);
-        editorRef.current = view;
+        setEditorView(view);
       }
     },
     [setEditor],
   );
+
+  // Restore scroll position and keep tracking per-tab scroll.
+  // Listener is attached immediately so no scroll events are missed.
+  // Scroll restore uses double-rAF so CodeMirror's own layout runs first.
+  useLayoutEffect(() => {
+    if (!editorView || !isActive) return;
+
+    const scrollEl = document.getElementById("code-editor-container") as HTMLElement | null;
+    if (!scrollEl) return;
+
+    // Attach listener immediately — no rAF gap where events could be missed
+    const handleScroll = () => {
+      setScrollPosition(tabId, scrollEl.scrollTop);
+    };
+    scrollEl.addEventListener("scroll", handleScroll, { passive: true });
+
+    // Restore saved position after CodeMirror has finished its layout
+    const applySavedScroll = () => {
+      const maxScrollTop = Math.max(0, scrollEl.scrollHeight - scrollEl.clientHeight);
+      const savedScrollTop = getScrollPosition(tabId);
+      scrollEl.scrollTop = Math.min(savedScrollTop, maxScrollTop);
+    };
+
+    let rafId: number;
+    const timeoutIds: number[] = [];
+
+    rafId = requestAnimationFrame(() => {
+      rafId = requestAnimationFrame(() => {
+        scrollEl.style.scrollBehavior = "auto";
+        applySavedScroll();
+        timeoutIds.push(window.setTimeout(applySavedScroll, 0));
+        timeoutIds.push(window.setTimeout(applySavedScroll, 60));
+        timeoutIds.push(window.setTimeout(applySavedScroll, 140));
+      });
+    });
+
+    return () => {
+      scrollEl.removeEventListener("scroll", handleScroll);
+      cancelAnimationFrame(rafId);
+      timeoutIds.forEach(clearTimeout);
+      setScrollPosition(tabId, scrollEl.scrollTop);
+    };
+  }, [editorView, tabId, isActive, getScrollPosition, setScrollPosition]);
 
 
   // Focus handler to track the active editor

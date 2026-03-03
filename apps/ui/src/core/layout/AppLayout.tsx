@@ -1,5 +1,5 @@
 import { Panel, PanelGroup } from "react-resizable-panels";
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import { useSettings } from "@/core/settings/hooks/useSettings";
 import { useLeftPanel, useBottomPanel, useRightPanel } from "./hooks/usePanels";
 import { SidePanelTabs } from "./components/SidePanelTabs";
@@ -17,11 +17,15 @@ import type { Tab } from "../../../../electron/src/shared/types";
 import { MainEditor } from "./components/MainEditor";
 import { useElectronEvent } from "@/core/providers/ElectronEventProvider";
 import { useGetPanelTabs, useAddPanelTab, useActivateTab } from "./hooks";
+import { usePanelStore } from "@/core/stores/panelStore";
+import { useResponseStore } from "@/core/request-engine/stores/responseStore";
 
 export const AppLayout = () => {
   const { toggle: toggleLeft, panelProps: leftPanelProps, isCollapsed: isLeftCollapsed } = useLeftPanel();
   const { toggle: toggleBottom, panelProps: bottomPanelProps, isCollapsed: isBottomCollapsed } = useBottomPanel();
   const { toggle: toggleRight, panelProps: rightPanelProps, isCollapsed: isRightCollapsed } = useRightPanel();
+  const openRightPanel = usePanelStore((state) => state.openRightPanel);
+  const closeRightPanel = usePanelStore((state) => state.closeRightPanel);
 
   const { data: appState } = useGetAppState();
   const [version, setVersion] = useState<string>("");
@@ -30,6 +34,45 @@ export const AppLayout = () => {
   const { mutate: addPanelTab } = useAddPanelTab();
   const { mutate: activateTab } = useActivateTab();
   const { data: panelTabs } = useGetPanelTabs("main");
+
+  // Apply per-tab right-panel open/close state AFTER the panel:tabs query has
+  // settled. Running here (rather than in useActivateTab.onSuccess) ensures the
+  // editor has already switched to the correct tab before the panel expands,
+  // eliminating the glitch where the response panel opened with the wrong
+  // editor content still visible.
+  // Use useLayoutEffect so panel open/close is applied before the browser paints,
+  // preventing a visible flash where the old tab's panel state bleeds into the new tab.
+  const activeTabId = panelTabs?.activeTabId;
+  useLayoutEffect(() => {
+    if (!activeTabId) return;
+    const queryClient = getQueryClient();
+    const currentPanelData = queryClient.getQueryData<{ tabs?: Tab[]; activeTabId?: string }>(["panel:tabs", "main"]);
+    const targetTab = currentPanelData?.tabs?.find((tab) => tab.id === activeTabId);
+
+    let panelStateForTab: { rightPanelOpen?: boolean } | undefined;
+    const storedStates = localStorage.getItem("panelStates");
+    if (storedStates) {
+      try {
+        const panelStates = JSON.parse(storedStates) as Array<{ tabId: string; rightPanelOpen: boolean }>;
+        panelStateForTab = panelStates.find((state) => state.tabId === activeTabId);
+      } catch {
+        panelStateForTab = undefined;
+      }
+    }
+
+    const hasResponse = !!useResponseStore.getState().responses[activeTabId]?.responseDoc;
+
+    if (!hasResponse) {
+      // No cached response: always close regardless of saved state
+      closeRightPanel();
+    } else if (panelStateForTab) {
+      // Has response + saved state: restore it
+      panelStateForTab.rightPanelOpen ? openRightPanel() : closeRightPanel();
+    }
+    // Has response + no saved state: leave panel as-is
+    // (e.g. a response just arrived and opened the panel automatically)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTabId]);
 
   // Get app version
   useEffect(() => {
