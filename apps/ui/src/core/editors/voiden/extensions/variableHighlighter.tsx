@@ -54,7 +54,12 @@ function findProcessVariables(doc: Node): DecorationSet {
             }
 
 
-            decorations.push(Decoration.inline(from, to, { class: decorationClass }));
+            const variableType = isVariableCapture ? "capture" : "process";
+            decorations.push(Decoration.inline(from, to, {
+                class: decorationClass,
+                "data-variable": variableName,
+                "data-variable-type": variableType,
+            }));
         });
     });
 
