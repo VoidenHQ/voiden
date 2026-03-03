@@ -598,11 +598,9 @@ function sanitizeDoc(node: any): any {
   const savedContentJSONRef = useRef<string | null>(null);
   useEffect(() => {
     try {
-      console.error("expensive operation")
       const parsed = parseMarkdown(content, memoizedSchema);
       const sanitized = sanitizeDoc(parsed);
-      const node = memoizedSchema.nodeFromJSON(sanitized);
-      savedContentJSONRef.current = JSON.stringify(node.toJSON());
+      savedContentJSONRef.current = JSON.stringify(sanitized);
     } catch {
       savedContentJSONRef.current = null;
     }
