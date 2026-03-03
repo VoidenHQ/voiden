@@ -1,9 +1,29 @@
 [
   {
-    "version": "v1.2.0-beta.1",
-    "date": "24/02/2026",
+    "version": "v1.2.1",
+    "date": "04/03/2026",
+    "title": "Tab Stability & Response Persistence",
+    "description": "Patch release focused on tab stability — response panel state and scroll positions now persist across tab switches, with smoother tab navigation and reduced editor flicker.",
+    "icon": "Compass",
+    "iconColor": "text-cyan-400",
+    "bgColor": "bg-gradient-to-br from-cyan-900 to-slate-900",
+    "changes": {
+      "Added": [
+        "Per-tab response panel node persistence — response section state now restores when returning to a tab",
+        "Scroll position memory for both Voiden Editor and Code Editor during tab switches"
+      ],
+      "Fixed": [
+        "Main panel tab navigation glitches — switching tabs is now smoother with reduced editor re-initialization",
+        "Tab content reload flicker when moving between open tabs",
+        "Editor scroll restore inconsistency when switching between tabs"
+      ]
+    }
+  },
+  {
+    "version": "v1.2.0",
+    "date": "03/03/2026",
     "title": "Scripting, Navigation & UX Enhancements",
-    "description": "Beta release introducing pre/post request scripting, YAML environment configuration, improved file explorer navigation, drag-and-drop file management, YAML content-type support, and response preview improvements.",
+    "description": "Stable release introducing pre/post request scripting, YAML environment configuration, improved file explorer navigation, drag-and-drop file management, YAML content-type support, and response preview improvements.",
     "icon": "Sparkles",
     "iconColor": "text-violet-400",
     "bgColor": "bg-gradient-to-br from-violet-900 to-purple-900",

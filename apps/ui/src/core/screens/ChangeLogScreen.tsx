@@ -1,5 +1,5 @@
 import { FileText } from "lucide-react";
-import { Terminal, Plug, FileDown, Paintbrush, Braces, Code, LayoutDashboard, Eye, FilePlus2, Rocket } from "lucide-react";
+import { Terminal, Plug, FileDown, Paintbrush, Braces, Code, LayoutDashboard, Eye, FilePlus2, Rocket, Wrench, Zap, Sparkles, Compass } from "lucide-react";
 import changelogData from "@/data/changelog.json";
 
 // Map icon names to Lucide icon components
@@ -14,6 +14,10 @@ const iconMap = {
   Eye: Eye,
   FilePlus2: FilePlus2,
   Rocket: Rocket,
+  Wrench: Wrench,
+  Zap: Zap,
+  Sparkles: Sparkles,
+  Compass: Compass,
 };
 
 const ChangeLogScreen = () => {
