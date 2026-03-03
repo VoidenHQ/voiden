@@ -646,7 +646,7 @@ input[type="checkbox"]:disabled {
   /* Show scrollbar only when scrolling */
   overflow-y: auto;
   overflow-x: hidden;
-  scroll-behavior: smooth;
+  scroll-behavior: auto;
 }
 
 /* Webkit browsers (Chrome, Safari, Edge) */

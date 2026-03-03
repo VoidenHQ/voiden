@@ -53,19 +53,6 @@ const savePanelStateForTab = (tabId: string) => {
   localStorage.setItem(PANEL_STATES_KEY, JSON.stringify(panelStates));
 };
 
-const loadPanelStateForTab = (tabId: string) => {
-  const storedString = localStorage.getItem(PANEL_STATES_KEY);
-  if (!storedString) return;
-  const panelStates: PanelState[] = JSON.parse(storedString);
-  const stateForTab = panelStates.find((state: PanelState) => state.tabId === tabId);
-  if (stateForTab) {
-    if (stateForTab.rightPanelOpen) {
-      usePanelStore.getState().openRightPanel();
-    } else {
-      usePanelStore.getState().closeRightPanel();
-    }
-  }
-};
 
 interface Tab {
   id: string;
@@ -302,7 +289,8 @@ const TabComponent = ({
               savePanelStateForTab(currentActiveTabId);
             }
             activateTab(tab.id);
-            loadPanelStateForTab(tab.id);
+            // Panel state (open/close) is applied by AppLayout's activeTabId effect
+            // after the panel:tabs query settles, so the editor switches first.
           }}
         >
           {/* Drop indicator - left side */}

@@ -5,7 +5,7 @@ import tippy, { Instance, Props } from 'tippy.js'
 import VariableList from './VariableList';
 import { PluginKey } from '@tiptap/pm/state';
 
-export const ReqSuggestionPluginKey = new PluginKey('resSuggestion');
+export const ReqSuggestionPluginKey = new PluginKey('reqSuggestion');
 
 
 interface SuggestionItem {
@@ -142,4 +142,3 @@ export const ReqSuggestion = Extension.create({
     ]
   },
 })
-

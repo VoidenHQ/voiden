@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, useEffect, useRef } from "react";
+import { useCallback, useMemo, useState, useEffect, useRef, useLayoutEffect } from "react";
 import { AnyExtension, Editor, EditorContent, Extension, getSchema, useEditor } from "@tiptap/react";
 import { Plugin, PluginKey } from "prosemirror-state";
 import { Decoration, DecorationSet } from "prosemirror-view";
@@ -112,7 +112,7 @@ import { parseMarkdown } from "./markdownConverter";
 import UniqueID from "./extensions/uniqueId";
 import { VoidenDragMenu } from "./components/VoidenDragMenu";
 import { useEnvironmentKeys, useEnvironments } from "@/core/environment/hooks";
-import { environmentHighlighter } from "./extensions/environmentHighlighter";
+import { environmentHighlighter, updateEnvironmentKeys } from "./extensions/environmentHighlighter";
 import { ReqSuggestion } from "./extensions/VariableReqSuggesion";
 import { ResSuggestion } from "./extensions/VariableResSuggestion";
 import { useContentStore } from "@/core/stores/ContentStore";
@@ -120,11 +120,12 @@ import { saveFileUtil } from "@/core/file-system/hooks";
 import { ArrowDownIcon, ArrowUpIcon, X } from "lucide-react";
 import { Input } from "@/core/components/ui/input";
 import { cn } from "@/core/lib/utils";
-import { variableHighlighter } from "./extensions/variableHighlighter";
+import { variableHighlighter, updateVariableKeys } from "./extensions/variableHighlighter";
 import { useSearchStore } from "@/core/stores/searchParamsStore";
 import { usePanelStore } from "@/core/stores/panelStore";
 import { useGetActiveDocument } from "@/core/documents/hooks";
 import {useVoidVariables} from "@/core/runtimeVariables/hook/useVariableCapture";
+import { useQueryClient } from "@tanstack/react-query";
 
 interface VoidenEditorStore {
   editor: Editor | null;
@@ -276,13 +277,17 @@ interface EditorStore {
   unsaved: Record<string, string>;
   setUnsaved: (tabId: string, content: string) => void;
   clearUnsaved: (tabId: string) => void;
+  scrollPositions: Record<string, number>;
+  setScrollPosition: (tabId: string, position: number) => void;
+  getScrollPosition: (tabId: string) => number;
+  clearScrollPosition: (tabId: string) => void;
   // Store reload functions for each tab
   reloadFunctions: Record<string, () => Promise<void>>;
   registerReload: (tabId: string, reloadFn: () => Promise<void>) => void;
   unregisterReload: (tabId: string) => void;
 }
 
-export const useEditorStore = create<EditorStore>((set) => ({
+export const useEditorStore = create<EditorStore>((set, get) => ({
   unsaved: {},
   setUnsaved: (tabId, content) => set((state) => ({ unsaved: { ...state.unsaved, [tabId]: content } })),
   clearUnsaved: (tabId) =>
@@ -290,6 +295,15 @@ export const useEditorStore = create<EditorStore>((set) => ({
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { [tabId]: _, ...rest } = state.unsaved;
       return { unsaved: rest };
+    }),
+  scrollPositions: {},
+  setScrollPosition: (tabId, position) =>
+    set((state) => ({ scrollPositions: { ...state.scrollPositions, [tabId]: position } })),
+  getScrollPosition: (tabId) => get().scrollPositions[tabId] ?? 0,
+  clearScrollPosition: (tabId) =>
+    set((state) => {
+      const { [tabId]: _, ...rest } = state.scrollPositions;
+      return { scrollPositions: rest };
     }),
   reloadFunctions: {},
   registerReload: (tabId, reloadFn) =>
@@ -316,18 +330,21 @@ export const VoidenEditor = ({
   source,
   panelId,
   hasSearch,
+  isActive = true,
 }: {
   tabId: string;
   content: string;
   source: string;
   panelId: string;
   hasSearch: boolean;
+  isActive?: boolean;
 }) => {
 
   const editorRef = useRef<HTMLDivElement | null>(null);
-  const scrollPositionRef = useRef<number>(0);
   const setUnsaved = useEditorStore((state) => state.setUnsaved);
   const clearUnsaved = useEditorStore((state) => state.clearUnsaved);
+  const setScrollPosition = useEditorStore((state) => state.setScrollPosition);
+  const getScrollPosition = useEditorStore((state) => state.getScrollPosition);
   const { finalExtensions, memoizedSchema } = useVoidenExtensionsAndSchema();
   const { data: envData } = useEnvironments();
   const activeEnvKey = envData?.activeEnv ?? "default";
@@ -362,9 +379,10 @@ export const VoidenEditor = ({
   }, [tabId, extensionsKey, clearUnsaved]);
 
   useEffect(() => {
+    if (!isActive) return;
     // Always update the store with the new content, or an empty string if undefined.
     useContentStore.getState().updateContent(content || "");
-  }, [content]);
+  }, [content, isActive]);
 
   // Find & Replace state
   const [showFind, setShowFind] = useState(false);
@@ -401,6 +419,8 @@ export const VoidenEditor = ({
   // Platform-aware shortcuts for find and replace
   const isMac = typeof navigator !== "undefined" && /Mac|iPod|iPhone|iPad/.test(navigator.platform);
   useEffect(() => {
+    if (!isActive) return;
+
     const handleShortcut = (e: KeyboardEvent) => {
       // Don't trigger if focus is in a CodeMirror editor (it has its own search)
       const target = e.target as HTMLElement;
@@ -430,7 +450,6 @@ export const VoidenEditor = ({
       // Cmd/Ctrl+G: Find next (only when find panel is open)
       if (mod && key === "g" && showFind && !e.shiftKey) {
         e.preventDefault();
-        // Find next logic inline - editor will be accessed from closure
         const currentEditor = useVoidenEditorStore.getState().editor;
         if (matchPositions.length > 0 && currentEditor) {
           const nextIndex = (currentMatch + 1) % matchPositions.length;
@@ -447,7 +466,6 @@ export const VoidenEditor = ({
       // Shift+Cmd/Ctrl+G: Find previous (only when find panel is open)
       if (mod && key === "g" && showFind && e.shiftKey) {
         e.preventDefault();
-        // Find previous logic inline - editor will be accessed from closure
         const currentEditor = useVoidenEditorStore.getState().editor;
         if (matchPositions.length > 0 && currentEditor) {
           const prevIndex = (currentMatch - 1 + matchPositions.length) % matchPositions.length;
@@ -463,12 +481,14 @@ export const VoidenEditor = ({
     };
     window.addEventListener("keydown", handleShortcut);
     return () => window.removeEventListener("keydown", handleShortcut);
-  }, [isMac, hasSearch, showFind, matchPositions, currentMatch, findTerm, matchCase, matchWholeWord, useRegex]);
+  }, [isMac, hasSearch, showFind, matchPositions, currentMatch, findTerm, matchCase, matchWholeWord, useRegex, isActive]);
 
   // Cmd+Enter to execute request is now handled by SendRequestButton component via useHotkeys
   // Removed duplicate keyboard handler to prevent double request execution
 
   useEffect(() => {
+    if (!isActive) return;
+
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === "Escape" && showFind) {
         setShowFind(false);
@@ -481,10 +501,12 @@ export const VoidenEditor = ({
     return () => {
       window.removeEventListener("keydown", handleEscape);
     };
-  }, [showFind]);
+  }, [showFind, isActive]);
 
   // Handle Cmd+S to save file and prevent duplicate saves
   useEffect(() => {
+    if (!isActive) return;
+
     const handleSave = (e: KeyboardEvent) => {
       // Don't trigger if focus is in a CodeMirror editor
       const target = e.target as HTMLElement;
@@ -504,10 +526,7 @@ export const VoidenEditor = ({
         const currentEditor = useVoidenEditorStore.getState().editor;
         if (currentEditor) {
           const content = JSON.stringify(currentEditor.getJSON());
-          const path = useVoidenEditorStore.getState().filePath;
-          const panelId = currentEditor.storage.panelId;
-          const tabId = currentEditor.storage.tabId;
-          saveFileUtil(path, content, panelId, tabId, currentEditor.schema).catch(console.error);
+          saveFileUtil(source, content, panelId, tabId, currentEditor.schema).catch(console.error);
         }
       }
     };
@@ -515,7 +534,7 @@ export const VoidenEditor = ({
     return () => {
       window.removeEventListener("keydown", handleSave, true);
     };
-  }, [isMac]);
+  }, [isMac, isActive, source, panelId, tabId]);
 
   // Focus input when toolbar opens or search term changes
   useEffect(() => {
@@ -593,11 +612,27 @@ function sanitizeDoc(node: any): any {
 
   const initialContent = useMemo(() => validateAndParseContent(content, initialUnsaved), [content, initialUnsaved, validateAndParseContent]);
 
+  // Stores the JSON string of the document as it exists on disk, so we can
+  // detect when edits restore the document back to its saved state.
+  // Updated whenever the `content` prop changes (e.g. after save + query re-fetch).
+  const savedContentJSONRef = useRef<string | null>(null);
+  useEffect(() => {
+    try {
+      const parsed = parseMarkdown(content, memoizedSchema);
+      const sanitized = sanitizeDoc(parsed);
+      savedContentJSONRef.current = JSON.stringify(sanitized);
+    } catch {
+      savedContentJSONRef.current = null;
+    }
+  }, [content, memoizedSchema]);
+
   const handleEditorCreate = useCallback(
     ({ editor }: { editor: Editor }) => {
       try {
-        useVoidenEditorStore.getState().setEditor(editor);
-        useVoidenEditorStore.getState().setFilePath(source);
+        if (isActive) {
+          useVoidenEditorStore.getState().setEditor(editor);
+          useVoidenEditorStore.getState().setFilePath(source);
+        }
 
         // Set the editor in the store
         editor.storage.panelId = panelId;
@@ -605,6 +640,7 @@ function sanitizeDoc(node: any): any {
         editor.storage.instanceId = crypto.randomUUID();
 
         const unsaved = useEditorStore.getState().unsaved[tabId];
+        const savedScrollTop = useEditorStore.getState().getScrollPosition(tabId);
         
         try {
           const savedContent = parseMarkdown(content, memoizedSchema);
@@ -624,14 +660,16 @@ function sanitizeDoc(node: any): any {
           editor.commands.setContent(fallbackContent, false);
         }
 
-        // After setContent, ProseMirror leaves the selection at position 0 (before
-        // the first block node), which visually selects the first character.
-        // Explicitly collapse the cursor to the start of the document.
-        requestAnimationFrame(() => {
-          if (!editor.isDestroyed) {
-            editor.commands.setTextSelection(1);
-          }
-        });
+        // For brand new files only: collapse selection to start.
+        // When restoring tab scroll, forcing selection can move viewport unexpectedly.
+        if (!unsaved && savedScrollTop === 0) {
+          requestAnimationFrame(() => {
+            if (!editor.isDestroyed) {
+              editor.commands.setTextSelection(1);
+            }
+          });
+        }
+
       } catch (e) {
         // Set a safe fallback content instead of destroying the editor
         const fallbackContent = { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: content }] }] };
@@ -639,7 +677,7 @@ function sanitizeDoc(node: any): any {
       }
 
     },
-    [source, panelId, tabId, content, memoizedSchema],
+    [source, panelId, tabId, content, memoizedSchema, isActive],
   );
 
   const handleEditorUpdate = useCallback(
@@ -670,18 +708,28 @@ function sanitizeDoc(node: any): any {
       },
       onCreate: handleEditorCreate,
       onUpdate: handleEditorUpdate,
-      onDestroy: () => {
-        const currentEditor = useVoidenEditorStore.getState().editor;
-        if (currentEditor && currentEditor.storage.instanceId === editor.storage.instanceId) {
-          useVoidenEditorStore.getState().setEditor(null);
-        }
-      },
       extensions: [...finalExtensions, FindHighlightExtension],
       immediatelyRender: true,
       shouldRerenderOnTransaction: false,
     },
     [extensionsKey],
   );
+
+  useEffect(() => {
+    if (!editor || !isActive) return;
+    useVoidenEditorStore.getState().setEditor(editor);
+    useVoidenEditorStore.getState().setFilePath(source);
+  }, [editor, isActive, source]);
+
+  useEffect(() => {
+    if (!editor) return;
+    return () => {
+      const currentEditor = useVoidenEditorStore.getState().editor;
+      if (currentEditor && currentEditor.storage.instanceId === editor.storage.instanceId) {
+        useVoidenEditorStore.getState().setEditor(null);
+      }
+    };
+  }, [editor]);
 
   // Separate effect for environment changes - debounced to avoid conflicts during modal unmount
   const [debouncedActiveEnvKey, setDebouncedActiveEnvKey] = useState(activeEnvKey);
@@ -694,10 +742,10 @@ function sanitizeDoc(node: any): any {
 
   // Force highlight update when environment keys change - using debounced env key
   useEffect(() => {
-    if (!editor) return;
-    // Dispatch a transaction with forceHighlightUpdate meta
+    if (!editor || !isActive) return;
+    updateEnvironmentKeys(envKeys ?? []);
     editor.view.dispatch(editor.state.tr.setMeta("forceHighlightUpdate", true));
-  }, [editor, debouncedActiveEnvKey]);
+  }, [editor, debouncedActiveEnvKey, isActive]);
 
   // Register reload function for this tab
   useEffect(() => {
@@ -742,48 +790,72 @@ function sanitizeDoc(node: any): any {
 
   // Also force update when envKeys data changes (for initial load)
   const { data: envKeys } = useEnvironmentKeys();
-    const {data : voidVariableKeys} = useVoidVariables();
+  const { data: voidVariableKeys } = useVoidVariables();
+  const queryClient = useQueryClient();
   useEffect(() => {
-    if (!editor || !envKeys) return;
-    // Small delay to ensure the extension has been initialized
-    setTimeout(() => {
-      editor.view.dispatch(editor.state.tr.setMeta("forceHighlightUpdate", true));
-    }, 100);
-  }, [editor, envKeys,voidVariableKeys]);
+    if (!editor || !envKeys || !isActive) return;
+    updateEnvironmentKeys(envKeys);
+    updateVariableKeys(voidVariableKeys ?? []);
+    editor.view.dispatch(editor.state.tr.setMeta("forceHighlightUpdate", true));
+    editor.view.dispatch(editor.state.tr.setMeta("forceVariableHighlightUpdate", true));
+  }, [editor, envKeys, voidVariableKeys, isActive]);
 
-  // Restore scroll position and set up scroll tracking after editor is ready
+  // When this tab becomes active, refresh environment keys, file-link existence
+  // checks, and block-link content so stale data from when the tab was hidden
+  // is immediately corrected.
   useEffect(() => {
-    if (!editor) return;
+    if (!isActive) return;
+    queryClient.invalidateQueries({ queryKey: ["environment-keys"] });
+    queryClient.invalidateQueries({ queryKey: ["file:exists"] });
+    queryClient.invalidateQueries({ queryKey: ["voiden-wrapper:blockContent"] });
+  }, [isActive, queryClient]);
+
+  // Restore scroll position and keep tracking per-tab scroll.
+  // Use layout effect + follow-up passes so late node renders don't shift position.
+  useLayoutEffect(() => {
+    if (!editor || !isActive) return;
+
+    const scrollContainer = document.getElementById("code-editor-container") as HTMLElement | null;
+    if (!scrollContainer) return;
+
+    const applySavedScroll = (containerElement: HTMLElement) => {
+      const maxScrollTop = Math.max(0, containerElement.scrollHeight - containerElement.clientHeight);
+      const savedScrollTop = getScrollPosition(tabId);
+      containerElement.scrollTop = Math.min(savedScrollTop, maxScrollTop);
+    };
 
     let rafId: number;
     rafId = requestAnimationFrame(() => {
       rafId = requestAnimationFrame(() => {
-        const editorElement = editorRef.current?.querySelector('.ProseMirror') as HTMLElement;
-        if (!editorElement) return;
+        scrollContainer.style.scrollBehavior = "auto";
+        applySavedScroll(scrollContainer);
 
-        // Restore saved scroll position
-        if (scrollPositionRef.current > 0) {
-          editorElement.scrollTop = scrollPositionRef.current;
-        }
+        const timeoutIds: number[] = [];
+        timeoutIds.push(window.setTimeout(() => applySavedScroll(scrollContainer), 0));
+        timeoutIds.push(window.setTimeout(() => applySavedScroll(scrollContainer), 60));
+        timeoutIds.push(window.setTimeout(() => applySavedScroll(scrollContainer), 140));
 
-        // Set up scroll listener to continuously track position
         const handleScroll = () => {
-          scrollPositionRef.current = editorElement.scrollTop;
+          setScrollPosition(tabId, scrollContainer.scrollTop);
         };
 
-        editorElement.addEventListener('scroll', handleScroll, { passive: true });
+        scrollContainer.addEventListener('scroll', handleScroll, { passive: true });
 
-        // Store cleanup function
         editor.storage.scrollCleanup = () => {
-          editorElement.removeEventListener('scroll', handleScroll);
+          scrollContainer.removeEventListener('scroll', handleScroll);
+          timeoutIds.forEach((id) => window.clearTimeout(id));
+          setScrollPosition(tabId, scrollContainer.scrollTop);
         };
       });
     });
 
     return () => {
       if (rafId) cancelAnimationFrame(rafId);
+      if (editor.storage.scrollCleanup) {
+        editor.storage.scrollCleanup();
+      }
     };
-  }, [editor, debouncedActiveEnvKey]);
+  }, [editor, tabId, setScrollPosition, getScrollPosition, isActive]);
 
   // Helper to recalculate matchPositions and reapply highlights
   const recalcFindMatches = () => {
@@ -1013,7 +1085,7 @@ function sanitizeDoc(node: any): any {
   };
 
   const handleClick = useCallback(() => {
-    if (!editor) return;
+    if (!editor || !isActive) return;
     const { state } = editor;
     const lastChild = state.doc.lastChild;
     if (lastChild && lastChild.type.name !== "paragraph") {
@@ -1021,15 +1093,14 @@ function sanitizeDoc(node: any): any {
     } else {
       editor.commands.focus("end");
     }
-  }, [editor]);
-
-  // Note: parseError state was removed as we now handle errors gracefully with fallback content
-  if (!editor) return null;
+  }, [editor, isActive]);
 
   useEffect(() => {
+    if (!editor || !isActive) return;
+
     function handleClickOutside(event: MouseEvent) {
       if (editorRef.current && !editorRef.current.contains(event.target as Node)) {
-        editor?.commands.blur();
+        editor.commands.blur();
       }
     }
 
@@ -1037,7 +1108,10 @@ function sanitizeDoc(node: any): any {
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
     };
-  }, [editor]);
+  }, [editor, isActive]);
+
+  // Note: parseError state was removed as we now handle errors gracefully with fallback content
+  if (!editor) return null;
 
   return (
     <div ref={editorRef} className="h-full flex flex-col relative">
@@ -1231,7 +1305,7 @@ function sanitizeDoc(node: any): any {
       )}
 
       <div className="mx-auto w-full px-2  bg-editor">
-        <VoidenDragMenu editor={editor} />
+        {isActive && <VoidenDragMenu editor={editor} />}
         <EditorContent editor={editor} />
       </div>
       <div className="h-full w-full flex-1 min-h-64 bg-editor" onClick={handleClick} />

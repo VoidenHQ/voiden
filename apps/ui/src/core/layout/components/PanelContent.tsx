@@ -265,6 +265,7 @@ const EmptyPanel = () => {
 };
 
 const PanelContentInner = ({ panelId }: { panelId: string }) => {
+  const MAX_CACHED_DOCUMENT_EDITORS = 8;
   const { data: tabContent } = useGetTabContent(panelId);
   const panel = usePluginStore((state) => state.panels[panelId]);
   const { data: tabs } = useGetPanelTabs(panelId);
@@ -275,6 +276,55 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
   // are re-evaluated whenever the editor content changes (not just on file save).
   const activeTabId = tabContent?.tabId;
   useEditorStore((state) => activeTabId ? state.unsaved[activeTabId] : undefined);
+  const [cachedDocumentTabs, setCachedDocumentTabs] = useState<Record<string, any>>({});
+  const cachedDocumentOrderRef = useRef<string[]>([]);
+
+  useEffect(() => {
+    if (tabContent?.type !== "document" || !tabContent?.tabId) return;
+    setCachedDocumentTabs((prev) => {
+      let next = prev;
+      const previous = prev[tabContent.tabId];
+      if (
+        !previous ||
+        previous.title !== tabContent.title ||
+        previous.source !== tabContent.source ||
+        previous.content !== tabContent.content
+      ) {
+        next = { ...prev, [tabContent.tabId]: tabContent };
+      }
+
+      let nextOrder = [...cachedDocumentOrderRef.current.filter((id) => id !== tabContent.tabId), tabContent.tabId];
+      if (nextOrder.length > MAX_CACHED_DOCUMENT_EDITORS) {
+        const evicted = nextOrder.slice(0, nextOrder.length - MAX_CACHED_DOCUMENT_EDITORS);
+        nextOrder = nextOrder.slice(nextOrder.length - MAX_CACHED_DOCUMENT_EDITORS);
+        if (evicted.length > 0) {
+          next = { ...next };
+          evicted.forEach((id) => {
+            delete next[id];
+          });
+        }
+      }
+      cachedDocumentOrderRef.current = nextOrder;
+      return next;
+    });
+  }, [tabContent, MAX_CACHED_DOCUMENT_EDITORS]);
+
+  useEffect(() => {
+    const openTabIds = new Set((tabs?.tabs || []).map((tab: any) => tab.id));
+    cachedDocumentOrderRef.current = cachedDocumentOrderRef.current.filter((tabId) => openTabIds.has(tabId));
+    setCachedDocumentTabs((prev) => {
+      const next: Record<string, any> = {};
+      let changed = false;
+      Object.keys(prev).forEach((tabId) => {
+        if (openTabIds.has(tabId)) {
+          next[tabId] = prev[tabId];
+        } else {
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [tabs?.tabs]);
 
   // Get md-preview helpers dynamically if plugin is loaded
   // IMPORTANT: Only call the hook if it exists to prevent crashes during plugin reload
@@ -342,6 +392,11 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
 
   if (tabContent.type === "document") {
     if (tabContent.content === null) return <div>This file is not available</div>;
+    const visibleDocumentTabs = { ...cachedDocumentTabs, [tabContent.tabId]: tabContent };
+    const visibleDocumentTabIds = [...cachedDocumentOrderRef.current.filter((id) => visibleDocumentTabs[id])];
+    if (!visibleDocumentTabIds.includes(tabContent.tabId)) {
+      visibleDocumentTabIds.push(tabContent.tabId);
+    }
 
     // Filter the editor actions based on the active document's state.
     const actionsToDisplay = editorActions.filter((action) => {
@@ -372,42 +427,21 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
           </div>
         </div>
         <div className="flex-1 bg-editor" id="code-editor-container">
-          {tabContent.title.endsWith(".void") ? (
-            <div
-              className="h-full w-full"
-              onContextMenu={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                if (window.electron?.editor?.showContextMenu) {
-                  window.electron.editor.showContextMenu({
-                    x: e.clientX,
-                    y: e.clientY,
-                    selectedText: window.getSelection()?.toString(),
-                  });
-                }
-              }}
-            >
-              <VoidenEditor
-                key={tabContent.tabId}
-                tabId={tabContent.tabId}
-                content={tabContent.content}
-                source={tabContent.source}
-                panelId={panelId}
-                hasSearch
-              />
-            </div>
-          ) : tabContent.title.endsWith(".md") ? (
-            // Markdown file - toggle between edit and preview
-            // Only show preview if md-preview plugin is loaded
-            viewMode === "preview" && mdPreviewHelpers?.Preview ? (
-              (() => {
-                const PreviewComponent = mdPreviewHelpers.Preview;
-                return <PreviewComponent tab={{ ...tabContent, content: getLiveContent() }} />;
-              })()
-            ) : (
+          {tabContent.title.endsWith(".md") && viewMode === "preview" && mdPreviewHelpers?.Preview ? (
+            (() => {
+              const PreviewComponent = mdPreviewHelpers.Preview;
+              return <PreviewComponent tab={{ ...tabContent, content: getLiveContent() }} />;
+            })()
+          ) : (
+            visibleDocumentTabIds.map((docTabId: string) => {
+              const docTab = visibleDocumentTabs[docTabId];
+              return (
               <div
+                key={docTab.tabId}
                 className="h-full w-full"
+                style={{ display: docTab.tabId === tabContent.tabId ? "block" : "none" }}
                 onContextMenu={(e) => {
+                  if (docTab.tabId !== tabContent.tabId) return;
                   e.preventDefault();
                   e.stopPropagation();
                   if (window.electron?.editor?.showContextMenu) {
@@ -419,26 +453,27 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
                   }
                 }}
               >
-                <CodeEditor key={tabContent.tabId} tabId={tabContent.tabId} content={tabContent.content} source={tabContent.source} panelId={panelId} />
+                {docTab.title.endsWith(".void") ? (
+                  <VoidenEditor
+                    tabId={docTab.tabId}
+                    content={docTab.content}
+                    source={docTab.source}
+                    panelId={panelId}
+                    hasSearch
+                    isActive={docTab.tabId === tabContent.tabId}
+                  />
+                ) : (
+                  <CodeEditor
+                    tabId={docTab.tabId}
+                    content={docTab.content}
+                    source={docTab.source}
+                    panelId={panelId}
+                    isActive={docTab.tabId === tabContent.tabId}
+                  />
+                )}
               </div>
-            )
-          ) : (
-            <div
-              className="h-full w-full"
-              onContextMenu={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                if (window.electron?.editor?.showContextMenu) {
-                  window.electron.editor.showContextMenu({
-                    x: e.clientX,
-                    y: e.clientY,
-                    selectedText: window.getSelection()?.toString(),
-                  });
-                }
-              }}
-            >
-              <CodeEditor key={tabContent.tabId} tabId={tabContent.tabId} content={tabContent.content} source={tabContent.source} panelId={panelId} />
-            </div>
+              );
+            })
           )}
         </div>
       </div>

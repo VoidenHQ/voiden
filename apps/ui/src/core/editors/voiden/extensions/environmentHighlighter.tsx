@@ -79,7 +79,6 @@ export const environmentHighlighter = (envKeys: string[] = []) => {
               return findVariable(doc);
             },
             apply(transaction, oldState) {
-              // Always recompute if there's a meta flag or doc changed
               if (transaction.getMeta("forceHighlightUpdate") || transaction.docChanged) {
                 return findVariable(transaction.doc);
               }

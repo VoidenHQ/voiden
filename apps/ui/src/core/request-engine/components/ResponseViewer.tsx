@@ -1,24 +1,30 @@
 /**
  * Response Viewer
  *
- * Read-only Voiden viewer for displaying responses
- * Does not interfere with the main VoidenEditor's global state
+ * Read-only Voiden viewer for displaying responses.
+ * Does not interfere with the main VoidenEditor's global state.
+ *
+ * preferredActiveNode is applied via transaction (not via content re-init) to prevent
+ * editor recreation cycles that cause a visible glitch on first load.
  */
 
 import { useEditor, EditorContent } from '@tiptap/react';
-import { useCallback, useMemo } from 'react';
+import { useMemo, useEffect } from 'react';
 import { voidenExtensions } from '@/core/editors/voiden/extensions';
 import { useEditorEnhancementStore } from '@/plugins';
 import { getSchema } from '@tiptap/core';
 import { parseMarkdown } from '@/core/editors/voiden/markdownConverter';
 import { proseClasses } from '@/core/editors/voiden/VoidenEditor';
 import UniqueID from '@/core/editors/voiden/extensions/uniqueId';
+import type { ResponseNodeType } from '../stores/responseStore';
 
 interface ResponseViewerProps {
   content: string | any; // Can be markdown string or doc JSON
+  preferredActiveNode?: ResponseNodeType | null;
+  onActiveNodeChange?: (nodeType: ResponseNodeType) => void;
 }
 
-export function ResponseViewer({ content }: ResponseViewerProps) {
+export function ResponseViewer({ content, preferredActiveNode = null, onActiveNodeChange }: ResponseViewerProps) {
   // Get plugin extensions
   const pluginExtensions = useEditorEnhancementStore((state) => state.voidenExtensions);
 
@@ -33,39 +39,69 @@ export function ResponseViewer({ content }: ResponseViewerProps) {
     ];
   }, [pluginExtensions]);
 
-  // Parse content based on type
+  // Parse content — intentionally excludes preferredActiveNode from deps.
+  // Applying it here would cause parsedContent to change → useEditor deps change → editor
+  // recreates on every onTransaction call, producing a visible flash. Instead we apply
+  // preferredActiveNode via a transaction in the effect below.
   const parsedContent = useMemo(() => {
     try {
-      // If it's already a document object (has type: 'doc'), use it directly
       if (typeof content === 'object' && content?.type === 'doc') {
         return content;
       }
-
-      // Otherwise, parse as markdown (legacy path)
+      // Legacy path: markdown string
       const schema = getSchema(finalExtensions);
       return parseMarkdown(content, schema);
-    } catch (error) {
-      // console.error('[ResponseViewer] Error parsing content:', error);
+    } catch {
       return null;
     }
   }, [content, finalExtensions]);
 
-  // Create read-only editor with text selection enabled
+  // Create read-only editor. Deps are stable: parsedContent changes only when the
+  // actual response content changes (new request), and onActiveNodeChange is ref-backed.
   const editor = useEditor({
     extensions: finalExtensions,
     content: parsedContent,
-    editable: false, // Read-only
+    editable: false,
+    onTransaction: ({ editor: transactionEditor }) => {
+      if (!onActiveNodeChange) return;
+      transactionEditor.state.doc.descendants((node: any) => {
+        if (node.type.name !== 'response-doc') return true;
+        onActiveNodeChange((node.attrs?.activeNode ?? '') as ResponseNodeType);
+        return false;
+      });
+    },
     editorProps: {
       attributes: {
         class: `${proseClasses} outline-none px-5`,
-        style: 'user-select: text; -webkit-user-select: text;', // Enable text selection
+        style: 'user-select: text; -webkit-user-select: text;',
       },
     },
-  }, [parsedContent]);
+  }, [parsedContent, onActiveNodeChange]);
 
-  if (!editor) {
-    return <div className="p-4 text-comment">Loading response...</div>;
-  }
+  // Apply preferredActiveNode via a transaction instead of through content re-init.
+  // This restores the last-viewed response tab (body/headers/etc.) without triggering
+  // editor recreation.
+  useEffect(() => {
+    if (!editor || !preferredActiveNode) return;
+    const { state } = editor;
+    let tr = state.tr;
+    let changed = false;
+    state.doc.descendants((node: any, pos: number) => {
+      if (node.type.name === 'response-doc' && node.attrs?.activeNode !== preferredActiveNode) {
+        tr = tr.setNodeMarkup(pos, undefined, { ...node.attrs, activeNode: preferredActiveNode });
+        changed = true;
+        return false;
+      }
+      return true;
+    });
+    if (changed) {
+      editor.view.dispatch(tr);
+    }
+  }, [editor, preferredActiveNode]);
+
+  // Return null while editor is initializing — the parent (ResponsePanelContainer)
+  // already handles all loading/error/empty states, so no fallback text needed here.
+  if (!editor) return null;
 
   return (
     <div
