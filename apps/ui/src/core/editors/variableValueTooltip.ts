@@ -225,9 +225,12 @@ function showForTarget(target: HTMLElement) {
   const type = target.dataset.variableType;
   if (!name || !type) return;
 
-  const card = ensureCard();
-  // Value is stored directly in the decoration attribute by both highlighters
+  // Value is stored directly in the decoration attribute by both highlighters.
+  // If it's absent the variable isn't defined — nothing useful to show.
   const value = target.dataset.varValue;
+  if (value === undefined) return;
+
+  const card = ensureCard();
   updateCard(card, name, value);
   positionCard(card, target);
 }
