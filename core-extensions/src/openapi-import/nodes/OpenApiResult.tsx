@@ -2,6 +2,7 @@ import * as React from "react";
 import { Node } from "@tiptap/core";
 import { ReactNodeViewRenderer } from "@tiptap/react";
 import { Check, CircleAlert,Copy, X } from "lucide-react";
+import { useParentResponseDoc } from "../../voiden-rest-api/nodes/ResponseDocNode";
 
 export interface ValidationError {
   type: 'schema' | 'status' | 'header' | 'content-type';
@@ -103,14 +104,10 @@ export const createOpenApiValidationResultsNode = (NodeViewWrapper: any) => {
 
     const [selectedTab, setSelectedTab] = React.useState<'all' | 'errors' | 'warnings'>('all');
 
-      const { activeNode } = useParentResponseDoc(editor, getPos);
-    const isCollapsed = activeNode !== "openapi-validation-results";
+      const { openNodes } = useParentResponseDoc(editor, getPos);
+    const isCollapsed = !openNodes.includes("openapi-validation-results");
     const handleSetActive = () => {
-      if (isCollapsed) {
-        editor.commands.setActiveResponseNode("openapi-validation-results");
-      } else {
-        editor.commands.setActiveResponseNode("");
-      }
+      editor.commands.toggleResponseNode("openapi-validation-results");
     };
 
     // SAFETY CHECK: Ensure validatedAgainst has the correct structure

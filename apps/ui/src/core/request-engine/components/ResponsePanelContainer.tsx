@@ -231,7 +231,7 @@ export function ResponsePanelContainer() {
 
       {/* Scrollable middle layer - Response content */}
       <div className="flex-1 overflow-auto bg-editor">
-        <ResponseViewer content={responseDoc} />
+        <ResponseViewer content={responseDoc} tabId={activeTabId!} />
       </div>
     </div>
   );

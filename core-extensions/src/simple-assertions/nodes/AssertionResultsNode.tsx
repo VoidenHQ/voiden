@@ -3,6 +3,7 @@ import { Node } from "@tiptap/core";
 import { ReactNodeViewRenderer } from "@tiptap/react";
 import type { AssertionResult } from "../lib/assertionEngine";
 import { Copy } from "lucide-react";
+import { useParentResponseDoc } from "../../voiden-rest-api/nodes/ResponseDocNode";
 
 export interface AssertionResultsAttrs {
   results: AssertionResult[];
@@ -70,20 +71,17 @@ const useParentResponseDoc = (editor: any, getPos: () => number) => {
 };
 
 
+
 // Factory function pattern
 export const createAssertionResultsNode = (NodeViewWrapper: any) => {
   const AssertionResultsComponent = ({ node, getPos, editor }: any) => {
     const { results, totalAssertions, passedAssertions, failedAssertions } =
       node.attrs as AssertionResultsAttrs;
 
-    const { activeNode } = useParentResponseDoc(editor, getPos);
-    const isCollapsed = activeNode !== "assertion-results";
+    const { openNodes } = useParentResponseDoc(editor, getPos);
+    const isCollapsed = !openNodes.includes("assertion-results");
     const handleSetActive = () => {
-      if (isCollapsed) {
-        editor.commands.setActiveResponseNode("assertion-results");
-      } else {
-        editor.commands.setActiveResponseNode("");
-      }
+      editor.commands.toggleResponseNode("assertion-results");
     };
 
     const getStatusColor = (passed: boolean) => {
