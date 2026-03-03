@@ -3,7 +3,7 @@ import { Node } from "@tiptap/pm/model";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import tippy, { Instance as TippyInstance } from "tippy.js";
-import { dispatchVariableClick, findEnvVariableEl, createCursorHandlers, isModKey } from "@/core/editors/variableClickHelpers";
+import { dispatchVariableClick, findEnvVariableEl, isModKey } from "@/core/editors/variableClickHelpers";
 
 // Global state: envKey → value
 let currentEnvMap = new Map<string, string>();
@@ -39,8 +39,12 @@ function findVariable(doc: Node): DecorationSet {
       const isFakerVariable = variableName.startsWith('$faker');
       const isVariableCapture = variableName.startsWith('$req') || variableName.startsWith('$res');
 
+      const variableType = isFakerVariable ? "faker" : isVariableCapture ? "capture" : "env";
       let decorationClass: string;
-      const attrs: Record<string, string> = {};
+      const attrs: Record<string, string> = {
+        "data-variable": variableName,
+        "data-variable-type": variableType,
+      };
 
       if (isFakerVariable || isVariableCapture) {
         decorationClass = "font-mono rounded-sm font-medium px-1 text-base variable-highlight-faker";
@@ -60,12 +64,6 @@ function findVariable(doc: Node): DecorationSet {
       }
 
       decorations.push(Decoration.inline(from, to, attrs));
-      const variableType = isFakerVariable ? "faker" : isVariableCapture ? "capture" : "env";
-      decorations.push(Decoration.inline(from, to, {
-        class: decorationClass,
-        "data-variable": variableName,
-        "data-variable-type": variableType,
-      }));
     });
   });
 

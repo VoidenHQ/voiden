@@ -19,7 +19,6 @@ import { useElectronEvent } from "@/core/providers/ElectronEventProvider";
 import { useGetPanelTabs, useAddPanelTab, useActivateTab } from "./hooks";
 import { setEnvJumpTarget } from "@/core/environment/components/EnvironmentEditor";
 import { useEnvironments } from "@/core/environment/hooks";
-import { mountVariableValueTooltip, unmountVariableValueTooltip } from "@/core/editors/variableValueTooltip";
 
 export const AppLayout = () => {
   const { toggle: toggleLeft, panelProps: leftPanelProps, isCollapsed: isLeftCollapsed } = useLeftPanel();
@@ -128,12 +127,6 @@ export const AppLayout = () => {
     });
     return off;
   }, [onChange]);
-
-  // Mount variable-value hover tooltip (shows resolved value on hover)
-  useEffect(() => {
-    mountVariableValueTooltip();
-    return () => unmountVariableValueTooltip();
-  }, []);
 
   // Navigate to EnvironmentEditor when a variable is Cmd+clicked in any editor
   useEffect(() => {
