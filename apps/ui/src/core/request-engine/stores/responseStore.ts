@@ -38,6 +38,12 @@ interface ResponseStore {
   /** Last active response node per request tab */
   activeResponseNodeByTab: Record<string, ResponseNodeType>;
 
+  /** Response panel outer scrollTop per tab */
+  responsePanelScrollByTab: Record<string, number>;
+
+  /** Inner code-scroller positions per response node, grouped by tab */
+  responseNodeScrollByTab: Record<string, Record<string, number>>;
+
   /** Set response content for a specific tab */
   setResponse: (tabId: string, doc: any, markdown: string | null) => void;
 
@@ -70,6 +76,18 @@ interface ResponseStore {
 
   /** Read persisted response node for a tab */
   getActiveResponseNodeForTab: (tabId: string) => ResponseNodeType | null;
+
+  /** Persist outer response panel scrollTop per tab */
+  setResponsePanelScrollForTab: (tabId: string, scrollTop: number) => void;
+
+  /** Read outer response panel scrollTop per tab */
+  getResponsePanelScrollForTab: (tabId: string) => number;
+
+  /** Persist inner response-node scrollTop per tab+nodeKey */
+  setResponseNodeScrollForTab: (tabId: string, nodeKey: string, scrollTop: number) => void;
+
+  /** Read inner response-node scroll map for a tab */
+  getResponseNodeScrollsForTab: (tabId: string) => Record<string, number>;
 }
 
 export const useResponseStore = create<ResponseStore>()(
@@ -80,6 +98,8 @@ export const useResponseStore = create<ResponseStore>()(
       currentRequestTabId: null,
       isLoading: false,
       activeResponseNodeByTab: {},
+      responsePanelScrollByTab: {},
+      responseNodeScrollByTab: {},
 
       setResponse: (tabId, doc, markdown) => set((state) => ({
         responses: {
@@ -158,11 +178,42 @@ export const useResponseStore = create<ResponseStore>()(
         const state = get();
         return state.activeResponseNodeByTab[tabId] ?? null;
       },
+
+      setResponsePanelScrollForTab: (tabId, scrollTop) =>
+        set((state) => ({
+          responsePanelScrollByTab: {
+            ...state.responsePanelScrollByTab,
+            [tabId]: scrollTop,
+          },
+        })),
+
+      getResponsePanelScrollForTab: (tabId) => {
+        const state = get();
+        return state.responsePanelScrollByTab[tabId] ?? 0;
+      },
+
+      setResponseNodeScrollForTab: (tabId, nodeKey, scrollTop) =>
+        set((state) => ({
+          responseNodeScrollByTab: {
+            ...state.responseNodeScrollByTab,
+            [tabId]: {
+              ...(state.responseNodeScrollByTab[tabId] || {}),
+              [nodeKey]: scrollTop,
+            },
+          },
+        })),
+
+      getResponseNodeScrollsForTab: (tabId) => {
+        const state = get();
+        return state.responseNodeScrollByTab[tabId] || {};
+      },
     }),
     {
       name: "response-store-v2",
       partialize: (state) => ({
         activeResponseNodeByTab: state.activeResponseNodeByTab,
+        responsePanelScrollByTab: state.responsePanelScrollByTab,
+        responseNodeScrollByTab: state.responseNodeScrollByTab,
       }),
     },
   ),

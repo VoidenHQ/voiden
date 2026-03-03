@@ -9,7 +9,7 @@
  */
 
 import { useEditor, EditorContent } from '@tiptap/react';
-import { useMemo, useEffect } from 'react';
+import { useMemo, useEffect, useRef } from 'react';
 import { voidenExtensions } from '@/core/editors/voiden/extensions';
 import { useEditorEnhancementStore } from '@/plugins';
 import { getSchema } from '@tiptap/core';
@@ -22,9 +22,27 @@ interface ResponseViewerProps {
   content: string | any; // Can be markdown string or doc JSON
   preferredActiveNode?: ResponseNodeType | null;
   onActiveNodeChange?: (nodeType: ResponseNodeType) => void;
+  panelScrollTop?: number;
+  onPanelScrollChange?: (scrollTop: number) => void;
+  nodeScrollPositions?: Record<string, number>;
+  onNodeScrollChange?: (nodeKey: string, scrollTop: number) => void;
 }
 
-export function ResponseViewer({ content, preferredActiveNode = null, onActiveNodeChange }: ResponseViewerProps) {
+export function ResponseViewer({
+  content,
+  preferredActiveNode = null,
+  onActiveNodeChange,
+  panelScrollTop = 0,
+  onPanelScrollChange,
+  nodeScrollPositions = {},
+  onNodeScrollChange,
+}: ResponseViewerProps) {
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const panelScrollRafRef = useRef<number | null>(null);
+  const nodeScrollRafByKeyRef = useRef<Record<string, number | null>>({});
+  const nodeScrollPositionsRef = useRef<Record<string, number>>(nodeScrollPositions);
+  const resizeObserverRef = useRef<ResizeObserver | null>(null);
+
   // Get plugin extensions
   const pluginExtensions = useEditorEnhancementStore((state) => state.voidenExtensions);
 
@@ -99,12 +117,129 @@ export function ResponseViewer({ content, preferredActiveNode = null, onActiveNo
     }
   }, [editor, preferredActiveNode]);
 
+  // Persist outer response panel scroll position.
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el || !onPanelScrollChange) return;
+
+    const onScroll = () => {
+      if (panelScrollRafRef.current !== null) {
+        cancelAnimationFrame(panelScrollRafRef.current);
+      }
+      panelScrollRafRef.current = requestAnimationFrame(() => {
+        onPanelScrollChange(el.scrollTop);
+      });
+    };
+
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      el.removeEventListener('scroll', onScroll);
+      if (panelScrollRafRef.current !== null) {
+        cancelAnimationFrame(panelScrollRafRef.current);
+        panelScrollRafRef.current = null;
+      }
+    };
+  }, [onPanelScrollChange]);
+
+  // Keep a CSS var in sync with current response panel height so node editors can
+  // use available vertical space instead of a fixed pixel cap.
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+
+    const updateAvailableHeight = () => {
+      el.style.setProperty('--response-panel-height', `${el.clientHeight}px`);
+    };
+
+    updateAvailableHeight();
+    resizeObserverRef.current = new ResizeObserver(() => updateAvailableHeight());
+    resizeObserverRef.current.observe(el);
+
+    return () => {
+      resizeObserverRef.current?.disconnect();
+      resizeObserverRef.current = null;
+    };
+  }, []);
+
+  // Restore outer response panel scroll position instantly (no smooth scrolling).
+  useEffect(() => {
+    nodeScrollPositionsRef.current = nodeScrollPositions;
+  }, [nodeScrollPositions]);
+
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    if (Math.abs(el.scrollTop - panelScrollTop) > 1) {
+      el.scrollTop = panelScrollTop;
+    }
+  }, [panelScrollTop, content]);
+
+  // Persist and restore inner node editor scroll positions.
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    const nodeSelectors: Array<{ keyBase: string; selector: string }> = [
+      { keyBase: 'response-body', selector: '.response-body-editor .cm-scroller' },
+      { keyBase: 'response-headers', selector: '.response-headers-editor .cm-scroller' },
+      { keyBase: 'request-headers', selector: '.request-headers-editor .cm-scroller' },
+      { keyBase: 'request-summary', selector: '.request-summary-editor .cm-scroller' },
+    ];
+
+    const listeners: Array<{ el: Element; fn: EventListener }> = [];
+    const restore = () => {
+      for (const { keyBase, selector } of nodeSelectors) {
+        const scrollers = Array.from(container.querySelectorAll(selector));
+        scrollers.forEach((scroller, index) => {
+          const nodeKey = scrollers.length > 1 ? `${keyBase}:${index}` : keyBase;
+          const saved = nodeScrollPositionsRef.current[nodeKey];
+          if (typeof saved === 'number') {
+            (scroller as HTMLElement).scrollTop = saved;
+          }
+
+          if (!onNodeScrollChange) return;
+          const onScroll = () => {
+            const rafMap = nodeScrollRafByKeyRef.current;
+            const existing = rafMap[nodeKey];
+            if (existing != null) {
+              cancelAnimationFrame(existing);
+            }
+            rafMap[nodeKey] = requestAnimationFrame(() => {
+              onNodeScrollChange(nodeKey, (scroller as HTMLElement).scrollTop);
+            });
+          };
+          scroller.addEventListener('scroll', onScroll, { passive: true });
+          listeners.push({ el: scroller, fn: onScroll as EventListener });
+        });
+      }
+    };
+
+    // Retry a few times to catch delayed CodeMirror mount.
+    const t1 = setTimeout(restore, 0);
+    const t2 = setTimeout(restore, 60);
+    const t3 = setTimeout(restore, 140);
+
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+      listeners.forEach(({ el, fn }) => el.removeEventListener('scroll', fn));
+      const rafMap = nodeScrollRafByKeyRef.current;
+      Object.keys(rafMap).forEach((key) => {
+        const raf = rafMap[key];
+        if (raf != null) cancelAnimationFrame(raf);
+        rafMap[key] = null;
+      });
+    };
+  }, [content, onNodeScrollChange]);
+
   // Return null while editor is initializing — the parent (ResponsePanelContainer)
   // already handles all loading/error/empty states, so no fallback text needed here.
   if (!editor) return null;
 
   return (
     <div
+      ref={scrollContainerRef}
       className="h-full overflow-auto"
       style={{
         userSelect: 'text',
@@ -159,9 +294,24 @@ export function ResponseViewer({ content, preferredActiveNode = null, onActiveNo
           padding-right: 0 !important;
         }
         .response-body-node .cm-editor,
-        .response-body-node .cm-scroller {
-          height: 100% !important;
-          max-height: 400px !important;
+        .response-body-node .cm-scroller,
+        .response-body-editor .cm-editor,
+        .response-body-editor .cm-scroller,
+        .response-headers-node .cm-editor,
+        .response-headers-node .cm-scroller,
+        .response-headers-editor .cm-editor,
+        .response-headers-editor .cm-scroller,
+        .request-headers-node .cm-editor,
+        .request-headers-node .cm-scroller,
+        .request-headers-editor .cm-editor,
+        .request-headers-editor .cm-scroller,
+        .request-summary-node .cm-editor,
+        .request-summary-node .cm-scroller,
+        .request-summary-editor .cm-editor,
+        .request-summary-editor .cm-scroller {
+          height: auto !important;
+          min-height: 180px !important;
+          max-height: max(180px, calc(var(--response-panel-height, 70vh) - 170px)) !important;
           overflow-y: auto !important;
         }
       `}</style>

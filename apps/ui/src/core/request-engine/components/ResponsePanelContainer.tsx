@@ -30,6 +30,10 @@ export function ResponsePanelContainer() {
     setActiveTabId,
     getActiveResponseNodeForTab,
     setActiveResponseNodeForTab,
+    getResponsePanelScrollForTab,
+    setResponsePanelScrollForTab,
+    getResponseNodeScrollsForTab,
+    setResponseNodeScrollForTab,
   } = useResponseStore();
 
   // Keep-alive: ordered list of tab IDs that have a mounted ResponseViewer
@@ -37,6 +41,8 @@ export function ResponsePanelContainer() {
 
   // Stable per-tab onActiveNodeChange callbacks — avoids recreating TipTap editors on re-render
   const nodeChangeCallbacksRef = useRef<Record<string, (nodeType: ResponseNodeType) => void>>({});
+  const panelScrollCallbacksRef = useRef<Record<string, (scrollTop: number) => void>>({});
+  const nodeScrollCallbacksRef = useRef<Record<string, (nodeKey: string, scrollTop: number) => void>>({});
   const getNodeChangeCallback = useCallback(
     (tabId: string) => {
       if (!nodeChangeCallbacksRef.current[tabId]) {
@@ -46,6 +52,26 @@ export function ResponsePanelContainer() {
       return nodeChangeCallbacksRef.current[tabId];
     },
     [setActiveResponseNodeForTab],
+  );
+  const getPanelScrollCallback = useCallback(
+    (tabId: string) => {
+      if (!panelScrollCallbacksRef.current[tabId]) {
+        panelScrollCallbacksRef.current[tabId] = (scrollTop: number) =>
+          setResponsePanelScrollForTab(tabId, scrollTop);
+      }
+      return panelScrollCallbacksRef.current[tabId];
+    },
+    [setResponsePanelScrollForTab],
+  );
+  const getNodeScrollCallback = useCallback(
+    (tabId: string) => {
+      if (!nodeScrollCallbacksRef.current[tabId]) {
+        nodeScrollCallbacksRef.current[tabId] = (nodeKey: string, scrollTop: number) =>
+          setResponseNodeScrollForTab(tabId, nodeKey, scrollTop);
+      }
+      return nodeScrollCallbacksRef.current[tabId];
+    },
+    [setResponseNodeScrollForTab],
   );
 
   // Update the active tab ID in response store when the panel tab changes
@@ -251,6 +277,10 @@ export function ResponsePanelContainer() {
                 content={responses[tabId]?.responseDoc}
                 preferredActiveNode={getActiveResponseNodeForTab(tabId)}
                 onActiveNodeChange={getNodeChangeCallback(tabId)}
+                panelScrollTop={getResponsePanelScrollForTab(tabId)}
+                onPanelScrollChange={getPanelScrollCallback(tabId)}
+                nodeScrollPositions={getResponseNodeScrollsForTab(tabId)}
+                onNodeScrollChange={getNodeScrollCallback(tabId)}
               />
             </div>
           ))}
