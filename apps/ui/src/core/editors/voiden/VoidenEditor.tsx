@@ -593,6 +593,22 @@ function sanitizeDoc(node: any): any {
 
   const initialContent = useMemo(() => validateAndParseContent(content, initialUnsaved), [content, initialUnsaved, validateAndParseContent]);
 
+  // Stores the JSON string of the document as it exists on disk, so we can
+  // detect when edits restore the document back to its saved state.
+  // Updated whenever the `content` prop changes (e.g. after save + query re-fetch).
+  const savedContentJSONRef = useRef<string | null>(null);
+  useEffect(() => {
+    try {
+      console.error("expensive operation")
+      const parsed = parseMarkdown(content, memoizedSchema);
+      const sanitized = sanitizeDoc(parsed);
+      const node = memoizedSchema.nodeFromJSON(sanitized);
+      savedContentJSONRef.current = JSON.stringify(node.toJSON());
+    } catch {
+      savedContentJSONRef.current = null;
+    }
+  }, [content, memoizedSchema]);
+
   const handleEditorCreate = useCallback(
     ({ editor }: { editor: Editor }) => {
       try {
@@ -646,7 +662,13 @@ function sanitizeDoc(node: any): any {
     ({ editor }: { editor: Editor }) => {
       const updatedContent = editor.getJSON();
       const contentString = JSON.stringify(updatedContent);
-      setUnsaved(tabId, contentString);
+
+      // Compare against saved content to detect when edits restore the original
+      if (savedContentJSONRef.current && contentString === savedContentJSONRef.current) {
+        clearUnsaved(tabId);
+      } else {
+        setUnsaved(tabId, contentString);
+      }
 
       // Auto-save to AppData for unsaved files (source is null)
       if (!source) {
@@ -656,7 +678,7 @@ function sanitizeDoc(node: any): any {
         }
       }
     },
-    [setUnsaved, tabId, source],
+    [setUnsaved, clearUnsaved, tabId, source],
   );
 
   const editor = useEditor(

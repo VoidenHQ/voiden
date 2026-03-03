@@ -23,9 +23,9 @@ import { rust } from "@codemirror/lang-rust";
 import { sql } from "@codemirror/lang-sql";
 import { xml } from "@codemirror/lang-xml";
 import { yaml } from "@codemirror/lang-yaml";
+import { langs } from "@uiw/codemirror-extensions-langs";
 import { useCodeEditorStore } from "./CodeEditorStore";
 import { lintYaml } from "@/core/editors/code/lib/extensions/lintYaml";
-import { useFocusStore } from "@/core/stores/focusStore";
 
 interface CodeEditorProps {
   tabId: string;
@@ -324,6 +324,9 @@ const getLanguageExtension = (filename: string) => {
     case "yml":
     case "yaml":
       return yaml();
+    case "sh":
+    case "bash":
+      return langs.shell();
     default:
       return null;
   }
@@ -333,8 +336,9 @@ export const CodeEditor = memo(({ tabId, content, source, panelId }: CodeEditorP
   const editorRef = useRef<EditorView>(null);
 
   // const isRenaming = useFocusStore((state) => state.isRenaming);
-  const { setUnsaved } = useEditorStore((state) => ({
+  const { setUnsaved, clearUnsaved } = useEditorStore((state) => ({
     setUnsaved: state.setUnsaved,
+    clearUnsaved: state.clearUnsaved,
   }));
 
   const { setActiveEditor, updateContent, setEditor } = useCodeEditorStore();
@@ -348,10 +352,14 @@ export const CodeEditor = memo(({ tabId, content, source, panelId }: CodeEditorP
   // Create debounced update function for large files
   const debouncedUpdate = useMemo(
     () => debounce((value: string, tId: string) => {
-      setUnsaved(tId, value);
+      if (value === content) {
+        clearUnsaved(tId);
+      } else {
+        setUnsaved(tId, value);
+      }
       updateContent(value);
     }, isLargeFile ? 300 : 0), // 300ms debounce for large files
-    [isLargeFile, setUnsaved, updateContent]
+    [isLargeFile, setUnsaved, clearUnsaved, updateContent, content]
   );
 
   // Inject custom search panel styles once
@@ -397,11 +405,15 @@ export const CodeEditor = memo(({ tabId, content, source, panelId }: CodeEditorP
         debouncedUpdate(value, tabId);
       } else {
         // For small files, update immediately
-        setUnsaved(tabId, value);
+        if (value === content) {
+          clearUnsaved(tabId);
+        } else {
+          setUnsaved(tabId, value);
+        }
         updateContent(value);
       }
     },
-    [tabId, setUnsaved, updateContent, isLargeFile, debouncedUpdate],
+    [tabId, content, setUnsaved, clearUnsaved, updateContent, isLargeFile, debouncedUpdate],
   );
 
   // Determine the language extension based on the file extension of the source.
