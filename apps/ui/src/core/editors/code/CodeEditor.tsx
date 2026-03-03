@@ -23,9 +23,9 @@ import { rust } from "@codemirror/lang-rust";
 import { sql } from "@codemirror/lang-sql";
 import { xml } from "@codemirror/lang-xml";
 import { yaml } from "@codemirror/lang-yaml";
+import { langs } from "@uiw/codemirror-extensions-langs";
 import { useCodeEditorStore } from "./CodeEditorStore";
 import { lintYaml } from "@/core/editors/code/lib/extensions/lintYaml";
-import { useFocusStore } from "@/core/stores/focusStore";
 
 interface CodeEditorProps {
   tabId: string;
@@ -324,6 +324,9 @@ const getLanguageExtension = (filename: string) => {
     case "yml":
     case "yaml":
       return yaml();
+    case "sh":
+    case "bash":
+      return langs.shell();
     default:
       return null;
   }

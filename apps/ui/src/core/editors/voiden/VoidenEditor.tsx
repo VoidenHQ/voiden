@@ -648,7 +648,6 @@ function sanitizeDoc(node: any): any {
             editor.commands.setTextSelection(1);
           }
         });
-
       } catch (e) {
         // Set a safe fallback content instead of destroying the editor
         const fallbackContent = { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: content }] }] };
