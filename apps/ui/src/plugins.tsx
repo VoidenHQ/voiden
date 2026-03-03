@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { useEffect } from "react";
-import { coreExtensionPlugins } from "@voiden/core-extensions";
+import { coreExtensionPlugins, handleCurl, pasteCurl } from "@voiden/core-extensions";
 import { PluginErrorBoundary } from "@/core/components/ErrorBoundary";
 import { getProjects } from "@/core/projects/hooks";
 import { useGetExtensions } from "@/core/extensions/hooks";
@@ -13,6 +13,7 @@ import {
   SlashCommandGroup,
   Tab,
   EditorAction,
+  StatusBarItem,
   PluginHelpers,
   BlockPasteHandler,
   BlockExtension,
@@ -56,6 +57,8 @@ interface PluginStoreState {
   registerPanel: (panelId: string, panel: any) => void;
   editorActions: EditorAction[];
   addEditorAction: (action: EditorAction) => void;
+  statusBarItems: StatusBarItem[];
+  addStatusBarItem: (item: StatusBarItem) => void;
 }
 
 export const usePluginStore = create<PluginStoreState>((set) => ({
@@ -95,6 +98,12 @@ export const usePluginStore = create<PluginStoreState>((set) => ({
   addEditorAction: (action) => {
     set((state) => ({
       editorActions: [...state.editorActions, action],
+    }));
+  },
+  statusBarItems: [],
+  addStatusBarItem: (item) => {
+    set((state) => ({
+      statusBarItems: [...state.statusBarItems, item],
     }));
   },
 }));
@@ -228,6 +237,14 @@ export const createPlugin = (pluginModule: (context: PluginContext) => Plugin, e
       usePluginStore.getState().registerPanel(panelId, panel);
     },
     addTab: async (tabId: string, tab: Panel) => {
+      // Store the React component in Zustand so the renderer can find it
+      if (tab.component) {
+        usePluginStore.getState().registerPanel(tabId, {
+          id: tab.id,
+          title: tab.title,
+          component: tab.component,
+        });
+      }
       const addedTab = await window.electron?.tab.add(tabId, {
         extensionId: extensionId,
         id: tab.id,
@@ -244,6 +261,21 @@ export const createPlugin = (pluginModule: (context: PluginContext) => Plugin, e
         return;
       }
       usePluginStore.getState().addEditorAction(action);
+    },
+    registerStatusBarItem: (item: StatusBarItem) => {
+      if (!item.id) {
+        console.error(`[Plugin Context] Missing id for status bar item from ${extensionId}`);
+        return;
+      }
+      if (!item.onClick || typeof item.onClick !== 'function') {
+        console.error(`[Plugin Context] Invalid onClick for status bar item ${item.id} from ${extensionId}`);
+        return;
+      }
+      if (!item.icon) {
+        console.error(`[Plugin Context] Missing icon for status bar item ${item.id} from ${extensionId}`);
+        return;
+      }
+      usePluginStore.getState().addStatusBarItem(item);
     },
     project: {
       getActiveEditor: (type: "voiden" | "code") => {
@@ -298,7 +330,46 @@ export const createPlugin = (pluginModule: (context: PluginContext) => Plugin, e
         const activeProject = projects?.activeProject;
         return activeProject;
       },
-      // getAllFiles can be added here in the future
+      importCurl: async (title: string, curlString: string) => {
+        const tabId = crypto.randomUUID();
+        const tabTitle = title.endsWith('.void') ? title : `${title}.void`;
+
+        // Pre-write empty doc as autosave so VoidenEditor doesn't crash on mount
+        const emptyDoc = JSON.stringify({ type: "doc", content: [] });
+        await window.electron?.autosave?.save(tabId, emptyDoc);
+
+        // Create the document tab
+        await window.electron?.state.addPanelTab("main", {
+          id: tabId,
+          type: "document",
+          title: tabTitle,
+          source: null,
+        });
+
+        // Activate the newly created tab so it becomes visible
+        await window.electron?.state.activatePanelTab("main", tabId);
+
+        // Invalidate queries so UI picks up the new tab
+        const queryClient = getQueryClient();
+        queryClient.invalidateQueries({ queryKey: ["panel:tabs"], exact: false });
+        queryClient.invalidateQueries({ queryKey: ["tab:content"], exact: false });
+
+        // Parse the curl
+        const request = handleCurl(curlString);
+        if (!request) return;
+
+        // Poll for the VoidenEditor to mount with this tabId, then paste curl
+        const tryPaste = (attempts: number) => {
+          if (attempts <= 0) return;
+          const editor = useVoidenEditorStore.getState().editor;
+          if (editor && editor.storage.tabId === tabId) {
+            pasteCurl(editor, request);
+          } else {
+            setTimeout(() => tryPaste(attempts - 1), 200);
+          }
+        };
+        setTimeout(() => tryPaste(15), 400);
+      },
     },
     tab:{
       getActiveTab:async()=>{
@@ -485,8 +556,9 @@ export const getPlugins = async () => {
   });
   usePluginStore.setState({
     sidebar: { left: [], right: [] },
-    editorActions: [], // Clear editor actions when reloading plugins
-    panels: { main: [], bottom: [] }, // Clear panel registrations
+    editorActions: [],
+    statusBarItems: [],
+    panels: { main: [], bottom: [] },
   });
   Object.keys(exposedHelpers).forEach(key => delete exposedHelpers[key]);
   linkableNodeTypes.clear(); // Clear linkable node types on plugin reload

@@ -494,7 +494,7 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
 
   if (tabContent.type === "custom") {
     const tab = panel?.find((tab) => tab.id === tabContent.customTabKey);
-    const Component = tab?.content; // This is now a component (function or class)
+    const Component = tab?.content || tab?.component;
 
     // Validate component before rendering
     if (!Component || typeof Component !== 'function') {

@@ -20,5 +20,8 @@ export { convert as convertCurlToRequest } from './lib/parser/importers/curl';
 // Export utilities
 export * from './lib/utils';
 
+// Export curl paste utilities
+export { handleCurl, pasteCurl } from './nodes/curlPaste';
+
 // Export plugin adapter for legacy plugin system (default export)
 export { default } from './plugin';

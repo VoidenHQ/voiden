@@ -205,6 +205,13 @@ class WindowManager {
       const savedState = await this.loadWindowState(id);
       // Use savedState if available, otherwise fall back to the initialized state
       this.windows.set(id, savedState || initializedState);
+
+      // Sync extensions from initialized state into window state.
+      // Community extensions are loaded during initializeState() and may not
+      // be present in a previously-saved window state file.
+      const windowState = this.windows.get(id)!;
+      windowState.extensions = initializedState.extensions;
+
       this.browserWindow = win;
       this.browserWindows.set(id, win);
 

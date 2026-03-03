@@ -8834,6 +8834,21 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@voiden/sdk@npm:^1.0.6":
+  version: 1.0.6
+  resolution: "@voiden/sdk@npm:1.0.6"
+  dependencies:
+    jsonc-parser: "npm:^3.2.0"
+  peerDependencies:
+    "@tiptap/core": ^2.8.0
+    "@tiptap/pm": ^2.8.0
+    "@tiptap/react": ^2.8.0
+    react: ^18.2.0
+    react-dom: ^18.2.0
+  checksum: 10c0/82507462734a8b02b70a5497a3e6a31168065d6794000813e21a86ee32fd75225f7011d510bc264f44a6181fd90849e713fd6dc265abb2aeedd755c4f94fbc88
+  languageName: node
+  linkType: hard
+
 "@xmldom/xmldom@npm:^0.8.8":
   version: 0.8.10
   resolution: "@xmldom/xmldom@npm:0.8.10"
@@ -21624,7 +21639,7 @@ __metadata:
     "@vitejs/plugin-react": "npm:^4.0.3"
     "@vitest/ui": "npm:2.1.9"
     "@voiden/core-extensions": "workspace:*"
-    "@voiden/sdk": "npm:^1.0.4"
+    "@voiden/sdk": "npm:^1.0.6"
     "@xterm/addon-fit": "npm:^0.10.0"
     "@xterm/addon-webgl": "npm:^0.18.0"
     "@xterm/xterm": "npm:^5.5.0"

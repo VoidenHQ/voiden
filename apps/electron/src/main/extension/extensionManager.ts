@@ -6,6 +6,7 @@ import path from "path";
 import { app } from "electron";
 import { AppState, ExtensionData } from "src/shared/types";
 import { coreExtensions } from "../config/coreExtensions";
+import AdmZip from "adm-zip";
 
 const communityDir = path.join(app.getPath("userData"), "extensions");
 
@@ -117,6 +118,102 @@ export class ExtensionManager {
     if (ext.type === "community") {
       await this.saveInstalledCommunityExtensions();
     }
+  }
+
+  async installFromZip(zipPath: string): Promise<ExtensionData> {
+    let zip: AdmZip;
+    try {
+      zip = new AdmZip(zipPath);
+    } catch {
+      throw new Error("Failed to open zip file. The file may be corrupted.");
+    }
+
+    const entries = zip.getEntries();
+
+    // Look for manifest.json and main.js — either at root or inside a single top-level folder
+    let prefix = "";
+    const hasRootManifest = entries.some((e) => e.entryName === "manifest.json");
+    const hasRootMain = entries.some((e) => e.entryName === "main.js");
+
+    if (!hasRootManifest || !hasRootMain) {
+      // Check for a single top-level directory
+      const topLevelDirs = new Set<string>();
+      for (const entry of entries) {
+        const parts = entry.entryName.split("/");
+        if (parts.length > 1 && parts[0]) {
+          topLevelDirs.add(parts[0]);
+        }
+      }
+
+      if (topLevelDirs.size === 1) {
+        prefix = [...topLevelDirs][0] + "/";
+        const hasNestedManifest = entries.some((e) => e.entryName === prefix + "manifest.json");
+        const hasNestedMain = entries.some((e) => e.entryName === prefix + "main.js");
+        if (!hasNestedManifest || !hasNestedMain) {
+          throw new Error("Zip must contain manifest.json and main.js");
+        }
+      } else {
+        throw new Error("Zip must contain manifest.json and main.js at root level or inside a single folder");
+      }
+    }
+
+    // Parse and validate manifest
+    const manifestEntry = zip.getEntry(prefix + "manifest.json");
+    if (!manifestEntry) throw new Error("manifest.json not found in zip");
+
+    let manifest: any;
+    try {
+      manifest = JSON.parse(manifestEntry.getData().toString("utf8"));
+    } catch {
+      throw new Error("manifest.json is not valid JSON");
+    }
+
+    if (!manifest.id || !manifest.name || !manifest.version) {
+      throw new Error("manifest.json must contain id, name, and version fields");
+    }
+
+    // Check for core extension conflict
+    const isCoreExt = coreExtensions.some((ext) => ext.id === manifest.id);
+    if (isCoreExt) {
+      throw new Error(`Cannot install: "${manifest.id}" conflicts with a core extension`);
+    }
+
+    // Extract manifest.json and main.js to the community extensions directory
+    const installPath = path.join(communityDir, manifest.id);
+    await fs.mkdir(installPath, { recursive: true });
+
+    await fs.writeFile(path.join(installPath, "manifest.json"), manifestEntry.getData());
+
+    const mainEntry = zip.getEntry(prefix + "main.js");
+    if (!mainEntry) throw new Error("main.js not found in zip");
+    await fs.writeFile(path.join(installPath, "main.js"), mainEntry.getData());
+
+    // Build ExtensionData
+    const extension: ExtensionData = {
+      id: manifest.id,
+      type: "community",
+      name: manifest.name,
+      description: manifest.description || "",
+      author: manifest.author || "Unknown",
+      version: manifest.version,
+      enabled: true,
+      readme: manifest.readme || "",
+      installedPath: installPath,
+      capabilities: manifest.capabilities,
+      features: manifest.features,
+      dependencies: manifest.dependencies,
+    };
+
+    // Add or update in store
+    const index = this.store.extensions.findIndex((ext) => ext.id === extension.id);
+    if (index > -1) {
+      this.store.extensions[index] = extension;
+    } else {
+      this.store.extensions.push(extension);
+    }
+    await this.saveInstalledCommunityExtensions();
+
+    return extension;
   }
 
   // getRemoteExtensions remains unchanged: it returns ALL available extensions for browsing.

@@ -1,7 +1,8 @@
-import { Search, Settings, Loader2, Shield, BadgeCheck, Users } from "lucide-react";
+import { Search, Settings, Loader2, Shield, BadgeCheck, Users, Upload } from "lucide-react";
 import {
   useGetExtensions,
   useInstallExtension,
+  useInstallExtensionFromZip,
   useUninstallExtension,
   useSetExtensionEnabled,
   useOpenExtensionDetails,
@@ -180,16 +181,13 @@ const ExtensionItem = ({ extension }: { extension: Extension }) => {
       </div>
 
       {/* Actions - positioned absolutely to avoid overlap */}
-      <div className="absolute top-2 right-2 flex items-center gap-1.5">
-        {error ? (
+      <div className="absolute top-2 right-2 flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+        {error && (
           <div className="flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-red-500/10 border border-red-500/30 text-red-400">
             Error
           </div>
-        ) : (
-          <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-            {renderActions()}
-          </div>
         )}
+        {renderActions()}
       </div>
 
       {/* Status indicator */}
@@ -204,6 +202,7 @@ const ExtensionItem = ({ extension }: { extension: Extension }) => {
 
 export const ExtensionBrowser = () => {
   const { data: extensions, isLoading } = useGetExtensions();
+  const installFromZip = useInstallExtensionFromZip();
 
   if (isLoading) return <div>Loading...</div>;
 
@@ -220,6 +219,26 @@ export const ExtensionBrowser = () => {
           type="text"
         />
       </div> */}
+
+      <div className="px-2 pt-2">
+        <button
+          onClick={() => installFromZip.mutate()}
+          disabled={installFromZip.isPending}
+          className="w-full flex items-center justify-center gap-2 px-3 py-1.5 text-xs text-comment hover:text-text bg-editor hover:bg-active border border-border rounded-md transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {installFromZip.isPending ? (
+            <Loader2 size={14} className="animate-spin" />
+          ) : (
+            <Upload size={14} />
+          )}
+          {installFromZip.isPending ? "Installing..." : "Install from file"}
+        </button>
+        {installFromZip.isError && (
+          <p className="mt-1 text-xs text-red-400 px-1">
+            {(installFromZip.error as Error)?.message || "Failed to install extension"}
+          </p>
+        )}
+      </div>
 
       <div className=" border-border flex-1 flex flex-col mb-1.5 overflow-y-scroll" >
         <div className="bg-bg h-full  border-border  mb-2">
