@@ -2,8 +2,7 @@ import { Extension } from "@tiptap/core";
 import { Node } from "@tiptap/pm/model";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
-import tippy, { Instance as TippyInstance } from "tippy.js";
-import { dispatchVariableClick, findEnvVariableEl, isModKey } from "@/core/editors/variableClickHelpers";
+import { dispatchVariableClick, findEnvVariableEl, createCursorHandlers, isModKey } from "@/core/editors/variableClickHelpers";
 
 // Global state: envKey → value
 let currentEnvMap = new Map<string, string>();
@@ -64,6 +63,7 @@ function findVariable(doc: Node): DecorationSet {
       }
 
       decorations.push(Decoration.inline(from, to, attrs));
+
     });
   });
 
@@ -102,31 +102,6 @@ export const environmentHighlighter = (envData: Record<string, string> = {}) => 
               return this.getState(state);
             },
 
-            handleDOMEvents: {
-              mouseover(_view, event) {
-                const e = event as MouseEvent;
-                const target = e.target as HTMLElement | null;
-                if (!target) return false;
-                const el = target.closest(".pm-env-highlight") as HTMLElement | null;
-                if (!el) return false;
-                const from = e.relatedTarget as HTMLElement | null;
-                if (from && el.contains(from)) return false;
-                showEnvTooltip(el, el.dataset.var ?? "", el.dataset.varValue ?? "");
-                return false;
-              },
-
-              mouseout(_view, event) {
-                const e = event as MouseEvent;
-                const target = e.target as HTMLElement | null;
-                if (!target) return false;
-                const el = target.closest(".pm-env-highlight") as HTMLElement | null;
-                if (!el) return false;
-                const to = e.relatedTarget as HTMLElement | null;
-                if (to && el.contains(to)) return false;
-                hideEnvTooltip();
-                return false;
-              },
-            },
             handleClick(view, _pos, event) {
               if (!isModKey(event)) return false;
               const variableEl = findEnvVariableEl(event);
@@ -135,66 +110,21 @@ export const environmentHighlighter = (envData: Record<string, string> = {}) => 
               event.preventDefault();
               return true;
             },
+            handleDOMEvents: (() => {
+              let cursor: ReturnType<typeof createCursorHandlers> | null = null;
+              const get = (view: { dom: HTMLElement }) => {
+                if (!cursor) cursor = createCursorHandlers(() => view.dom);
+                return cursor;
+              };
+              return {
+                mousemove(view, event) { get(view).mousemove(event); return false; },
+                keydown(view, event) { get(view).keydown(event); return false; },
+                keyup(view, event) { get(view).keyup(event); return false; },
+              };
+            })(),
           },
         }),
       ];
     },
   });
 };
-
-
-let envTip: TippyInstance | null = null;
-
-function buildEnvTooltipContent(key: string, value: string): HTMLElement {
-  const wrap = document.createElement("div");
-  wrap.className = "border border-border bg-panel shadow-lg w-[220px] overflow-hidden";
-
-  // Header — variable name
-  const header = document.createElement("div");
-  header.className = "flex items-center gap-2 px-3 py-2 border-b border-border bg-bg";
-
-  const keyEl = document.createElement("span");
-  keyEl.className = "text-text px-2 rounded bg-active font-mono text-sm font-medium";
-  keyEl.textContent = key;
-
-  header.appendChild(keyEl);
-
-  // Body — current value
-  const body = document.createElement("div");
-  body.className = "px-3 py-2 flex flex-col gap-0.5";
-
-  const valueLabel = document.createElement("span");
-  valueLabel.className = "text-[10px] uppercase tracking-wide text-comment font-medium";
-  valueLabel.textContent = "Current value";
-
-  const valueEl = document.createElement("span");
-  valueEl.className = value
-    ? "font-mono text-sm text-text break-all"
-    : "font-mono text-sm text-comment italic";
-  valueEl.textContent = value || "—";
-
-  body.appendChild(valueLabel);
-  body.appendChild(valueEl);
-
-  wrap.appendChild(header);
-  wrap.appendChild(body);
-  return wrap;
-}
-
-function showEnvTooltip(el: HTMLElement, key: string, value: string) {
-  envTip?.destroy();
-  envTip = tippy(document.body, {
-    content: buildEnvTooltipContent(key || el.textContent || "", value),
-    trigger: "manual",
-    placement: "bottom",
-    theme: "slash-command",
-    arrow: false,
-    getReferenceClientRect: () => el.getBoundingClientRect(),
-  });
-  envTip.show();
-}
-
-function hideEnvTooltip() {
-  envTip?.destroy();
-  envTip = null;
-}

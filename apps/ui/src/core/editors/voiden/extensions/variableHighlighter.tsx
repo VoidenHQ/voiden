@@ -2,7 +2,6 @@ import { Extension } from "@tiptap/core";
 import { Node } from "@tiptap/pm/model";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
-import tippy, { Instance as TippyInstance } from "tippy.js";
 
 // Global state: processKey → value
 let currentVariableMap = new Map<string, string>();
@@ -49,19 +48,17 @@ function findProcessVariables(doc: Node): DecorationSet {
                     : "font-mono bg-rose-400/20 text-rose-300 rounded-sm font-medium px-1 text-base";
             }
 
-            const attrs: Record<string, string> = { class: decorationClass };
+            const variableType = isVariableCapture ? "capture" : "process";
+            const attrs: Record<string, string> = {
+                class: decorationClass,
+                "data-variable": variableName,
+                "data-variable-type": variableType,
+            };
             if (isValidProcessVar) {
                 attrs["data-var"] = processKey;
                 attrs["data-var-value"] = varValue;
             }
-
             decorations.push(Decoration.inline(from, to, attrs));
-            const variableType = isVariableCapture ? "capture" : "process";
-            decorations.push(Decoration.inline(from, to, {
-                class: decorationClass,
-                "data-variable": variableName,
-                "data-variable-type": variableType,
-            }));
         });
     });
 
@@ -99,31 +96,6 @@ export const variableHighlighter = (variableData: Record<string, string> = {}) =
                             return this.getState(state);
                         },
 
-                        handleDOMEvents: {
-                            mouseover(view, event) {
-                                const e = event as MouseEvent;
-                                const target = e.target as HTMLElement | null;
-                                if (!target) return false;
-                                const el = target.closest(".pm-var-highlight") as HTMLElement | null;
-                                if (!el) return false;
-                                const from = e.relatedTarget as HTMLElement | null;
-                                if (from && el.contains(from)) return false;
-                                showTooltip(el, el.dataset.var ?? "", el.dataset.varValue ?? "");
-                                return false;
-                            },
-
-                            mouseout(view, event) {
-                                const e = event as MouseEvent;
-                                const target = e.target as HTMLElement | null;
-                                if (!target) return false;
-                                const el = target.closest(".pm-var-highlight") as HTMLElement | null;
-                                if (!el) return false;
-                                const to = e.relatedTarget as HTMLElement | null;
-                                if (to && el.contains(to)) return false;
-                                hideTooltip();
-                                return false;
-                            },
-                        },
                     },
                 }),
             ];
@@ -144,59 +116,3 @@ export async function loadVariablesFromFile(): Promise<Record<string, string>> {
 }
 
 
-let tip: TippyInstance | null = null;
-
-function buildTooltipContent(key: string, value: string): HTMLElement {
-    const wrap = document.createElement("div");
-    wrap.className = "border border-border bg-panel shadow-lg w-[220px] overflow-hidden";
-
-    // Header — variable name
-    const header = document.createElement("div");
-    header.className = "flex items-center gap-2 px-3 py-2 border-b border-border bg-bg";
-
-   
-    const keyEl = document.createElement("span");
-    keyEl.className = "text-text px-2 rounded bg-active font-mono text-sm font-medium";
-    keyEl.textContent = key;
-
-    header.appendChild(keyEl);
-
-    // Body — current value
-    const body = document.createElement("div");
-    body.className = "px-3 py-2 flex flex-col gap-0.5";
-
-    const valueLabel = document.createElement("span");
-    valueLabel.className = "text-[10px] uppercase tracking-wide text-comment font-medium";
-    valueLabel.textContent = "Current value";
-
-    const valueEl = document.createElement("span");
-    valueEl.className = value
-        ? "font-mono text-sm text-text break-all"
-        : "font-mono text-sm text-comment italic";
-    valueEl.textContent = value || "—";
-
-    body.appendChild(valueLabel);
-    body.appendChild(valueEl);
-
-    wrap.appendChild(header);
-    wrap.appendChild(body);
-    return wrap;
-}
-
-function showTooltip(el: HTMLElement, key: string, value: string) {
-    tip?.destroy();
-    tip = tippy(document.body, {
-        content: buildTooltipContent(key || el.textContent || "", value),
-        trigger: "manual",
-        placement: "bottom",
-        theme: "slash-command",
-        arrow: false,
-        getReferenceClientRect: () => el.getBoundingClientRect(),
-    });
-    tip.show();
-}
-
-function hideTooltip() {
-    tip?.destroy();
-    tip = null;
-}
