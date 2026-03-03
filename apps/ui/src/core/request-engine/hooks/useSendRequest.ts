@@ -25,6 +25,9 @@ export const  useSendRestRequest = (editor: Editor) => {
     queryKey: ["request", activeDocument?.id],
     queryFn: async () => {
       openRightPanel();
+      if (activeDocument?.id) {
+        useResponseStore.getState().setActiveResponseNodeForTab(activeDocument.id, "response-body");
+      }
       useResponseStore.getState().setLoading(true, activeDocument?.id);
       abortControllerRef.current = new AbortController();
       try {
