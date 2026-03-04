@@ -2,7 +2,7 @@
   "id": "voiden-advanced-auth",
   "name": "Advanced Authentication",
   "description": "Advanced authentication support for HTTP/REST APIs including Bearer Token, Basic Auth, API Key, OAuth 1.0/2.0, Digest, AWS Signature, and more",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "author": "Voiden Team",
   "enabled": true,
   "priority": 20,
