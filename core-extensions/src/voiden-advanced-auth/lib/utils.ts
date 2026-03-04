@@ -16,14 +16,14 @@ export const getOAuth2TableRows = (grantType: string): string[][] => {
         ["client_id", ""],
         ["client_secret", ""],
         ["scope", ""],
-        ["callback_url", ""],
+        ["callback_url", "http://localhost:9090/callback"],
       ];
     case "implicit":
       return [
         ["auth_url", ""],
         ["client_id", ""],
         ["scope", ""],
-        ["callback_url", ""],
+        ["callback_url", "http://localhost:9090/callback"],
       ];
     case "password":
       return [

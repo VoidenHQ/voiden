@@ -469,35 +469,15 @@ export const createAuthNode = (NodeViewWrapper: any, RequestBlockHeader: any, op
 
       // OAuth2: hybrid view — config controls + TipTap table + actions
       if (authType === "oauth2") {
+        const showDiscover = oauth2Config.grantType === "authorization_code" || oauth2Config.grantType === "implicit";
         return (
           <div className="text-sm font-mono">
-            {/* Config controls (React) */}
+            {/* Always visible: grant_type + auto_refresh */}
             <SelectRow
               k="grant_type"
               value={oauth2Config.grantType}
               onChange={(v) => handleGrantTypeChange(v)}
               options={grantTypeOptions}
-              disabled={!isEditable}
-            />
-            <SelectRow
-              k="add_token_to"
-              value={oauth2Config.addTokenTo}
-              onChange={(v) => handleOAuth2ConfigChange("addTokenTo", v as OAuth2AddTokenTo)}
-              options={addTokenToOptions}
-              disabled={!isEditable}
-            />
-            <Row
-              k="header_prefix"
-              value={oauth2Config.headerPrefix}
-              onChange={(v) => handleOAuth2ConfigChange("headerPrefix", v)}
-              placeholder="Bearer"
-              disabled={!isEditable}
-            />
-            <Row
-              k="variable_prefix"
-              value={oauth2Config.variablePrefix}
-              onChange={(v) => handleOAuth2ConfigChange("variablePrefix", v)}
-              placeholder="oauth2"
               disabled={!isEditable}
             />
             <CheckboxRow
@@ -506,37 +486,9 @@ export const createAuthNode = (NodeViewWrapper: any, RequestBlockHeader: any, op
               onChange={(v) => handleOAuth2ConfigChange("autoRefresh", v)}
               disabled={!isEditable}
             />
-            <SelectRow
-              k="client_auth"
-              value={oauth2Config.clientAuthMethod}
-              onChange={(v) => handleOAuth2ConfigChange("clientAuthMethod", v as OAuth2ClientAuthMethod)}
-              options={clientAuthOptions}
-              disabled={!isEditable}
-            />
-            <Row
-              k="extra_params"
-              value={oauth2Config.customParams}
-              onChange={(v) => handleOAuth2ConfigChange("customParams", v)}
-              placeholder="key=value&key2=value2"
-              disabled={!isEditable}
-            />
 
             {/* Separator */}
             <div className="border-t border-border" />
-
-            {/* Discover button (only for grant types with auth_url) */}
-            {(oauth2Config.grantType === "authorization_code" || oauth2Config.grantType === "implicit") && (
-              <div className="px-2 py-1">
-                <button
-                  type="button"
-                  onClick={handleDiscover}
-                  disabled={!isEditable || discovering}
-                  className="text-xs font-mono text-comment hover:text-text transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {discovering ? "Discovering..." : "Discover OIDC Endpoints"}
-                </button>
-              </div>
-            )}
 
             {/* TipTap table with grant-specific fields */}
             <div
@@ -548,16 +500,105 @@ export const createAuthNode = (NodeViewWrapper: any, RequestBlockHeader: any, op
               <NodeViewContent />
             </div>
 
-            {/* Get Token + Token Display */}
-            <div className="px-2 py-1.5">
-              <OAuth2GetTokenButton
-                loading={loading}
-                onGetToken={handleGetToken}
-                onCancel={handleCancel}
-                disabled={!isEditable}
-              />
-              <OAuth2TokenDisplay token={token} expiresAt={expiresAt} error={error} />
+            {/* Separator */}
+            <div className="border-t border-border" />
+
+            {/* Action bar: Advanced toggle (left) + Discover/Get Token buttons (right) */}
+            <div className="px-2 py-1.5 flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => handleOAuth2ConfigChange("advancedOpen", !oauth2Config.advancedOpen)}
+                className="text-xs font-mono text-comment hover:text-text transition-colors select-none"
+              >
+                {oauth2Config.advancedOpen ? "▾" : "▸"} Advanced
+              </button>
+              <div className="flex items-center gap-1.5">
+                {showDiscover && (
+                  <button
+                    type="button"
+                    onClick={handleDiscover}
+                    disabled={!isEditable || discovering}
+                    className="px-2 py-0.5 text-xs font-mono border border-stone-700/50 rounded text-comment hover:text-text hover:border-stone-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {discovering ? (
+                      <span className="flex items-center gap-1">
+                        <span className="inline-block w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" />
+                        Discovering…
+                      </span>
+                    ) : (
+                      "Discover"
+                    )}
+                  </button>
+                )}
+                {loading ? (
+                  <button
+                    type="button"
+                    onClick={handleCancel}
+                    className="px-2 py-0.5 text-xs font-mono border border-stone-700/50 rounded text-comment hover:text-text hover:border-stone-600 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleGetToken}
+                    disabled={!isEditable}
+                    className="px-2 py-0.5 text-xs font-mono border border-stone-700/50 rounded text-comment hover:text-text hover:border-stone-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Get Token
+                  </button>
+                )}
+              </div>
             </div>
+
+            {/* Collapsible advanced section */}
+            {oauth2Config.advancedOpen && (
+              <div>
+                <div className="border-t border-border" />
+                <SelectRow
+                  k="add_token_to"
+                  value={oauth2Config.addTokenTo}
+                  onChange={(v) => handleOAuth2ConfigChange("addTokenTo", v as OAuth2AddTokenTo)}
+                  options={addTokenToOptions}
+                  disabled={!isEditable}
+                />
+                <Row
+                  k="header_prefix"
+                  value={oauth2Config.headerPrefix}
+                  onChange={(v) => handleOAuth2ConfigChange("headerPrefix", v)}
+                  placeholder="Bearer"
+                  disabled={!isEditable}
+                />
+                <Row
+                  k="variable_prefix"
+                  value={oauth2Config.variablePrefix}
+                  onChange={(v) => handleOAuth2ConfigChange("variablePrefix", v)}
+                  placeholder="oauth2"
+                  disabled={!isEditable}
+                />
+                <SelectRow
+                  k="client_auth"
+                  value={oauth2Config.clientAuthMethod}
+                  onChange={(v) => handleOAuth2ConfigChange("clientAuthMethod", v as OAuth2ClientAuthMethod)}
+                  options={clientAuthOptions}
+                  disabled={!isEditable}
+                />
+                <Row
+                  k="extra_params"
+                  value={oauth2Config.customParams}
+                  onChange={(v) => handleOAuth2ConfigChange("customParams", v)}
+                  placeholder="key=value&key2=value2"
+                  disabled={!isEditable}
+                />
+              </div>
+            )}
+
+            {/* Token Display */}
+            {(token || error) && (
+              <div className="px-2 py-1.5">
+                <OAuth2TokenDisplay token={token} expiresAt={expiresAt} error={error} />
+              </div>
+            )}
           </div>
         );
       }

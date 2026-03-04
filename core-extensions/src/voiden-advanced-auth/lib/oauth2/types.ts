@@ -28,6 +28,7 @@ export interface OAuth2Config {
   autoRefresh: boolean;
   clientAuthMethod: OAuth2ClientAuthMethod;
   customParams: string;
+  advancedOpen: boolean;
 }
 
 export interface OAuth2TokenResponse {
@@ -100,6 +101,7 @@ export const DEFAULT_OAUTH2_CONFIG: OAuth2Config = {
   autoRefresh: false,
   clientAuthMethod: "client_secret_post",
   customParams: "",
+  advancedOpen: false,
 };
 
 export const GRANT_TYPE_LABELS: Record<OAuth2GrantType, string> = {
