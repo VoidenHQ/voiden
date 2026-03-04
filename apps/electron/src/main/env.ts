@@ -298,30 +298,44 @@ export async function replaceVariablesSecure(text: string, projectPath: string):
   const activeEnvPath = appState.directories[projectPath]?.activeEnv;
   const activeProfile = appState.directories[projectPath]?.activeProfile || null;
 
-  if (!activeEnvPath) {
-    return text;
+  // Load environment variables
+  let env: Record<string, string> = {};
+  if (activeEnvPath) {
+    const { data: envData } = await resolveEnvironmentData(projectPath, activeProfile, activeEnvPath);
+    if (envData[activeEnvPath]) {
+      env = envData[activeEnvPath];
+    }
   }
 
-  const { data: envData } = await resolveEnvironmentData(projectPath, activeProfile, activeEnvPath);
+  // Load process/runtime variables from .voiden/.process.env.json
+  let processVars: Record<string, any> = {};
+  try {
+    const processEnvPath = path.join(projectPath, '.voiden', '.process.env.json');
+    const data = await fs.readFile(processEnvPath, 'utf-8');
+    processVars = JSON.parse(data) || {};
+  } catch { /* file may not exist */ }
 
-  if (!envData[activeEnvPath]) {
-    return text;
-  }
-
-  const env = envData[activeEnvPath];
-
-  // Replace {{VAR_NAME}} patterns
+  // Replace {{VAR_NAME}} and {{process.xxx}} patterns
   const result = text.replace(/\{\{([^}]+)\}\}/g, (match, varName) => {
     const trimmedVarName = varName.trim();
 
     // Skip faker variables - they should already be replaced by Stage 5 faker hook
-    // This is a defensive check in case the order changes
     if (trimmedVarName.startsWith('$faker.')) {
       return match;
     }
 
-    const value = env[trimmedVarName];
+    // Handle {{process.xxx}} — resolve from runtime variables
+    if (trimmedVarName.startsWith('process.')) {
+      const processKey = trimmedVarName.slice('process.'.length).trim();
+      const value = processVars[processKey];
+      if (value !== undefined && value !== null) {
+        return typeof value === 'object' ? JSON.stringify(value) : String(value);
+      }
+      return match;
+    }
 
+    // Handle {{ENV_VAR}} — resolve from environment
+    const value = env[trimmedVarName];
     if (value !== undefined) {
       return value;
     }

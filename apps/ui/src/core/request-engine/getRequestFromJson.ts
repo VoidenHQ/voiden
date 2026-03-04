@@ -568,17 +568,19 @@ export const getRequest = async (
 
         const varPrefix = oauth2Attrs.variablePrefix || "oauth2";
         finalConfig = {
-          accessToken: config.access_token || `{{process.${varPrefix}_access_token}}`,
-          tokenType: config.token_type || `{{process.${varPrefix}_token_type}}`,
-          headerPrefix: oauth2Attrs.headerPrefix || config.header_prefix || "Bearer",
-          addTokenTo: oauth2Attrs.addTokenTo || config.add_token_to || "header",
+          accessToken: `{{process.${varPrefix}_access_token}}`,
+          tokenType: `{{process.${varPrefix}_token_type}}`,
+          headerPrefix: oauth2Attrs.headerPrefix || "Bearer",
+          addTokenTo: oauth2Attrs.addTokenTo || "header",
           autoRefresh: oauth2Attrs.autoRefresh === true,
           variablePrefix: varPrefix,
           grantType: oauth2Attrs.grantType || "authorization_code",
-          tokenUrl: oauth2Attrs.tokenUrl || "",
-          clientId: oauth2Attrs.clientId || "",
-          clientSecret: oauth2Attrs.clientSecret || "",
-          refreshToken: config.refresh_token || `{{process.${varPrefix}_refresh_token}}`,
+          // Read from table cells with fallback to oauth2Config attrs for backward compat
+          tokenUrl: config.token_url || oauth2Attrs.tokenUrl || "",
+          clientId: config.client_id || oauth2Attrs.clientId || "",
+          clientSecret: config.client_secret || oauth2Attrs.clientSecret || "",
+          scope: config.scope || "",
+          refreshToken: `{{process.${varPrefix}_refresh_token}}`,
         };
         break;
       }

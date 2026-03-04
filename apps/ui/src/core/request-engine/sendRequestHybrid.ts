@@ -50,8 +50,13 @@ async function getHeaders(headers: any[], auth?: any): Promise<Record<string, st
         break;
       }
       case "oauth2": {
-        const headerPrefix = auth.config.headerPrefix || auth.config.tokenType || "Bearer";
-        const accessToken = auth.config.accessToken;
+        let headerPrefix = auth.config.headerPrefix || auth.config.tokenType || "Bearer";
+        let accessToken = auth.config.accessToken;
+        // Resolve env and process variables in token values
+        try { accessToken = await window.electron?.env?.replaceVariables(accessToken); } catch { }
+        try { accessToken = await replaceProcessVariablesInText(accessToken); } catch { }
+        try { headerPrefix = await window.electron?.env?.replaceVariables(headerPrefix); } catch { }
+        try { headerPrefix = await replaceProcessVariablesInText(headerPrefix); } catch { }
         // addTokenTo defaults to "header"; query param handled in getParameters
         if (auth.config.addTokenTo !== "query") {
           authHeaders["Authorization"] = `${headerPrefix} ${accessToken}`;
