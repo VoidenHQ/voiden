@@ -29,11 +29,9 @@ export const getAuthTableRows = (authType: AuthType): string[][] => {
       ];
 
     case "oauth2":
-      return [
-        ["access_token", ""],
-        ["token_type", "Bearer"],
-        ["header_prefix", "Bearer"]
-      ];
+      // OAuth2 uses the rich panel (OAuth2Panel) instead of table rows.
+      // Table is cleared when switching to oauth2; pipeline reads from oauth2Config attrs.
+      return [];
 
     case "oauth1":
       return [

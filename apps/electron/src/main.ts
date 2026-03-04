@@ -22,6 +22,7 @@ import { registerThemeIpcHandlers } from "./main/ipc/themes";
 import { registerCliIpcHandlers } from "./main/ipc/cli";
 import { registerPythonScriptIpcHandler } from "./main/ipc/pythonScript";
 import { registerNodeScriptIpcHandler } from "./main/ipc/nodeScript";
+import { registerOAuth2IpcHandlers } from "./main/ipc/oauth2";
 
 // Import side-effect modules
 import "./main/terminal";
@@ -155,6 +156,7 @@ app.on("ready", async () => {
   registerCliIpcHandlers();
   registerPythonScriptIpcHandler();
   registerNodeScriptIpcHandler();
+  registerOAuth2IpcHandlers();
   ipcStateHandlers();
 
   // Initialize auto-updates with the configured channel

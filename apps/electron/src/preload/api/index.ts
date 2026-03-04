@@ -25,6 +25,7 @@ import {
   fontsApi,
   cliApi,
   variablesApi,
+  oauth2Api,
   mainWindow
 } from "./misc";
 
@@ -55,5 +56,6 @@ export const electronApi = {
   cli: cliApi,
   themes: themesApi,
   autosave: autosaveApi,
+  oauth2: oauth2Api,
   mainwindow:mainWindow
 };

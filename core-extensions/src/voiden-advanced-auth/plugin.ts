@@ -6,7 +6,7 @@
  * - Basic Auth
  * - API Key (Header/Query)
  * - OAuth 1.0
- * - OAuth 2.0
+ * - OAuth 2.0 (full flow with PKCE, 4 grant types, auto-refresh)
  * - Digest Auth
  * - AWS Signature
  * - And more...
@@ -14,6 +14,9 @@
 
 import type { PluginContext } from '@voiden/sdk/ui';
 import { insertAuthNode } from './lib/utils';
+
+// Access (window as any).electron via (window as any).electron to avoid
+// conflicting declare global blocks with other extensions.
 
 export default function createAdvancedAuthPlugin(context: PluginContext) {
   return {
@@ -28,6 +31,84 @@ export default function createAdvancedAuthPlugin(context: PluginContext) {
 
       // Register AuthNode
       context.registerVoidenExtension(AuthNode);
+
+      // ── OAuth2 Auto-Refresh Hook ──────────────────────────────────
+      // Runs during RequestCompilation (before preSendProcessHook).
+      // If autoRefresh is enabled and the token is expired, refreshes
+      // the token via Electron IPC and writes the new token to
+      // .voiden/.process.env.json so preSendProcessHook picks it up.
+      try {
+        // @ts-ignore - Vite resolves @/ alias at serve time
+        const { hookRegistry } = await import(/* @vite-ignore */ '@/core/request-engine/pipeline');
+        hookRegistry.registerHook(
+          'voiden-advanced-auth',
+          'request-compilation' as any,
+          async (ctx: any) => {
+            try {
+              const editor = ctx?.editor;
+              if (!editor) return;
+
+              const json = editor.getJSON?.();
+              if (!json?.content) return;
+
+              // Find auth node
+              const authNode = json.content.find((n: any) => n.type === 'auth');
+              if (!authNode?.attrs || authNode.attrs.authType !== 'oauth2') return;
+
+              // Parse oauth2Config
+              let oauth2Config: any;
+              try {
+                const raw = authNode.attrs.oauth2Config;
+                if (typeof raw === 'string') oauth2Config = JSON.parse(raw);
+                else if (typeof raw === 'object') oauth2Config = raw;
+              } catch { return; }
+
+              if (!oauth2Config?.autoRefresh) return;
+
+              const varPrefix = oauth2Config.variablePrefix || 'oauth2';
+
+              // Check if token is expired
+              const expiresAt = await (window as any).electron?.variables?.get(`${varPrefix}_expires_at`);
+              if (!expiresAt || Date.now() < Number(expiresAt)) return; // not expired
+
+              // Check if we have a refresh token
+              const refreshToken = await (window as any).electron?.variables?.get(`${varPrefix}_refresh_token`);
+              if (!refreshToken) return; // no refresh token available
+
+              // Refresh the token via Electron IPC (handles {{VARIABLE}} resolution internally)
+              const result = await (window as any).electron?.oauth2?.refreshToken({
+                tokenUrl: oauth2Config.tokenUrl || '',
+                clientId: oauth2Config.clientId || '',
+                clientSecret: oauth2Config.clientSecret || '',
+                refreshToken,
+                scope: oauth2Config.scope || '',
+              });
+
+              if (result?.accessToken) {
+                // Write new token values to .voiden/.process.env.json
+                const existing = await (window as any).electron?.variables?.read() || {};
+                const updated: Record<string, any> = {
+                  ...existing,
+                  [`${varPrefix}_access_token`]: result.accessToken,
+                  [`${varPrefix}_token_type`]: result.tokenType || 'Bearer',
+                };
+                if (result.refreshToken) {
+                  updated[`${varPrefix}_refresh_token`] = result.refreshToken;
+                }
+                if (result.expiresIn) {
+                  updated[`${varPrefix}_expires_at`] = Date.now() + result.expiresIn * 1000;
+                }
+                await (window as any).electron?.variables?.writeVariables(JSON.stringify(updated, null, 2));
+              }
+            } catch (err) {
+              console.warn('[OAuth2 Auto-Refresh] Failed to refresh token:', err);
+            }
+          },
+          5, // high priority – runs before scripting hooks
+        );
+      } catch (err) {
+        console.warn('[voiden-advanced-auth] Failed to register auto-refresh hook:', err);
+      }
 
       // Register linkable node type
       context.registerLinkableNodeTypes(['auth']);

@@ -50,8 +50,12 @@ async function getHeaders(headers: any[], auth?: any): Promise<Record<string, st
         break;
       }
       case "oauth2": {
-        const tokenType = auth.config.tokenType || "Bearer";
-        authHeaders["Authorization"] = `${tokenType} ${auth.config.accessToken}`;
+        const headerPrefix = auth.config.headerPrefix || auth.config.tokenType || "Bearer";
+        const accessToken = auth.config.accessToken;
+        // addTokenTo defaults to "header"; query param handled in getParameters
+        if (auth.config.addTokenTo !== "query") {
+          authHeaders["Authorization"] = `${headerPrefix} ${accessToken}`;
+        }
         break;
       }
       case "oauth1": {
@@ -118,9 +122,9 @@ function getParameters(parameters: any[], auth?: any): string {
   if (auth && auth.config && auth.enabled) {
     if (auth.type === "api-key" && auth.config.in === "query") {
       authQuery = `${auth.config.key}=${auth.config.value}`;
+    } else if (auth.type === "oauth2" && auth.config.addTokenTo === "query" && auth.config.accessToken) {
+      authQuery = `access_token=${encodeURIComponent(auth.config.accessToken)}`;
     }
-    // OAuth 1.0 can also use query params in some cases, but typically uses headers
-    // Most implementations use Authorization header, so we skip query param handling for OAuth 1.0
   }
 
   const filteredParameters = parameters.filter((parameter) => parameter.enabled && (parameter.key || parameter.value));

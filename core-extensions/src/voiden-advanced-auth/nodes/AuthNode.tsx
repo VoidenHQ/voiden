@@ -1,7 +1,10 @@
 import { mergeAttributes, Node, NodeViewProps } from "@tiptap/core";
 import { NodeViewContent, ReactNodeViewRenderer } from "@tiptap/react";
-import React from "react";
+import React, { useCallback, useMemo } from "react";
 import { getAuthTableRows } from "../lib/utils";
+import { OAuth2Panel } from "../components/OAuth2Panel";
+import type { OAuth2Config } from "../lib/oauth2/types";
+import { DEFAULT_OAUTH2_CONFIG } from "../lib/oauth2/types";
 
 // Auth type definitions
 export type AuthType =
@@ -52,9 +55,47 @@ export const createAuthNode = (NodeViewWrapper: any, RequestBlockHeader: any, op
     const isImported = !!node.attrs.importedFrom;
     const isEditable = editor.isEditable && !isImported;
 
+    // Parse oauth2Config from node attribute
+    const oauth2Config: OAuth2Config = useMemo(() => {
+      if (authType !== "oauth2") return DEFAULT_OAUTH2_CONFIG;
+      try {
+        const raw = node.attrs.oauth2Config;
+        if (raw && typeof raw === "string") return { ...DEFAULT_OAUTH2_CONFIG, ...JSON.parse(raw) };
+        if (raw && typeof raw === "object") return { ...DEFAULT_OAUTH2_CONFIG, ...raw };
+      } catch { /* ignore */ }
+      return DEFAULT_OAUTH2_CONFIG;
+    }, [authType, node.attrs.oauth2Config]);
+
+    const handleOAuth2ConfigChange = useCallback(
+      (newConfig: OAuth2Config) => {
+        updateAttributes({ oauth2Config: JSON.stringify(newConfig) });
+      },
+      [updateAttributes],
+    );
+
     const handleAuthTypeChange = (newAuthType: AuthType) => {
       // Update the auth type attribute
-      updateAttributes({ authType: newAuthType });
+      const attrs: Record<string, unknown> = { authType: newAuthType };
+
+      // Initialize oauth2Config when switching to oauth2
+      if (newAuthType === "oauth2") {
+        attrs.oauth2Config = JSON.stringify(DEFAULT_OAUTH2_CONFIG);
+      }
+
+      updateAttributes(attrs);
+
+      // For oauth2, we don't need table content – the panel renders everything
+      if (newAuthType === "oauth2") {
+        const pos = getPos();
+        if (typeof pos === "number") {
+          const contentStart = pos + 1;
+          const contentEnd = pos + node.nodeSize - 1;
+          if (contentEnd > contentStart) {
+            editor.chain().focus().deleteRange({ from: contentStart, to: contentEnd }).run();
+          }
+        }
+        return;
+      }
 
       // Replace the table content with the correct fields for the new auth type
       const rows = getAuthTableRows(newAuthType);
@@ -112,6 +153,17 @@ export const createAuthNode = (NodeViewWrapper: any, RequestBlockHeader: any, op
         );
       }
 
+      // OAuth2: render the rich panel instead of a table
+      if (authType === "oauth2") {
+        return (
+          <OAuth2Panel
+            config={oauth2Config}
+            onConfigChange={handleOAuth2ConfigChange}
+            disabled={!isEditable}
+          />
+        );
+      }
+
       // For all other types, render the table
       return (
         <div
@@ -162,6 +214,9 @@ export const createAuthNode = (NodeViewWrapper: any, RequestBlockHeader: any, op
           default: "inherit",
         },
         importedFrom: {
+          default: "",
+        },
+        oauth2Config: {
           default: "",
         },
       };
