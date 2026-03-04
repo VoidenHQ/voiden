@@ -44,6 +44,9 @@ const clientAuthOptions = [
   { value: "client_secret_basic", label: "Basic Auth Header" },
 ];
 
+const EXT_IPC = 'ext:voiden-advanced-auth:';
+const ipc = (ch: string, ...args: any[]) => (window as any).electron?.ipc?.invoke(`${EXT_IPC}${ch}`, ...args);
+
 // Factory function to create AuthNode with context components
 export const createAuthNode = (NodeViewWrapper: any, RequestBlockHeader: any, openFile?: (relativePath: string) => Promise<void>) => {
   const AuthTypeSelector = ({ authType, isEditable, onChange }: { authType: AuthType; isEditable: boolean; onChange: (authType: AuthType) => void }) => {
@@ -213,7 +216,7 @@ export const createAuthNode = (NodeViewWrapper: any, RequestBlockHeader: any, op
       setDiscovering(true);
       setError(null);
       try {
-        const config = await (window as any).electron!.oauth2!.discover({ issuerUrl });
+        const config = await ipc('oauth2:discover', { issuerUrl });
 
         // Build updated rows from current table, replacing discovered values
         const currentValues = getTableValues();
@@ -331,7 +334,7 @@ export const createAuthNode = (NodeViewWrapper: any, RequestBlockHeader: any, op
             const codeVerifier = generateCodeVerifier();
             const codeChallenge = await generateCodeChallenge(codeVerifier);
             const state = tableValues.state || generateState();
-            result = await (window as any).electron!.oauth2!.startAuthCodeFlow({
+            result = await ipc('oauth2:startAuthCodeFlow', {
               authUrl: tableValues.auth_url || "",
               tokenUrl: tableValues.token_url || "",
               clientId: tableValues.client_id || "",
@@ -351,7 +354,7 @@ export const createAuthNode = (NodeViewWrapper: any, RequestBlockHeader: any, op
             if (!tableValues.auth_url) throw new Error("Auth URL is required");
             if (!tableValues.client_id) throw new Error("Client ID is required");
             const state = tableValues.state || generateState();
-            result = await (window as any).electron!.oauth2!.startImplicitFlow({
+            result = await ipc('oauth2:startImplicitFlow', {
               authUrl: tableValues.auth_url || "",
               clientId: tableValues.client_id || "",
               scope: tableValues.scope || "",
@@ -365,7 +368,7 @@ export const createAuthNode = (NodeViewWrapper: any, RequestBlockHeader: any, op
           case "password": {
             if (!tableValues.token_url) throw new Error("Token URL is required");
             if (!tableValues.client_id) throw new Error("Client ID is required");
-            result = await (window as any).electron!.oauth2!.passwordGrant({
+            result = await ipc('oauth2:passwordGrant', {
               tokenUrl: tableValues.token_url || "",
               clientId: tableValues.client_id || "",
               clientSecret: tableValues.client_secret || undefined,
@@ -380,7 +383,7 @@ export const createAuthNode = (NodeViewWrapper: any, RequestBlockHeader: any, op
           case "client_credentials": {
             if (!tableValues.token_url) throw new Error("Token URL is required");
             if (!tableValues.client_id) throw new Error("Client ID is required");
-            result = await (window as any).electron!.oauth2!.clientCredentialsGrant({
+            result = await ipc('oauth2:clientCredentialsGrant', {
               tokenUrl: tableValues.token_url || "",
               clientId: tableValues.client_id || "",
               clientSecret: tableValues.client_secret || "",
@@ -405,7 +408,7 @@ export const createAuthNode = (NodeViewWrapper: any, RequestBlockHeader: any, op
 
     const handleCancel = useCallback(async () => {
       try {
-        await (window as any).electron?.oauth2?.cancelFlow();
+        await ipc('oauth2:cancelFlow');
       } catch { /* ignore */ }
       setLoading(false);
     }, []);

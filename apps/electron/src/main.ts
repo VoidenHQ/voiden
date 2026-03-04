@@ -22,7 +22,7 @@ import { registerThemeIpcHandlers } from "./main/ipc/themes";
 import { registerCliIpcHandlers } from "./main/ipc/cli";
 import { registerPythonScriptIpcHandler } from "./main/ipc/pythonScript";
 import { registerNodeScriptIpcHandler } from "./main/ipc/nodeScript";
-import { registerOAuth2IpcHandlers } from "./main/ipc/oauth2";
+import { loadMainProcessExtensions, unloadMainProcessExtensions } from "./main/extensionLoader";
 
 // Import side-effect modules
 import "./main/terminal";
@@ -156,7 +156,6 @@ app.on("ready", async () => {
   registerCliIpcHandlers();
   registerPythonScriptIpcHandler();
   registerNodeScriptIpcHandler();
-  registerOAuth2IpcHandlers();
   ipcStateHandlers();
 
   // Initialize auto-updates with the configured channel
@@ -174,6 +173,17 @@ app.on("ready", async () => {
     }
   } else {
     await windowManager.loadAllWindows();
+  }
+
+  // Load main-process extensions after state is initialized
+  try {
+    const { getAppState } = await import("./main/state");
+    const appState = getAppState();
+    if (appState?.extensions) {
+      await loadMainProcessExtensions(appState.extensions);
+    }
+  } catch (err) {
+    console.error("[main] Failed to load main-process extensions:", err);
   }
 });
 
@@ -194,6 +204,7 @@ app.on("activate", async () => {
 
 // Cleanup on quit
 app.on("before-quit", async () => {
+  await unloadMainProcessExtensions();
   closeAllWatchers();
 });
 

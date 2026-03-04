@@ -71,7 +71,7 @@ export default function createAdvancedAuthPlugin(context: PluginContext) {
               if (!refreshConfig) return;
 
               // Refresh the token via Electron IPC
-              const result = await (window as any).electron?.oauth2?.refreshToken({
+              const result = await (window as any).electron?.ipc?.invoke('ext:voiden-advanced-auth:oauth2:refreshToken', {
                 tokenUrl: refreshConfig.tokenUrl || '',
                 clientId: refreshConfig.clientId || '',
                 clientSecret: refreshConfig.clientSecret || '',

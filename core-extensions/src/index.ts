@@ -10,6 +10,9 @@ export * from './registry';
 // Export plugin map (for UI only - has React/DOM dependencies)
 export * from './plugins';
 
+// Main-process plugin map is exported via "./main" subpath (not here)
+// to avoid pulling Node.js-only deps (undici) into the renderer bundle.
+
 // Export core extension modules
 export { default as mdPreviewPlugin } from './md-preview';
 export { default as postmanImportPlugin } from './postman-import';

@@ -1,7 +1,7 @@
 /**
  * Auto-generated extension registry
  * DO NOT EDIT MANUALLY - run 'yarn generate-registry' to update
- * Generated on: 2026-02-12T11:42:50.121Z
+ * Generated on: 2026-03-04T19:37:08.177Z
  */
 
 export interface ExtensionMetadata {
@@ -19,6 +19,7 @@ export interface ExtensionMetadata {
   capabilities?: any;
   dependencies?: any;
   features?: string[];
+  mainProcess?: boolean;
 }
 
 // Metadata-only export for Electron main process (no React/DOM dependencies)
@@ -27,7 +28,7 @@ export const coreExtensions: ExtensionMetadata[] = [
     "id": "voiden-rest-api",
     "name": "Voiden REST API",
     "description": "HTTP/REST API testing toolkit with extensible request pipeline, custom blocks for headers/body, environment variables, response visualization, and support for all HTTP methods including multipart file uploads",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "author": "Voiden Team",
     "enabled": true,
     "priority": 10,
@@ -45,12 +46,13 @@ export const coreExtensions: ExtensionMetadata[] = [
           "multipart-table",
           "json_body",
           "xml_body",
+          "yml_body",
           "response-status",
           "response-headers",
           "response-body"
         ],
         "allowExtensions": true,
-        "description": "Owns 13 block types for HTTP request/response building and visualization"
+        "description": "Owns 14 block types for HTTP request/response building and visualization"
       },
       "paste": {
         "patterns": [
@@ -198,10 +200,11 @@ export const coreExtensions: ExtensionMetadata[] = [
     "id": "voiden-advanced-auth",
     "name": "Advanced Authentication",
     "description": "Advanced authentication support for HTTP/REST APIs including Bearer Token, Basic Auth, API Key, OAuth 1.0/2.0, Digest, AWS Signature, and more",
-    "version": "1.0.0",
+    "version": "2.0.0",
     "author": "Voiden Team",
     "enabled": true,
     "priority": 20,
+    "mainProcess": true,
     "readme": "Comprehensive authentication extension providing support for multiple authentication methods used by REST APIs.",
     "capabilities": {
       "blocks": {
@@ -365,7 +368,7 @@ export const coreExtensions: ExtensionMetadata[] = [
     "author": "Voiden Team",
     "enabled": true,
     "priority": 25,
-    "readme": "Add JavaScript pre-request and post-response scripts to your API requests. Use the vd API to read/write request data, access environment variables, and control request flow. Insert with /pre-script and /post-script slash commands.",
+    "readme": "Add JavaScript pre-request and post-response scripts to your API requests. Use the vd API to read/write request data, work with environment/runtime variables, and control request flow. Insert with /pre-script and /post-script slash commands. Note: for request body, pass a string payload; if you pass an object/JSON value it should be stringified.",
     "capabilities": {
       "blocks": {
         "owns": [
@@ -391,6 +394,16 @@ export const coreExtensions: ExtensionMetadata[] = [
             ]
           }
         ]
+      },
+      "sidebar": {
+        "tabs": [
+          {
+            "id": "script-logs",
+            "title": "Script Logs",
+            "side": "right",
+            "icon": "Logs"
+          }
+        ]
       }
     },
     "dependencies": {
@@ -402,9 +415,11 @@ export const coreExtensions: ExtensionMetadata[] = [
       "Post-response JavaScript scripts (runs after response is received)",
       "voiden.request API for reading/writing request data",
       "voiden.response API for reading response data",
-      "voiden.env.get for environment variable access",
+      "voiden.env.get for active environment variable access",
       "voiden.variables.get/set for Voiden runtime variable access",
+      "Request body should be string payload (stringify JSON/object values before sending)",
       "voiden.log() for script output logging",
+      "voiden.assert(condition, message) for script-based assertions",
       "voiden.cancel() to cancel request from pre-script",
       "CodeMirror JavaScript editor with syntax highlighting"
     ],
@@ -552,7 +567,7 @@ export const coreExtensions: ExtensionMetadata[] = [
     "id": "postman-import",
     "name": "Postman Collection Importer",
     "description": "Seamlessly migrate from Postman by importing v2.1 collections and automatically converting them to native Voiden request files with full support for nested folders, environment variables, headers, auth, and all request body types",
-    "version": "1.0.0",
+    "version": "1.0.2",
     "author": "Voiden Team",
     "enabled": true,
     "priority": 50,

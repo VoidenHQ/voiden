@@ -186,16 +186,6 @@ export const cliApi = {
   showInstructions: (): Promise<void> => ipcRenderer.invoke("cli:showInstructions"),
 };
 
-export const oauth2Api = {
-  startAuthCodeFlow: (params: any) => ipcRenderer.invoke("oauth2:startAuthCodeFlow", params),
-  startImplicitFlow: (params: any) => ipcRenderer.invoke("oauth2:startImplicitFlow", params),
-  passwordGrant: (params: any) => ipcRenderer.invoke("oauth2:passwordGrant", params),
-  clientCredentialsGrant: (params: any) => ipcRenderer.invoke("oauth2:clientCredentialsGrant", params),
-  refreshToken: (params: any) => ipcRenderer.invoke("oauth2:refreshToken", params),
-  cancelFlow: () => ipcRenderer.invoke("oauth2:cancelFlow"),
-  discover: (params: any) => ipcRenderer.invoke("oauth2:discover", params),
-};
-
 export const variablesApi = {
   getKeys: () => ipcRenderer.invoke("variables:getKeys"),
   read: () => ipcRenderer.invoke("variables:read"),
