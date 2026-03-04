@@ -9,9 +9,10 @@ interface TerminalData {
 interface TerminalManagerProps {
   terminalTabs: TerminalData[];
   activeTabId: string;
+  panelId: string;
 }
 
-export const TerminalManager = ({ terminalTabs, activeTabId }: TerminalManagerProps) => {
+export const TerminalManager = ({ terminalTabs, activeTabId, panelId }: TerminalManagerProps) => {
   return (
     <div className="h-full w-full pb-8 ">
       <div
@@ -34,7 +35,7 @@ export const TerminalManager = ({ terminalTabs, activeTabId }: TerminalManagerPr
               pointerEvents: tab.tabId === activeTabId ? "auto" : "none",
             }}
           >
-            <Terminal tabId={tab.tabId} cwd={tab.cwd} />
+            <Terminal tabId={tab.tabId} cwd={tab.cwd} panelId={panelId} />
           </div>
         ))}
       </div>

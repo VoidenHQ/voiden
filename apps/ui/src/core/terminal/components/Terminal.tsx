@@ -5,17 +5,20 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import "@xterm/xterm/css/xterm.css";
 import { useSettings } from "../../settings/hooks/useSettings";
 import { useNerdFont } from "../hooks/useNerdFont";
+import { useClosePanelTab } from "@/core/layout/hooks/usePanelTabs";
 
 interface TerminalProps {
   tabId: string;
   cwd: string;
+  panelId: string;
 }
 
 const getCssVar = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
-export const Terminal = ({ tabId, cwd }: TerminalProps) => {
+export const Terminal = ({ tabId, cwd, panelId }: TerminalProps) => {
   const { settings } = useSettings();
   const { fontFamily } = useNerdFont();
+  const { mutate: closeTab } = useClosePanelTab();
   const terminalRef = useRef<HTMLDivElement>(null);
   const fitAddonRef = useRef<FitAddon>();
   const xtermRef = useRef<XTerm | null>(null);
@@ -333,8 +336,12 @@ export const Terminal = ({ tabId, cwd }: TerminalProps) => {
       // Subscribe to exit events
       const unsubscribeExit = window.electron?.terminal.onExit(id, ({ exitCode, signal }: any) => {
         setExitInfo({ code: exitCode, signal });
-        xterm.writeln(`\r\n\r\n[Process exited with code ${exitCode}]`);
-        xterm.blur(); // visually show that the terminal is not active
+        if (exitCode === 0) {
+          closeTab({ panelId, tabId });
+        } else {
+          xterm.writeln(`\r\n\r\n[Process exited with code ${exitCode}]`);
+          xterm.blur();
+        }
       });
       if (unsubscribeExit) {
         cleanupFunctionsRef.current.push(unsubscribeExit);

@@ -498,7 +498,7 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
       tabId: tab.id,
       cwd: tab.source,
     }));
-    return <TerminalManager terminalTabs={terminals} activeTabId={tabContent.tabId} />;
+    return <TerminalManager terminalTabs={terminals} activeTabId={tabContent.tabId} panelId={panelId} />;
   }
 
   if (tabContent.type === "settings") {
