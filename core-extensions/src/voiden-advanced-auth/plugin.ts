@@ -95,6 +95,27 @@ export default function createAdvancedAuthPlugin(context: PluginContext) {
                   updated[`${varPrefix}_expires_at`] = Date.now() + result.expiresIn * 1000;
                 }
                 await (window as any).electron?.variables?.writeVariables(JSON.stringify(updated, null, 2));
+
+                // Patch the Authorization header in the current requestState directly.
+                // convertToRestApiRequestState() already resolved the old expired token
+                // into the header before this hook ran, so we must overwrite it here
+                // for the current request to use the new token.
+                const tokenType = result.tokenType || 'Bearer';
+                const headerPrefix = auth.config?.headerPrefix || tokenType;
+                const addTokenTo = auth.config?.addTokenTo || 'header';
+                if (addTokenTo !== 'query' && ctx.requestState?.headers) {
+                  const headers = ctx.requestState.headers as Array<{ key: string; value: string; enabled?: boolean }>;
+                  const authIdx = headers.findIndex(
+                    (h: any) => h.key?.toLowerCase() === 'authorization',
+                  );
+                  const newValue = `${headerPrefix} ${result.accessToken}`;
+                  if (authIdx >= 0) {
+                    headers[authIdx].value = newValue;
+                  } else {
+                    headers.push({ key: 'Authorization', value: newValue, enabled: true });
+                  }
+                }
+
                 console.log(`[OAuth2 Auto-Refresh] Token refreshed for prefix "${varPrefix}"`);
               }
             } catch (err) {
