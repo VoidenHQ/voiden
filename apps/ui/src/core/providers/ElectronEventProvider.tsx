@@ -122,6 +122,7 @@ export const ElectronEventProvider: React.FC<{ children: React.ReactNode }> = ({
       },
       "env:changed": (data: any) => {
         queryClient.invalidateQueries({ queryKey: ["env"] });
+        queryClient.invalidateQueries({ queryKey: ["environments"] });
         queryClient.invalidateQueries({ queryKey: ["environment-keys"] });
         handleEvent("env:changed", data);
       },
@@ -179,6 +180,7 @@ export const ElectronEventProvider: React.FC<{ children: React.ReactNode }> = ({
         queryClient.invalidateQueries({ queryKey: ["env"] });
         queryClient.invalidateQueries({ queryKey: ["environment-keys"] });
         queryClient.invalidateQueries({ queryKey: ["void-variable-keys"] });
+        queryClient.invalidateQueries({ queryKey: ["void-variable-data"] });
       },
       "settings:changed": () => {
         handleEvent('settings:changed', {});
