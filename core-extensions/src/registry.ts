@@ -44,6 +44,7 @@ export const coreExtensions: ExtensionMetadata[] = [
           "path-table",
           "url-table",
           "multipart-table",
+          "cookies-table",
           "json_body",
           "xml_body",
           "yml_body",

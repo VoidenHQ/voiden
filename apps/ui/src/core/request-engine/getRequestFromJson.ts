@@ -235,6 +235,7 @@ export const REQUEST_NODES = [
   "query-table",
   "url-table",
   "multipart-table",
+  "cookies-table",
   "json_body",
   "xml_body",
   "yml_body",
@@ -255,7 +256,7 @@ export const findNode = (editor: Doc, nodeName: string) => {
 export const findNodes = (editor: Doc, nodeName: string) => {
   return editor.content.filter((node) => node.type === nodeName);
 };
-const getTable = (type: "headers-table" | "query-table" | "url-table" | "multipart-table" | "path-table" | "file" | "runtime-variables", editor: Doc, environment?: Record<string, string>) => {
+const getTable = (type: "headers-table" | "query-table" | "url-table" | "multipart-table" | "path-table" | "cookies-table" | "file" | "runtime-variables", editor: Doc, environment?: Record<string, string>) => {
   type KeyValueType = {
     key: string;
     value: string;
@@ -1001,6 +1002,30 @@ export const getRequest = async (
     };
   };
 
+  // Build headers with cookies merged in
+  const getHeadersWithCookies = () => {
+    const headers = [...getTable("headers-table", editor, environment)];
+    const cookies = getTable("cookies-table", editor, environment);
+    if (cookies.length > 0) {
+      const cookieString = cookies
+        .map((c) => `${c.key}=${c.value}`)
+        .join("; ");
+      const existingCookieIdx = headers.findIndex(
+        (h) => h.key.toLowerCase() === "cookie"
+      );
+      if (existingCookieIdx !== -1) {
+        // Append to existing Cookie header
+        headers[existingCookieIdx] = {
+          ...headers[existingCookieIdx],
+          value: headers[existingCookieIdx].value + "; " + cookieString,
+        };
+      } else {
+        headers.push({ key: "Cookie", value: cookieString, enabled: true });
+      }
+    }
+    return headers;
+  };
+
   // Build protocol-specific output
   let output: any;
 
@@ -1009,7 +1034,7 @@ export const getRequest = async (
       ...request,
       protocolType: 'wss',
       url: urlWithPathParams,
-      headers: [...getTable("headers-table", editor, environment)],
+      headers: getHeadersWithCookies(),
       params: getTable("query-table", editor, environment),
       auth: auth || request.auth,
     };
@@ -1020,7 +1045,7 @@ export const getRequest = async (
       protocolType: 'graphql',
       operationType: graphqlData?.operationType || 'query',
       url: urlWithPathParams,
-      headers: [...getTable("headers-table", editor, environment)],
+      headers: getHeadersWithCookies(),
       body: JSON.stringify({
         query: graphqlData?.query || '',
         variables: graphqlData?.variables || {},
@@ -1068,7 +1093,7 @@ export const getRequest = async (
     output = {
       ...request,
       protocolType: 'rest',
-      headers: [...getTable("headers-table", editor, environment)],
+      headers: getHeadersWithCookies(),
       params: getTable("query-table", editor, environment),
       path_params: getTable("path-table", editor, environment),
       content_type: getContentType(),

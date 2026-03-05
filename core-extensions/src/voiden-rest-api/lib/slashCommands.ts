@@ -110,6 +110,22 @@ export const restApiSlashGroup: SlashCommandGroup = {
       },
     },
     {
+      name: "cookies-table",
+      label: "Cookies",
+      slash: "/cookies",
+      aliases: [],
+      singleton: true,
+      compareKeys: ["cookies-table"],
+      description: "Insert a cookies table",
+      action: (editor) => {
+        const range = {
+          from: editor.state.selection.$from.pos,
+          to: editor.state.selection.$to.pos,
+        };
+        insertRequestTableNode(editor, range, "cookies-table");
+      },
+    },
+    {
       name: "json",
       label: "JSON",
       aliases: [],
