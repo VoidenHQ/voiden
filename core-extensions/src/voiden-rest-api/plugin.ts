@@ -18,6 +18,10 @@ import { CopyCurlButton } from './components/CopyCurlButton';
 
 type EditorTab = { title?: string; content?: string; tabId?: string };
 
+type ExtendedPluginContext = Omit<PluginContext, 'openVoidenTab'> & {
+  openVoidenTab: (title: string, content: any, options?: { readOnly?: boolean; activateSidebarTab?: boolean }) => Promise<void>;
+};
+
 // Lazily cached store reference so the synchronous predicate can read unsaved content.
 let _editorStore: any = null;
 function getEditorStore() {
@@ -30,7 +34,8 @@ function getEditorStore() {
   return _editorStore;
 }
 
-const voidenRestApiPlugin = (context: PluginContext) => {
+const voidenRestApiPlugin = (_context: PluginContext) => {
+  const context = _context as ExtendedPluginContext;
   // Create extension instance
   const extension = new VoidenRestApiExtension();
   let currentTab: EditorTab | null = null;
