@@ -1,5 +1,27 @@
 [
   {
+    "version": "v1.3.0-beta.1",
+    "date": "05/03/2026",
+    "title": "Community Extensions, OAuth2 & Variable Previews",
+    "description": "Beta release introducing community plugin support with install-from-zip and registry browser, OAuth2 authorization code flow improvements, tooltip previews for environment and runtime variables, and terminal reliability fixes.",
+    "icon": "Puzzle",
+    "iconColor": "text-orange-400",
+    "bgColor": "bg-gradient-to-br from-orange-900 to-amber-900",
+    "changes": {
+      "Added": [
+        "Community extension support — install third-party plugins from a zip file or directly from the extension registry",
+        "Extension browser with community, verified, and core extension categories",
+        "Tooltip preview for environment and runtime variables — hover over any {{variable}} to see its resolved value inline",
+        "OAuth2 Get Token flow updated to improve authorization code exchange reliability"
+      ],
+      "Fixed": [
+        "Terminal double paste — characters were being sent twice in some terminal sessions",
+        "Extension detail page not updating after disabling or uninstalling a plugin",
+        "Community plugin install errors being silently swallowed with no user feedback"
+      ]
+    }
+  },
+  {
     "version": "v1.2.0-beta.1",
     "date": "24/02/2026",
     "title": "Scripting, Navigation & UX Enhancements",
