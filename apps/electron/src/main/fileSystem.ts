@@ -454,25 +454,23 @@ async function maybeUpdateLinkedBlockReferencesAfterMove(movedVoidFiles: Array<{
     let fileReferenceCount = 0;
 
     const updatedSource = source.replace(voidFenceRegex, (fenceText, body: string) => {
-      // linkedBlock: update originalFile
+      let updatedBody = body;
+
+      // linkedBlock: originalFile needs UUID guard to avoid false matches
       if (/^\s*type:\s*linkedBlock\s*$/m.test(body)) {
         const uidMatch = body.match(/^\s*blockUid:\s*([^\r\n]+)\s*$/m);
         if (!uidMatch || !isUuid(uidMatch[1].trim())) return fenceText;
-        const updatedBody = body.replace(originalFileLineRegex, (l, p, q, v, s) =>
+        updatedBody = updatedBody.replace(originalFileLineRegex, (l, p, q, v, s) =>
           rewritePathLine(l, p, q, v, s, () => { fileReferenceCount += 1; }),
         );
-        return fenceText.replace(body, updatedBody);
       }
 
-      // fileLink: update filePath
-      if (/^\s*type:\s*fileLink\s*$/m.test(body)) {
-        const updatedBody = body.replace(filePathLineRegex, (l, p, q, v, s) =>
-          rewritePathLine(l, p, q, v, s, () => { fileReferenceCount += 1; }),
-        );
-        return fenceText.replace(body, updatedBody);
-      }
+      // filePath: update in every fence (covers fileLink, collection-runner, and any future node)
+      updatedBody = updatedBody.replace(filePathLineRegex, (l, p, q, v, s) =>
+        rewritePathLine(l, p, q, v, s, () => { fileReferenceCount += 1; }),
+      );
 
-      return fenceText;
+      return updatedBody !== body ? fenceText.replace(body, updatedBody) : fenceText;
     });
 
     if (fileReferenceCount > 0 && updatedSource !== source) {
