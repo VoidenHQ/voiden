@@ -72,6 +72,20 @@ export const useOpenExtensionDetails = () => {
   });
 };
 
+export const useInstallExtensionFromZip = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async () => window.electron?.extensions.installFromZip(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["extensions"] });
+      queryClient.invalidateQueries({ queryKey: ["app:state"] });
+      queryClient.invalidateQueries({ queryKey: ["panel:tabs"], exact: false });
+      queryClient.invalidateQueries({ queryKey: ["sidebar:tabs"], exact: false });
+      queryClient.invalidateQueries({ queryKey: ["tab:content"], exact: false });
+    },
+  });
+};
+
 export const useUpdateExtension = () => {
   const queryClient = useQueryClient();
   return useMutation({

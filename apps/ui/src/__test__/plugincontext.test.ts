@@ -132,6 +132,7 @@ describe('usePluginStore', () => {
       sidebar: { left: [], right: [] },
       panels: { main: [], bottom: [] },
       editorActions: [],
+      statusBarItems: [],
     });
   });
 
@@ -309,6 +310,52 @@ describe('usePluginStore', () => {
       expect(editorActions).toHaveLength(2);
     });
   });
+
+  describe('status bar items', () => {
+    it('voiden test : add status bar item', () => {
+      const item = {
+        id: 'test-item',
+        icon: 'Zap',
+        label: 'Test',
+        tooltip: 'Test tooltip',
+        position: 'left' as const,
+        onClick: vi.fn(),
+      };
+
+      act(() => {
+        usePluginStore.getState().addStatusBarItem(item);
+      });
+
+      const { statusBarItems } = usePluginStore.getState();
+      expect(statusBarItems).toHaveLength(1);
+      expect(statusBarItems[0]).toEqual(item);
+    });
+
+    it('voiden test : accumulate multiple status bar items', () => {
+      const item1 = {
+        id: 'item-1',
+        icon: 'Zap',
+        tooltip: 'Item 1',
+        position: 'left' as const,
+        onClick: vi.fn(),
+      };
+      const item2 = {
+        id: 'item-2',
+        icon: 'Star',
+        tooltip: 'Item 2',
+        position: 'right' as const,
+        onClick: vi.fn(),
+      };
+
+      act(() => {
+        usePluginStore.getState().addStatusBarItem(item1);
+        usePluginStore.getState().addStatusBarItem(item2);
+      });
+
+      const { statusBarItems } = usePluginStore.getState();
+      expect(statusBarItems).toHaveLength(2);
+    });
+  });
 });
 
 describe('createPlugin', () => {
@@ -323,6 +370,7 @@ describe('createPlugin', () => {
       sidebar: { left: [], right: [] },
       panels: { main: [], bottom: [] },
       editorActions: [],
+      statusBarItems: [],
     });
     useEditorEnhancementStore.setState({
       voidenSlashGroups: [],
@@ -581,6 +629,60 @@ describe('createPlugin', () => {
 
       const { editorActions } = usePluginStore.getState();
       expect(editorActions).toHaveLength(0);
+      expect(consoleErrorSpy).toHaveBeenCalled();
+
+      consoleErrorSpy.mockRestore();
+    });
+  });
+
+  describe('context.registerStatusBarItem', () => {
+    it('voiden test : register status bar item with valid onClick', async () => {
+      const item = {
+        id: 'test-sb',
+        icon: 'Zap',
+        tooltip: 'Test',
+        position: 'left' as const,
+        onClick: vi.fn(),
+      };
+
+      const pluginModule = (ctx: PluginContext): Plugin => ({
+        onload: async (ctx) => {
+          ctx.registerStatusBarItem(item);
+        },
+        onunload: async () => { },
+      });
+
+      const plugin = createPlugin(pluginModule, 'test-plugin');
+      await plugin.onload();
+
+      const { statusBarItems } = usePluginStore.getState();
+      expect(statusBarItems).toHaveLength(1);
+      expect(statusBarItems[0]).toEqual(item);
+    });
+
+    it('voiden test : not register status bar item with invalid onClick', async () => {
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => { });
+
+      const invalidItem = {
+        id: 'invalid',
+        icon: 'Zap',
+        tooltip: 'Bad',
+        position: 'left' as const,
+        onClick: 'not-a-function' as any,
+      };
+
+      const pluginModule = (ctx: PluginContext): Plugin => ({
+        onload: async (ctx) => {
+          ctx.registerStatusBarItem(invalidItem);
+        },
+        onunload: async () => { },
+      });
+
+      const plugin = createPlugin(pluginModule, 'test-plugin');
+      await plugin.onload();
+
+      const { statusBarItems } = usePluginStore.getState();
+      expect(statusBarItems).toHaveLength(0);
       expect(consoleErrorSpy).toHaveBeenCalled();
 
       consoleErrorSpy.mockRestore();

@@ -244,13 +244,7 @@ export const useActions = (editor: Editor) => {
     };
 
     navigator.clipboard.writeText(`linkblock://${JSON.stringify(linkedBlockData)}`);
-    editor.chain().setNodeSelection(currentNodePos).deleteSelection().run();
-
-    // Restore focus to where the node was (with fallback)
-    setTimeout(() => {
-      safeFocusEditor(currentNodePos);
-    }, 0);
-  }, [currentNode, activeDocument, queryClient, editor, currentNodePos, safeFocusEditor]);
+  }, [currentNode, activeDocument, queryClient]);
 
   const deleteNode = useCallback(() => {
     editor.chain().setNodeSelection(currentNodePos).deleteSelection().run();

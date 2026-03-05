@@ -30,16 +30,16 @@ async function getHeaders(headers: any[], auth?: any): Promise<Record<string, st
         let password = auth.config.password;
          try {
           username = await window.electron?.env?.replaceVariables(username);
-        } catch { }
+        } catch (e) { console.warn("[auth] Failed to resolve env variables in username:", e); }
         try{
           username = await replaceProcessVariablesInText(username);
-        }catch{}
+        } catch (e) { console.warn("[auth] Failed to resolve process variables in username:", e); }
         try {
           password = await window.electron?.env?.replaceVariables(password);
-        } catch { }
+        } catch (e) { console.warn("[auth] Failed to resolve env variables in password:", e); }
         try{
           password = await replaceProcessVariablesInText(password);
-        }catch{}
+        } catch (e) { console.warn("[auth] Failed to resolve process variables in password:", e); }
         const base64Credentials = Buffer.from(`${username}:${password}`).toString("base64");
         authHeaders["Authorization"] = `Basic ${base64Credentials}`;
         break;
@@ -50,8 +50,17 @@ async function getHeaders(headers: any[], auth?: any): Promise<Record<string, st
         break;
       }
       case "oauth2": {
-        const tokenType = auth.config.tokenType || "Bearer";
-        authHeaders["Authorization"] = `${tokenType} ${auth.config.accessToken}`;
+        let headerPrefix = auth.config.headerPrefix || auth.config.tokenType || "Bearer";
+        let accessToken = auth.config.accessToken;
+        // Resolve env and process variables in token values
+        try { accessToken = await window.electron?.env?.replaceVariables(accessToken); } catch (e) { console.warn("[auth] Failed to resolve env variables in accessToken:", e); }
+        try { accessToken = await replaceProcessVariablesInText(accessToken); } catch (e) { console.warn("[auth] Failed to resolve process variables in accessToken:", e); }
+        try { headerPrefix = await window.electron?.env?.replaceVariables(headerPrefix); } catch (e) { console.warn("[auth] Failed to resolve env variables in headerPrefix:", e); }
+        try { headerPrefix = await replaceProcessVariablesInText(headerPrefix); } catch (e) { console.warn("[auth] Failed to resolve process variables in headerPrefix:", e); }
+        // addTokenTo defaults to "header"; query param handled in getParameters
+        if (auth.config.addTokenTo !== "query") {
+          authHeaders["Authorization"] = `${headerPrefix} ${accessToken}`;
+        }
         break;
       }
       case "oauth1": {
@@ -65,10 +74,10 @@ async function getHeaders(headers: any[], auth?: any): Promise<Record<string, st
         let signature = `${auth.config.consumerSecret || ""}&${auth.config.tokenSecret || ""}`;
         try {
           signature = await window.electron?.env?.replaceVariables(signature);
-        } catch { }
+        } catch (e) { console.warn("[auth] Failed to resolve env variables in oauth1 signature:", e); }
           try {
           signature = await replaceProcessVariablesInText(signature);
-        } catch { }
+        } catch (e) { console.warn("[auth] Failed to resolve process variables in oauth1 signature:", e); }
         parts.push(`oauth_signature="${encodeURIComponent(signature)}"`);
         parts.push(`oauth_timestamp="${Math.floor(Date.now() / 1000)}"`);
         parts.push(`oauth_nonce="${Math.random().toString(36).substring(2)}"`);
@@ -118,9 +127,9 @@ function getParameters(parameters: any[], auth?: any): string {
   if (auth && auth.config && auth.enabled) {
     if (auth.type === "api-key" && auth.config.in === "query") {
       authQuery = `${auth.config.key}=${auth.config.value}`;
+    } else if (auth.type === "oauth2" && auth.config.addTokenTo === "query" && auth.config.accessToken) {
+      authQuery = `access_token=${encodeURIComponent(auth.config.accessToken)}`;
     }
-    // OAuth 1.0 can also use query params in some cases, but typically uses headers
-    // Most implementations use Authorization header, so we skip query param handling for OAuth 1.0
   }
 
   const filteredParameters = parameters.filter((parameter) => parameter.enabled && (parameter.key || parameter.value));
@@ -171,13 +180,18 @@ async function convertToRestApiRequestState(data: Request): Promise<RestApiReque
       enabled: p.enabled,
     }));
 
-  // Add auth query param if present (for API Key in query)
-  if (parameters && !parameters.startsWith('?')) {
-    const authQueryMatch = parameters.match(/([^=]+)=([^&]*)/);
-    if (authQueryMatch && data.auth?.type === 'api-key') {
+  // Add auth query params if present
+  if (data.auth && data.auth.enabled && data.auth.config) {
+    if (data.auth.type === 'api-key' && data.auth.config.in === 'query' && data.auth.config.key) {
       queryParamsArray.push({
-        key: authQueryMatch[1],
-        value: authQueryMatch[2],
+        key: data.auth.config.key,
+        value: data.auth.config.value || '',
+        enabled: true,
+      });
+    } else if (data.auth.type === 'oauth2' && data.auth.config.addTokenTo === 'query' && data.auth.config.accessToken) {
+      queryParamsArray.push({
+        key: 'access_token',
+        value: data.auth.config.accessToken,
         enabled: true,
       });
     }
@@ -313,6 +327,7 @@ export async function sendRequestHybrid(
     await hookRegistry.executeHooks(PipelineStage.RequestCompilation, {
       editor,
       requestState,
+      auth: request.auth,
       addHeader: (key: string, value: string) => {
         requestState.headers.push({ key, value, enabled: true });
       },

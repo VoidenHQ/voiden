@@ -11,18 +11,6 @@ export interface ValidationError {
   actual?: any;
 }
 
-export type ResponseChildNodeType =
-  | "response-body"
-  | "response-headers"
-  | "request-headers"
-  | "assertion-results"
-  | "openapi-validation-results";
-
-export interface ResponseDocAttrs {
-  activeNode: ResponseChildNodeType | null;
-}
-
-
 export interface ValidationWarning {
   type: 'missing-field' | 'extra-field' | 'deprecated';
   message: string;
@@ -42,55 +30,8 @@ export interface OpenApiValidationAttrs {
   totalWarnings: number;
 }
 
-const useParentResponseDoc = (editor: any, getPos: () => number) => {
-  const [parentState, setParentState] = React.useState<{
-    activeNode: ResponseChildNodeType | null;
-    parentPos: number | null;
-  }>({
-    activeNode: null,
-    parentPos: null,
-  });
-
-  React.useEffect(() => {
-    const updateParentState = () => {
-      try {
-        const pos = getPos();
-        const $pos = editor.state.doc.resolve(pos);
-
-        // Walk up to find response-doc parent
-        for (let d = $pos.depth; d > 0; d--) {
-          const node = $pos.node(d);
-          if (node.type.name === "response-doc") {
-            setParentState({
-              activeNode: node.attrs.activeNode,
-              parentPos: $pos.before(d),
-            });
-            return;
-          }
-        }
-      } catch (e) {
-        // Position might not be valid during unmount
-      }
-    };
-
-    // Initial read
-    updateParentState();
-
-    // Listen to editor updates using the correct TipTap API
-    editor.on('update', updateParentState);
-    editor.on('transaction', updateParentState);
-
-    return () => {
-      editor.off('update', updateParentState);
-      editor.off('transaction', updateParentState);
-    };
-  }, [editor, getPos]);
-
-  return parentState;
-};
-
 // Factory function pattern
-export const createOpenApiValidationResultsNode = (NodeViewWrapper: any) => {
+export const createOpenApiValidationResultsNode = (NodeViewWrapper: any, useParentResponseDoc: (editor: any, getPos: () => number) => { openNodes: string[]; parentPos: number | null }) => {
   const OpenApiValidationComponent = ({ node,getPos,editor }: any) => {
     const {
       passed,
@@ -103,14 +44,10 @@ export const createOpenApiValidationResultsNode = (NodeViewWrapper: any) => {
 
     const [selectedTab, setSelectedTab] = React.useState<'all' | 'errors' | 'warnings'>('all');
 
-      const { activeNode } = useParentResponseDoc(editor, getPos);
-    const isCollapsed = activeNode !== "openapi-validation-results";
+      const { openNodes } = useParentResponseDoc(editor, getPos);
+    const isCollapsed = !openNodes.includes("openapi-validation-results");
     const handleSetActive = () => {
-      if (isCollapsed) {
-        editor.commands.setActiveResponseNode("openapi-validation-results");
-      } else {
-        editor.commands.setActiveResponseNode("");
-      }
+      editor.commands.toggleResponseNode("openapi-validation-results");
     };
 
     // SAFETY CHECK: Ensure validatedAgainst has the correct structure

@@ -24,6 +24,9 @@ interface ResponseStore {
   /** Loading state (global, since only one request can run at a time) */
   isLoading: boolean;
 
+  /** Map of tab ID to list of open node types (for persisting collapsed state across tab switches) */
+  openNodesMap: Record<string, string[]>;
+
   /** Set response content for a specific tab */
   setResponse: (tabId: string, doc: any, markdown: string | null) => void;
 
@@ -50,6 +53,12 @@ interface ResponseStore {
 
   /** Get current active response (convenience getter) */
   getCurrentResponse: () => TabResponse | null;
+
+  /** Get open nodes for a tab (returns null if no persisted state) */
+  getOpenNodes: (tabId: string) => string[] | null;
+
+  /** Set open nodes for a tab */
+  setOpenNodes: (tabId: string, openNodes: string[]) => void;
 }
 
 export const useResponseStore = create<ResponseStore>((set, get) => ({
@@ -57,6 +66,7 @@ export const useResponseStore = create<ResponseStore>((set, get) => ({
   activeTabId: null,
   currentRequestTabId: null,
   isLoading: false,
+  openNodesMap: {},
 
   setResponse: (tabId, doc, markdown) => set((state) => ({
     responses: {
@@ -122,4 +132,16 @@ export const useResponseStore = create<ResponseStore>((set, get) => ({
     if (!state.activeTabId) return null;
     return state.responses[state.activeTabId] || null;
   },
+
+  getOpenNodes: (tabId) => {
+    const state = get();
+    return state.openNodesMap[tabId] ?? null;
+  },
+
+  setOpenNodes: (tabId, openNodes) => set((state) => ({
+    openNodesMap: {
+      ...state.openNodesMap,
+      [tabId]: openNodes,
+    },
+  })),
 }));

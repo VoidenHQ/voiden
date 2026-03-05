@@ -563,6 +563,7 @@ function TreeNode({ node, style, dragHandle, activeFile, removeTemporaryNode }: 
     js: <FileCode size={14} />,
     py: <FileCode size={14} />,
     go: <FileCode size={14} />,
+    sh: <FileCode size={14} />,
     void: <Infinity size={14} className="text-accent" />,
   };
 
@@ -705,13 +706,13 @@ function TreeNode({ node, style, dragHandle, activeFile, removeTemporaryNode }: 
         ))}
       </div>
       <div className="pl-2 relative flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2 w-full">
+        <div className={`flex items-center ${node.data.type === "folder" ? "gap-1" : "gap-2"} w-full`}>
           {node.data.type === "folder" && (
-            <>
+            <div className="w-30 flex items-center">
               <ChevronRight size={14} className={`transition-transform ${node.isOpen ? "rotate-90" : ""}`} />
               {node.isOpen && <FolderOpen size={14} />}
               {!node.isOpen && <Folder size={14} />}
-            </>
+            </div>
           )}
           <div className="w-30">
             {node.data.type !== "folder" && getFileIcon(node.data.name, node.data.path)}
@@ -743,8 +744,7 @@ function TreeNode({ node, style, dragHandle, activeFile, removeTemporaryNode }: 
          {
           node.data.type === "folder" && (
             <div className="flex items-center px-2 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity">
-              <Tooltip.Root>
-                <Tooltip.Trigger asChild>
+              <Tip label="Collapse all" side="bottom" align="end">
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -754,21 +754,8 @@ function TreeNode({ node, style, dragHandle, activeFile, removeTemporaryNode }: 
                   >
                     <ChevronsDownUp size={12} />
                   </button>
-                </Tooltip.Trigger>
-                <Tooltip.Content
-                  align="end"
-                  sideOffset={4}
-                  alignOffset={4}
-                  side="bottom"
-                  avoidCollisions
-                  collisionPadding={8}
-                  className="border text-comment bg-panel border-border p-1 text-sm z-10"
-                >
-                  Collapse all
-                </Tooltip.Content>
-              </Tooltip.Root>
-              <Tooltip.Root>
-                <Tooltip.Trigger asChild>
+              </Tip>
+              <Tip label="Expand all" side="bottom" align="end">
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -778,19 +765,7 @@ function TreeNode({ node, style, dragHandle, activeFile, removeTemporaryNode }: 
                   >
                     <ChevronsUpDown size={12} />
                   </button>
-                </Tooltip.Trigger>
-                <Tooltip.Content
-                  align="end"
-                  sideOffset={4}
-                  alignOffset={4}
-                  side="bottom"
-                  avoidCollisions
-                  collisionPadding={8}
-                  className="border text-comment bg-panel border-border p-1 text-sm z-10"
-                >
-                  Expand all
-                </Tooltip.Content>
-              </Tooltip.Root>
+              </Tip>
             </div>
           )
         }

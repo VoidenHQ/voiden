@@ -119,8 +119,13 @@ export type BearerToken = {
 
 export type OAuth = {
   accessToken: string;
-  refreshToken: string;
-  // other OAuth-specific fields this is not finished
+  refreshToken?: string;
+  tokenType?: string;
+  headerPrefix?: string;
+  addTokenTo?: "header" | "query";
+  autoRefresh?: boolean;
+  grantType?: string;
+  tokenUrl?: string;
 };
 
 export type APIKey = {
@@ -129,7 +134,7 @@ export type APIKey = {
   in: "header" | "query";
 };
 
-type AuthType = "basic-auth" | "bearer-token" | "oauth" | "none" | "api-key";
+type AuthType = "basic-auth" | "bearer-token" | "oauth" | "oauth2" | "none" | "api-key";
 
 export type Authorization = {
   enabled: boolean;

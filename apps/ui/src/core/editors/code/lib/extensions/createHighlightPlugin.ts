@@ -1,4 +1,5 @@
 import { Decoration, DecorationSet, EditorView, Extension, Prec, Range, ViewPlugin, ViewUpdate } from "@uiw/react-codemirror";
+import { dispatchVariableClick, findEnvVariableEl, createCursorHandlers, isModKey } from "@/core/editors/variableClickHelpers";
 
 // Style classes for highlighting - uses CSS variables for theme support
 const styleClasses = {
@@ -9,10 +10,8 @@ const styleClasses = {
 
 /**
  * Applies highlighting to all {{variable}} tokens in the document.
- * @param view - CodeMirror editor view
- * @param envKeys - Set of environment variable names (secure - no values exposed)
  */
-function applyHighlighting(view: EditorView, envKeys: Set<string>,processKeys:Set<string>): DecorationSet {
+function applyHighlighting(view: EditorView, envData: Record<string, string>, processData: Record<string, string>): DecorationSet {
   const marks: Array<Range<Decoration>> = [];
   const documentText = view.state.doc.toString();
   const regex = /\{\{(.*?)\}\}/g;
@@ -23,54 +22,86 @@ function applyHighlighting(view: EditorView, envKeys: Set<string>,processKeys:Se
     const end = start + matchedText.length;
     const variableName = match[1].trim();
 
-    // Check if it's a faker variable
     const isFakerVariable = variableName.startsWith('$faker');
     const isProcessVariable = variableName.startsWith('process');
 
     let className: string;
+    const attributes: Record<string, string> = {
+      "data-variable": variableName,
+      "data-variable-type": isFakerVariable ? "faker" : isProcessVariable ? "process" : "env",
+    };
+
     if (isFakerVariable) {
-      // Bright cyan for faker variables
       className = styleClasses.cyan;
-    } else if(isProcessVariable){
-      //check if variables exists in process variables
-      const variable=variableName.replace('process.','');
-      className = processKeys.has(variable) ? styleClasses.green : styleClasses.red;
+    } else if (isProcessVariable) {
+      const processKey = variableName.replace('process.', '');
+      const hasKey = Object.prototype.hasOwnProperty.call(processData, processKey);
+      className = hasKey ? styleClasses.green : styleClasses.red;
+      if (hasKey) {
+        attributes["data-var-value"] = processData[processKey];
+      }
     } else {
-      // Check if variable exists in environment
-      className = envKeys.has(variableName) ? styleClasses.green : styleClasses.red;
+      const hasKey = Object.prototype.hasOwnProperty.call(envData, variableName);
+      className = hasKey ? styleClasses.green : styleClasses.red;
+      if (hasKey) {
+        attributes["data-var-value"] = envData[variableName];
+      }
     }
 
-    const decoration = Decoration.mark({ class: className });
-    marks.push(decoration.range(start, end));
+    marks.push(Decoration.mark({ class: className, attributes }).range(start, end));
   }
 
   return Decoration.set(marks);
 }
 
 /**
- * Creates the CodeMirror highlighting plugin for environment variables.
- * @param envKeys - Array of environment variable names (secure - no values exposed)
- * @security Only accepts variable names, never values
+ * Creates the CodeMirror highlighting plugin for environment and process variables.
  */
-export function createHighlightPlugin(envKeys: string[] = [],processVariables:string[]=[]): Extension {
-  const envKeysSet = new Set(envKeys);
-  const processKeysSet=new Set(processVariables);
-  return Prec.highest(
-    ViewPlugin.fromClass(
-      class {
-        decorations: DecorationSet;
+export function createHighlightPlugin(envData: Record<string, string> = {}, processData: Record<string, string> = {}): Extension {
+  const highlightView = ViewPlugin.fromClass(
+    class {
+      decorations: DecorationSet;
 
-        constructor(view: EditorView) {
-          this.decorations = applyHighlighting(view, envKeysSet,processKeysSet);
-        }
+      constructor(view: EditorView) {
+        this.decorations = applyHighlighting(view, envData, processData);
+      }
 
-        update(update: ViewUpdate) {
-          if (update.docChanged || update.viewportChanged) {
-            this.decorations = applyHighlighting(update.view, envKeysSet,processKeysSet);
-          }
+      update(update: ViewUpdate) {
+        if (update.docChanged || update.viewportChanged) {
+          this.decorations = applyHighlighting(update.view, envData, processData);
         }
-      },
-      { decorations: (view) => view.decorations },
-    ),
+      }
+    },
+    { decorations: (view) => view.decorations },
   );
+
+  let cursorHandlers: ReturnType<typeof createCursorHandlers> | null = null;
+
+  const clickHandler = EditorView.domEventHandlers({
+    click(event: MouseEvent, view: EditorView) {
+      if (!isModKey(event)) return false;
+      const variableEl = findEnvVariableEl(event);
+      if (!variableEl) return false;
+      dispatchVariableClick(variableEl, view.dom);
+      event.preventDefault();
+      return true;
+    },
+    mousemove(event: MouseEvent, view: EditorView) {
+      if (!cursorHandlers) cursorHandlers = createCursorHandlers(() => view.dom);
+      cursorHandlers.mousemove(event);
+      return false;
+    },
+    keydown(event: KeyboardEvent, view: EditorView) {
+      if (!cursorHandlers) cursorHandlers = createCursorHandlers(() => view.dom);
+      cursorHandlers.keydown(event);
+      return false;
+    },
+    keyup(event: KeyboardEvent, view: EditorView) {
+      if (!cursorHandlers) cursorHandlers = createCursorHandlers(() => view.dom);
+      cursorHandlers.keyup(event);
+      return false;
+    },
+  });
+
+  return Prec.highest([highlightView, clickHandler]);
 }

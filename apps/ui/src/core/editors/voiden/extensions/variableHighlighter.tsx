@@ -2,59 +2,63 @@ import { Extension } from "@tiptap/core";
 import { Node } from "@tiptap/pm/model";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
-import Suggestion, { SuggestionOptions } from "@tiptap/suggestion";
-import tippy, { Instance as TippyInstance } from "tippy.js";
 
-// Global state to hold current variable keys
-let currentVariableKeys = new Set<string>();
+// Global state: processKey → value
+let currentVariableMap = new Map<string, string>();
 
-/**
- * Update variable keys from .voiden/.process.env.json
- */
+/** Update from a full key→value record (used on load and refresh). */
+export function updateVariableData(data: Record<string, string>) {
+    currentVariableMap = new Map(Object.entries(data));
+}
+
+/** Backward-compat: update from a keys-only array (values shown as empty). */
 export function updateVariableKeys(keys: string[]) {
-    currentVariableKeys = new Set(keys);
+    currentVariableMap = new Map(keys.map(k => [k, '']));
 }
 
 /**
  * Find and highlight process variables in the document.
- * @param doc - The document to search
  */
 function findProcessVariables(doc: Node): DecorationSet {
     const variableRegex = /{{(.*?)}}/g;
-        ;
     const decorations: Decoration[] = [];
 
     doc.descendants((node, position) => {
         if (!node.text) return;
 
         Array.from(node.text.matchAll(variableRegex)).forEach((match) => {
-            const variableName = match[1].trim(); // Extract variable name (e.g., "process.userId")
+            const variableName = match[1].trim();
             const index = match.index || 0;
             const from = position + index;
             const to = from + match[0].length;
             const isVariableCapture = variableName.startsWith('$req') || variableName.startsWith('$res');
             const isProcessVariable = variableName.startsWith('process.');
-            if (!isVariableCapture && !isProcessVariable) {
-                return; // Skip non-process and non-variable-capture variables
-            }
-            // Extract the key after "process."
+            if (!isVariableCapture && !isProcessVariable) return;
+
             const processKey = variableName.replace('process.', '');
-            const isValidProcessVar = currentVariableKeys.has(processKey);
-            
+            const isValidProcessVar = currentVariableMap.has(processKey);
+            const varValue = currentVariableMap.get(processKey) ?? '';
 
             let decorationClass: string;
-
             if (isVariableCapture) {
-                // Bright cyan for faker variables - high contrast on dark backgrounds
                 decorationClass = "font-mono bg-cyan-400/20 text-cyan-300 rounded-sm font-medium px-1 text-base";
             } else {
                 decorationClass = isValidProcessVar
-                    ? "font-mono bg-emerald-400/20 text-emerald-300 rounded-sm font-medium px-1 text-base" // Purple for valid process variables
-                    : "font-mono bg-rose-400/20 text-rose-300 rounded-sm font-medium px-1 text-base"; // Red for invalid
+                    ? "font-mono bg-emerald-400/20 text-emerald-300 rounded-sm font-medium px-1 text-base pm-var-highlight"
+                    : "font-mono bg-rose-400/20 text-rose-300 rounded-sm font-medium px-1 text-base";
             }
 
-
-            decorations.push(Decoration.inline(from, to, { class: decorationClass }));
+            const variableType = isVariableCapture ? "capture" : "process";
+            const attrs: Record<string, string> = {
+                class: decorationClass,
+                "data-variable": variableName,
+                "data-variable-type": variableType,
+            };
+            if (isValidProcessVar) {
+                attrs["data-var"] = processKey;
+                attrs["data-var-value"] = varValue;
+            }
+            decorations.push(Decoration.inline(from, to, attrs));
         });
     });
 
@@ -64,12 +68,11 @@ function findProcessVariables(doc: Node): DecorationSet {
 const pluginKey = new PluginKey("variableHighlighter");
 
 /**
- * Variable highlighter extension with process variable suggestions.
- * @param variableKeys - Array of keys from .voiden/.process.env.json
+ * Variable highlighter extension.
+ * @param variableData - key→value record from .voiden/.process.env.json
  */
-export const variableHighlighter = (variableKeys: string[] = []) => {
-    // Update global keys
-    updateVariableKeys(variableKeys);
+export const variableHighlighter = (variableData: Record<string, string> = {}) => {
+    updateVariableData(variableData);
 
     return Extension.create({
         name: "variableHighlighter",
@@ -82,7 +85,6 @@ export const variableHighlighter = (variableKeys: string[] = []) => {
                             return findProcessVariables(doc);
                         },
                         apply(transaction, oldState) {
-                            // Always recompute if there's a meta flag or doc changed
                             if (transaction.getMeta("forceVariableHighlightUpdate") || transaction.docChanged) {
                                 return findProcessVariables(transaction.doc);
                             }
@@ -93,21 +95,24 @@ export const variableHighlighter = (variableKeys: string[] = []) => {
                         decorations(state) {
                             return this.getState(state);
                         },
+
                     },
                 }),
             ];
-        }
+        },
     });
 };
 
-// Helper function to load variables from file
-export async function loadVariablesFromFile(): Promise<string[]> {
+// Helper function to load variable data from file
+export async function loadVariablesFromFile(): Promise<Record<string, string>> {
     try {
-        const fileContent = await window.electron?.files?.read('.voiden/.process.env.json');
-        const variables = JSON.parse(fileContent || '{}');
-        return Object.keys(variables);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const data = await (window as any).electron?.variables?.read();
+        return (data as Record<string, string>) ?? {};
     } catch (error) {
-        console.warn("Could not load .voiden/.process.env.json:", error);
-        return [];
+        console.warn("Could not load variable data:", error);
+        return {};
     }
 }
+
+

@@ -18,6 +18,7 @@ import {
   BookOpen,
   Server,
   Blocks,
+  Terminal,
 } from "lucide-react";
 import { cn } from "@/core/lib/utils";
 import { useActivateTab, useGetPanelTabs, useClosePanelTab, useDuplicatePanelTab, useReloadPanelTab, useSetTabsOrder, useClosePanelTabs } from "@/core/layout/hooks";
@@ -88,6 +89,7 @@ const iconMap: Record<string, JSX.Element> = {
   js: <FileCode size={14} />,
   py: <FileCode size={14} />,
   go: <FileCode size={14} />,
+  sh: <Terminal size={14} />,
   void: <Infinity size={14} className="text-accent" />,
 };
 

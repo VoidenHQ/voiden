@@ -10,80 +10,19 @@ export interface AssertionResultsAttrs {
   passedAssertions: number;
   failedAssertions: number;
 }
-export type ResponseChildNodeType =
-  | "response-body"
-  | "response-headers"
-  | "request-headers"
-  | "assertion-results"
-  | "openapi-validation-results";
 
-export interface ResponseDocAttrs {
-  activeNode: ResponseChildNodeType | null;
-}
-
-
-const useParentResponseDoc = (editor: any, getPos: () => number) => {
-  const [parentState, setParentState] = React.useState<{
-    activeNode: ResponseChildNodeType | null;
-    parentPos: number | null;
-  }>({
-    activeNode: null,
-    parentPos: null,
-  });
-
-  React.useEffect(() => {
-    const updateParentState = () => {
-      try {
-        const pos = getPos();
-        const $pos = editor.state.doc.resolve(pos);
-
-        // Walk up to find response-doc parent
-        for (let d = $pos.depth; d > 0; d--) {
-          const node = $pos.node(d);
-          if (node.type.name === "response-doc") {
-            setParentState({
-              activeNode: node.attrs.activeNode,
-              parentPos: $pos.before(d),
-            });
-            return;
-          }
-        }
-      } catch (e) {
-        // Position might not be valid during unmount
-      }
-    };
-
-    // Initial read
-    updateParentState();
-
-    // Listen to editor updates using the correct TipTap API
-    editor.on('update', updateParentState);
-    editor.on('transaction', updateParentState);
-
-    return () => {
-      editor.off('update', updateParentState);
-      editor.off('transaction', updateParentState);
-    };
-  }, [editor, getPos]);
-
-  return parentState;
-};
 
 
 // Factory function pattern
-export const createAssertionResultsNode = (NodeViewWrapper: any) => {
+export const createAssertionResultsNode = (NodeViewWrapper: any, useParentResponseDoc: (editor: any, getPos: () => number) => { openNodes: string[]; parentPos: number | null }) => {
   const AssertionResultsComponent = ({ node, getPos, editor }: any) => {
     const { results, totalAssertions, passedAssertions, failedAssertions } =
       node.attrs as AssertionResultsAttrs;
 
-    const { activeNode } = useParentResponseDoc(editor, getPos);
-    const isCollapsed = activeNode !== "assertion-results";
+    const { openNodes } = useParentResponseDoc(editor, getPos);
+    const isCollapsed = !openNodes.includes("assertion-results");
     const handleSetActive = () => {
-      if (isCollapsed) {
-        editor.commands.setActiveResponseNode("assertion-results");
-      } else {
-        editor.commands.setActiveResponseNode("");
-      }
+      editor.commands.toggleResponseNode("assertion-results");
     };
 
     const getStatusColor = (passed: boolean) => {

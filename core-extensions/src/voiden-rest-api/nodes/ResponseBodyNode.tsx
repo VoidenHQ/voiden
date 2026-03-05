@@ -11,7 +11,6 @@
 import * as React from "react";
 import { Node } from "@tiptap/core";
 import { ReactNodeViewRenderer } from "@tiptap/react";
-import { useParentResponseDoc } from "./ResponseDocNode";
 import { Copy, Download, Eye, FileDown, FileText, WrapText } from "lucide-react";
 
 
@@ -60,24 +59,21 @@ type ViewMode = "preview" | "raw";
 // Factory function to create the node with context components
 export const createResponseBodyNode = (
   NodeViewWrapper: any,
-  CodeEditor: any
+  CodeEditor: any,
+  useParentResponseDoc: (editor: any, getPos: () => number) => { openNodes: string[]; parentPos: number | null }
 ) => {
   const ResponseBodyComponent = ({ node, getPos, editor }: any) => {
     const { body, contentType } = node.attrs as ResponseBodyAttrs;
     const [viewMode, setViewMode] = React.useState<ViewMode>("preview");
     const [isPrettified, setIsPrettified] = React.useState(false);
 
-    // Read parent's activeNode state - automatically updates when parent changes
-    const { activeNode } = useParentResponseDoc(editor, getPos);
-    const isCollapsed = activeNode !== "response-body";
+    // Read parent's openNodes state - automatically updates when parent changes
+    const { openNodes } = useParentResponseDoc(editor, getPos);
+    const isCollapsed = !openNodes.includes("response-body");
 
-    // Handle click - call the editor command to set active node
+    // Handle click - toggle this node open/closed
     const handleSetActive = () => {
-      if (isCollapsed) {
-        editor.commands.setActiveResponseNode("response-body");
-      } else {
-        editor.commands.setActiveResponseNode("");
-      }
+      editor.commands.toggleResponseNode("response-body");
     };
 
     if (!body) {
@@ -438,11 +434,10 @@ export const createResponseBodyNode = (
         <div style={{ height: 'auto', overflow: 'visible' }}>
           <style>{`
             .response-body-editor .cm-editor {
-     height: ${maxHeight}px !important;
               max-height: ${maxHeight}px !important;
             }
             .response-body-editor .cm-scroller {
-              max-height: 100% !important;
+              max-height: ${maxHeight}px !important;
               overflow-y: auto !important;
             }
             /* Ensure find panel is visible and not clipped */

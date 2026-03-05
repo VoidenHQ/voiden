@@ -557,13 +557,33 @@ export const getRequest = async (
         };
         break;
 
-      case "oauth2":
+      case "oauth2": {
+        // Read extended config from oauth2Config node attribute if available
+        let oauth2Attrs: Record<string, any> = {};
+        try {
+          const rawAttr = authNode.attrs?.oauth2Config;
+          if (rawAttr && typeof rawAttr === "string") oauth2Attrs = JSON.parse(rawAttr);
+          else if (rawAttr && typeof rawAttr === "object") oauth2Attrs = rawAttr;
+        } catch { /* ignore parse errors */ }
+
+        const varPrefix = oauth2Attrs.variablePrefix || "oauth2";
         finalConfig = {
-          accessToken: config.access_token || "",
-          tokenType: config.token_type || "Bearer",
-          headerPrefix: config.header_prefix || "Bearer",
+          accessToken: `{{process.${varPrefix}_access_token}}`,
+          tokenType: `{{process.${varPrefix}_token_type}}`,
+          headerPrefix: oauth2Attrs.headerPrefix || "Bearer",
+          addTokenTo: oauth2Attrs.addTokenTo || "header",
+          autoRefresh: oauth2Attrs.autoRefresh === true,
+          variablePrefix: varPrefix,
+          grantType: oauth2Attrs.grantType || "authorization_code",
+          // Read from table cells with fallback to oauth2Config attrs for backward compat
+          tokenUrl: config.token_url || oauth2Attrs.tokenUrl || "",
+          clientId: config.client_id || oauth2Attrs.clientId || "",
+          clientSecret: config.client_secret || oauth2Attrs.clientSecret || "",
+          scope: config.scope || "",
+          refreshToken: `{{process.${varPrefix}_refresh_token}}`,
         };
         break;
+      }
 
       case "oauth1":
         finalConfig = {
@@ -1185,6 +1205,12 @@ export function replaceEnvVariablesInRequest(data: Request, environment?: Record
           ...authConfig,
           accessToken: replaceInString(authConfig.accessToken),
           tokenType: authConfig.tokenType ? replaceInString(authConfig.tokenType) : authConfig.tokenType,
+          headerPrefix: authConfig.headerPrefix,
+          addTokenTo: authConfig.addTokenTo,
+          refreshToken: authConfig.refreshToken ? replaceInString(authConfig.refreshToken) : authConfig.refreshToken,
+          tokenUrl: authConfig.tokenUrl ? replaceInString(authConfig.tokenUrl) : authConfig.tokenUrl,
+          clientId: authConfig.clientId ? replaceInString(authConfig.clientId) : authConfig.clientId,
+          clientSecret: authConfig.clientSecret ? replaceInString(authConfig.clientSecret) : authConfig.clientSecret,
         };
       case "oauth1":
         return {

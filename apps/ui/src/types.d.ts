@@ -224,6 +224,7 @@ declare global {
         getAll: () => Promise<any>;
         get: (extensionId: string) => Promise<any>;
         install: (extension: any) => Promise<any>;
+        installFromZip: () => Promise<any>;
         uninstall: (extensionId: string) => Promise<any>;
         setEnabled: (extensionId: string, enabled: boolean) => Promise<any>;
         openDetails: (extension: any) => Promise<any>;

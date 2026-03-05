@@ -1,7 +1,7 @@
 /**
  * Auto-generated plugin map
  * DO NOT EDIT MANUALLY - run 'yarn generate-registry' to update
- * Generated on: 2026-02-12T11:42:50.125Z
+ * Generated on: 2026-03-04T19:37:08.178Z
  */
 
 import voiden_rest_apiPlugin from './voiden-rest-api';

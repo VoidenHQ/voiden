@@ -87,7 +87,8 @@ export default function createSimpleAssertionsPlugin(context: PluginContext) {
       const { createAssertionResultsNode } = await import(
         "./nodes/AssertionResultsNode"
       );
-      const AssertionResultsNode = createAssertionResultsNode(NodeViewWrapper);
+      const { useParentResponseDoc } = context.ui.hooks;
+      const AssertionResultsNode = createAssertionResultsNode(NodeViewWrapper, useParentResponseDoc);
       context.registerVoidenExtension(AssertionResultsNode);
 
       // Register linkable node types

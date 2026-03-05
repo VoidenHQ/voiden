@@ -90,6 +90,7 @@ export interface ExtensionMetadata {
   capabilities?: any;
   dependencies?: any;
   features?: string[];
+  mainProcess?: boolean;
 }
 
 // Metadata-only export for Electron main process (no React/DOM dependencies)
@@ -111,13 +112,41 @@ ${extensions.map(ext => `  '${ext.manifest.id}': ${ext.folder.replace(/-/g, '_')
 };
 `;
 
-  return { registryCode, pluginsCode };
+  // Generate main-process plugins file (for Electron main process only)
+  // Only includes extensions that have a main-process.ts file
+  const mainProcessExtensions = extensions.filter(ext =>
+    fs.existsSync(path.join(SRC_DIR, ext.folder, 'main-process.ts'))
+  );
+
+  const mainPluginsCode = mainProcessExtensions.length > 0 ? `/**
+ * Auto-generated main-process plugin map
+ * DO NOT EDIT MANUALLY - run 'yarn generate-registry' to update
+ * Generated on: ${new Date().toISOString()}
+ */
+
+${mainProcessExtensions.map(ext => `import ${ext.folder.replace(/-/g, '_')}MainPlugin from './${ext.folder}/main-process';`).join('\n')}
+
+// Main-process plugin map (for Electron main process)
+export const coreMainProcessPlugins: Record<string, any> = {
+${mainProcessExtensions.map(ext => `  '${ext.manifest.id}': ${ext.folder.replace(/-/g, '_')}MainPlugin`).join(',\n')}
+};
+` : `/**
+ * Auto-generated main-process plugin map
+ * DO NOT EDIT MANUALLY - run 'yarn generate-registry' to update
+ * Generated on: ${new Date().toISOString()}
+ */
+
+// No extensions with main-process entry points found
+export const coreMainProcessPlugins: Record<string, any> = {};
+`;
+
+  return { registryCode, pluginsCode, mainPluginsCode };
 }
 
 // Main execution
 const extensions = findExtensionManifests(SRC_DIR);
 
-const { registryCode, pluginsCode } = generateRegistry(extensions);
+const { registryCode, pluginsCode, mainPluginsCode } = generateRegistry(extensions);
 
 // Write metadata-only registry (safe for Node.js/Electron main)
 fs.writeFileSync(OUTPUT_FILE, registryCode, 'utf8');
@@ -125,3 +154,7 @@ fs.writeFileSync(OUTPUT_FILE, registryCode, 'utf8');
 // Write plugins map (for browser/UI only)
 const PLUGINS_FILE = path.join(__dirname, '../src/plugins.ts');
 fs.writeFileSync(PLUGINS_FILE, pluginsCode, 'utf8');
+
+// Write main-process plugins map (for Electron main process)
+const MAIN_PLUGINS_FILE = path.join(__dirname, '../src/main-plugins.ts');
+fs.writeFileSync(MAIN_PLUGINS_FILE, mainPluginsCode, 'utf8');

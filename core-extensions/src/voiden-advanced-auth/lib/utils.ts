@@ -4,6 +4,55 @@
 
 import { Editor } from '@tiptap/core';
 import { AuthType } from '../nodes/AuthNode';
+import { DEFAULT_OAUTH2_CONFIG } from './oauth2/types';
+
+// Get OAuth2 table rows based on grant type
+export const getOAuth2TableRows = (grantType: string): string[][] => {
+  switch (grantType) {
+    case "authorization_code":
+      return [
+        ["auth_url", ""],
+        ["token_url", ""],
+        ["client_id", ""],
+        ["client_secret", ""],
+        ["scope", ""],
+        ["callback_url", "http://localhost:9090/callback"],
+        ["state", ""],
+      ];
+    case "implicit":
+      return [
+        ["auth_url", ""],
+        ["client_id", ""],
+        ["scope", ""],
+        ["callback_url", "http://localhost:9090/callback"],
+        ["state", ""],
+      ];
+    case "password":
+      return [
+        ["token_url", ""],
+        ["client_id", ""],
+        ["client_secret", ""],
+        ["username", ""],
+        ["password", ""],
+        ["scope", ""],
+      ];
+    case "client_credentials":
+      return [
+        ["token_url", ""],
+        ["client_id", ""],
+        ["client_secret", ""],
+        ["scope", ""],
+      ];
+    default:
+      return [
+        ["auth_url", ""],
+        ["token_url", ""],
+        ["client_id", ""],
+        ["client_secret", ""],
+        ["scope", ""],
+      ];
+  }
+};
 
 // Get default table rows for each auth type
 export const getAuthTableRows = (authType: AuthType): string[][] => {
@@ -29,11 +78,7 @@ export const getAuthTableRows = (authType: AuthType): string[][] => {
       ];
 
     case "oauth2":
-      return [
-        ["access_token", ""],
-        ["token_type", "Bearer"],
-        ["header_prefix", "Bearer"]
-      ];
+      return getOAuth2TableRows("authorization_code");
 
     case "oauth1":
       return [
@@ -110,10 +155,16 @@ export const insertAuthNode = (editor: Editor, authType: AuthType) => {
   } else {
     const rows = getAuthTableRows(authType);
 
+    // Build attrs — include oauth2Config for oauth2 type
+    const attrs: Record<string, unknown> = { authType };
+    if (authType === "oauth2") {
+      attrs.oauth2Config = JSON.stringify(DEFAULT_OAUTH2_CONFIG);
+    }
+
     // Insert auth node
     editor.chain().focus().deleteRange({ from, to }).insertContent({
       type: "auth",
-      attrs: { authType },
+      attrs,
       content: rows.length > 0 ? [{
         type: "table",
         content: rows.map(([key, value]) => ({
