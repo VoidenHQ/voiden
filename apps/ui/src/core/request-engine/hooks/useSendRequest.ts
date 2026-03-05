@@ -67,6 +67,7 @@ export const  useSendRestRequest = (editor: Editor) => {
         }
 
         queryClient.invalidateQueries({ queryKey: ["void-variable-keys"] });
+        queryClient.invalidateQueries({ queryKey: ["void-variable-data"] });
         return response;
       } catch (error) {
         const friendlyMessage = mapErrorToMessage(error);
