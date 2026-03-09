@@ -9,13 +9,15 @@
  */
 
 import { useEditor, EditorContent } from '@tiptap/react';
-import { useMemo, useEffect, useRef } from 'react';
+import { useMemo, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { voidenExtensions } from '@/core/editors/voiden/extensions';
 import { useEditorEnhancementStore } from '@/plugins';
 import { getSchema } from '@tiptap/core';
 import { parseMarkdown } from '@/core/editors/voiden/markdownConverter';
 import { proseClasses } from '@/core/editors/voiden/VoidenEditor';
 import UniqueID from '@/core/editors/voiden/extensions/uniqueId';
+import { ChevronsDownUp, ChevronsUpDown } from 'lucide-react';
+import { Tip } from '@/core/components/ui/Tip';
 import type { ResponseNodeType } from '../stores/responseStore';
 
 interface ResponseViewerProps {
@@ -26,6 +28,7 @@ interface ResponseViewerProps {
   onPanelScrollChange?: (scrollTop: number) => void;
   nodeScrollPositions?: Record<string, number>;
   onNodeScrollChange?: (nodeKey: string, scrollTop: number) => void;
+  isActive?: boolean;
 }
 
 export function ResponseViewer({
@@ -36,12 +39,32 @@ export function ResponseViewer({
   onPanelScrollChange,
   nodeScrollPositions = {},
   onNodeScrollChange,
+  isActive = true,
 }: ResponseViewerProps) {
+  const COLLAPSIBLE_RESPONSE_NODES = useMemo(
+    () =>
+      [
+        'response-body',
+        'response-headers',
+        'request-headers',
+        'request-headers-security',
+        'assertion-results',
+        'openapi-validation-results',
+        'script-assertion-results',
+      ] as const,
+    [],
+  );
+
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const panelScrollRafRef = useRef<number | null>(null);
+  const panelScrollTopRef = useRef(panelScrollTop);
+  const isProgrammaticPanelScrollRef = useRef(false);
+  const hasSeenNonZeroUserScrollRef = useRef(false);
   const nodeScrollRafByKeyRef = useRef<Record<string, number | null>>({});
   const nodeScrollPositionsRef = useRef<Record<string, number>>(nodeScrollPositions);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
+  panelScrollTopRef.current = panelScrollTop;
+  const [availableNodes, setAvailableNodes] = useState<string[]>([]);
 
   // Get plugin extensions
   const pluginExtensions = useEditorEnhancementStore((state) => state.voidenExtensions);
@@ -93,6 +116,86 @@ export function ResponseViewer({
     },
   }, [parsedContent, onActiveNodeChange]);
 
+  useEffect(() => {
+    if (!editor) return;
+
+    const readResponseDocState = () => {
+      const presentNodeSet = new Set<string>();
+      editor.state.doc.descendants((node: any) => {
+        if (COLLAPSIBLE_RESPONSE_NODES.includes(node.type.name)) {
+          presentNodeSet.add(node.type.name);
+        }
+        return true;
+      });
+
+      const presentNodes = COLLAPSIBLE_RESPONSE_NODES.filter((name) => presentNodeSet.has(name as string));
+      setAvailableNodes(presentNodes as string[]);
+    };
+
+    readResponseDocState();
+    editor.on('update', readResponseDocState);
+    editor.on('transaction', readResponseDocState);
+
+    return () => {
+      editor.off('update', readResponseDocState);
+      editor.off('transaction', readResponseDocState);
+    };
+  }, [editor, COLLAPSIBLE_RESPONSE_NODES]);
+
+  const handleExpandAllResponseNodes = () => {
+    if (!editor) return;
+
+    const { state } = editor;
+    let responseDocPos: number | null = null;
+    state.doc.descendants((node: any, pos: number) => {
+      if (node.type.name === 'response-doc') {
+        responseDocPos = pos;
+        return false;
+      }
+      return true;
+    });
+    if (responseDocPos === null) return;
+
+    const responseDocNode = state.doc.nodeAt(responseDocPos);
+    if (!responseDocNode) return;
+
+    const currentOpenNodes = Array.isArray(responseDocNode.attrs?.openNodes) ? responseDocNode.attrs.openNodes : [];
+    const nextOpenNodes = Array.from(new Set([...currentOpenNodes, ...COLLAPSIBLE_RESPONSE_NODES]));
+    const nextActiveNode = responseDocNode.attrs?.activeNode || availableNodes[0] || null;
+
+    const tr = state.tr.setNodeMarkup(responseDocPos, undefined, {
+      ...responseDocNode.attrs,
+      openNodes: nextOpenNodes,
+      activeNode: nextActiveNode,
+    });
+    editor.view.dispatch(tr);
+  };
+
+  const handleCollapseAllResponseNodes = () => {
+    if (!editor) return;
+
+    const { state } = editor;
+    let responseDocPos: number | null = null;
+    state.doc.descendants((node: any, pos: number) => {
+      if (node.type.name === 'response-doc') {
+        responseDocPos = pos;
+        return false;
+      }
+      return true;
+    });
+    if (responseDocPos === null) return;
+
+    const responseDocNode = state.doc.nodeAt(responseDocPos);
+    if (!responseDocNode) return;
+
+    const tr = state.tr.setNodeMarkup(responseDocPos, undefined, {
+      ...responseDocNode.attrs,
+      openNodes: [],
+      activeNode: null,
+    });
+    editor.view.dispatch(tr);
+  };
+
   // Apply preferredActiveNode via a transaction instead of through content re-init.
   // This restores the last-viewed response tab (body/headers/etc.) without triggering
   // editor recreation.
@@ -116,6 +219,7 @@ export function ResponseViewer({
 
   // Persist outer response panel scroll position.
   useEffect(() => {
+    if (!isActive) return;
     const el = scrollContainerRef.current;
     if (!el || !onPanelScrollChange) return;
 
@@ -124,7 +228,14 @@ export function ResponseViewer({
         cancelAnimationFrame(panelScrollRafRef.current);
       }
       panelScrollRafRef.current = requestAnimationFrame(() => {
-        onPanelScrollChange(el.scrollTop);
+        const next = el.scrollTop;
+        if (isProgrammaticPanelScrollRef.current) return;
+        if (next > 0) hasSeenNonZeroUserScrollRef.current = true;
+        // Ignore initial hidden/mount 0 scroll events when we already have
+        // persisted non-zero scroll for this tab.
+        if (!hasSeenNonZeroUserScrollRef.current && panelScrollTopRef.current > 0 && next === 0) return;
+        if (Math.abs(next - panelScrollTopRef.current) <= 1) return;
+        onPanelScrollChange(next);
       });
     };
 
@@ -136,7 +247,7 @@ export function ResponseViewer({
         panelScrollRafRef.current = null;
       }
     };
-  }, [onPanelScrollChange]);
+  }, [onPanelScrollChange, isActive]);
 
   // Keep a CSS var in sync with current response panel height so node editors can
   // use available vertical space instead of a fixed pixel cap.
@@ -163,13 +274,44 @@ export function ResponseViewer({
     nodeScrollPositionsRef.current = nodeScrollPositions;
   }, [nodeScrollPositions]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = scrollContainerRef.current;
     if (!el) return;
-    if (Math.abs(el.scrollTop - panelScrollTop) > 1) {
-      el.scrollTop = panelScrollTop;
+    const target = panelScrollTopRef.current;
+    if (Math.abs(el.scrollTop - target) > 1) {
+      el.scrollTop = target;
     }
-  }, [panelScrollTop, content]);
+  }, [content]);
+
+  // Re-apply panel scroll when this tab becomes visible again.
+  useLayoutEffect(() => {
+    if (!isActive) return;
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    hasSeenNonZeroUserScrollRef.current = false;
+
+    const restore = () => {
+      const target = panelScrollTopRef.current;
+      if (Math.abs(el.scrollTop - target) > 1) {
+        isProgrammaticPanelScrollRef.current = true;
+        el.scrollTop = target;
+        requestAnimationFrame(() => {
+          isProgrammaticPanelScrollRef.current = false;
+        });
+      }
+    };
+
+    const t1 = setTimeout(restore, 0);
+    const t2 = setTimeout(restore, 60);
+    const t3 = setTimeout(restore, 140);
+    restore();
+
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+    };
+  }, [isActive]);
 
   // Persist and restore inner node editor scroll positions.
   useEffect(() => {
@@ -313,6 +455,28 @@ export function ResponseViewer({
         }
       `}</style>
       <div className="response-viewer-content">
+        <div className="flex justify-end px-2 pt-2">
+          <div className="inline-flex items-center gap-1">
+            <Tip label="Expand all" side="top" align="end">
+              <button
+                type="button"
+                onClick={handleExpandAllResponseNodes}
+                className="rounded p-1 text-comment transition-colors hover:text-accent"
+              >
+                <ChevronsUpDown size={14} />
+              </button>
+            </Tip>
+            <Tip label="Collapse all" side="top" align="end">
+              <button
+                type="button"
+                onClick={handleCollapseAllResponseNodes}
+                className="rounded p-1 text-comment transition-colors hover:text-accent"
+              >
+                <ChevronsDownUp size={14} />
+              </button>
+            </Tip>
+          </div>
+        </div>
         <EditorContent editor={editor} />
       </div>
     </div>
