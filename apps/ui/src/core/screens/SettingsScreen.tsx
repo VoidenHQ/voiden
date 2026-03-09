@@ -14,7 +14,7 @@ const VALID_FONT_FAMILIES = [
 
 const FONT_SIZE_MIN = 10;
 const FONT_SIZE_MAX = 20;
-const AUTO_SAVE_DELAY_MIN = 2;
+const AUTO_SAVE_DELAY_MIN = 0;
 const AUTO_SAVE_DELAY_MAX = 300;
 
 type RowProps = {
@@ -781,6 +781,7 @@ export const SettingsScreen = () => {
                         save({ editor: { auto_save_delay: value } });
                       }}
                     >
+                      <option value={0}>Instant (every change)</option>
                       <option value={5}>5 seconds</option>
                       <option value={10}>10 seconds</option>
                       <option value={30}>30 seconds</option>
