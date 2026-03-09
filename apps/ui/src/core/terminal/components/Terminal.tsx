@@ -246,6 +246,7 @@ export const Terminal = ({ tabId, cwd }: TerminalProps) => {
     });
 
     xterm.attachCustomKeyEventHandler((e: KeyboardEvent) => {
+      if (e.type !== 'keydown') return true;
       if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
         handlePaste();
         return false; // Prevent default browser behavior
