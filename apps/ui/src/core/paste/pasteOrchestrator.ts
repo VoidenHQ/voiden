@@ -195,7 +195,7 @@ export class PasteOrchestrator {
         // Check if this is a singleton block that already exists
         const singletonBlocks = [
           // REST API blocks
-          'headers-table', 'request', 'json_body', 'xml_body', 'query-table', 'multipart-table', 'url-table', 'rest-file',
+          'headers-table', 'request', 'json_body', 'xml_body', 'query-table', 'multipart-table', 'url-table', 'cookies-table', 'rest-file',
           // WebSocket blocks
           'socket-request'
         ];

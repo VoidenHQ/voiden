@@ -17,6 +17,7 @@ export const REQUEST_NODES = [
   "query-table",
   "url-table",
   "multipart-table",
+  "cookies-table",
   "json_body",
   "xml_body",
   "yml_body",
@@ -129,6 +130,16 @@ export const convertToQueryTableNode = (data: TwoDimensionalArray) => {
 export const convertToMultipartTableNode = (data: TwoDimensionalArray) => {
   return {
     type: "multipart-table",
+    content: convertDataToTableNode(data),
+  };
+};
+
+/**
+ * Create cookies table node
+ */
+export const convertToCookiesTableNode = (data: TwoDimensionalArray) => {
+  return {
+    type: "cookies-table",
     content: convertDataToTableNode(data),
   };
 };

@@ -182,7 +182,7 @@ function insertParagraphNodes(view: EditorView, lines: string[]): void {
  */
 export const pasteCurl = (editor: Editor, request: ImportRequest) => {
   updateEditorContent(editor, (editorJsonContent) => {
-    const requestBlocks = ["headers-table", "query-table", "url-table", "multipart-table", "json_body", "xml_body", "yml_body"];
+    const requestBlocks = ["headers-table", "query-table", "url-table", "multipart-table", "cookies-table", "json_body", "xml_body", "yml_body"];
 
     // Step 1: Clean up existing request nodes
     // Remove orphaned method/url nodes and request blocks that should be nested

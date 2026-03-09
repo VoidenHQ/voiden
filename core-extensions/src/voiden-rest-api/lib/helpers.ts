@@ -14,6 +14,7 @@ import {
   convertToQueryTableNode,
   convertToMultipartTableNode,
   convertToUrlTableNode,
+  convertToCookiesTableNode,
   convertToJsonNode,
   convertToXMLNode,
   insertParagraphAfterRequestBlocks,
@@ -30,6 +31,7 @@ export interface VoidenRestApiHelpers {
   createQueryTableNode: (params: [string, string][]) => JSONContent;
   createMultipartTableNode: (formData: [string, string][]) => JSONContent;
   createUrlTableNode: (formData: [string, string][]) => JSONContent;
+  createCookiesTableNode: (cookies: [string, string][]) => JSONContent;
   createJsonBodyNode: (body: string, contentType: string) => JSONContent;
   createXMLBodyNode: (body: string, contentType: string) => JSONContent;
 
@@ -79,6 +81,13 @@ export function createMultipartTableNode(formData: [string, string][]): JSONCont
  */
 export function createUrlTableNode(formData: [string, string][]): JSONContent {
   return convertToUrlTableNode(formData);
+}
+
+/**
+ * Create cookies table node
+ */
+export function createCookiesTableNode(cookies: [string, string][]): JSONContent {
+  return convertToCookiesTableNode(cookies);
 }
 
 /**
@@ -244,6 +253,7 @@ export const helpers: VoidenRestApiHelpers = {
   createQueryTableNode,
   createMultipartTableNode,
   createUrlTableNode,
+  createCookiesTableNode,
   createJsonBodyNode,
   createXMLBodyNode,
   convertToVoidMarkdown,
