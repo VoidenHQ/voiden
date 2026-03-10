@@ -29,14 +29,15 @@ No accounts, no sync, no cloud required.
 
 ---
 
-### 📦 Download  
-**Version 1.1.0 is now available!**
+### 📦 Download
+**Version 1.3.0 is now available!**
 
-👉 **[Download Voiden ↗️](https://voiden.md/download)**  
+👉 **[Download Voiden ↗️](https://voiden.md/download)**
 
 The website will automatically detect your operating system and highlight the correct installer for you.
 (Windows, macOS Intel/Apple Silicon, and Linux).
 
+> 📋 Want to see what's new in this version? **[Check the changelog ↗️](https://voiden.md/changelog)**
 
 >🔧 Looking for the **beta** builds?  [Download beta versions ↗️](https://voiden.md/download#beta)
 
@@ -142,6 +143,6 @@ This project is licensed under the [Apache License 2.0](LICENSE).
 
 ## Links
 
-- [Changelog](changelog.md)
+- [Changelog](https://voiden.md/changelog)
 - [Documentation](docs/INDEX.md)
 - [Report an Issue](https://github.com/VoidenHQ/voiden/issues)
