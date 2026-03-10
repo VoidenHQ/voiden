@@ -1,6 +1,6 @@
 [
   {
-    "version": "v1.3.0",
+    "version": "v1.3.1",
     "date": "10/03/2026",
     "title": "Community Extensions, Cookie Parser & Auto-Save Improvements",
     "description": "Stable release introducing community plugin support with install-from-zip and registry browser, OAuth2 improvements, variable tooltip previews, a new Cookie parser table, configurable auto-save timeouts, and per-tab response panel state persistence.",
