@@ -120,7 +120,7 @@ const PreventTableGapClicks = Extension.create({
                 const before = $pos.nodeBefore;
                 const after = $pos.nodeAfter;
 
-                const tableTypes = ['headers-table', 'query-table', 'url-table', 'multipart-table', 'path-table'];
+                const tableTypes = ['headers-table', 'query-table', 'url-table', 'multipart-table', 'path-table', 'cookies-table'];
 
                 if ((before && tableTypes.includes(before.type.name)) ||
                     (after && tableTypes.includes(after.type.name))) {

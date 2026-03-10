@@ -6,7 +6,6 @@
 import * as React from "react";
 import { Node } from "@tiptap/core";
 import { ReactNodeViewRenderer } from "@tiptap/react";
-import { useParentResponseDoc } from "./ResponseDocNode";
 import { Copy } from "lucide-react";
 
 // --- INTERFACES ---
@@ -47,7 +46,7 @@ const renderTLSSection = (
   method: string,
   httpVersion: string | undefined,
   handleCopy: () => void,
-  activeNode: string | null,
+  openNodes: string[],
   editor: any
 
 ) => {
@@ -56,15 +55,11 @@ const renderTLSSection = (
   const isSecure = tls?.isSecure === true;
   const statusText = isSecure ? "Secure Connection (HTTPS)" : tls ? "Insecure Connection" : "HTTP Connection";
 
-  const isCollapsed = activeNode !== "request-headers-security";
+  const isCollapsed = !openNodes.includes("request-headers-security");
 
-  // Handle click - call the editor command to set active node
+  // Handle click - toggle this node open/closed
   const handleSetActive = () => {
-    if (isCollapsed) {
-      editor.commands.setActiveResponseNode("request-headers-security");
-    } else {
-      editor.commands.setActiveResponseNode("");
-    }
+    editor.commands.toggleResponseNode("request-headers-security");
   };
 
   // Build the summary text for CodeMirror
@@ -182,21 +177,17 @@ const renderTLSSection = (
 
 // --- FACTORY FUNCTION ---
 
-export const createRequestHeadersNode = (NodeViewWrapper: any, CodeEditor: any) => {
+export const createRequestHeadersNode = (NodeViewWrapper: any, CodeEditor: any, useParentResponseDoc: (editor: any, getPos: () => number) => { openNodes: string[]; parentPos: number | null }) => {
   const RequestHeadersComponent = ({ node ,getPos,editor}: any) => {
     // Destructure all required attributes
     const { headers, url, method, httpVersion, tls } = node.attrs as RequestHeadersAttrs;
-     // Read parent's activeNode state - automatically updates when parent changes
-    const { activeNode } = useParentResponseDoc(editor, getPos);
-    const isCollapsed = activeNode !== "request-headers";
+     // Read parent's openNodes state - automatically updates when parent changes
+    const { openNodes } = useParentResponseDoc(editor, getPos);
+    const isCollapsed = !openNodes.includes("request-headers");
 
-    // Handle click - call the editor command to set active node
+    // Handle click - toggle this node open/closed
     const handleSetActive = () => {
-      if (isCollapsed) {
-        editor.commands.setActiveResponseNode("request-headers");
-      } else {
-        editor.commands.setActiveResponseNode("");
-      }
+      editor.commands.toggleResponseNode("request-headers");
     };
 
     const headersText = (headers || []).map((header) => `${header.key}: ${header.value}`).join("\n");
@@ -238,7 +229,7 @@ export const createRequestHeadersNode = (NodeViewWrapper: any, CodeEditor: any) 
         `}</style>
 
           {/* Render summary section even without headers */}
-          {renderTLSSection(CodeEditor, tls, url, method, httpVersion, handleCopySummaryEmpty, activeNode, editor)}
+          {renderTLSSection(CodeEditor, tls, url, method, httpVersion, handleCopySummaryEmpty, openNodes, editor)}
 
           <div >
             <div className="bg-bg p-2 text-comment text-sm border-b border-border">No Request Headers Sent</div>
@@ -291,7 +282,7 @@ export const createRequestHeadersNode = (NodeViewWrapper: any, CodeEditor: any) 
         `}</style>
 
         {/* 1. RENDER REQUEST SUMMARY / SECURITY SECTION */}
-        {renderTLSSection(CodeEditor, tls, url, method, httpVersion, handleCopySummary, activeNode, editor)}
+        {renderTLSSection(CodeEditor, tls, url, method, httpVersion, handleCopySummary, openNodes, editor)}
 
         {/* 2. RENDER REQUEST HEADERS COLLAPSIBLE BLOCK (Copied structure) */}
         <div className="my-2">

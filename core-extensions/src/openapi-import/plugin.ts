@@ -56,8 +56,9 @@ const openapiImportPlugin = (context: ExtendedPluginContextExplicit) => {
       const { createOpenApiSpecLink } = await import('./nodes/OpenApiSpecLink');
       const { createOpenApiValidationResultsNode } = await import('./nodes/OpenApiResult');
       const { NodeViewWrapper } = context.ui.components;
+      const { useParentResponseDoc } = context.ui.hooks;
       const OpenAPISpec = createOpenApiSpecLink(context);
-      const OpenAPIResult = createOpenApiValidationResultsNode(NodeViewWrapper);
+      const OpenAPIResult = createOpenApiValidationResultsNode(NodeViewWrapper, useParentResponseDoc);
       // Provide the helper your panel optionally calls in its event handler
       (window as any).__voidenOpenOpenAPIPreview__ = () => overlay?.open();
       context.registerVoidenExtension(OpenAPISpec);

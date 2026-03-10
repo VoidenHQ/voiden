@@ -184,6 +184,51 @@ avatar: @/path/to/image.jpg`}
   </div>
 );
 
+export const HttpCookiesHelp = () => (
+  <div className="space-y-4">
+    <section>
+      <h3 className="font-semibold mb-2 text-text">HTTP Cookies</h3>
+      <p className="text-sm text-comment mb-3">
+        Cookies are key-value pairs sent to the server via the Cookie header.
+        This block provides a convenient table interface for managing individual cookies
+        instead of manually constructing the Cookie header string.
+      </p>
+    </section>
+
+    <section>
+      <h4 className="font-semibold mb-2 text-text">How Cookies Work</h4>
+      <p className="text-sm text-comment mb-2">
+        Each row in the table becomes a cookie in the Cookie header:
+      </p>
+      <pre className="bg-accent/10 p-2 rounded text-xs overflow-x-auto text-text mb-2">
+{`Cookie: session_id=abc123; theme=dark; lang=en`}
+      </pre>
+      <p className="text-sm text-comment">
+        Multiple cookies are joined with semicolons and sent as a single Cookie header.
+      </p>
+    </section>
+
+    <section>
+      <h4 className="font-semibold mb-2 text-text">How to Use</h4>
+      <ol className="list-decimal list-inside space-y-1 text-sm text-comment">
+        <li>Add cookie names in the Key column</li>
+        <li>Add cookie values in the Value column</li>
+        <li>Cookies are automatically combined into the Cookie header</li>
+        <li>Use variables with <code className="bg-accent/10 px-1 rounded text-text">{`{{variable_name}}`}</code> syntax</li>
+      </ol>
+    </section>
+
+    <section>
+      <h4 className="font-semibold mb-2 text-text">Example</h4>
+      <pre className="bg-accent/10 p-2 rounded text-xs overflow-x-auto text-text">
+{`session_id: abc123
+theme: dark
+lang: en`}
+      </pre>
+    </section>
+  </div>
+);
+
 export const HttpPathParamsHelp = () => (
   <div className="space-y-4">
     <section>

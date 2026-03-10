@@ -17,6 +17,7 @@ const handleTableDelete = (editor: Editor) => {
         node.type.name === "query-table" ||
         node.type.name === "url-table" ||
         node.type.name === "path-table" ||
+        node.type.name === "cookies-table" ||
         node.type.name === "assertions-table"
       );
     });
@@ -59,6 +60,7 @@ const handleTableDelete = (editor: Editor) => {
       node.type.name === "multipart-table" ||
       node.type.name === "query-table" ||
       node.type.name === "url-table" ||
+      node.type.name === "cookies-table" ||
       node.type.name === "assertions-table"
     );
   });

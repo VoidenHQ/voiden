@@ -3,7 +3,7 @@ import ReactMarkdown from "react-markdown";
 import { proseClasses } from "@/core/editors/voiden/VoidenEditor";
 import { GitBranch, Loader2, Shield, BadgeCheck, Users } from "lucide-react";
 import { openExternalLink } from "@/core/lib/utils";
-import { useInstallExtension, useUninstallExtension, useSetExtensionEnabled, useUpdateExtension } from "@/core/extensions/hooks";
+import { useInstallExtension, useUninstallExtension, useSetExtensionEnabled, useUpdateExtension, useGetExtensions } from "@/core/extensions/hooks";
 import { usePluginStore } from "@/plugins";
 
 interface CustomLinkProps {
@@ -23,8 +23,11 @@ export const CustomLink = ({ href, children }: CustomLinkProps) => {
   );
 };
 
-export const ExtensionDetails = ({ extensionData, content }: { extensionData: any; content: string }) => {
-  // console.debug(extensionData);
+export const ExtensionDetails = ({ extensionData: initialExtensionData, content }: { extensionData: any; content: string }) => {
+  const { data: allExtensions } = useGetExtensions();
+  // Use live data from the query if available, fall back to the initial prop
+  const extensionData = allExtensions?.find((e: any) => e.id === initialExtensionData?.id) ?? initialExtensionData;
+
   // Mutation hooks for community extensions (only applicable if extensionData.type === "community")
   const installMutation = useInstallExtension();
   const uninstallMutation = useUninstallExtension();

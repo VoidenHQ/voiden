@@ -27,8 +27,8 @@ import { globalSaveFile } from "@/core/file-system/hooks";
 import { useFocusStore } from "@/core/stores/focusStore";
 import { useSearchStore } from "@/core/stores/searchParamsStore";
 import { useEditorEnhancementStore } from "@/plugins";
-import { useEnvironmentKeys } from "@/core/environment/hooks/useEnvironmentKeys.ts";
-import { useVoidVariables } from "@/core/runtimeVariables/hook/useVariableCapture.tsx";
+import { useEnvironments } from "@/core/environment/hooks";
+import { useVoidVariableData } from "@/core/runtimeVariables/hook/useVariableCapture.tsx";
 
 interface SearchQuerySpec {
   term: string;
@@ -165,8 +165,9 @@ export const CodeEditor = ({
   const isParentEditable = tiptapProps?.editor?.isEditable ?? true;
   const effectiveReadOnly = readOnly || !isParentEditable;
   const editorRef = useRef<EditorView | null>(null);
-  const { data: envKeys } = useEnvironmentKeys();
-  const { data: processVariablesKey = [] } = useVoidVariables();
+  const { data: envData } = useEnvironments();
+  const { data: processData = {} } = useVoidVariableData();
+  const activeEnvData = (envData?.activeEnv && envData?.data[envData.activeEnv]) ? envData.data[envData.activeEnv] : {};
 
   // Track if this is the initial mount to prevent onChange during initialization
   const isInitialMount = useRef(true);
@@ -322,7 +323,7 @@ export const CodeEditor = ({
       },
     }),
     renderLang(lang),
-    createHighlightPlugin(envKeys, processVariablesKey),
+    createHighlightPlugin(activeEnvData, processData),
     // Indentation support
     indentOnInput(),
     indentUnit.of("  "),

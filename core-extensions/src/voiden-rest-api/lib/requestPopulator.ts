@@ -41,7 +41,7 @@ type AuthConfig = {
  */
 function extractTableData(
   editor: JSONContent,
-  type: "headers-table" | "query-table" | "url-table" | "multipart-table" | "path-table"
+  type: "headers-table" | "query-table" | "url-table" | "multipart-table" | "path-table" | "cookies-table"
 ): KeyValueType[] {
   const allKeyValues: KeyValueType[] = [];
 
@@ -245,6 +245,28 @@ export function getRequestFromEditor(editor: Editor) {
   const headers = extractTableData(json, 'headers-table');
   const queryParams = extractTableData(json, 'query-table');
   const pathParams = extractTableData(json, 'path-table');
+
+  // Extract cookies and merge into headers as a Cookie header
+  const cookies = extractTableData(json, 'cookies-table');
+  if (cookies.length > 0) {
+    const cookieString = cookies
+      .filter((c) => c.enabled)
+      .map((c) => `${c.key}=${c.value}`)
+      .join("; ");
+    if (cookieString) {
+      const existingCookieIdx = headers.findIndex(
+        (h) => h.key.toLowerCase() === "cookie"
+      );
+      if (existingCookieIdx !== -1) {
+        headers[existingCookieIdx] = {
+          ...headers[existingCookieIdx],
+          value: headers[existingCookieIdx].value + "; " + cookieString,
+        };
+      } else {
+        headers.push({ key: "Cookie", value: cookieString, enabled: true });
+      }
+    }
+  }
 
   // Extract auth configuration
   const authConfig = extractAuthConfig(json);

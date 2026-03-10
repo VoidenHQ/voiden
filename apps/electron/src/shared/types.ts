@@ -51,6 +51,7 @@ export interface ExtensionData {
   capabilities?: any; // capabilities from manifest
   features?: string[]; // features from manifest
   dependencies?: any; // dependencies from manifest
+  mainProcess?: boolean; // whether this extension has a main-process entry point
 }
 
 // SIDEBAR PANELS LOGIC

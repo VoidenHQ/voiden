@@ -1,5 +1,27 @@
 # Changelog
 
+<<<<<<< HEAD
+## v1.3.0-beta.1 — 05/03/2026
+
+Beta release introducing community plugin support with install-from-zip and registry browser, OAuth2 authorization code flow improvements, tooltip previews for environment and runtime variables, and terminal reliability fixes.
+
+### Added
+- Community extension support — install third-party plugins from a zip file or directly from the extension registry
+- Extension browser with community, verified, and core extension categories
+- Tooltip preview for environment and runtime variables — hover over any `{{variable}}` to see its resolved value inline
+- OAuth2 Authorization Code flow improvements — fixed duplicate code exchange that caused `invalid_grant` errors on some providers
+- OAuth2 detailed error logging for easier debugging of token exchange failures
+
+### Fixed
+- Terminal double paste — characters were being sent twice in some terminal sessions
+- OAuth2 `invalid_grant` error caused by the browser sending duplicate requests to the loopback callback server
+- Extension detail page not updating after disabling or uninstalling a plugin
+- Community plugin install errors being silently swallowed with no user feedback
+
+---
+
+=======
+>>>>>>> origin/main
 ## v1.2.0-beta.1 — 24/02/2026
 
 Beta release introducing pre/post request scripting, YAML environment configuration, improved file explorer navigation, drag-and-drop file management, YAML content-type support, and response preview improvements.

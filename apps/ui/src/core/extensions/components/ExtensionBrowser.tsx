@@ -1,7 +1,9 @@
-import { Search, Settings, Loader2, Shield, BadgeCheck, Users } from "lucide-react";
+import { Search, Settings, Loader2, Shield, BadgeCheck, Users, Upload } from "lucide-react";
+import { useEffect } from "react";
 import {
   useGetExtensions,
   useInstallExtension,
+  useInstallExtensionFromZip,
   useUninstallExtension,
   useSetExtensionEnabled,
   useOpenExtensionDetails,
@@ -11,6 +13,7 @@ import type { Extension } from "@/types";
 import { cn } from "@/core/lib/utils";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { usePluginStore } from "@/plugins";
+import { toast } from "@/core/components/ui/sonner";
 
 const ExtensionItem = ({ extension }: { extension: Extension }) => {
   const installMutation = useInstallExtension();
@@ -180,16 +183,16 @@ const ExtensionItem = ({ extension }: { extension: Extension }) => {
       </div>
 
       {/* Actions - positioned absolutely to avoid overlap */}
-      <div className="absolute top-2 right-2 flex items-center gap-1.5">
-        {error ? (
-          <div className="flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-red-500/10 border border-red-500/30 text-red-400">
+      <div className="absolute top-2 right-2 flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+        {error && (
+          <button
+            onClick={(e) => { e.stopPropagation(); toast.error(error.error); }}
+            className="flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 transition-colors"
+          >
             Error
-          </div>
-        ) : (
-          <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-            {renderActions()}
-          </div>
+          </button>
         )}
+        {renderActions()}
       </div>
 
       {/* Status indicator */}
@@ -204,6 +207,13 @@ const ExtensionItem = ({ extension }: { extension: Extension }) => {
 
 export const ExtensionBrowser = () => {
   const { data: extensions, isLoading } = useGetExtensions();
+  const installFromZip = useInstallExtensionFromZip();
+
+  useEffect(() => {
+    if (installFromZip.isError) {
+      toast.error((installFromZip.error as Error)?.message || "Failed to install extension");
+    }
+  }, [installFromZip.isError, installFromZip.error]);
 
   if (isLoading) return <div>Loading...</div>;
 
@@ -220,6 +230,21 @@ export const ExtensionBrowser = () => {
           type="text"
         />
       </div> */}
+
+      <div className="px-2 pt-2">
+        <button
+          onClick={() => installFromZip.mutate()}
+          disabled={installFromZip.isPending}
+          className="w-full flex items-center justify-center gap-2 px-3 py-1.5 text-xs text-comment hover:text-text bg-editor hover:bg-active border border-border rounded-md transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {installFromZip.isPending ? (
+            <Loader2 size={14} className="animate-spin" />
+          ) : (
+            <Upload size={14} />
+          )}
+          {installFromZip.isPending ? "Installing..." : "Install from file"}
+        </button>
+      </div>
 
       <div className=" border-border flex-1 flex flex-col mb-1.5 overflow-y-scroll" >
         <div className="bg-bg h-full  border-border  mb-2">

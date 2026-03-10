@@ -11,6 +11,11 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
+    "./main": {
+      "types": "./dist/main.d.ts",
+      "import": "./dist/main.js",
+      "default": "./dist/main.js"
+    },
     "./markdown": {
       "types": "./dist/markdown/index.d.ts",
       "import": "./dist/markdown/index.js",
@@ -47,7 +52,7 @@
   },
   "dependencies": {
     "@faker-js/faker": "^9.0.3",
-    "@voiden/sdk": "^1.0.4",
+    "@voiden/sdk": "^1.0.8",
     "js-yaml": "^4.1.0",
     "lodash": "^4.17.21",
     "shell-quote": "^1.8.1"
@@ -77,7 +82,8 @@
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "sass": "^1.89.2",
-    "typescript": "^5.0.0"
+    "typescript": "^5.0.0",
+    "undici": "^7.22.0"
   },
   "keywords": [
     "voiden",

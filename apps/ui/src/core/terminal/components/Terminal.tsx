@@ -158,12 +158,12 @@ export const Terminal = ({ tabId, cwd }: TerminalProps) => {
         }
       };
 
-      const observer = new MutationObserver(()=>{
+      const observer = new MutationObserver(() => {
         updateTheme();
       });
-      observer.observe(document.documentElement,{
-        attributes:true,
-        attributeFilter:['class','style']
+      observer.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ['class', 'style']
       })
       // Use requestIdleCallback if available to update theme during idle time
       if ('requestIdleCallback' in window) {
@@ -234,7 +234,19 @@ export const Terminal = ({ tabId, cwd }: TerminalProps) => {
     xterm.loadAddon(fitAddon);
     xterm.open(terminalRef.current);
     xterm.focus();
+
+   
+    const pasteEventHandler = (e: ClipboardEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    xterm.element?.addEventListener('paste', pasteEventHandler, true);
+    cleanupFunctionsRef.current.push(() => {
+      xterm.element?.removeEventListener('paste', pasteEventHandler, true);
+    });
+
     xterm.attachCustomKeyEventHandler((e: KeyboardEvent) => {
+      if (e.type !== 'keydown') return true;
       if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
         handlePaste();
         return false; // Prevent default browser behavior
@@ -448,7 +460,7 @@ export const Terminal = ({ tabId, cwd }: TerminalProps) => {
       x = viewportWidth - menuWidth - 5;
     }
     if (y + menuHeight > viewportHeight) {
-      y = viewportHeight - menuHeight - 5; 
+      y = viewportHeight - menuHeight - 5;
     }
     if (x < 10) {
       x = 10;

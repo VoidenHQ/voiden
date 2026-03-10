@@ -69,7 +69,8 @@ export default function createVoidenScriptingPlugin(context: any) {
 
       // 2a. Register script assertion results node for response panel
       const { createScriptAssertionResultsNode } = await import('./nodes/ScriptAssertionResultsNode');
-      const ScriptAssertionResultsNode = createScriptAssertionResultsNode(NodeViewWrapper);
+      const { useParentResponseDoc } = context.ui.hooks;
+      const ScriptAssertionResultsNode = createScriptAssertionResultsNode(NodeViewWrapper, useParentResponseDoc);
       context.registerVoidenExtension(ScriptAssertionResultsNode);
 
       // 2b. Register CodeMirror autocompletion for voiden.* API

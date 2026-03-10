@@ -149,13 +149,14 @@ const voidenRestApiPlugin = (context: PluginContext) => {
         createQueryTableNodeView,
         createPathParamsTableNodeView,
         createURLTableNodeView,
-        createMultipartTableNodeView
+        createMultipartTableNodeView,
+        createCookiesTableNodeView
       } = await import('./nodes/index');
       const { createRestFileNode } = await import('./nodes/RestFile');
 
       // Create nodes with context components and hooks
       const { NodeViewWrapper, CodeEditor, RequestBlockHeader } = context.ui.components;
-      const { useSendRestRequest } = context.ui.hooks;
+      const { useSendRestRequest, useParentResponseDoc } = context.ui.hooks;
 
       const JsonNode = createJsonNode(NodeViewWrapper, CodeEditor, RequestBlockHeader, context.project.openFile);
       const XMLNode = createXMLNode(NodeViewWrapper, CodeEditor, RequestBlockHeader, context.project.openFile);
@@ -169,6 +170,7 @@ const voidenRestApiPlugin = (context: PluginContext) => {
       const PathParamsTableNodeView = createPathParamsTableNodeView(RequestBlockHeader, context.project.openFile);
       const URLTableNodeView = createURLTableNodeView(RequestBlockHeader, context.project.openFile);
       const MultipartTableNodeView = createMultipartTableNodeView(RequestBlockHeader, context.project.openFile);
+      const CookiesTableNodeView = createCookiesTableNodeView(RequestBlockHeader, context.project.openFile);
 
       // Register Tiptap nodes for HTTP requests
       context.registerVoidenExtension(RequestNode);
@@ -179,6 +181,7 @@ const voidenRestApiPlugin = (context: PluginContext) => {
       context.registerVoidenExtension(PathParamsTableNodeView);
       context.registerVoidenExtension(URLTableNodeView);
       context.registerVoidenExtension(MultipartTableNodeView);
+      context.registerVoidenExtension(CookiesTableNodeView);
       context.registerVoidenExtension(JsonNode);
       context.registerVoidenExtension(XMLNode);
       context.registerVoidenExtension(YmlNode);
@@ -187,9 +190,9 @@ const voidenRestApiPlugin = (context: PluginContext) => {
       // Create and register response nodes using local implementations with context components
 
       const ResponseStatusNode = createResponseStatusNode(NodeViewWrapper);
-      const ResponseHeadersNode = createResponseHeadersNode(NodeViewWrapper, CodeEditor);
-      const RequestHeadersNode = createRequestHeadersNode(NodeViewWrapper, CodeEditor);
-      const ResponseBodyNode = createResponseBodyNode(NodeViewWrapper, CodeEditor);
+      const ResponseHeadersNode = createResponseHeadersNode(NodeViewWrapper, CodeEditor, useParentResponseDoc);
+      const RequestHeadersNode = createRequestHeadersNode(NodeViewWrapper, CodeEditor, useParentResponseDoc);
+      const ResponseBodyNode = createResponseBodyNode(NodeViewWrapper, CodeEditor, useParentResponseDoc);
       const ResponseDocNode = createResponseDocNode(NodeViewWrapper);
       context.registerVoidenExtension(ResponseStatusNode);
       context.registerVoidenExtension(ResponseHeadersNode);
@@ -211,6 +214,7 @@ const voidenRestApiPlugin = (context: PluginContext) => {
         'path-table',
         'url-table',
         'multipart-table',
+        'cookies-table',
         'json_body',
         'xml_body',
         'yml_body',
@@ -231,6 +235,7 @@ const voidenRestApiPlugin = (context: PluginContext) => {
         'rest-body': 'Body',
         'query-table': 'Query Params',
         'rest-query': 'Query Params',
+        'cookies-table': 'Cookies',
         'path-table': 'Path Params',
         'rest-params': 'Path Params',
         'rest-file': 'File Upload',
@@ -479,7 +484,7 @@ const voidenRestApiPlugin = (context: PluginContext) => {
 
               // Populate editor with cURL request
               updateEditorContent(editor, (editorJsonContent) => {
-                const requestBlocks = ["headers-table", "query-table", "url-table", "multipart-table", "json_body", "xml_body", "yml_body"];
+                const requestBlocks = ["headers-table", "query-table", "url-table", "multipart-table", "cookies-table", "json_body", "xml_body", "yml_body"];
 
                 // Step 1: Clean up existing request nodes
                 editorJsonContent = editorJsonContent.filter((node: any) => {

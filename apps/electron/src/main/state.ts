@@ -2,7 +2,7 @@ import fs from "fs/promises";
 import { AppSettings, AppState, ExtensionData, PanelElement, SidebarTab } from "src/shared/types";
 import { Tab } from "src/shared/types";
 import { ExtensionManager } from "./extension/extensionManager";
-import { fetchReadme, getRemoteExtensions } from "./extension/extensionFetcher";
+import { getRemoteExtensions } from "./extension/extensionFetcher";
 import { BrowserWindow, dialog, ipcMain, IpcMainInvokeEvent } from "electron";
 import { loadState, saveState, loadSettings, getDefaultLayout, saveAutosaveFile, loadAutosaveFile, deleteAutosaveFile, cleanupAutosaveFiles } from "./persistState";
 import { renameFileOrDirectory, findVoidenProjects } from "./fileSystem";
@@ -170,6 +170,20 @@ export function findTabInPanel(layout: PanelElement, panelId: string, newTab: Ta
   }
   for (const child of layout.children) {
     const result = findTabInPanel(child, panelId, newTab);
+    if (result) return result;
+  }
+  return null;
+}
+
+export function findCustomTabInPanel(layout: PanelElement, panelId: string, customTabKey: string): Tab | null {
+  if (layout.type === "panel") {
+    if (layout.id === panelId) {
+      return layout.tabs.find((tab) => tab.type === "custom" && tab.meta?.customTabKey === customTabKey) || null;
+    }
+    return null;
+  }
+  for (const child of layout.children) {
+    const result = findCustomTabInPanel(child, panelId, customTabKey);
     if (result) return result;
   }
   return null;
@@ -584,19 +598,8 @@ export const ipcStateHandlers = () => {
           throw new Error(`Extension with id ${tab.meta.extensionId} not found`);
         }
 
-        let content = "";
-        if (extension.repo) {
-          // Construct URL using extension.repo, e.g. "edymusajev/catalog"
-          const url = `https://raw.githubusercontent.com/${extension.repo}/refs/heads/main/README.md`;
-          try {
-            content = await fetchReadme(url);
-          } catch (error) {
-            content = `Error fetching README: ${error}`;
-          }
-        } else {
-          // For core extensions, fall back to using their built-in readme if available.
-          content = extension.type === "core" && extension.readme ? extension.readme : "";
-        }
+        // Use the readme field from the manifest (shipped with the release)
+        const content = extension.readme || "";
 
         return {
           type: "extensionDetails",
@@ -655,6 +658,15 @@ export const ipcStateHandlers = () => {
     ) => {
       const appState = getAppState();
       const layout = appState.activeDirectory ? appState.directories[appState.activeDirectory]?.layout : appState.unsaved.layout;
+
+      // Dedup: if a custom tab with the same customTabKey already exists, just activate it
+      const existing = findCustomTabInPanel(layout, tabId, tab.id);
+      if (existing) {
+        activateTabInLayout(layout, tabId, existing.id);
+        await saveState(appState);
+        return { panelId: tabId, tabId: existing.id, alreadyExists: true };
+      }
+
       const newPanel: Tab = {
         id: crypto.randomUUID(),
         type: "custom",
@@ -668,6 +680,7 @@ export const ipcStateHandlers = () => {
       };
       addTabToPanel(layout, tabId, newPanel);
       activateTabInLayout(layout, tabId, newPanel.id);
+      await saveState(appState);
       return { panelId: tabId, tabId: newPanel.id };
     },
   );
@@ -829,6 +842,21 @@ export const ipcStateHandlers = () => {
     await extensionManager.installCommunityExtension(extension);
     await saveState(appState);
     return { success: true };
+  });
+
+  ipcMain.handle("extensions:installFromZip", async () => {
+    const focusedWindow = BrowserWindow.getFocusedWindow();
+    const result = await dialog.showOpenDialog(focusedWindow!, {
+      title: "Install Extension from Zip",
+      filters: [{ name: "Zip Archives", extensions: ["zip"] }],
+      properties: ["openFile"],
+    });
+    if (result.canceled || result.filePaths.length === 0) {
+      return { success: false, canceled: true };
+    }
+    const ext = await extensionManager.installFromZip(result.filePaths[0]);
+    await saveState(appState);
+    return { success: true, extension: ext };
   });
 
   ipcMain.handle("extensions:uninstall", async (_, extensionId: string) => {

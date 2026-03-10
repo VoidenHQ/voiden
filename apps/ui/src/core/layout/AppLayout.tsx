@@ -10,13 +10,16 @@ import { StatusBar } from "./components/StatusBar";
 import OnboardingModal from "@/core/screens/OnboardingModal";
 import AboutModal from "@/core/screens/AboutModal";
 import { useGetAppState } from "@/core/state/hooks";
-import { globalSaveFile } from "@/core/file-system/hooks";
+import { saveTabById } from "@/core/file-system/hooks";
 import { getQueryClient } from "@/main";
 import { useEditorStore } from "@/core/editors/voiden/VoidenEditor";
 import type { Tab } from "../../../../electron/src/shared/types";
 import { MainEditor } from "./components/MainEditor";
 import { useElectronEvent } from "@/core/providers/ElectronEventProvider";
 import { useGetPanelTabs, useAddPanelTab, useActivateTab } from "./hooks";
+import { setEnvJumpTarget } from "@/core/environment/components/EnvironmentEditor";
+import { useEnvironments } from "@/core/environment/hooks";
+import { mountVariableValueTooltip, unmountVariableValueTooltip } from "@/core/editors/variableValueTooltip";
 import { usePanelStore } from "@/core/stores/panelStore";
 import { useResponseStore } from "@/core/request-engine/stores/responseStore";
 
@@ -34,6 +37,7 @@ export const AppLayout = () => {
   const { mutate: addPanelTab } = useAddPanelTab();
   const { mutate: activateTab } = useActivateTab();
   const { data: panelTabs } = useGetPanelTabs("main");
+  const { data: envData } = useEnvironments();
 
   // Apply per-tab right-panel open/close state AFTER the panel:tabs query has
   // settled. Running here (rather than in useActivateTab.onSuccess) ensures the
@@ -111,51 +115,138 @@ export const AppLayout = () => {
   // Auto-save functionality
   useEffect(() => {
     const on = settings?.editor?.auto_save;
-    const delay = (settings?.editor?.auto_save_delay ?? 5) * 1000;
+    const delaySeconds = settings?.editor?.auto_save_delay ?? 5;
+    const delayMs = delaySeconds * 1000;
+    const isInstantAutoSave = delaySeconds === 0;
+    const backgroundBatchDelayMs = 1500;
 
     if (!on) return;
 
-    let autoSaveTimeout: NodeJS.Timeout | null = null;
+    let backgroundSaveTimeout: NodeJS.Timeout | null = null;
+    const perTabTimeouts = new Map<string, NodeJS.Timeout>();
+    let isAutoSaving = false;
+    let hasQueuedRun = false;
+    const queuedTabIds = new Set<string>();
+    let prevUnsaved = useEditorStore.getState().unsaved;
 
-    const scheduleAutoSave = () => {
-      // Clear existing timeout
-      if (autoSaveTimeout) {
-        clearTimeout(autoSaveTimeout);
+    const runAutoSave = async (tabIds?: string[]) => {
+      if (tabIds && tabIds.length > 0) {
+        tabIds.forEach((id) => queuedTabIds.add(id));
       }
 
-      // Set new timeout
-      autoSaveTimeout = setTimeout(() => {
-        // Check if there are any unsaved changes before triggering auto-save
-        const unsavedChanges = useEditorStore.getState().unsaved;
-        const hasUnsavedChanges = Object.keys(unsavedChanges).length > 0;
+      if (isAutoSaving) {
+        hasQueuedRun = true;
+        return;
+      }
 
-        if (hasUnsavedChanges) {
-          // Get the active tab to check if it's persisted on filesystem
-          const queryClient = getQueryClient();
-          const panelTabs = queryClient.getQueryData(["panel:tabs", "main"]) as { tabs: Tab[]; activeTabId: string } | undefined;
-          const activeTabId = panelTabs?.activeTabId;
-          const activeTab = panelTabs?.tabs?.find((tab: Tab) => tab.id === activeTabId);
+      isAutoSaving = true;
+      try {
+        while (true) {
+          hasQueuedRun = false;
+          const unsavedNow = useEditorStore.getState().unsaved;
+          const unsavedSet = new Set(Object.keys(unsavedNow));
+          const candidateTabIds = queuedTabIds.size > 0 ? [...queuedTabIds] : [...unsavedSet];
 
-          // Only auto-save if the active tab has a source (is persisted on filesystem)
-          if (activeTab && activeTab.source) {
-            globalSaveFile();
+          // Clear queue now; new incoming changes during save will re-queue.
+          queuedTabIds.clear();
+
+          const tabIdsToSave = candidateTabIds.filter((id) => unsavedSet.has(id));
+          if (tabIdsToSave.length > 0) {
+            // saveTabById skips tabs that are not persisted on filesystem.
+            for (const tabId of tabIdsToSave) {
+              await saveTabById(tabId, { silent: true });
+            }
           }
+
+          if (!hasQueuedRun && queuedTabIds.size === 0) break;
         }
-      }, delay);
+      } finally {
+        isAutoSaving = false;
+      }
+    };
+
+    const scheduleAutoSave = () => {
+      if (isInstantAutoSave) {
+        // Save active tab immediately on each edit burst.
+        const queryClient = getQueryClient();
+        const panelTabs = queryClient.getQueryData(["panel:tabs", "main"]) as { tabs: Tab[]; activeTabId: string } | undefined;
+        const activeTabId = panelTabs?.activeTabId;
+        const unsavedNow = useEditorStore.getState().unsaved;
+        if (activeTabId && unsavedNow[activeTabId]) {
+          void runAutoSave([activeTabId]);
+        }
+
+        // Batch-save all other dirty tabs shortly after.
+        if (backgroundSaveTimeout) clearTimeout(backgroundSaveTimeout);
+        backgroundSaveTimeout = setTimeout(() => {
+          const latestUnsaved = useEditorStore.getState().unsaved;
+          const latestPanelTabs = queryClient.getQueryData(["panel:tabs", "main"]) as { tabs: Tab[]; activeTabId: string } | undefined;
+          const latestActiveTabId = latestPanelTabs?.activeTabId;
+          const backgroundTabIds = Object.keys(latestUnsaved).filter((id) => id !== latestActiveTabId);
+          if (backgroundTabIds.length > 0) {
+            void runAutoSave(backgroundTabIds);
+          }
+        }, backgroundBatchDelayMs);
+        return;
+      }
+    };
+
+    const schedulePerTabAutoSave = (tabId: string) => {
+      const existing = perTabTimeouts.get(tabId);
+      if (existing) clearTimeout(existing);
+      const timeout = setTimeout(() => {
+        perTabTimeouts.delete(tabId);
+        void runAutoSave([tabId]);
+      }, delayMs);
+      perTabTimeouts.set(tabId, timeout);
     };
 
     // Listen for changes in the editor store
     const unsubscribe = useEditorStore.subscribe((state) => {
-      const hasUnsavedChanges = Object.keys(state.unsaved).length > 0;
+      const unsaved = state.unsaved;
+      const unsavedTabIds = Object.keys(unsaved);
+      const hasUnsavedChanges = unsavedTabIds.length > 0;
       if (hasUnsavedChanges) {
-        scheduleAutoSave();
+        if (isInstantAutoSave) {
+          scheduleAutoSave();
+        } else {
+          // VS Code-style behavior: each tab gets its own autosave timer.
+          const changedTabIds = unsavedTabIds.filter((tabId) => prevUnsaved[tabId] !== unsaved[tabId]);
+          changedTabIds.forEach((tabId) => schedulePerTabAutoSave(tabId));
+        }
       }
+
+      // Clear stale timers for tabs that are no longer unsaved.
+      const unsavedSet = new Set(unsavedTabIds);
+      for (const [tabId, timeout] of perTabTimeouts.entries()) {
+        if (!unsavedSet.has(tabId)) {
+          clearTimeout(timeout);
+          perTabTimeouts.delete(tabId);
+        }
+      }
+
+      prevUnsaved = unsaved;
     });
 
-    return () => {
-      if (autoSaveTimeout) {
-        clearTimeout(autoSaveTimeout);
+    // If unsaved changes already exist, schedule saves immediately with current mode.
+    const initialUnsaved = useEditorStore.getState().unsaved;
+    const initialUnsavedTabIds = Object.keys(initialUnsaved);
+    if (initialUnsavedTabIds.length > 0) {
+      if (isInstantAutoSave) {
+        scheduleAutoSave();
+      } else {
+        initialUnsavedTabIds.forEach((tabId) => schedulePerTabAutoSave(tabId));
       }
+    }
+
+    return () => {
+      if (backgroundSaveTimeout) {
+        clearTimeout(backgroundSaveTimeout);
+      }
+      for (const timeout of perTabTimeouts.values()) {
+        clearTimeout(timeout);
+      }
+      perTabTimeouts.clear();
       unsubscribe();
     };
   }, [settings?.editor?.auto_save, settings?.editor?.auto_save_delay]);
@@ -167,6 +258,41 @@ export const AppLayout = () => {
     });
     return off;
   }, [onChange]);
+
+  // Mount variable-value hover tooltip (shows resolved value on hover)
+  useEffect(() => {
+    mountVariableValueTooltip();
+    return () => unmountVariableValueTooltip();
+  }, []);
+
+  // Navigate to EnvironmentEditor when a variable is Cmd+clicked in any editor
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { variableName, variableType } = (e as CustomEvent).detail;
+      // Only env variables are navigable to the environment editor
+      if (variableType !== "env") return;
+
+      setEnvJumpTarget({
+        envPath: envData?.activeEnv ?? "",
+        varKey: variableName,
+        profile: envData?.activeProfile ?? "default",
+      });
+
+      const existing = panelTabs?.tabs?.find((t: Tab) => t.type === "environmentEditor");
+      if (existing) {
+        activateTab({ panelId: "main", tabId: existing.id });
+        // Give the tab time to render, then notify the already-mounted editor
+        setTimeout(() => window.dispatchEvent(new Event("voiden:env-editor-focus")), 100);
+      } else {
+        addPanelTab({
+          panelId: "main",
+          tab: { id: crypto.randomUUID(), type: "environmentEditor", title: "Environments", source: null },
+        });
+      }
+    };
+    window.addEventListener("variable-click", handler);
+    return () => window.removeEventListener("variable-click", handler);
+  }, [panelTabs, activateTab, addPanelTab, envData]);
 
   // Handle menu events
   useElectronEvent("menu:open-settings", () => {

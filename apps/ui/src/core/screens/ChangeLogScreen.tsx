@@ -1,4 +1,4 @@
-import { FileText } from "lucide-react";
+import { Cookie, FileText, Puzzle } from "lucide-react";
 import { Terminal, Plug, FileDown, Paintbrush, Braces, Code, LayoutDashboard, Eye, FilePlus2, Rocket, Wrench, Zap, Sparkles, Compass } from "lucide-react";
 import changelogData from "@/data/changelog.json";
 
@@ -18,6 +18,8 @@ const iconMap = {
   Zap: Zap,
   Sparkles: Sparkles,
   Compass: Compass,
+  Puzzle:Puzzle,
+  Cookie:Cookie
 };
 
 const ChangeLogScreen = () => {

@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 
 export const useGetExtensions = () => {
   return useQuery({
@@ -24,6 +25,9 @@ export const useInstallExtension = () => {
       queryClient.invalidateQueries({ queryKey: ["panel:tabs"], exact: false });
       queryClient.invalidateQueries({ queryKey: ["sidebar:tabs"], exact: false });
       queryClient.invalidateQueries({ queryKey: ["tab:content"], exact: false });
+    },
+    onError: (error: any) => {
+      toast.error(error?.message || "Failed to install extension");
     },
   });
 };
@@ -68,6 +72,23 @@ export const useOpenExtensionDetails = () => {
     onSuccess: () => {
       // Optionally, invalidate the main panel tabs query to reflect changes.
       queryClient.invalidateQueries({ queryKey: ["panel:tabs", "main"] });
+    },
+  });
+};
+
+export const useInstallExtensionFromZip = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async () => window.electron?.extensions.installFromZip(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["extensions"] });
+      queryClient.invalidateQueries({ queryKey: ["app:state"] });
+      queryClient.invalidateQueries({ queryKey: ["panel:tabs"], exact: false });
+      queryClient.invalidateQueries({ queryKey: ["sidebar:tabs"], exact: false });
+      queryClient.invalidateQueries({ queryKey: ["tab:content"], exact: false });
+    },
+    onError: (error: any) => {
+      toast.error(error?.message || "Failed to install extension from zip");
     },
   });
 };

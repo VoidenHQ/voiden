@@ -8,7 +8,6 @@
 import * as React from "react";
 import { Node } from "@tiptap/core";
 import { ReactNodeViewRenderer } from "@tiptap/react";
-import { useParentResponseDoc } from "./ResponseDocNode";
 import { Copy, Download } from "lucide-react";
 
 export interface ResponseHeader {
@@ -23,20 +22,17 @@ export interface ResponseHeadersAttrs {
 // Factory function to create the node with context components
 export const createResponseHeadersNode = (
   NodeViewWrapper: any,
-  CodeEditor: any
+  CodeEditor: any,
+  useParentResponseDoc: (editor: any, getPos: () => number) => { openNodes: string[]; parentPos: number | null }
 ) => {
   const ResponseHeadersComponent = ({ node,getPos,editor }: any) => {
     const { headers } = node.attrs as ResponseHeadersAttrs;
- const { activeNode } = useParentResponseDoc(editor, getPos);
-    const isCollapsed = activeNode !== "response-headers";
+ const { openNodes } = useParentResponseDoc(editor, getPos);
+    const isCollapsed = !openNodes.includes("response-headers");
 
-    // Handle click - call the editor command to set active node
+    // Handle click - toggle this node open/closed
     const handleSetActive = () => {
-      if(isCollapsed){
-        editor.commands.setActiveResponseNode("response-headers");
-      }else{
-        editor.commands.setActiveResponseNode("");
-      }
+      editor.commands.toggleResponseNode("response-headers");
     };
 
     if (!headers || headers.length === 0) {

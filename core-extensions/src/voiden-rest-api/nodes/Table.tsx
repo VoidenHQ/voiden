@@ -8,6 +8,7 @@ import {
   HttpUrlFormHelp,
   HttpMultipartFormHelp,
   HttpPathParamsHelp,
+  HttpCookiesHelp,
 } from "../help";
 
 export function isCellSelection(value: unknown): value is CellSelection {
@@ -183,6 +184,27 @@ export const createPathParamsTableNodeView = (RequestBlockHeader: any, openFile?
     },
     addNodeView() {
       return ReactNodeViewRenderer(createNodeView("HTTP-PATH-PARAMS", RequestBlockHeader, openFile, <HttpPathParamsHelp />));
+    },
+  });
+
+export const createCookiesTableNodeView = (RequestBlockHeader: any, openFile?: (relativePath: string) => Promise<void>) =>
+  TableWrapperNode.extend({
+    name: "cookies-table",
+    addAttributes() {
+      return {
+        importedFrom: {
+          default: "",
+        },
+      };
+    },
+    parseHTML() {
+      return [{ tag: "cookies-table" }];
+    },
+    renderHTML({ HTMLAttributes }) {
+      return ["cookies-table", mergeAttributes(HTMLAttributes), 0];
+    },
+    addNodeView() {
+      return ReactNodeViewRenderer(createNodeView("HTTP-COOKIES", RequestBlockHeader, openFile, <HttpCookiesHelp />));
     },
   });
 

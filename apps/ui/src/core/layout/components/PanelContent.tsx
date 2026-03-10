@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useLayoutEffect, useRef } from "react";
 import { useGetPanelTabs, useGetTabContent, useAddPanelTab, useActivateTab } from "@/core/layout/hooks";
 import { CodeEditor } from "@/core/editors/code/CodeEditor";
 import { ExtensionDetails } from "@/core/extensions/components/ExtensionDetails";
@@ -12,11 +12,14 @@ import logo from "@/assets/logo-dark.png";
 import ChangeLogScreen from "@/core/screens/ChangeLogScreen";
 import { useCodeEditorStore } from "@/core/editors/code/CodeEditorStore";
 import { useEditorStore } from "@/core/editors/voiden/VoidenEditor";
-import { Settings, Menu } from "lucide-react";
+import { Settings, Menu, Play } from "lucide-react";
 import { Kbd } from "@/core/components/ui/kbd";
 import { ErrorBoundary } from "@/core/components/ErrorBoundary";
 import { DiffViewer } from "@/core/git/components/DiffViewer";
 import { EnvironmentEditor } from "@/core/environment/components/EnvironmentEditor";
+import { useNewTerminalTab } from "@/core/terminal/hooks/useTerminal";
+import { usePanelStore } from "@/core/stores/panelStore";
+import { Tip } from "@/core/components/ui/Tip";
 
 // TypeScript interface for md-preview plugin helpers
 interface MdPreviewHelpers {
@@ -30,6 +33,43 @@ const getMdPreviewHelpers = (): MdPreviewHelpers | undefined => {
     return window.__voidenHelpers__['md-preview'] as MdPreviewHelpers;
   }
   return undefined;
+};
+
+// Run script button for .sh files
+const RunScriptButton = ({ source }: { source: string }) => {
+  const { mutateAsync: newTerminalTab } = useNewTerminalTab();
+  const { bottomPanelRef, openBottomPanel } = usePanelStore();
+
+  const handleRun = async () => {
+    // Ensure bottom panel is open
+    if (bottomPanelRef?.current) {
+      bottomPanelRef.current.expand();
+    }
+    openBottomPanel();
+
+    // Create a new terminal tab and send the run command
+    const result = await newTerminalTab("bottom");
+    if (result?.tabId) {
+      // Small delay to let the terminal initialize
+      setTimeout(() => {
+        window.electron?.terminal.sendInput({
+          id: result.tabId,
+          data: `bash ${source}\n`,
+        });
+      }, 500);
+    }
+  };
+
+  return (
+    <Tip label="Run script" side="bottom">
+      <button
+        onClick={handleRun}
+        className="p-1 hover:bg-active rounded-sm"
+      >
+        <Play size={14} className="text-comment hover:text-fg" />
+      </button>
+    </Tip>
+  );
 };
 
 // Action menu component for .void files
@@ -276,6 +316,22 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
   // are re-evaluated whenever the editor content changes (not just on file save).
   const activeTabId = tabContent?.tabId;
   useEditorStore((state) => activeTabId ? state.unsaved[activeTabId] : undefined);
+
+  // Apply saved scroll position synchronously when the active tab changes.
+  // Fires before paint so there is never a visible frame at the wrong position,
+  // regardless of which editor type is becoming active.
+  useLayoutEffect(() => {
+    if (!activeTabId) return;
+    const scrollContainer = document.getElementById("code-editor-container");
+    if (!scrollContainer) return;
+    const savedScroll = useEditorStore.getState().getScrollPosition(activeTabId);
+    if (savedScroll > 0) {
+      scrollContainer.style.scrollBehavior = "auto";
+      const maxScrollTop = Math.max(0, scrollContainer.scrollHeight - scrollContainer.clientHeight);
+      scrollContainer.scrollTop = Math.min(savedScroll, maxScrollTop);
+    }
+  }, [activeTabId]);
+
   const [cachedDocumentTabs, setCachedDocumentTabs] = useState<Record<string, any>>({});
   const cachedDocumentOrderRef = useRef<string[]>([]);
 
@@ -363,85 +419,63 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
   // If tabContent is not yet available, you can return a loader
   if (!tabContent) return null;
 
-  if (tabContent.type === "welcome") {
-    editorActions.forEach((action) => {
-      if (action && action.predicate) {
-        action.predicate({ title: '' });
-      }
-    })
-    return <WelcomeScreen />;
+  // Build the cached document editors block. We always render this (even when a
+  // non-document tab like Settings is active) so that VoidenEditor / CodeEditor
+  // never unmounts — keeping scroll positions intact and avoiding the remount glitch.
+  const isDocumentActive = tabContent.type === "document";
+  const activeDocTabContent = isDocumentActive ? tabContent : null;
+  const visibleDocumentTabs = activeDocTabContent
+    ? { ...cachedDocumentTabs, [activeDocTabContent.tabId]: activeDocTabContent }
+    : { ...cachedDocumentTabs };
+  const visibleDocumentTabIds = [...cachedDocumentOrderRef.current.filter((id) => visibleDocumentTabs[id])];
+  if (activeDocTabContent && !visibleDocumentTabIds.includes(activeDocTabContent.tabId)) {
+    visibleDocumentTabIds.push(activeDocTabContent.tabId);
   }
+  const actionsToDisplay = activeDocTabContent
+    ? editorActions.filter((action) => !action.predicate || action.predicate(activeDocTabContent))
+    : [];
 
-  if (tabContent.type === "settings") {
-    editorActions.forEach((action) => {
-      if (action && action.predicate) {
-        action.predicate(tabContent);
-      }
-    })
-    return <SettingsScreen />;
-  }
-
-  if (tabContent.type === "changelog") {
-    editorActions.forEach((action) => {
-      if (action && action.predicate) {
-        action.predicate({ title: '' });
-      }
-    })
-    return <ChangeLogScreen />;
-  }
-
-  if (tabContent.type === "document") {
-    if (tabContent.content === null) return <div>This file is not available</div>;
-    const visibleDocumentTabs = { ...cachedDocumentTabs, [tabContent.tabId]: tabContent };
-    const visibleDocumentTabIds = [...cachedDocumentOrderRef.current.filter((id) => visibleDocumentTabs[id])];
-    if (!visibleDocumentTabIds.includes(tabContent.tabId)) {
-      visibleDocumentTabIds.push(tabContent.tabId);
-    }
-
-    // Filter the editor actions based on the active document's state.
-    const actionsToDisplay = editorActions.filter((action) => {
-      return !action.predicate || action.predicate(tabContent);
-    });
-    return (
-      <div className="h-full flex flex-col">
-        <div className="h-8 px-5 flex items-center justify-between w-full flex-shrink-0">
-          {/* editor action plugins go here */}
-          <div className="flex items-center justify-between space-x-2 w-full">
-            <div className="flex-1">{/* todo things go here */}</div>
-            <div className="flex space-x-2">
-              {tabContent.title.endsWith(".void") ? (
-                // For .void files, show actions in a dropdown menu
-                <ActionMenu actionsToDisplay={actionsToDisplay} tab={tabContent} />
-              ) : (
-                // For other files, show actions inline
-                actionsToDisplay.map((action) => {
-                  const ActionComponent = action.component;
-                  if (!ActionComponent || typeof ActionComponent !== 'function') {
-                    console.warn(`[PanelContent] Invalid editor action component for action: ${action.id}`);
-                    return null;
-                  }
-                  return <ActionComponent key={action.id} tab={tabContent} />;
-                })
-              )}
-            </div>
+  const cachedEditorsBlock = visibleDocumentTabIds.length > 0 && (
+    <div className="h-full flex flex-col" style={{ display: isDocumentActive ? "flex" : "none" }}>
+      <div className="h-8 px-5 flex items-center justify-between w-full flex-shrink-0">
+        {/* editor action plugins go here */}
+        <div className="flex items-center justify-between space-x-2 w-full">
+          <div className="flex-1">{/* todo things go here */}</div>
+          <div className="flex space-x-2">
+            {activeDocTabContent?.title.endsWith(".sh") && activeDocTabContent.source && (
+              <RunScriptButton source={activeDocTabContent.source} />
+            )}
+            {activeDocTabContent?.title.endsWith(".void") ? (
+              <ActionMenu actionsToDisplay={actionsToDisplay} tab={activeDocTabContent} />
+            ) : (
+              actionsToDisplay.map((action) => {
+                const ActionComponent = action.component;
+                if (!ActionComponent || typeof ActionComponent !== 'function') {
+                  console.warn(`[PanelContent] Invalid editor action component for action: ${action.id}`);
+                  return null;
+                }
+                return <ActionComponent key={action.id} tab={activeDocTabContent} />;
+              })
+            )}
           </div>
         </div>
-        <div className="flex-1 bg-editor" id="code-editor-container">
-          {tabContent.title.endsWith(".md") && viewMode === "preview" && mdPreviewHelpers?.Preview ? (
-            (() => {
-              const PreviewComponent = mdPreviewHelpers.Preview;
-              return <PreviewComponent tab={{ ...tabContent, content: getLiveContent() }} />;
-            })()
-          ) : (
-            visibleDocumentTabIds.map((docTabId: string) => {
-              const docTab = visibleDocumentTabs[docTabId];
-              return (
+      </div>
+      <div className="flex-1 bg-editor" id="code-editor-container" data-editor-scroll-container="true">
+        {activeDocTabContent?.title.endsWith(".md") && viewMode === "preview" && mdPreviewHelpers?.Preview ? (
+          (() => {
+            const PreviewComponent = mdPreviewHelpers.Preview;
+            return <PreviewComponent tab={{ ...activeDocTabContent, content: getLiveContent() }} />;
+          })()
+        ) : (
+          visibleDocumentTabIds.map((docTabId: string) => {
+            const docTab = visibleDocumentTabs[docTabId];
+            return (
               <div
                 key={docTab.tabId}
                 className="h-full w-full"
-                style={{ display: docTab.tabId === tabContent.tabId ? "block" : "none" }}
+                style={{ display: docTab.tabId === activeDocTabContent?.tabId ? "block" : "none" }}
                 onContextMenu={(e) => {
-                  if (docTab.tabId !== tabContent.tabId) return;
+                  if (docTab.tabId !== activeDocTabContent?.tabId) return;
                   e.preventDefault();
                   e.stopPropagation();
                   if (window.electron?.editor?.showContextMenu) {
@@ -460,7 +494,7 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
                     source={docTab.source}
                     panelId={panelId}
                     hasSearch
-                    isActive={docTab.tabId === tabContent.tabId}
+                    isActive={docTab.tabId === activeDocTabContent?.tabId}
                   />
                 ) : (
                   <CodeEditor
@@ -468,16 +502,47 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
                     content={docTab.content}
                     source={docTab.source}
                     panelId={panelId}
-                    isActive={docTab.tabId === tabContent.tabId}
+                    isActive={docTab.tabId === activeDocTabContent?.tabId}
                   />
                 )}
               </div>
-              );
-            })
-          )}
-        </div>
+            );
+          })
+        )}
       </div>
-    );
+    </div>
+  );
+
+  if (tabContent.type === "welcome") {
+    editorActions.forEach((action) => {
+      if (action && action.predicate) {
+        action.predicate({ title: '' });
+      }
+    })
+    return <>{cachedEditorsBlock}<WelcomeScreen /></>;
+  }
+
+  if (tabContent.type === "settings") {
+    editorActions.forEach((action) => {
+      if (action && action.predicate) {
+        action.predicate(tabContent);
+      }
+    })
+    return <>{cachedEditorsBlock}<SettingsScreen /></>;
+  }
+
+  if (tabContent.type === "changelog") {
+    editorActions.forEach((action) => {
+      if (action && action.predicate) {
+        action.predicate({ title: '' });
+      }
+    })
+    return <>{cachedEditorsBlock}<ChangeLogScreen /></>;
+  }
+
+  if (tabContent.type === "document") {
+    if (tabContent.content === null) return <div>This file is not available</div>;
+    return <>{cachedEditorsBlock}</>;
   }
 
   if (tabContent.type === "terminal") {
@@ -529,7 +594,7 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
 
   if (tabContent.type === "custom") {
     const tab = panel?.find((tab) => tab.id === tabContent.customTabKey);
-    const Component = tab?.content; // This is now a component (function or class)
+    const Component = tab?.content || tab?.component;
 
     // Validate component before rendering
     if (!Component || typeof Component !== 'function') {

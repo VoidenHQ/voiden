@@ -13,11 +13,13 @@ export type ResponseChildNodeType =
   | "response-body"
   | "response-headers"
   | "request-headers"
+  | "request-headers-security"
   | "assertion-results"
   | "openapi-validation-results"
   | "script-assertion-results";
 
 export interface ResponseDocAttrs {
+  openNodes: ResponseChildNodeType[];
   activeNode: ResponseChildNodeType | null;
   statusCode: number;
   statusMessage: string;
@@ -46,9 +48,11 @@ const RESPONSE_TABS: { type: ResponseChildNodeType; label: string }[] = [
 // Custom hook that children can use to read parent's activeNode
 export const useParentResponseDoc = (editor: any, getPos: () => number) => {
   const [parentState, setParentState] = React.useState<{
+    openNodes: ResponseChildNodeType[];
     activeNode: ResponseChildNodeType | null;
     parentPos: number | null;
   }>({
+    openNodes: [],
     activeNode: null,
     parentPos: null,
   });
@@ -63,7 +67,12 @@ export const useParentResponseDoc = (editor: any, getPos: () => number) => {
         for (let d = $pos.depth; d > 0; d--) {
           const node = $pos.node(d);
           if (node.type.name === "response-doc") {
+            const rawOpenNodes = node.attrs.openNodes;
+            const openNodes: ResponseChildNodeType[] = Array.isArray(rawOpenNodes)
+              ? rawOpenNodes
+              : [];
             setParentState({
+              openNodes,
               activeNode: node.attrs.activeNode,
               parentPos: $pos.before(d),
             });
@@ -134,6 +143,17 @@ export const createResponseDocNode = (NodeViewWrapper: any) => {
         activeNode: {
           default: "response-body",
         },
+        openNodes: {
+          default: [
+            "response-body",
+            "response-headers",
+            "request-headers",
+            "request-headers-security",
+            "assertion-results",
+            "openapi-validation-results",
+            "script-assertion-results",
+          ],
+        },
         statusCode: {
           default: 200,
         },
@@ -167,26 +187,34 @@ export const createResponseDocNode = (NodeViewWrapper: any) => {
 
     addCommands() {
       return {
-        // Command that children can call to set active node
-        setActiveResponseNode:
+        toggleResponseNode:
           (nodeType: ResponseChildNodeType) =>
           ({ tr, state, dispatch }: any) => {
-            // Find the response-doc node in the document
             let responseDocPos: number | null = null;
 
             state.doc.descendants((node: any, pos: number) => {
               if (node.type.name === "response-doc") {
                 responseDocPos = pos;
-                return false; // Stop iteration
+                return false;
               }
             });
 
             if (responseDocPos === null) return false;
+            const responseNode = state.doc.nodeAt(responseDocPos);
+            if (!responseNode) return false;
 
-            // Update the activeNode attribute
+            const currentOpenNodes: ResponseChildNodeType[] = Array.isArray(responseNode.attrs.openNodes)
+              ? responseNode.attrs.openNodes
+              : [];
+            const isOpen = currentOpenNodes.includes(nodeType);
+            const nextOpenNodes = isOpen
+              ? currentOpenNodes.filter((n) => n !== nodeType)
+              : [...currentOpenNodes, nodeType];
+
             if (dispatch) {
               tr.setNodeMarkup(responseDocPos, undefined, {
-                ...state.doc.nodeAt(responseDocPos)?.attrs,
+                ...responseNode.attrs,
+                openNodes: nextOpenNodes,
                 activeNode: nodeType,
               });
               dispatch(tr);

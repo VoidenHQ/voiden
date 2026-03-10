@@ -65,6 +65,7 @@ export const extensionsApi = {
   getAll: () => ipcRenderer.invoke("extensions:getAll"),
   get: (extensionId: string) => ipcRenderer.invoke("extensions:get", extensionId),
   install: (extension: any) => ipcRenderer.invoke("extensions:install", extension),
+  installFromZip: () => ipcRenderer.invoke("extensions:installFromZip"),
   uninstall: (extensionId: string) => ipcRenderer.invoke("extensions:uninstall", extensionId),
   setEnabled: (extensionId: string, enabled: boolean) => ipcRenderer.invoke("extensions:setEnabled", extensionId, enabled),
   openDetails: (extension: any) => ipcRenderer.invoke("extensions:openDetails", extension),

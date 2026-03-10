@@ -18,6 +18,7 @@ import {
   BookOpen,
   Server,
   Blocks,
+  Terminal,
 } from "lucide-react";
 import { cn } from "@/core/lib/utils";
 import { useActivateTab, useGetPanelTabs, useClosePanelTab, useDuplicatePanelTab, useReloadPanelTab, useSetTabsOrder, useClosePanelTabs } from "@/core/layout/hooks";
@@ -30,6 +31,7 @@ import { useEditorEnhancementStore } from "@/plugins";
 import { usePanelStore } from "@/core/stores/panelStore";
 import { Kbd } from "@/core/components/ui/kbd";
 import { Tip } from "@/core/components/ui/Tip";
+import { useSettings } from "@/core/settings/hooks/useSettings";
 
 const PANEL_STATES_KEY = "panelStates";
 
@@ -75,6 +77,7 @@ const iconMap: Record<string, JSX.Element> = {
   js: <FileCode size={14} />,
   py: <FileCode size={14} />,
   go: <FileCode size={14} />,
+  sh: <Terminal size={14} />,
   void: <Infinity size={14} className="text-accent" />,
 };
 
@@ -129,7 +132,8 @@ const TabComponent = ({
   onDragLeave,
   isDragging,
   dragOverPosition,
-  onDrag
+  onDrag,
+  hideUnsavedIndicator
 }: {
   tab: Tab;
   activateTab: (tabId: string) => void;
@@ -150,6 +154,7 @@ const TabComponent = ({
   isDragging: boolean;
   dragOverPosition: 'left' | 'right' | null;
   onDrag: (e: React.DragEvent) => void;
+  hideUnsavedIndicator: boolean;
 }) => {
   const unsavedContent = tab.type === "document" ? useEditorStore((state) => state.unsaved[tab.id]) : undefined;
   const { bottomPanelRef, closeBottomPanel } = usePanelStore();
@@ -302,7 +307,7 @@ const TabComponent = ({
             <div className="absolute right-0 top-0 bottom-0 w-0.5 bg-accent z-10" />
           )}
 
-          <div className="w-2 h-2">{unsavedContent && <div className="w-2 h-2 rounded-full bg-accent" />}</div>
+          <div className="w-2 h-2">{!hideUnsavedIndicator && unsavedContent && <div className="w-2 h-2 rounded-full bg-accent" />}</div>
           <div className="flex items-center gap-1.5">
             {getTabIcon(tab)}
             <span className="truncate">{tab.title}</span>
@@ -369,6 +374,7 @@ const TabComponent = ({
 };
 
 export const PanelTabs = ({ panel }: { panel: string }) => {
+  const { settings } = useSettings();
   const { data: tabs } = useGetPanelTabs(panel);
   const { mutate: activateTab } = useActivateTab();
   const { mutate: reorderTabs } = useSetTabsOrder();
@@ -384,6 +390,7 @@ export const PanelTabs = ({ panel }: { panel: string }) => {
   const [dragOverTabId, setDragOverTabId] = useState<string | null>(null);
   const [dragOverPosition, setDragOverPosition] = useState<'left' | 'right' | null>(null);
   const [dragPreviewPosition, setDragPreviewPosition] = useState<{ x: number; y: number } | null>(null);
+  const hideUnsavedIndicator = !!settings?.editor?.auto_save && settings?.editor?.auto_save_delay === 0;
 
   // Track if the "r" key is currently pressed.
   const rPressed = useRef(false);
@@ -650,7 +657,8 @@ export const PanelTabs = ({ panel }: { panel: string }) => {
         >
           <div className="flex items-center gap-x-2 px-3 py-1.5 bg-editor border border-accent rounded shadow-lg opacity-90">
             <div className="w-2 h-2">
-              {tabs.tabs.find(t => t.id === draggedTabId)?.type === "document" &&
+              {!hideUnsavedIndicator &&
+                tabs.tabs.find(t => t.id === draggedTabId)?.type === "document" &&
                 useEditorStore.getState().unsaved[draggedTabId] && (
                   <div className="w-2 h-2 rounded-full bg-accent" />
                 )}
@@ -684,6 +692,7 @@ export const PanelTabs = ({ panel }: { panel: string }) => {
           onDragLeave={handleDragLeave}
           isDragging={draggedTabId === tab.id}
           dragOverPosition={dragOverTabId === tab.id ? dragOverPosition : null}
+          hideUnsavedIndicator={hideUnsavedIndicator}
         />
       ))}
       <div className="flex-1 border-b border-border h-full"></div>

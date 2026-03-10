@@ -203,7 +203,16 @@ export function convertResponseToVoidenDoc(response: HttpResponse): any {
    const responseDocNode = {
     type: 'response-doc',
     attrs: {
-      activeNode: 'response-body', // Default to showing response body
+      openNodes: [
+        'response-body',
+        'response-headers',
+        'request-headers',
+        'request-headers-security',
+        'assertion-results',
+        'openapi-validation-results',
+        'script-assertion-results',
+      ],
+      activeNode: 'response-body',
       statusCode: response.statusCode,
       statusMessage: response.statusMessage || getDefaultStatusMessage(response.statusCode),
       elapsedTime: response.elapsedTime || 0,

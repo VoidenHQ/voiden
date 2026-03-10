@@ -2,12 +2,11 @@
   "id": "voiden-rest-api",
   "name": "Voiden REST API",
   "description": "HTTP/REST API testing toolkit with extensible request pipeline, custom blocks for headers/body, environment variables, response visualization, and support for all HTTP methods including multipart file uploads",
-  "version": "1.0.1",
+  "version": "1.2.0",
   "author": "Voiden Team",
   "enabled": true,
   "priority": 10,
   "readme": "Complete REST API testing extension with HTTP methods, headers, query params, body, and response visualization. Built on the new SDK pipeline architecture.",
-
   "capabilities": {
     "blocks": {
       "owns": [
@@ -19,6 +18,7 @@
         "path-table",
         "url-table",
         "multipart-table",
+        "cookies-table",
         "json_body",
         "xml_body",
         "yml_body",

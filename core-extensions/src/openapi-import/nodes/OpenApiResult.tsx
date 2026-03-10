@@ -90,7 +90,7 @@ const useParentResponseDoc = (editor: any, getPos: () => number) => {
 };
 
 // Factory function pattern
-export const createOpenApiValidationResultsNode = (NodeViewWrapper: any) => {
+export const createOpenApiValidationResultsNode = (NodeViewWrapper: any, useParentResponseDoc: (editor: any, getPos: () => number) => { openNodes: string[]; parentPos: number | null }) => {
   const OpenApiValidationComponent = ({ node,getPos,editor }: any) => {
     const {
       passed,
@@ -103,14 +103,10 @@ export const createOpenApiValidationResultsNode = (NodeViewWrapper: any) => {
 
     const [selectedTab, setSelectedTab] = React.useState<'all' | 'errors' | 'warnings'>('all');
 
-      const { activeNode } = useParentResponseDoc(editor, getPos);
-    const isCollapsed = activeNode !== "openapi-validation-results";
+      const { openNodes } = useParentResponseDoc(editor, getPos);
+    const isCollapsed = !openNodes.includes("openapi-validation-results");
     const handleSetActive = () => {
-      if (isCollapsed) {
-        editor.commands.setActiveResponseNode("openapi-validation-results");
-      } else {
-        editor.commands.setActiveResponseNode("");
-      }
+      editor.commands.toggleResponseNode("openapi-validation-results");
     };
 
     // SAFETY CHECK: Ensure validatedAgainst has the correct structure

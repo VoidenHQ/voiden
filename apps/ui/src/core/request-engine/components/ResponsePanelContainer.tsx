@@ -98,6 +98,17 @@ export function ResponsePanelContainer() {
       const next = prev.filter((id) => openTabIds.has(id));
       return next.length === prev.length ? prev : next;
     });
+
+    // Drop stale callback refs for tabs that are no longer open.
+    Object.keys(nodeChangeCallbacksRef.current).forEach((tabId) => {
+      if (!openTabIds.has(tabId)) delete nodeChangeCallbacksRef.current[tabId];
+    });
+    Object.keys(panelScrollCallbacksRef.current).forEach((tabId) => {
+      if (!openTabIds.has(tabId)) delete panelScrollCallbacksRef.current[tabId];
+    });
+    Object.keys(nodeScrollCallbacksRef.current).forEach((tabId) => {
+      if (!openTabIds.has(tabId)) delete nodeScrollCallbacksRef.current[tabId];
+    });
   }, [panelData?.tabs]);
 
   // Active tab's response data
@@ -261,7 +272,7 @@ export function ResponsePanelContainer() {
 
         {/* Keep-alive response viewers — always mounted for cached tabs, shown/hidden via CSS */}
         <div
-          className="absolute inset-0 overflow-auto bg-editor"
+          className="absolute inset-0 overflow-hidden bg-editor"
           style={{
             visibility: showContent ? "visible" : "hidden",
             pointerEvents: showContent ? "auto" : "none",
@@ -281,6 +292,7 @@ export function ResponsePanelContainer() {
                 onPanelScrollChange={getPanelScrollCallback(tabId)}
                 nodeScrollPositions={getResponseNodeScrollsForTab(tabId)}
                 onNodeScrollChange={getNodeScrollCallback(tabId)}
+                isActive={tabId === activeTabId}
               />
             </div>
           ))}

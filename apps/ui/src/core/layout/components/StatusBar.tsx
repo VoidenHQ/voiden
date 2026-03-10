@@ -1,4 +1,4 @@
-import { PanelLeft, Terminal, Github, MessageCircle, PanelRight, GitCompareArrows, Download } from "lucide-react";
+import { PanelLeft, Terminal, Github, MessageCircle, PanelRight, GitCompareArrows, Download, icons } from "lucide-react";
 import { cn } from "@/core/lib/utils";
 import { GitBranchesList } from "@/core/git/components/GitBranchesList";
 import { BranchComparisonDialog } from "@/core/git/components/BranchComparisonDialog";
@@ -6,10 +6,22 @@ import { useSettings } from "@/core/settings/hooks/useSettings";
 import { useState, useEffect } from "react";
 import { Kbd } from "@/core/components/ui/kbd";
 import { Tip } from "@/core/components/ui/Tip";
+import { usePluginStore } from "@/plugins";
+import type { StatusBarItem } from "@voiden/sdk/ui";
 
 const handleExternalLink = (url: string) => (e: React.MouseEvent) => {
   e.preventDefault();
   window.electron?.openExternal?.(url);
+};
+
+const renderStatusBarIcon = (icon: StatusBarItem['icon'], size: number = 14) => {
+  if (typeof icon === 'string') {
+    const IconComponent = icons[icon as keyof typeof icons];
+    if (!IconComponent) return null;
+    return <IconComponent size={size} />;
+  }
+  const IconComponent = icon;
+  return <IconComponent size={size} />;
 };
 
 interface StatusBarProps {
@@ -32,6 +44,9 @@ export const StatusBar = ({
   toggleRight,
 }: StatusBarProps) => {
   const { settings } = useSettings();
+  const statusBarItems = usePluginStore((state) => state.statusBarItems);
+  const leftItems = statusBarItems.filter((item) => item.position === 'left');
+  const rightItems = statusBarItems.filter((item) => item.position === 'right');
   const [isCheckingUpdates, setIsCheckingUpdates] = useState(false);
   const [isCompareDialogOpen, setIsCompareDialogOpen] = useState(false);
   const [updateProgress, setUpdateProgress] = useState<{ percent?: number; bytesPerSecond?: number; transferred?: number; total?: number; status: string } | null>(null);
@@ -127,11 +142,37 @@ export const StatusBar = ({
             <span>Compare</span>
           </button>
         </Tip>
+
+        {/* Plugin Status Bar Items (Left) */}
+        {leftItems.map((item) => (
+          <Tip key={item.id} label={item.tooltip}>
+            <button
+              className="text-sm h-full px-2 flex items-center gap-2 hover:bg-active no-drag text-comment"
+              onClick={item.onClick}
+            >
+              {renderStatusBarIcon(item.icon)}
+              {item.label && <span>{item.label}</span>}
+            </button>
+          </Tip>
+        ))}
       </div>
 
       {/* Right Status Items */}
       <div className="flex items-center space-x-2 h-full">
         <div className="flex h-full justify-between">
+          {/* Plugin Status Bar Items (Right) */}
+          {rightItems.map((item) => (
+            <Tip key={item.id} label={item.tooltip} align="end">
+              <button
+                className="h-full px-2 hover:bg-active text-comment flex items-center gap-2"
+                onClick={item.onClick}
+              >
+                {renderStatusBarIcon(item.icon)}
+                {item.label && <span className="text-sm">{item.label}</span>}
+              </button>
+            </Tip>
+          ))}
+
           {/* App Version / Update Progress */}
           {updateProgress && (updateProgress.status === "downloading" || updateProgress.status === "installing" || updateProgress.status === "checking" || updateProgress.status === "ready") ? (
             <Tip label={<>
@@ -169,7 +210,7 @@ export const StatusBar = ({
                 onClick={handleCheckForUpdates}
                 disabled={isCheckingUpdates}
                 className={cn(
-                  "h-full pt-1 px-2 hover:bg-active text-comment select-none transition-opacity",
+                  "h-full px-2 hover:bg-active text-comment select-none transition-opacity",
                   isCheckingUpdates ? "opacity-50 cursor-wait" : "cursor-pointer"
                 )}
               >
@@ -182,14 +223,14 @@ export const StatusBar = ({
 
           {/* GitHub Link */}
           <Tip label="Visit GitHub" align="end">
-            <a href="https://github.com/VoidenHQ/voiden" onClick={handleExternalLink("https://github.com/VoidenHQ/voiden")} className="h-full pt-2 px-2 hover:bg-active text-comment flex items-center">
+            <a href="https://github.com/VoidenHQ/voiden" onClick={handleExternalLink("https://github.com/VoidenHQ/voiden")} className="h-full px-2 hover:bg-active text-comment flex items-center">
               <Github size={14} />
             </a>
           </Tip>
 
           {/* Discord Link */}
           <Tip label="Join Discord" align="end">
-            <a href="https://discord.gg/XSYCf7JF4F" onClick={handleExternalLink("https://discord.gg/XSYCf7JF4F")} className="h-full pt-2 px-2 hover:bg-active text-comment flex items-center">
+            <a href="https://discord.gg/XSYCf7JF4F" onClick={handleExternalLink("https://discord.gg/XSYCf7JF4F")} className="h-full px-2 hover:bg-active text-comment flex items-center">
               <MessageCircle size={14} />
             </a>
           </Tip>

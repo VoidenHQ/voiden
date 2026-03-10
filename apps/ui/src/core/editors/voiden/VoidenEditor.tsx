@@ -1,7 +1,8 @@
-import { useCallback, useMemo, useState, useEffect, useRef, useLayoutEffect } from "react";
+import { useCallback, useMemo, useState, useEffect, useRef, useLayoutEffect, memo } from "react";
 import { AnyExtension, Editor, EditorContent, Extension, getSchema, useEditor } from "@tiptap/react";
 import { Plugin, PluginKey } from "prosemirror-state";
 import { Decoration, DecorationSet } from "prosemirror-view";
+import { useVoidVariableData } from "@/core/runtimeVariables/hook/useVariableCapture.tsx";
 // Escape user input for literal searches
 function escapeRegExp(str: string) {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -111,8 +112,8 @@ import { useEditorEnhancementStore } from "@/plugins";
 import { parseMarkdown } from "./markdownConverter";
 import UniqueID from "./extensions/uniqueId";
 import { VoidenDragMenu } from "./components/VoidenDragMenu";
-import { useEnvironmentKeys, useEnvironments } from "@/core/environment/hooks";
-import { environmentHighlighter, updateEnvironmentKeys } from "./extensions/environmentHighlighter";
+import { useActiveEnvironment, useEnvironmentKeys, useEnvironments } from "@/core/environment/hooks";
+import { environmentHighlighter, updateEnvironmentData, updateEnvironmentKeys } from "./extensions/environmentHighlighter";
 import { ReqSuggestion } from "./extensions/VariableReqSuggesion";
 import { ResSuggestion } from "./extensions/VariableResSuggestion";
 import { useContentStore } from "@/core/stores/ContentStore";
@@ -120,7 +121,7 @@ import { saveFileUtil } from "@/core/file-system/hooks";
 import { ArrowDownIcon, ArrowUpIcon, X } from "lucide-react";
 import { Input } from "@/core/components/ui/input";
 import { cn } from "@/core/lib/utils";
-import { variableHighlighter, updateVariableKeys } from "./extensions/variableHighlighter";
+import { variableHighlighter, updateVariableData, updateVariableKeys } from "./extensions/variableHighlighter";
 import { useSearchStore } from "@/core/stores/searchParamsStore";
 import { usePanelStore } from "@/core/stores/panelStore";
 import { useGetActiveDocument } from "@/core/documents/hooks";
@@ -155,9 +156,8 @@ export const useVoidenExtensionsAndSchema = () => {
   // Compute the schema based on your current extensions.
   const memoizedSchema = useMemo(() => getSchema(memoizedExtensions), [memoizedExtensions]);
 
-  // Get environment variable keys (secure - no values exposed to UI)
-  const { data: envKeys = [] } = useEnvironmentKeys();
-  const {data : voidVariableKeys=[]} = useVoidVariables();
+  const { data: voidVariableData } = useVoidVariableData();
+  const envData = useActiveEnvironment();
   const defaultNodeTypes = useMemo(
     () => [
       "doc",
@@ -200,12 +200,12 @@ export const useVoidenExtensionsAndSchema = () => {
       CustomCode,
       ReqSuggestion,
       ResSuggestion,
-      environmentHighlighter(envKeys),
-      variableHighlighter(voidVariableKeys),
+      environmentHighlighter(envData ?? {}),
+      variableHighlighter(voidVariableData ?? {}),
       DocumentPreserver, // Preserves unknown nodes from disabled plugins
     ];
     return baseExtensions;
-  }, [memoizedExtensions, uniqueIdExtension, envKeys]);
+  }, [memoizedExtensions, uniqueIdExtension, envData, voidVariableData]);
 
   return { finalExtensions, memoizedSchema };
 };
@@ -324,7 +324,7 @@ export const reloadVoidenEditor = async (tabId: string) => {
   }
 };
 
-export const VoidenEditor = ({
+const VoidenEditorInner = ({
   tabId,
   content,
   source,
@@ -347,6 +347,8 @@ export const VoidenEditor = ({
   const getScrollPosition = useEditorStore((state) => state.getScrollPosition);
   const { finalExtensions, memoizedSchema } = useVoidenExtensionsAndSchema();
   const { data: envData } = useEnvironments();
+  const activeEnvData = useActiveEnvironment();
+  const { data: voidVariableData } = useVoidVariableData();
   const activeEnvKey = envData?.activeEnv ?? "default";
   const extensionsKey = useMemo(() => finalExtensions.map((ext) => ext.name).join(","), [finalExtensions]);
   const { data: activeDocument } = useGetActiveDocument();
@@ -355,28 +357,17 @@ export const VoidenEditor = ({
   // Track previous extensionsKey to detect when plugins change
   const prevExtensionsKeyRef = useRef<string | null>(null);
 
-  // When plugins change, clear unsaved state to force reload from file
-  const initialUnsaved = useMemo(() => {
-    const currentExtensionsKey = extensionsKey;
-    const prevExtensionsKey = prevExtensionsKeyRef.current;
-
-    // If extensions changed, clear unsaved and force reload from file
-    if (prevExtensionsKey !== null && prevExtensionsKey !== currentExtensionsKey) {
-      // Clear from store
+  // When plugins change, clear unsaved state to force reload from file.
+  // Using useEffect instead of useMemo to avoid calling Zustand setState during render.
+  useEffect(() => {
+    const prevKey = prevExtensionsKeyRef.current;
+    prevExtensionsKeyRef.current = extensionsKey;
+    if (prevKey !== null && prevKey !== extensionsKey) {
       clearUnsaved(tabId);
-      // Update ref for next check
-      prevExtensionsKeyRef.current = currentExtensionsKey;
-      // Return undefined to force reload from file
-      return undefined;
     }
+  }, [extensionsKey, tabId, clearUnsaved]);
 
-    // First render or no change - use normal unsaved state
-    if (prevExtensionsKey === null) {
-      prevExtensionsKeyRef.current = currentExtensionsKey;
-    }
-
-    return useEditorStore.getState().unsaved[tabId];
-  }, [tabId, extensionsKey, clearUnsaved]);
+  const initialUnsaved = useEditorStore.getState().unsaved[tabId];
 
   useEffect(() => {
     if (!isActive) return;
@@ -684,7 +675,13 @@ function sanitizeDoc(node: any): any {
     ({ editor }: { editor: Editor }) => {
       const updatedContent = editor.getJSON();
       const contentString = JSON.stringify(updatedContent);
-      setUnsaved(tabId, contentString);
+
+      // Compare against saved content to detect when edits restore the original
+      if (savedContentJSONRef.current && contentString === savedContentJSONRef.current) {
+        clearUnsaved(tabId);
+      } else {
+        setUnsaved(tabId, contentString);
+      }
 
       // Auto-save to AppData for unsaved files (source is null)
       if (!source) {
@@ -694,7 +691,7 @@ function sanitizeDoc(node: any): any {
         }
       }
     },
-    [setUnsaved, tabId, source],
+    [setUnsaved, clearUnsaved, tabId, source],
   );
 
   const editor = useEditor(
@@ -740,12 +737,12 @@ function sanitizeDoc(node: any): any {
     return () => clearTimeout(timeoutId);
   }, [activeEnvKey]);
 
-  // Force highlight update when environment keys change - using debounced env key
+  // Keep highlight maps in sync with full resolved values so hover preview can display them.
   useEffect(() => {
     if (!editor || !isActive) return;
-    updateEnvironmentKeys(envKeys ?? []);
+    updateEnvironmentData(activeEnvData ?? {});
     editor.view.dispatch(editor.state.tr.setMeta("forceHighlightUpdate", true));
-  }, [editor, debouncedActiveEnvKey, isActive]);
+  }, [editor, debouncedActiveEnvKey, activeEnvData, isActive]);
 
   // Register reload function for this tab
   useEffect(() => {
@@ -788,17 +785,32 @@ function sanitizeDoc(node: any): any {
     };
   }, [editor, source, tabId, clearUnsaved, memoizedSchema]);
 
-  // Also force update when envKeys data changes (for initial load)
+  // Fallback: if full value maps are unavailable, keep validity highlighting via keys-only lists.
   const { data: envKeys } = useEnvironmentKeys();
   const { data: voidVariableKeys } = useVoidVariables();
   const queryClient = useQueryClient();
   useEffect(() => {
-    if (!editor || !envKeys || !isActive) return;
-    updateEnvironmentKeys(envKeys);
-    updateVariableKeys(voidVariableKeys ?? []);
-    editor.view.dispatch(editor.state.tr.setMeta("forceHighlightUpdate", true));
+    if (!editor || !isActive) return;
+
+    const hasEnvValues = !!activeEnvData && Object.keys(activeEnvData).length > 0;
+    const hasProcessValues = !!voidVariableData && Object.keys(voidVariableData).length > 0;
+
+    if (!hasEnvValues) {
+      updateEnvironmentKeys(envKeys ?? []);
+      editor.view.dispatch(editor.state.tr.setMeta("forceHighlightUpdate", true));
+    }
+    if (!hasProcessValues) {
+      updateVariableKeys(voidVariableKeys ?? []);
+      editor.view.dispatch(editor.state.tr.setMeta("forceVariableHighlightUpdate", true));
+    }
+  }, [editor, envKeys, voidVariableKeys, activeEnvData, voidVariableData, isActive]);
+
+  // Keep process/runtime variable values in sync for hover preview.
+  useEffect(() => {
+    if (!editor || !isActive) return;
+    updateVariableData(voidVariableData ?? {});
     editor.view.dispatch(editor.state.tr.setMeta("forceVariableHighlightUpdate", true));
-  }, [editor, envKeys, voidVariableKeys, isActive]);
+  }, [editor, voidVariableData, isActive]);
 
   // When this tab becomes active, refresh environment keys, file-link existence
   // checks, and block-link content so stale data from when the tab was hidden
@@ -811,17 +823,65 @@ function sanitizeDoc(node: any): any {
   }, [isActive, queryClient]);
 
   // Restore scroll position and keep tracking per-tab scroll.
-  // Use layout effect + follow-up passes so late node renders don't shift position.
+  // currentTarget tracks where the user last intentionally scrolled to. Only wheel/touch
+  // events mark a scroll as user-initiated; editor-internal scrolls (ProseMirror
+  // scrollIntoView, async transaction effects) are immediately snapped back to currentTarget
+  // so they never corrupt the saved position.
   useLayoutEffect(() => {
     if (!editor || !isActive) return;
 
     const scrollContainer = document.getElementById("code-editor-container") as HTMLElement | null;
     if (!scrollContainer) return;
 
+    let currentTarget = getScrollPosition(tabId);
+    let isUserScrolling = false;
+    let userScrollTimeout: number | null = null;
+
+    const setUserScrolling = () => {
+      isUserScrolling = true;
+      if (userScrollTimeout !== null) clearTimeout(userScrollTimeout);
+      userScrollTimeout = window.setTimeout(() => {
+        isUserScrolling = false;
+        userScrollTimeout = null;
+      }, 1000);
+    };
+
     const applySavedScroll = (containerElement: HTMLElement) => {
+      if (isUserScrolling) return;
       const maxScrollTop = Math.max(0, containerElement.scrollHeight - containerElement.clientHeight);
-      const savedScrollTop = getScrollPosition(tabId);
-      containerElement.scrollTop = Math.min(savedScrollTop, maxScrollTop);
+      containerElement.scrollTop = Math.min(currentTarget, maxScrollTop);
+    };
+
+    const handleScroll = () => {
+      if (isUserScrolling) {
+        currentTarget = scrollContainer.scrollTop;
+        setScrollPosition(tabId, scrollContainer.scrollTop);
+      } else {
+        // Editor-internal scroll (ProseMirror, async effects) — snap back to user's target
+        applySavedScroll(scrollContainer);
+      }
+    };
+
+    const handleUserInteraction = () => { setUserScrolling(); };
+
+    scrollContainer.addEventListener('scroll', handleScroll, { passive: true });
+    scrollContainer.addEventListener('wheel', handleUserInteraction, { passive: true, capture: true });
+    scrollContainer.addEventListener('touchmove', handleUserInteraction, { passive: true, capture: true });
+    scrollContainer.addEventListener('keydown', handleUserInteraction, { capture: true });
+
+    // Apply synchronously before the first paint so there is no visible jump.
+    // useLayoutEffect runs after DOM mutations (display: block) but before paint.
+    scrollContainer.style.scrollBehavior = "auto";
+    applySavedScroll(scrollContainer);
+
+    // Minimal cleanup set before RAF fires (handles early tab-switch before RAF runs)
+    editor.storage.scrollCleanup = () => {
+      scrollContainer.removeEventListener('scroll', handleScroll);
+      scrollContainer.removeEventListener('wheel', handleUserInteraction, { capture: true });
+      scrollContainer.removeEventListener('touchmove', handleUserInteraction, { capture: true });
+      scrollContainer.removeEventListener('keydown', handleUserInteraction, { capture: true });
+      if (userScrollTimeout !== null) clearTimeout(userScrollTimeout);
+      setScrollPosition(tabId, currentTarget);
     };
 
     let rafId: number;
@@ -835,16 +895,14 @@ function sanitizeDoc(node: any): any {
         timeoutIds.push(window.setTimeout(() => applySavedScroll(scrollContainer), 60));
         timeoutIds.push(window.setTimeout(() => applySavedScroll(scrollContainer), 140));
 
-        const handleScroll = () => {
-          setScrollPosition(tabId, scrollContainer.scrollTop);
-        };
-
-        scrollContainer.addEventListener('scroll', handleScroll, { passive: true });
-
         editor.storage.scrollCleanup = () => {
           scrollContainer.removeEventListener('scroll', handleScroll);
+          scrollContainer.removeEventListener('wheel', handleUserInteraction, { capture: true });
+          scrollContainer.removeEventListener('touchmove', handleUserInteraction, { capture: true });
+          scrollContainer.removeEventListener('keydown', handleUserInteraction, { capture: true });
+          if (userScrollTimeout !== null) clearTimeout(userScrollTimeout);
           timeoutIds.forEach((id) => window.clearTimeout(id));
-          setScrollPosition(tabId, scrollContainer.scrollTop);
+          setScrollPosition(tabId, currentTarget);
         };
       });
     });
@@ -1113,6 +1171,9 @@ function sanitizeDoc(node: any): any {
   // Note: parseError state was removed as we now handle errors gracefully with fallback content
   if (!editor) return null;
 
+  // Note: parseError state was removed as we now handle errors gracefully with fallback content
+  if (!editor) return null;
+
   return (
     <div ref={editorRef} className="h-full flex flex-col relative">
       {showFind && (
@@ -1312,3 +1373,5 @@ function sanitizeDoc(node: any): any {
     </div>
   );
 };
+
+export const VoidenEditor = memo(VoidenEditorInner);
