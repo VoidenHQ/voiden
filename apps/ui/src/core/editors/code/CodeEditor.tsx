@@ -394,26 +394,55 @@ export const CodeEditor = memo(({ tabId, content, source, panelId, isActive = tr
   );
 
   // Restore scroll position and keep tracking per-tab scroll.
-  // Listener is attached immediately so no scroll events are missed.
-  // Scroll restore uses double-rAF so CodeMirror's own layout runs first.
+  // currentTarget tracks where the user last intentionally scrolled to. Only wheel/touch
+  // events mark a scroll as user-initiated; editor-internal scrolls (CodeMirror cursor
+  // positioning, async effects) are immediately snapped back to currentTarget so they
+  // never corrupt the saved position.
   useLayoutEffect(() => {
     if (!editorView || !isActive) return;
 
     const scrollEl = document.getElementById("code-editor-container") as HTMLElement | null;
     if (!scrollEl) return;
 
-    // Attach listener immediately — no rAF gap where events could be missed
-    const handleScroll = () => {
-      setScrollPosition(tabId, scrollEl.scrollTop);
-    };
-    scrollEl.addEventListener("scroll", handleScroll, { passive: true });
+    let currentTarget = getScrollPosition(tabId);
+    let isUserScrolling = false;
+    let userScrollTimeout: number | null = null;
 
-    // Restore saved position after CodeMirror has finished its layout
-    const applySavedScroll = () => {
-      const maxScrollTop = Math.max(0, scrollEl.scrollHeight - scrollEl.clientHeight);
-      const savedScrollTop = getScrollPosition(tabId);
-      scrollEl.scrollTop = Math.min(savedScrollTop, maxScrollTop);
+    const setUserScrolling = () => {
+      isUserScrolling = true;
+      if (userScrollTimeout !== null) clearTimeout(userScrollTimeout);
+      userScrollTimeout = window.setTimeout(() => {
+        isUserScrolling = false;
+        userScrollTimeout = null;
+      }, 1000);
     };
+
+    const applySavedScroll = () => {
+      if (isUserScrolling) return;
+      const maxScrollTop = Math.max(0, scrollEl.scrollHeight - scrollEl.clientHeight);
+      scrollEl.scrollTop = Math.min(currentTarget, maxScrollTop);
+    };
+
+    const handleScroll = () => {
+      if (isUserScrolling) {
+        currentTarget = scrollEl.scrollTop;
+        setScrollPosition(tabId, scrollEl.scrollTop);
+      } else {
+        // Editor-internal scroll — snap back to user's target
+        applySavedScroll();
+      }
+    };
+
+    const handleUserInteraction = () => { setUserScrolling(); };
+
+    scrollEl.addEventListener("scroll", handleScroll, { passive: true });
+    scrollEl.addEventListener("wheel", handleUserInteraction, { passive: true, capture: true });
+    scrollEl.addEventListener("touchmove", handleUserInteraction, { passive: true, capture: true });
+    scrollEl.addEventListener("keydown", handleUserInteraction, { capture: true });
+
+    // Apply synchronously before the first paint so there is no visible jump.
+    scrollEl.style.scrollBehavior = "auto";
+    applySavedScroll();
 
     let rafId: number;
     const timeoutIds: number[] = [];
@@ -430,9 +459,13 @@ export const CodeEditor = memo(({ tabId, content, source, panelId, isActive = tr
 
     return () => {
       scrollEl.removeEventListener("scroll", handleScroll);
+      scrollEl.removeEventListener("wheel", handleUserInteraction, { capture: true });
+      scrollEl.removeEventListener("touchmove", handleUserInteraction, { capture: true });
+      scrollEl.removeEventListener("keydown", handleUserInteraction, { capture: true });
+      if (userScrollTimeout !== null) clearTimeout(userScrollTimeout);
       cancelAnimationFrame(rafId);
       timeoutIds.forEach(clearTimeout);
-      setScrollPosition(tabId, scrollEl.scrollTop);
+      setScrollPosition(tabId, currentTarget);
     };
   }, [editorView, tabId, isActive, getScrollPosition, setScrollPosition]);
 

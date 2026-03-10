@@ -444,6 +444,24 @@ export const saveTabById = async (tabId: string, options?: { silent?: boolean })
   const panelTabs = queryClient.getQueryData(["panel:tabs", "main"]) as { tabs: any[]; activeTabId: string } | undefined;
   const tab = panelTabs?.tabs?.find((t: any) => t.id === tabId);
   const shouldInvalidate = !options?.silent;
+  const syncTabContentCache = (savedContent: string) => {
+    queryClient.setQueryData(["tab:content", "main", tabId, tab?.source], (prev: any) => {
+      if (prev) {
+        return {
+          ...prev,
+          content: savedContent,
+          isAutosaved: false,
+        };
+      }
+      return {
+        type: "document",
+        tabId,
+        title: tab?.title ?? "",
+        content: savedContent,
+        isAutosaved: false,
+      };
+    });
+  };
   
   if (!tab || !tab.source) {
     return false; // Tab not found or not persisted
@@ -459,7 +477,7 @@ export const saveTabById = async (tabId: string, options?: { silent?: boolean })
     if (tab.source.endsWith(".void")) {
       // Handle .void files (voiden editor)
       const voidenEditor = useVoidenEditorStore.getState().editor;
-      if (voidenEditor && voidenEditor.storage.tabId === tabId) {
+      if (voidenEditor && !voidenEditor.isDestroyed && voidenEditor.storage.tabId === tabId) {
         // Tab is currently active - use the editor's current state
         const content = JSON.stringify(voidenEditor.getJSON());
         if (shouldInvalidate) {
@@ -470,7 +488,11 @@ export const saveTabById = async (tabId: string, options?: { silent?: boolean })
         const markdown = prosemirrorToMarkdown(content, voidenEditor.schema);
         const filePath = await window.electron?.files.write(tab.source, markdown, tabId);
         if (!filePath) return false;
-        useEditorStore.getState().clearUnsaved(tabId);
+        syncTabContentCache(markdown);
+        // Only clear if no new changes arrived during the async write
+        if (useEditorStore.getState().unsaved[tabId] === unsavedContent) {
+          useEditorStore.getState().clearUnsaved(tabId);
+        }
         return true;
       } else {
         // Tab is not active
@@ -479,19 +501,24 @@ export const saveTabById = async (tabId: string, options?: { silent?: boolean })
           // console.error(`Could not read file content for ${tab.source}`);
           return false;
         }
-        
+
         // Convert unsaved content to markdown for comparison
         const schema = getSchema([...voidenExtensions, ...useEditorEnhancementStore.getState().voidenExtensions]);
         const unsavedMarkdown = prosemirrorToMarkdown(unsavedContent, schema);
-        
+
         // Only save if content is actually different
         if (currentFileContent === unsavedMarkdown) {
           // console.debug(`Tab ${tab.title} content is same as file, skipping save`);
           // Clear unsaved state since content matches file
-          useEditorStore.getState().clearUnsaved(tabId);
+          if (!shouldInvalidate) {
+            syncTabContentCache(currentFileContent);
+          }
+          if (useEditorStore.getState().unsaved[tabId] === unsavedContent) {
+            useEditorStore.getState().clearUnsaved(tabId);
+          }
           return true;
         }
-        
+
         // console.debug(`Tab ${tab.title} has changes, saving...`);
         if (shouldInvalidate) {
           return await saveFileUtil(tab.source, unsavedContent, "main", tabId, schema);
@@ -499,7 +526,11 @@ export const saveTabById = async (tabId: string, options?: { silent?: boolean })
 
         const filePath = await window.electron?.files.write(tab.source, unsavedMarkdown, tabId);
         if (!filePath) return false;
-        useEditorStore.getState().clearUnsaved(tabId);
+        syncTabContentCache(unsavedMarkdown);
+        // Only clear if no new changes arrived during the async write
+        if (useEditorStore.getState().unsaved[tabId] === unsavedContent) {
+          useEditorStore.getState().clearUnsaved(tabId);
+        }
         return true;
       }
     } else {
@@ -515,6 +546,9 @@ export const saveTabById = async (tabId: string, options?: { silent?: boolean })
       if (currentFileContent === unsavedContent) {
         // console.debug(`Tab ${tab.title} content is same as file, skipping save`);
         // Clear unsaved state since content matches file
+        if (!shouldInvalidate) {
+          syncTabContentCache(currentFileContent);
+        }
         useEditorStore.getState().clearUnsaved(tabId);
         return true;
       }
@@ -523,6 +557,8 @@ export const saveTabById = async (tabId: string, options?: { silent?: boolean })
       await window.electron?.files.write(tab.source, unsavedContent);
       if (shouldInvalidate) {
         invalidateOnFileSave(tab.source, "main", tabId);
+      } else {
+        syncTabContentCache(unsavedContent);
       }
       useEditorStore.getState().clearUnsaved(tabId);
       return true;

@@ -354,7 +354,9 @@ function TreeNode({ node, style, dragHandle, activeFile, removeTemporaryNode }: 
       }
       if (node.parent) {
         const siblings = node.parent.children || [];
-        const duplicate = siblings.find((sibling) => sibling.id !== node.id && sibling.data.name === newName);
+        // For void files the backend appends ".void", so check against the full final name.
+        const effectiveName = node.data.fileKind === "void" ? `${newName}.void` : newName;
+        const duplicate = siblings.find((sibling) => sibling.id !== node.id && sibling.data.name === effectiveName);
         if (duplicate) {
           setError("Name already exists");
           node.edit();
@@ -925,10 +927,15 @@ export const FileSystemList = () => {
     }
   }, [data]);
 
-  // Scroll to active file in the tree (also opens parent folders)
+  // Scroll to active file in the tree (also opens parent folders).
+  // Guard with get() so that if the node isn't in the tree yet (e.g. the tree hasn't
+  // refreshed after a new file was just created), we don't scroll to the top.
   useEffect(() => {
     if (activeFile?.source && treeRef.current) {
-      treeRef.current.scrollTo(activeFile.source, "center");
+      const node = treeRef.current.get(activeFile.source);
+      if (node) {
+        treeRef.current.scrollTo(activeFile.source, "center");
+      }
     }
   }, [activeFile?.source]);
 

@@ -95,11 +95,7 @@ export function registerFileIpcHandlers() {
       filePath = chosenFilePath.endsWith(".void") ? chosenFilePath : chosenFilePath + ".void";
     }
 
-    fs.writeFile(filePath, content, "utf8", (err) => {
-      if (err) {
-        // console.error("Error writing file:", err);
-      }
-    });
+    await fs.promises.writeFile(filePath, content, "utf8");
 
     if (tabId) {
       const appState = getAppState();
