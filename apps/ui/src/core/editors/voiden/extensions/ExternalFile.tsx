@@ -1007,9 +1007,24 @@ export const FileLink = Node.create<FileLinkOptions>({
           let popup: any;
           return {
             onStart: (props) => {
+              const getSafeReferenceClientRect = () => {
+                const rect = props.clientRect?.();
+                if (rect && (rect.width > 0 || rect.height > 0 || rect.top > 0 || rect.left > 0)) {
+                  return rect;
+                }
+                const selection = window.getSelection();
+                if (selection?.rangeCount) {
+                  const selectionRect = selection.getRangeAt(0).getBoundingClientRect();
+                  if (selectionRect && (selectionRect.width > 0 || selectionRect.height > 0)) {
+                    return selectionRect;
+                  }
+                }
+                return props.editor.view.dom.getBoundingClientRect();
+              };
+
               reactRenderer = new ReactRenderer(FileLinkTippyContent, { props, editor: props.editor });
               popup = tippy(document.body, {
-                getReferenceClientRect: props.clientRect,
+                getReferenceClientRect: getSafeReferenceClientRect,
                 appendTo: () => document.body,
                 content: reactRenderer.element,
                 showOnCreate: true,
@@ -1021,7 +1036,21 @@ export const FileLink = Node.create<FileLinkOptions>({
             onUpdate(props) {
               reactRenderer?.updateProps(props);
               if (popup) {
-                popup.setProps({ getReferenceClientRect: props.clientRect });
+                const getSafeReferenceClientRect = () => {
+                  const rect = props.clientRect?.();
+                  if (rect && (rect.width > 0 || rect.height > 0 || rect.top > 0 || rect.left > 0)) {
+                    return rect;
+                  }
+                  const selection = window.getSelection();
+                  if (selection?.rangeCount) {
+                    const selectionRect = selection.getRangeAt(0).getBoundingClientRect();
+                    if (selectionRect && (selectionRect.width > 0 || selectionRect.height > 0)) {
+                      return selectionRect;
+                    }
+                  }
+                  return props.editor.view.dom.getBoundingClientRect();
+                };
+                popup.setProps({ getReferenceClientRect: getSafeReferenceClientRect });
               }
             },
             onKeyDown(props) {

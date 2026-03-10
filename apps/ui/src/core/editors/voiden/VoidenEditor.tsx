@@ -823,17 +823,65 @@ function sanitizeDoc(node: any): any {
   }, [isActive, queryClient]);
 
   // Restore scroll position and keep tracking per-tab scroll.
-  // Use layout effect + follow-up passes so late node renders don't shift position.
+  // currentTarget tracks where the user last intentionally scrolled to. Only wheel/touch
+  // events mark a scroll as user-initiated; editor-internal scrolls (ProseMirror
+  // scrollIntoView, async transaction effects) are immediately snapped back to currentTarget
+  // so they never corrupt the saved position.
   useLayoutEffect(() => {
     if (!editor || !isActive) return;
 
     const scrollContainer = document.getElementById("code-editor-container") as HTMLElement | null;
     if (!scrollContainer) return;
 
+    let currentTarget = getScrollPosition(tabId);
+    let isUserScrolling = false;
+    let userScrollTimeout: number | null = null;
+
+    const setUserScrolling = () => {
+      isUserScrolling = true;
+      if (userScrollTimeout !== null) clearTimeout(userScrollTimeout);
+      userScrollTimeout = window.setTimeout(() => {
+        isUserScrolling = false;
+        userScrollTimeout = null;
+      }, 1000);
+    };
+
     const applySavedScroll = (containerElement: HTMLElement) => {
+      if (isUserScrolling) return;
       const maxScrollTop = Math.max(0, containerElement.scrollHeight - containerElement.clientHeight);
-      const savedScrollTop = getScrollPosition(tabId);
-      containerElement.scrollTop = Math.min(savedScrollTop, maxScrollTop);
+      containerElement.scrollTop = Math.min(currentTarget, maxScrollTop);
+    };
+
+    const handleScroll = () => {
+      if (isUserScrolling) {
+        currentTarget = scrollContainer.scrollTop;
+        setScrollPosition(tabId, scrollContainer.scrollTop);
+      } else {
+        // Editor-internal scroll (ProseMirror, async effects) — snap back to user's target
+        applySavedScroll(scrollContainer);
+      }
+    };
+
+    const handleUserInteraction = () => { setUserScrolling(); };
+
+    scrollContainer.addEventListener('scroll', handleScroll, { passive: true });
+    scrollContainer.addEventListener('wheel', handleUserInteraction, { passive: true, capture: true });
+    scrollContainer.addEventListener('touchmove', handleUserInteraction, { passive: true, capture: true });
+    scrollContainer.addEventListener('keydown', handleUserInteraction, { capture: true });
+
+    // Apply synchronously before the first paint so there is no visible jump.
+    // useLayoutEffect runs after DOM mutations (display: block) but before paint.
+    scrollContainer.style.scrollBehavior = "auto";
+    applySavedScroll(scrollContainer);
+
+    // Minimal cleanup set before RAF fires (handles early tab-switch before RAF runs)
+    editor.storage.scrollCleanup = () => {
+      scrollContainer.removeEventListener('scroll', handleScroll);
+      scrollContainer.removeEventListener('wheel', handleUserInteraction, { capture: true });
+      scrollContainer.removeEventListener('touchmove', handleUserInteraction, { capture: true });
+      scrollContainer.removeEventListener('keydown', handleUserInteraction, { capture: true });
+      if (userScrollTimeout !== null) clearTimeout(userScrollTimeout);
+      setScrollPosition(tabId, currentTarget);
     };
 
     let rafId: number;
@@ -847,16 +895,14 @@ function sanitizeDoc(node: any): any {
         timeoutIds.push(window.setTimeout(() => applySavedScroll(scrollContainer), 60));
         timeoutIds.push(window.setTimeout(() => applySavedScroll(scrollContainer), 140));
 
-        const handleScroll = () => {
-          setScrollPosition(tabId, scrollContainer.scrollTop);
-        };
-
-        scrollContainer.addEventListener('scroll', handleScroll, { passive: true });
-
         editor.storage.scrollCleanup = () => {
           scrollContainer.removeEventListener('scroll', handleScroll);
+          scrollContainer.removeEventListener('wheel', handleUserInteraction, { capture: true });
+          scrollContainer.removeEventListener('touchmove', handleUserInteraction, { capture: true });
+          scrollContainer.removeEventListener('keydown', handleUserInteraction, { capture: true });
+          if (userScrollTimeout !== null) clearTimeout(userScrollTimeout);
           timeoutIds.forEach((id) => window.clearTimeout(id));
-          setScrollPosition(tabId, scrollContainer.scrollTop);
+          setScrollPosition(tabId, currentTarget);
         };
       });
     });
