@@ -161,6 +161,28 @@ ipcMain.handle("git:createBranch", async (_, projectPath: string, branch: string
   }
 });
 
+ipcMain.handle("git:createBranchFrom", async (_, projectPath: string, branch: string, fromBranch: string) => {
+  if (!projectPath) {
+    throw new Error("No active project selected.");
+  }
+  try {
+    const git = simpleGit(projectPath);
+
+    // Create and checkout the new branch from the specified source branch
+    await git.checkoutBranch(branch, fromBranch);
+
+    // Invalidate caches after state change
+    invalidateCache(projectPath);
+
+    // Get fresh branch info
+    const branchSummary = await git.branch();
+
+    return { activeBranch: branchSummary.current, branches: branchSummary.all };
+  } catch (error) {
+    throw error;
+  }
+});
+
 ipcMain.handle('git:updateGitignore', async (_event, filePatterns: string | string[], rootDir = '.') => {
   await updateGitignore(filePatterns, rootDir);
 })

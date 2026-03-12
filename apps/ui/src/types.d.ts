@@ -128,6 +128,7 @@ declare global {
         getBranches: () => Promise<{ branches: string[]; activeBranch: string }>;
         checkout: (projectPath: string, branch: string) => Promise<{ activeBranch: string; branches: string[] }>;
         createBranch: (projectPath: string, branch: string) => Promise<{ activeBranch: string; branches: string[] }>;
+        createBranchFrom: (projectPath: string, branch: string, fromBranch: string) => Promise<{ activeBranch: string; branches: string[] }>;
         updateGitignore: (filePatterns: string | string[], rootDir?: string) => Promise<void>;
         diffBranches: (baseBranch: string, compareBranch: string) => Promise<{
           summary: { files: number; insertions: number; deletions: number };
@@ -147,6 +148,7 @@ declare global {
           ahead: number;
           behind: number;
         }>;
+        clone: (repoUrl: string, token?: string) => Promise<{ clonedPath: string; clonedInPlace: boolean; isNewProject: boolean }>;
         stage: (files: string[]) => Promise<boolean>;
         unstage: (files: string[]) => Promise<boolean>;
         commit: (message: string) => Promise<any>;
@@ -169,6 +171,9 @@ declare global {
           insertions: number;
           deletions: number;
         }[]>;
+        fetchRemote: () => Promise<boolean | null>;
+        push: () => Promise<{ branch: string }>;
+        pull: () => Promise<any>;
       };
       plugins: {
         get: () => Promise<string[]>;
