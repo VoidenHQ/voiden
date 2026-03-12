@@ -11,7 +11,8 @@ import { getSchema } from '@tiptap/core';
 import { voidenExtensions } from '@/core/editors/voiden/extensions';
 import { Clock, RotateCcw, Copy, Check, Trash2, Search, Zap, MoreHorizontal, Download, Square, CheckSquare, X, ChevronDown, ChevronRight, ChevronsUpDown, ChevronsDownUp, Loader2 } from 'lucide-react';
 import { useResponseStore } from '@/core/request-engine/stores/responseStore';
-import { METHOD_BG_COLORS, METHOD_COLORS } from '@/constants';
+import { METHOD_COLORS } from '@/constants';
+import { Tip } from '@/core/components/ui/Tip';
 
 // ─── Schema cache ─────────────────────────────────────────────────────────────
 
@@ -99,16 +100,15 @@ function detectLang(contentType?: string | null, body?: string): string {
   return 'text';
 }
 
-const HistoryCodeViewer: React.FC<{ value: string; contentType?: string | null; maxHeight?: number }> = ({
+const HistoryCodeViewer: React.FC<{ value: string; contentType?: string | null;}> = ({
   value,
   contentType,
-  maxHeight = 220,
 }) => {
   const lang = detectLang(contentType, value);
   const extensions = renderLang(lang === 'json' ? 'jsonc' : lang);
 
   return (
-    <div style={{ maxHeight, overflow: 'hidden' }} className="rounded overflow-hidden">
+    <div style={{ maxHeight:300, overflow: 'hidden' }} className="rounded overflow-hidden">
       <ReactCodeMirror
         value={value}
         readOnly
@@ -130,7 +130,7 @@ const HistoryCodeViewer: React.FC<{ value: string; contentType?: string | null; 
           searchKeymap: false,
           syntaxHighlighting: true,
         }}
-        style={{ maxHeight, overflow: 'auto', fontSize: 11 }}
+        style={{ maxHeight:300, overflow: 'auto', fontSize: 11 }}
       />
     </div>
   );
@@ -179,8 +179,8 @@ function getGroupLabel(ts: number): string {
 function methodBadge(method: string): string {
   const methodKey = method.toUpperCase();
   const textClass = METHOD_COLORS[methodKey] ?? 'text-comment';
-  const bgClass = METHOD_BG_COLORS[methodKey] ?? 'bg-muted';
-  return `${textClass} ${bgClass} border border-border`;
+  const bgClass = textClass.startsWith('text-') ? textClass.replace('text-', 'bg-') : 'bg-muted';
+  return `${textClass} ${bgClass}/15 border border-border`;
 }
 
 // ─── Highlight ────────────────────────────────────────────────────────────────
@@ -353,7 +353,7 @@ const EntryCard: React.FC<EntryCardProps> = ({ entry, isCopied, query, isSelecti
             </span>
           )}
           <span
-            className={`text-[10px] font-bold font-mono px-1.5 py-0.5 rounded ${methodBadge(entry.request.method)}`}
+            className={`text-[10px] font-bold font-mono px-1.5 py-0.5 rounded border-border ${methodBadge(entry.request.method)}`}
           >
             {entry.request.method}
           </span>
@@ -411,20 +411,22 @@ const EntryCard: React.FC<EntryCardProps> = ({ entry, isCopied, query, isSelecti
             className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity"
             onClick={(e) => e.stopPropagation()}
           >
-            <button
-              title="Replay"
-              onClick={() => onReplay(entry)}
-              className="p-1 rounded hover:bg-blue-500/20 text-comment hover:text-blue-400 transition-colors"
-            >
-              <RotateCcw size={11} />
-            </button>
-            <button
-              title={isCopied ? 'Copied!' : 'Copy as cURL'}
-              onClick={() => onCopy(entry)}
-              className={`p-1 rounded hover:bg-muted transition-colors ${isCopied ? 'text-green-400' : 'text-comment hover:text-text'}`}
-            >
-              {isCopied ? <Check size={11} /> : <Copy size={11} />}
-            </button>
+            <Tip label="Replay" side="top" align="end">
+              <button
+                onClick={() => onReplay(entry)}
+                className="p-1 rounded hover:bg-blue-500/20 text-comment hover:text-blue-400 transition-colors"
+              >
+                <RotateCcw size={11} />
+              </button>
+            </Tip>
+            <Tip label={isCopied ? 'Copied!' : 'Copy as cURL'} side="top" align="end">
+              <button
+                onClick={() => onCopy(entry)}
+                className={`p-1 rounded hover:bg-muted transition-colors ${isCopied ? 'text-green-400' : 'text-comment hover:text-text'}`}
+              >
+                {isCopied ? <Check size={11} /> : <Copy size={11} />}
+              </button>
+            </Tip>
           </div>
         </div>
       </div>
@@ -492,7 +494,6 @@ const EntryCard: React.FC<EntryCardProps> = ({ entry, isCopied, query, isSelecti
                   <HistoryCodeViewer
                     value={entry.request.headers.map((h) => `${h.key}: ${h.value}`).join('\n')}
                     contentType="text/plain"
-                    maxHeight={140}
                   />
                 </CollapsibleSection>
               )}
@@ -508,7 +509,6 @@ const EntryCard: React.FC<EntryCardProps> = ({ entry, isCopied, query, isSelecti
                   <HistoryCodeViewer
                     value={entry.request.body}
                     contentType={entry.request.contentType}
-                    maxHeight={180}
                   />
                 </CollapsibleSection>
               )}
@@ -567,7 +567,6 @@ const EntryCard: React.FC<EntryCardProps> = ({ entry, isCopied, query, isSelecti
                   <HistoryCodeViewer
                     value={entry.response.headers.map((h) => `${h.key}: ${h.value}`).join('\n')}
                     contentType="text/plain"
-                    maxHeight={140}
                   />
                 </CollapsibleSection>
               )}
@@ -583,7 +582,6 @@ const EntryCard: React.FC<EntryCardProps> = ({ entry, isCopied, query, isSelecti
                   <HistoryCodeViewer
                     value={entry.response.body}
                     contentType={entry.response.contentType}
-                    maxHeight={220}
                   />
                 </CollapsibleSection>
               )}

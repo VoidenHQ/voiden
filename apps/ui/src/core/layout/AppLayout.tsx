@@ -1,5 +1,5 @@
 import { Panel, PanelGroup } from "react-resizable-panels";
-import { useEffect, useLayoutEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useSettings } from "@/core/settings/hooks/useSettings";
 import { useLeftPanel, useBottomPanel, useRightPanel } from "./hooks/usePanels";
 import { SidePanelTabs } from "./components/SidePanelTabs";
@@ -21,7 +21,6 @@ import { setEnvJumpTarget } from "@/core/environment/components/EnvironmentEdito
 import { useEnvironments } from "@/core/environment/hooks";
 import { mountVariableValueTooltip, unmountVariableValueTooltip } from "@/core/editors/variableValueTooltip";
 import { usePanelStore } from "@/core/stores/panelStore";
-import { useResponseStore } from "@/core/request-engine/stores/responseStore";
 
 export const AppLayout = () => {
   const { toggle: toggleLeft, panelProps: leftPanelProps, isCollapsed: isLeftCollapsed } = useLeftPanel();
@@ -47,11 +46,22 @@ export const AppLayout = () => {
   // Use useLayoutEffect so panel open/close is applied before the browser paints,
   // preventing a visible flash where the old tab's panel state bleeds into the new tab.
   const activeTabId = panelTabs?.activeTabId;
+  const knownTabIdsRef = useRef<Set<string> | null>(null);
   useLayoutEffect(() => {
     if (!activeTabId) return;
     const queryClient = getQueryClient();
     const currentPanelData = queryClient.getQueryData<{ tabs?: Tab[]; activeTabId?: string }>(["panel:tabs", "main"]);
     const targetTab = currentPanelData?.tabs?.find((tab) => tab.id === activeTabId);
+    const currentTabIds = new Set((currentPanelData?.tabs || []).map((tab) => tab.id));
+
+    let isNewlyOpenedTab = false;
+    if (knownTabIdsRef.current === null) {
+      // Initialize on first run; do not treat existing restored tabs as newly opened.
+      knownTabIdsRef.current = new Set(currentTabIds);
+    } else {
+      isNewlyOpenedTab = !knownTabIdsRef.current.has(activeTabId);
+      knownTabIdsRef.current = new Set(currentTabIds);
+    }
 
     let panelStateForTab: { rightPanelOpen?: boolean; activeSidebarTabId?: string } | undefined;
     const storedStates = localStorage.getItem("panelStates");
@@ -64,8 +74,6 @@ export const AppLayout = () => {
       }
     }
 
-    const hasResponse = !!useResponseStore.getState().responses[activeTabId]?.responseDoc;
-
     if (panelStateForTab) {
       // Restore exactly what was open/closed and which sidebar tab was active for this doc tab
       panelStateForTab.rightPanelOpen ? openRightPanel() : closeRightPanel();
@@ -77,14 +85,14 @@ export const AppLayout = () => {
           old ? { ...old, activeTabId: targetSidebarTabId } : old
         );
       }
-    } else if (!hasResponse) {
-      // No saved state, no response: close the panel
+    } else if (isNewlyOpenedTab && targetTab?.type === "document") {
+      // New tabs default to collapsed right panel.
       closeRightPanel();
     }
-    // No saved state but has response: leave panel as-is
-    // (a response just arrived and opened the panel automatically)
+    // No saved state: leave panel as-is.
+    // This prevents collapse when opening/adding tabs that don't have saved panel state yet.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTabId]);
+  }, [activeTabId, panelTabs?.tabs]);
 
   // Get app version
   useEffect(() => {
