@@ -25,6 +25,8 @@ Voiden lets you build, test, and link API requests like reusable blocks, comment
 
 No accounts, no sync, no cloud required.
 
+View our Changelog here : https://voiden.md/changelog
+
 ![Video](apps/electron/public/start.png)
 
 ---
