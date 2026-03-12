@@ -53,11 +53,11 @@ export const AppLayout = () => {
     const currentPanelData = queryClient.getQueryData<{ tabs?: Tab[]; activeTabId?: string }>(["panel:tabs", "main"]);
     const targetTab = currentPanelData?.tabs?.find((tab) => tab.id === activeTabId);
 
-    let panelStateForTab: { rightPanelOpen?: boolean } | undefined;
+    let panelStateForTab: { rightPanelOpen?: boolean; activeSidebarTabId?: string } | undefined;
     const storedStates = localStorage.getItem("panelStates");
     if (storedStates) {
       try {
-        const panelStates = JSON.parse(storedStates) as Array<{ tabId: string; rightPanelOpen: boolean }>;
+        const panelStates = JSON.parse(storedStates) as Array<{ tabId: string; rightPanelOpen: boolean; activeSidebarTabId?: string }>;
         panelStateForTab = panelStates.find((state) => state.tabId === activeTabId);
       } catch {
         panelStateForTab = undefined;
@@ -66,15 +66,23 @@ export const AppLayout = () => {
 
     const hasResponse = !!useResponseStore.getState().responses[activeTabId]?.responseDoc;
 
-    if (!hasResponse) {
-      // No cached response: always close regardless of saved state
-      closeRightPanel();
-    } else if (panelStateForTab) {
-      // Has response + saved state: restore it
+    if (panelStateForTab) {
+      // Restore exactly what was open/closed and which sidebar tab was active for this doc tab
       panelStateForTab.rightPanelOpen ? openRightPanel() : closeRightPanel();
+      if (panelStateForTab.activeSidebarTabId) {
+        const targetSidebarTabId = panelStateForTab.activeSidebarTabId;
+        window.electron?.sidebar.activateTab('right', targetSidebarTabId);
+        // Optimistically update cache so sidebar switches instantly with no refetch flash
+        queryClient.setQueryData(['sidebar:tabs', 'right'], (old: any) =>
+          old ? { ...old, activeTabId: targetSidebarTabId } : old
+        );
+      }
+    } else if (!hasResponse) {
+      // No saved state, no response: close the panel
+      closeRightPanel();
     }
-    // Has response + no saved state: leave panel as-is
-    // (e.g. a response just arrived and opened the panel automatically)
+    // No saved state but has response: leave panel as-is
+    // (a response just arrived and opened the panel automatically)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTabId]);
 
