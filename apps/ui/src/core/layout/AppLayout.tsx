@@ -85,12 +85,11 @@ export const AppLayout = () => {
           old ? { ...old, activeTabId: targetSidebarTabId } : old
         );
       }
-    } else if (isNewlyOpenedTab && targetTab?.type === "document") {
-      // New tabs default to collapsed right panel.
+    } else if (targetTab?.type === "document") {
+      // No saved state: close the right panel so tabs that never had it open
+      // don't inherit the previous tab's open panel (and its response history).
       closeRightPanel();
     }
-    // No saved state: leave panel as-is.
-    // This prevents collapse when opening/adding tabs that don't have saved panel state yet.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTabId, panelTabs?.tabs]);
 

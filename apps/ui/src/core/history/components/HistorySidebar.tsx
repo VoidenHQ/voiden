@@ -13,20 +13,12 @@ import { Clock, RotateCcw, Copy, Check, Trash2, Search, Zap, MoreHorizontal, Dow
 import { useResponseStore } from '@/core/request-engine/stores/responseStore';
 import { METHOD_COLORS } from '@/constants';
 import { Tip } from '@/core/components/ui/Tip';
-
-// ─── Schema cache ─────────────────────────────────────────────────────────────
-
-let cachedVoidenSchema: any = null;
-
-function getVoidenSchema(): any {
-  if (!cachedVoidenSchema) cachedVoidenSchema = getSchema(voidenExtensions);
-  return cachedVoidenSchema;
-}
+import { useGetPanelTabs } from '@/core/layout/hooks';
+import { useEditorEnhancementStore } from '@/plugins';
 
 // ─── .void file builder ───────────────────────────────────────────────────────
 
-function buildVoidMarkdownFromEntry(entry: HistoryEntry): string {
-  const schema = getVoidenSchema();
+function buildVoidMarkdownFromEntry(entry: HistoryEntry, schema: ReturnType<typeof getSchema>): string {
   const content: any[] = [];
 
   // Method
@@ -641,38 +633,54 @@ export const HistorySidebar: React.FC = () => {
   const isRequestLoading = useResponseStore((state) => state.isLoading);
   const currentRequestTabId = useResponseStore((state) => state.currentRequestTabId);
 
-  // Load history for the currently active document tab
-  const loadForActiveTab = useCallback(async () => {
-    try {
-      const panelData = await (window as any).electron?.state?.getPanelTabs('main');
-      if (!panelData?.tabs) return;
+  // Reactively track the active document tab from the main panel
+  const { data: panelData } = useGetPanelTabs('main');
+  const panelActiveTabId = panelData?.activeTabId ?? null;
+  const panelActiveDocTab = (panelData?.tabs as any[] | undefined)?.find(
+    (t) => t.id === panelActiveTabId && t.type === 'document',
+  );
+  const panelActiveSource = (panelActiveDocTab?.source as string | null) ?? null;
+  const panelActiveDocTabId = (panelActiveDocTab?.id as string | null) ?? null;
 
-      const activeTab = (panelData.tabs as any[]).find(
-        (t) => t.id === panelData.activeTabId && t.type === 'document',
-      );
-      const source: string | null = activeTab?.source ?? null;
-      setActiveDocumentTabId(activeTab?.id ?? null);
+  // Load (or smart-merge) history whenever the active file changes
+  useEffect(() => {
+    let cancelled = false;
 
-      if (source === activeSource) return;
-      setActiveSource(source);
+    setActiveSource(panelActiveSource);
+    setActiveDocumentTabId(panelActiveDocTabId);
 
-      if (!source) { clearEntries(); return; }
-      if (currentFilePath === source) return;
+    if (!panelActiveSource) { clearEntries(); return; }
 
-      setIsLoading(true);
+    setIsLoading(true);
+    void (async () => {
       try {
         const projectPath = getProjectPathFn ? await getProjectPathFn() : null;
-        if (projectPath) {
-          const settings = await (window as any).electron?.userSettings?.get?.();
-          const retentionDays = Math.min(90, Math.max(1, settings?.history?.retention_days ?? 2));
-          const history = await readHistory(projectPath, source, retentionDays);
-          setEntries(source, history.entries);
+        if (cancelled || !projectPath) return;
+        const settings = await (window as any).electron?.userSettings?.get?.();
+        const retentionDays = Math.min(90, Math.max(1, settings?.history?.retention_days ?? 2));
+        const history = await readHistory(projectPath, panelActiveSource, retentionDays);
+        if (cancelled) return;
+
+        // Smart merge: if the store already has entries for this file, only prepend
+        // genuinely new ones so the list doesn't fully re-render on every tab switch.
+        const storeState = useHistoryStore.getState();
+        if (storeState.currentFilePath === panelActiveSource && storeState.entries.length > 0) {
+          const existingIds = new Set(storeState.entries.map((e: HistoryEntry) => e.id));
+          const newEntries = history.entries.filter((e: HistoryEntry) => !existingIds.has(e.id));
+          if (newEntries.length > 0) {
+            setEntries(panelActiveSource, [...newEntries, ...storeState.entries]);
+          }
+          // else: already up-to-date — skip re-render
+        } else {
+          setEntries(panelActiveSource, history.entries);
         }
       } finally {
-        setIsLoading(false);
+        if (!cancelled) setIsLoading(false);
       }
-    } catch { }
-  }, [activeSource, currentFilePath, setEntries, clearEntries]);
+    })();
+
+    return () => { cancelled = true; };
+  }, [panelActiveSource, panelActiveDocTabId, clearEntries, setEntries]);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -682,10 +690,6 @@ export const HistorySidebar: React.FC = () => {
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [menuOpen]);
-
-  useEffect(() => {
-    loadForActiveTab();
-  }, [loadForActiveTab]);
 
   const handleReplay = useCallback(async (entry: HistoryEntry) => {
     try {
@@ -732,22 +736,54 @@ export const HistorySidebar: React.FC = () => {
     setMenuOpen(false);
   }, []);
 
-  const handleExport = useCallback(async (entriesToExport: HistoryEntry[]) => {
-    if (!activeSource || !entriesToExport.length) return;
+  const handleExport = useCallback(async (entriesToExport: HistoryEntry[] | null) => {
+    if (!activeSource) return;
     const projectPath = getProjectPathFn ? await getProjectPathFn() : null;
     if (!projectPath) return;
 
     const electronAny = (window as any).electron;
     const tabBasename = activeSource.split('/').pop()?.replace(/\.void$/, '') || 'unknown';
-    const folderName = `${tabBasename} History`;
 
-    const rootExists = await electronAny?.files?.getDirectoryExist(projectPath, folderName);
-    if (!rootExists) await electronAny?.files?.createDirectory(projectPath, folderName);
-    const rootFolderPath = await electronAny?.utils?.pathJoin(projectPath, folderName);
+    // Build Exports/request-history/{tabBasename} directory hierarchy
+    const exportsExists = await electronAny?.files?.getDirectoryExist(projectPath, 'Exports');
+    if (!exportsExists) await electronAny?.files?.createDirectory(projectPath, 'Exports');
+    const exportsPath = await electronAny?.utils?.pathJoin(projectPath, 'Exports');
+    const reqHistExists = await electronAny?.files?.getDirectoryExist(exportsPath, 'request-history');
+    if (!reqHistExists) await electronAny?.files?.createDirectory(exportsPath, 'request-history');
+    const reqHistPath = await electronAny?.utils?.pathJoin(exportsPath, 'request-history');
+    const tabFolderExists = await electronAny?.files?.getDirectoryExist(reqHistPath, tabBasename);
+    if (!tabFolderExists) await electronAny?.files?.createDirectory(reqHistPath, tabBasename);
+    const rootFolderPath = await electronAny?.utils?.pathJoin(reqHistPath, tabBasename);
+
+    // Determine which entries to export.
+    // null = "export all": read fresh from disk so today's newly-executed entries
+    // are always included (appendToHistory writes to disk before updating the store).
+    // non-null = "export selected": use the explicitly passed selection.
+    let toExport: HistoryEntry[];
+    if (entriesToExport === null) {
+      const settings = await electronAny?.userSettings?.get?.();
+      const retentionDays = Math.min(90, Math.max(1, settings?.history?.retention_days ?? 2));
+      const freshHistory = await readHistory(projectPath, activeSource, retentionDays);
+      // Also include any in-memory-only entries not yet reflected on disk (edge case)
+      const diskIds = new Set(freshHistory.entries.map((e: HistoryEntry) => e.id));
+      const storeState = useHistoryStore.getState();
+      const memOnly = (storeState.currentFilePath === activeSource ? storeState.entries : [])
+        .filter((e) => !diskIds.has(e.id));
+      toExport = [...memOnly, ...freshHistory.entries];
+    } else {
+      toExport = entriesToExport;
+    }
+
+    if (!toExport.length) return;
+
+    // Build full schema: base voiden extensions + plugin-registered extensions (e.g. method, url, headers-table).
+    // Must include plugin extensions or prosemirrorToMarkdown throws "Unknown node type: method".
+    const pluginExts = useEditorEnhancementStore.getState().voidenExtensions;
+    const fullSchema = getSchema([...voidenExtensions, ...pluginExts]);
 
     // Group by YYYY-MM-DD
     const byDay = new Map<string, HistoryEntry[]>();
-    for (const entry of entriesToExport) {
+    for (const entry of toExport) {
       const d = new Date(entry.timestamp);
       const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
       if (!byDay.has(day)) byDay.set(day, []);
@@ -765,7 +801,7 @@ export const HistorySidebar: React.FC = () => {
         const fileName = `${tabBasename}-${timeStr}.void`;
         const filePath = await electronAny?.utils?.pathJoin(dayFolderPath, fileName);
         if (filePath) {
-          const markdown = buildVoidMarkdownFromEntry(entry);
+          const markdown = buildVoidMarkdownFromEntry(entry, fullSchema);
           await electronAny?.files?.write(filePath, markdown);
         }
       }
@@ -904,7 +940,7 @@ export const HistorySidebar: React.FC = () => {
                     <CheckSquare size={11} className="text-accent" /> Select
                   </button>
                   <button
-                    onClick={() => handleExport(displayEntries)}
+                    onClick={() => handleExport(null)}
                     className="w-full text-left px-3 py-1.5 text-text hover:bg-muted transition-colors flex items-center gap-2"
                   >
                     <Download size={11} className="text-accent" /> Export all
