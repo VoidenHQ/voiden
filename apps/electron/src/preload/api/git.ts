@@ -25,4 +25,7 @@ export const gitApi = {
   getRemoteUrl: () => ipcRenderer.invoke("git:getRemoteUrl"),
   setRemoteUrl: (remoteUrl: string) => ipcRenderer.invoke("git:setRemoteUrl", remoteUrl),
   removeRemote: () => ipcRenderer.invoke("git:removeRemote"),
+  stash: (message?: string) => ipcRenderer.invoke("git:stash", message),
+  stashList: () => ipcRenderer.invoke("git:stashList"),
+  stashPop: (index: number) => ipcRenderer.invoke("git:stashPop", index),
 };

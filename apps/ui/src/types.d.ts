@@ -143,10 +143,12 @@ declare global {
           modified: string[];
           untracked: string[];
           deleted: string[];
+          published: boolean;
           current: string;
           tracking: string | null;
           ahead: number;
           behind: number;
+          outgoing: boolean;
         }>;
         clone: (repoUrl: string, token?: string) => Promise<{ clonedPath: string; clonedInPlace: boolean; isNewProject: boolean }>;
         stage: (files: string[]) => Promise<boolean>;
@@ -174,6 +176,9 @@ declare global {
         fetchRemote: () => Promise<boolean | null>;
         push: () => Promise<{ branch: string }>;
         pull: () => Promise<any>;
+        stash: (message?: string) => Promise<boolean>;
+        stashList: () => Promise<{ index: number; ref: string; message: string; date: string }[]>;
+        stashPop: (index: number) => Promise<boolean>;
       };
       plugins: {
         get: () => Promise<string[]>;

@@ -1,6 +1,6 @@
-import { useGetGitStatus, useStageFiles, useUnstageFiles, useCommit, useDiscardFiles, useGetGitBranches, useInitializeGit, usePushToRemote, usePullFromRemote, useCloneRepo, useFetchRemote, useGetGitRemote } from "@/core/git/hooks";
+import { useGetGitStatus, useStageFiles, useUnstageFiles, useCommit, useDiscardFiles, useGetGitBranches, useInitializeGit, usePushToRemote, usePullFromRemote, useCloneRepo, useFetchRemote, useGetGitRemote, useStash, useStashList, useStashPop } from "@/core/git/hooks";
 import { useSetActiveProject, useOpenProject } from "@/core/projects/hooks/useProjects";
-import { Loader2, FilePlus, FileEdit, FileX, GitBranch, Check, Plus, Minus, RotateCcw, GitCommit, ArrowUp, ArrowDown, RefreshCw, ChevronDown, ChevronRight, GitFork, Eye, EyeOff, MoreVertical, CloudDownload } from "lucide-react";
+import { Loader2, FilePlus, FileEdit, FileX, GitBranch, Check, Plus, Minus, RotateCcw, GitCommit, ArrowUp, ArrowDown, RefreshCw, ChevronDown, ChevronRight, GitFork, Eye, EyeOff, MoreVertical, CloudDownload, Archive, ArrowDownToLine, X } from "lucide-react";
 import { cn } from "@/core/lib/utils";
 import { useState } from "react";
 import { toast } from "@/core/components/ui/sonner";
@@ -18,17 +18,22 @@ export const GitSourceControl = () => {
   const { mutate: setActiveProject } = useSetActiveProject();
   const { mutate: openProject } = useOpenProject();
   const { mutate: unstageFiles } = useUnstageFiles();
-  const { mutate: commit, isPending: isCommitting } = useCommit();
+  const { mutateAsync: commitAsync, isPending: isCommitting } = useCommit();
   const { mutate: discardFiles } = useDiscardFiles();
   const { mutate: addPanelTab } = useAddPanelTab();
-  const { mutate: pushToRemote, isPending: isPushing } = usePushToRemote();
+  const { mutateAsync: pushToRemoteAsync, isPending: isPushing } = usePushToRemote();
   const { mutate: pullFromRemote, isPending: isPulling } = usePullFromRemote();
   const { triggerFetch } = useFetchRemote();
   const { data: remoteUrl, refetch: refetchRemote } = useGetGitRemote();
+  const { mutate: stash, isPending: isStashing } = useStash();
+  const { mutate: stashPop, isPending: isPopping } = useStashPop();
+  const { data: stashList } = useStashList();
 
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isFetchingAll, setIsFetchingAll] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [stashOpen, setStashOpen] = useState(false);
+  const [stashMessage, setStashMessage] = useState("");
   const [cloneUrl, setCloneUrl] = useState("");
   const [cloneToken, setCloneToken] = useState("");
   const [showToken, setShowToken] = useState(false);
@@ -102,21 +107,19 @@ export const GitSourceControl = () => {
   };
 
   const handleDiscard = (file: string) => {
-    if (status?.untracked.includes(file)) {
-      toast.error("Cannot discard untracked file", {
-        description: `"${file}" is untracked — stage and then unstage it to remove, or delete it manually.`,
-      });
-      return;
-    }
+    const isUntracked = status?.untracked.includes(file);
+    const message = isUntracked
+      ? `"${file}" is untracked. Delete this file permanently?`
+      : `Are you sure you want to discard changes in ${file}?`;
 
-    if (!confirm(`Are you sure you want to discard changes in ${file}?`)) {
+    if (!confirm(message)) {
       return;
     }
 
     discardFiles([file], {
       onSuccess: () => {
-        toast.success("Changes discarded", {
-          description: `Discarded changes in ${file}`,
+        toast.success(isUntracked ? "File deleted" : "Changes discarded", {
+          description: isUntracked ? `Deleted ${file}` : `Discarded changes in ${file}`,
         });
       },
       onError: (error: any) => {
@@ -149,20 +152,18 @@ export const GitSourceControl = () => {
     unstageFiles(status.staged);
   };
 
-  const handlePush = () => {
-    pushToRemote(undefined, {
-      onSuccess: () => {
-        toast.success("Pushed to remote", {
-          description: `Branch ${status?.current} pushed successfully`,
-        });
-        refetchStatus();
-      },
-      onError: (error: any) => {
-        toast.error("Push failed", {
-          description: error?.message || String(error),
-        });
-      },
-    });
+  const handlePush = async () => {
+    try {
+      await pushToRemoteAsync();
+      toast.success(status?.published ? "Pushed to remote" : "Branch published", {
+        description: `Branch ${status?.current} pushed successfully`,
+      });
+      refetchStatus();
+    } catch (error: any) {
+      toast.error("Push failed", {
+        description: error?.message || String(error),
+      });
+    }
   };
 
   const handlePull = () => {
@@ -178,7 +179,7 @@ export const GitSourceControl = () => {
     });
   };
 
-  const handleCommit = () => {
+  const handleCommit = async () => {
     if (!commitMessage.trim()) {
       toast.error("Commit message required", {
         description: "Please enter a commit message",
@@ -193,19 +194,20 @@ export const GitSourceControl = () => {
       return;
     }
 
-    commit(commitMessage, {
-      onSuccess: () => {
-        setCommitMessage("");
-        toast.success("Changes committed", {
-          description: `Committed ${status.staged.length} file(s)`,
-        });
-      },
-      onError: (error: any) => {
-        toast.error("Failed to commit", {
-          description: error?.message || String(error),
-        });
-      },
-    });
+    const stagedCount = status.staged.length;
+
+    try {
+      await commitAsync(commitMessage);
+      setCommitMessage("");
+
+      toast.success("Changes committed", {
+        description: `Committed ${stagedCount} file(s)`,
+      });
+    } catch (error: any) {
+      toast.error("Failed to commit", {
+        description: error?.message || String(error),
+      });
+    }
   };
 
   const getFileIcon = (file: string, status?: string) => {
@@ -335,6 +337,11 @@ export const GitSourceControl = () => {
     ...status.deleted,
   ].filter((f) => !status.staged.includes(f));
 
+  const hasStagedChanges = status.staged.length > 0;
+  const hasUnstagedChanges = unstagedChanges.length > 0;
+  const hasWorkingTreeChanges = hasStagedChanges || hasUnstagedChanges;
+  const hasPushTarget = status.published || !!status.tracking || !!remoteUrl;
+  const canPushNow = hasPushTarget && !hasWorkingTreeChanges && status.outgoing;
   const totalChanges = status.staged.length + unstagedChanges.length;
 
   return (
@@ -347,36 +354,8 @@ export const GitSourceControl = () => {
           </Tip>
           <span className="text-xs font-medium text-text flex-1 truncate">{status.current}</span>
 
-          {/* Publish — branch not yet on remote */}
-          {!status.published && (
-            <Tip label="Publish branch to remote" side="bottom">
-              <button
-                onClick={handlePush}
-                disabled={isPushing}
-                className="flex items-center gap-1 text-xs bg-accent/15 hover:bg-accent/25 text-accent disabled:opacity-50 disabled:cursor-not-allowed transition-colors rounded px-2 py-0.5 flex-shrink-0"
-              >
-                {isPushing ? <RefreshCw size={11} className="animate-spin" /> : <ArrowUp size={11} />}
-                {isPushing ? "Publishing…" : "Publish"}
-              </button>
-            </Tip>
-          )}
-
-          {/* Push — published branch with local commits ahead */}
-          {status.published && status.ahead > 0 && (
-            <Tip label={`Push ${status.ahead} commit${status.ahead !== 1 ? "s" : ""} to remote`} side="bottom">
-              <button
-                onClick={handlePush}
-                disabled={isPushing}
-                className="flex items-center gap-1 text-xs bg-green-500/15 hover:bg-green-500/25 text-green-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors rounded px-2 py-0.5 flex-shrink-0"
-              >
-                {isPushing ? <RefreshCw size={11} className="animate-spin" /> : <ArrowUp size={11} />}
-                {isPushing ? "Pushing…" : `Push ${status.ahead}`}
-              </button>
-            </Tip>
-          )}
-
           {/* Pull — remote has commits we don't have */}
-          {status.published && status.behind > 0 && (
+          {status.behind > 0 && (
             <Tip label={`Pull ${status.behind} commit${status.behind !== 1 ? "s" : ""} from remote`} side="bottom">
               <button
                 onClick={handlePull}
@@ -390,17 +369,17 @@ export const GitSourceControl = () => {
           )}
 
           {/* Up to date */}
-          {status.published && status.ahead === 0 && status.behind === 0 && (
+          {(status.published || !!status.tracking) && !status.outgoing && status.ahead === 0 && status.behind === 0 && (
             <span className="text-[10px] text-comment flex-shrink-0">Up to date</span>
           )}
 
           {/* Vertical dots menu */}
           <button
             onClick={() => setMenuOpen((o) => !o)}
-            disabled={isRefreshing || isFetchingAll}
+            disabled={isRefreshing || isFetchingAll || isPulling}
             className="text-comment hover:text-text flex-shrink-0 p-0.5 rounded hover:bg-active/50 disabled:opacity-60"
           >
-            {isRefreshing || isFetchingAll
+            {isRefreshing || isFetchingAll || isPulling
               ? <Loader2 size={14} className="animate-spin" />
               : <MoreVertical size={14} />}
           </button>
@@ -410,7 +389,8 @@ export const GitSourceControl = () => {
         {menuOpen && (
           <>
             <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
-            <div className="absolute right-2 top-8 z-50 bg-editor border border-border rounded-md shadow-lg py-1 min-w-[160px]">
+            <div className="absolute right-2 top-8 z-50 bg-editor border border-border rounded-md shadow-lg py-1 min-w-[170px]">
+              {/* Section 1: Refresh + Pull */}
               <button
                 onClick={() => { setMenuOpen(false); handleRefresh(); }}
                 disabled={isRefreshing}
@@ -420,6 +400,27 @@ export const GitSourceControl = () => {
                 Refresh
               </button>
               <button
+                onClick={() => { setMenuOpen(false); handlePull(); }}
+                disabled={isPulling}
+                className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-text hover:bg-active/50 disabled:opacity-50"
+              >
+                <ArrowDown size={12} className="text-comment" />
+                {isPulling ? "Pulling…" : "Pull"}
+              </button>
+
+              {/* Section 2: Stash */}
+              <div className="border-t border-border my-1" />
+              <button
+                onClick={() => { setMenuOpen(false); setStashOpen(true); }}
+                className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-text hover:bg-active/50"
+              >
+                <Archive size={12} className="text-comment" />
+                Stash…
+              </button>
+
+              {/* Section 3: Fetch All */}
+              <div className="border-t border-border my-1" />
+              <button
                 onClick={() => { setMenuOpen(false); handleFetchAll(); }}
                 disabled={isFetchingAll}
                 className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-text hover:bg-active/50 disabled:opacity-50"
@@ -427,6 +428,82 @@ export const GitSourceControl = () => {
                 <CloudDownload size={12} className={cn("text-comment", isFetchingAll && "animate-pulse")} />
                 Fetch All
               </button>
+            </div>
+          </>
+        )}
+
+        {/* Stash modal */}
+        {stashOpen && (
+          <>
+            <div className="fixed inset-0 z-40 bg-black/40" onClick={() => setStashOpen(false)} />
+            <div className="fixed left-1/2 top-1/3 z-50 -translate-x-1/2 -translate-y-1/2 bg-editor border border-border rounded-lg shadow-xl w-[360px]">
+              {/* Header */}
+              <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+                <div className="flex items-center gap-2">
+                  <Archive size={13} className="text-accent" />
+                  <span className="text-sm font-medium text-text">Stash Changes</span>
+                </div>
+                <button onClick={() => setStashOpen(false)} className="text-comment hover:text-text">
+                  <X size={14} />
+                </button>
+              </div>
+
+              {/* Stash input */}
+              <div className="p-4 flex flex-col gap-2 border-b border-border">
+                <input
+                  type="text"
+                  value={stashMessage}
+                  onChange={(e) => setStashMessage(e.target.value)}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  placeholder="Stash name (optional)"
+                  className="w-full bg-bg border border-border rounded px-3 py-1.5 text-xs text-text placeholder:text-comment focus:outline-none focus:ring-1 focus:ring-accent"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      stash(stashMessage.trim() || undefined, {
+                        onSuccess: () => { setStashMessage(""); toast.success("Changes stashed"); },
+                        onError: (err: any) => toast.error("Stash failed", { description: err?.message }),
+                      });
+                    }
+                  }}
+                />
+                <button
+                  onClick={() => stash(stashMessage.trim() || undefined, {
+                    onSuccess: () => { setStashMessage(""); toast.success("Changes stashed"); },
+                    onError: (err: any) => toast.error("Stash failed", { description: err?.message }),
+                  })}
+                  disabled={isStashing}
+                  className="w-full bg-accent hover:bg-accent/90 disabled:opacity-50 text-white text-xs rounded px-3 py-1.5 transition-colors"
+                >
+                  {isStashing ? <Loader2 size={12} className="animate-spin mx-auto" /> : "Stash"}
+                </button>
+              </div>
+
+              {/* Stash list */}
+              <div className="max-h-52 overflow-y-auto">
+                {!stashList?.length ? (
+                  <div className="px-4 py-6 text-center text-xs text-comment">No stashes</div>
+                ) : (
+                  stashList.map((item) => (
+                    <div key={item.index} className="flex items-center gap-2 px-4 py-2 border-b border-border/50 hover:bg-active/30">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs text-text truncate">{item.message}</p>
+                        <p className="text-[10px] text-comment">{item.date}</p>
+                      </div>
+                      <button
+                        onClick={() => stashPop(item.index, {
+                          onSuccess: () => toast.success("Stash applied"),
+                          onError: (err: any) => toast.error("Pop failed", { description: err?.message }),
+                        })}
+                        disabled={isPopping}
+                        className="flex items-center gap-1 text-[10px] bg-active hover:bg-active/70 text-text rounded px-2 py-0.5 flex-shrink-0 disabled:opacity-50 transition-colors"
+                      >
+                        <ArrowDownToLine size={10} />
+                        Pop
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
           </>
         )}
@@ -439,23 +516,45 @@ export const GitSourceControl = () => {
           onChange={(e) => setCommitMessage(e.target.value)}
           onMouseDown={(e) => e.stopPropagation()}
           placeholder="Commit message (Ctrl+Enter to commit)"
-          className="w-full bg-editor border border-border rounded px-3 py-2 text-sm text-text placeholder:text-comment resize-none focus:outline-none focus:ring-1 focus:ring-accent"
+          className="w-full bg-panel border border-border rounded px-3 py-2 text-sm text-text placeholder:text-comment resize-none focus:outline-none focus:ring-1 focus:ring-accent"
           rows={3}
           onKeyDown={(e) => {
-            if (e.ctrlKey && e.key === 'Enter') handleCommit();
+            if (e.ctrlKey && e.key === 'Enter' && hasWorkingTreeChanges) handleCommit();
           }}
         />
-        <button
-          onClick={handleCommit}
-          disabled={isCommitting || !commitMessage.trim() || !status.staged.length}
-          className={cn(
-            "mt-2 w-full px-3 py-2 rounded text-sm font-medium transition-colors",
-            "disabled:opacity-50 disabled:cursor-not-allowed",
-            "bg-accent text-white hover:bg-accent/90"
-          )}
-        >
-          {isCommitting ? "Committing..." : `Commit (${status.staged.length})`}
-        </button>
+
+
+        {!canPushNow ? (
+          <button
+            onClick={handleCommit}
+            disabled={isCommitting || !commitMessage.trim() || !hasStagedChanges}
+            className={cn(
+              "mt-2 w-full flex items-center justify-center gap-2 px-3 py-2 rounded text-sm font-medium transition-colors",
+              "disabled:opacity-50 disabled:cursor-not-allowed",
+              "bg-accent text-white hover:bg-accent/90"
+            )}
+          >
+            {isCommitting ? <RefreshCw size={13} className="animate-spin" /> : <GitCommit size={13} />}
+            {isCommitting ? "Committing…" : `Commit (${status.staged.length})`}
+          </button>
+        ) : (
+          <button
+            onClick={handlePush}
+            disabled={isPushing}
+            className={cn(
+              "mt-2 w-full flex items-center justify-center gap-2 px-3 py-2 rounded text-sm font-medium transition-colors",
+              "disabled:opacity-50 disabled:cursor-not-allowed",
+              "bg-accent text-white hover:bg-accent/90"
+            )}
+          >
+            {isPushing ? <RefreshCw size={13} className="animate-spin" /> : <ArrowUp size={13} />}
+            {isPushing
+              ? "Pushing…"
+              : status.published
+                ? `Push ${status.ahead} commit${status.ahead !== 1 ? "s" : ""}`
+                : "Publish branch"}
+          </button>
+        ) }
       </div>
 
       {/* Scrollable file lists */}
@@ -596,21 +695,6 @@ export const GitSourceControl = () => {
                 <p>No changes</p>
                 <p className="text-xs mt-0.5 opacity-60">Working tree clean</p>
               </div>
-              {status.ahead > 0 && (
-                <button
-                  onClick={handlePush}
-                  disabled={isPushing}
-                  className={cn(
-                    "flex items-center gap-2 px-4 py-1.5 rounded text-xs font-medium transition-colors",
-                    "bg-accent text-white hover:bg-accent/90 disabled:opacity-50 disabled:cursor-not-allowed"
-                  )}
-                >
-                  {isPushing
-                    ? <RefreshCw size={12} className="animate-spin" />
-                    : <ArrowUp size={12} />}
-                  {isPushing ? "Pushing..." : `Push ${status.ahead} commit${status.ahead !== 1 ? 's' : ''}`}
-                </button>
-              )}
             </div>
           )}
         </div>

@@ -308,6 +308,36 @@ export const useRemoveGitRemote = () => {
   });
 };
 
+export const useStashList = () => {
+  return useQuery({
+    queryKey: ["git:stashList"],
+    queryFn: async () => window.electron?.git.stashList() ?? [],
+    refetchInterval: 5000,
+  });
+};
+
+export const useStash = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (message?: string) => window.electron?.git.stash(message),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["git:status"] });
+      queryClient.invalidateQueries({ queryKey: ["git:stashList"] });
+    },
+  });
+};
+
+export const useStashPop = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (index: number) => window.electron?.git.stashPop(index),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["git:status"] });
+      queryClient.invalidateQueries({ queryKey: ["git:stashList"] });
+    },
+  });
+};
+
 // Periodically fetches from remote so ahead/behind counts stay accurate.
 // Returns a manual trigger for use in refresh actions.
 export const useFetchRemote = () => {
@@ -315,6 +345,8 @@ export const useFetchRemote = () => {
 
   const invalidateAfterFetch = () => {
     queryClient.invalidateQueries({ queryKey: ["git:status"] });
+    queryClient.invalidateQueries({ queryKey: ["git:branches"] });
+    queryClient.invalidateQueries({ queryKey: ["git:remoteUrl"] });
   };
 
   // Background fetch every 30 seconds — errors silenced (no remote / offline)

@@ -45,21 +45,42 @@ function buildGraph(commits: any[]): GraphNode[] {
   // laneToHash[l] = hash means lane l is reserved for that future commit.
   // laneToHash[l] = null/undefined means lane l is free.
   const laneToHash: (string | null)[] = [];
+  const commitsByHash = new Map(commits.map((commit) => [commit.hash, commit]));
 
-  const freeLane = (): number => {
-    const idx = laneToHash.findIndex((h) => h === null || h === undefined);
+  // Keep the first-parent backbone pinned to lane 0 so the outer-left
+  // branch remains the main continuous line and merged branches stay inside.
+  const firstParentBackbone = new Set<string>();
+  if (commits.length > 0) {
+    let current: any | undefined = commits[0];
+    while (current && !firstParentBackbone.has(current.hash)) {
+      firstParentBackbone.add(current.hash);
+      const parentHash = current.parents?.[0];
+      current = parentHash ? commitsByHash.get(parentHash) : undefined;
+    }
+  }
+
+  const freeLane = (startAt = 0): number => {
+    const idx = laneToHash.findIndex(
+      (h, lane) => lane >= startAt && (h === null || h === undefined)
+    );
     return idx === -1 ? laneToHash.length : idx;
   };
 
   for (const commit of commits) {
     let lane: number;
     const existingLane = commitToLane.get(commit.hash);
+    const isBackboneCommit = firstParentBackbone.has(commit.hash);
 
-    if (existingLane !== undefined) {
+    if (isBackboneCommit) {
+      lane = 0;
+      commitToLane.set(commit.hash, 0);
+      laneToHash[0] = null; // consume reservation if present
+    } else if (existingLane !== undefined) {
       lane = existingLane;
       laneToHash[lane] = null; // consume reservation
     } else {
-      lane = freeLane();
+      // Keep lane 0 reserved for first-parent backbone commits.
+      lane = freeLane(1);
       commitToLane.set(commit.hash, lane);
     }
 
@@ -67,14 +88,23 @@ function buildGraph(commits: any[]): GraphNode[] {
 
     if (commit.parents?.length > 0) {
       commit.parents.forEach((parentHash: string, parentIndex: number) => {
+        const parentIsBackbone = firstParentBackbone.has(parentHash);
         let parentLane = commitToLane.get(parentHash);
 
-        if (parentLane === undefined) {
-          parentLane = parentIndex === 0 ? lane : freeLane();
+        if (parentIsBackbone) {
+          // Always keep backbone commits on lane 0.
+          // If a prior pass mis-assigned this hash to a phantom lane, clear it.
+          if (parentLane !== undefined && parentLane !== 0 && laneToHash[parentLane] === parentHash) {
+            laneToHash[parentLane] = null;
+          }
+          parentLane = 0;
+          commitToLane.set(parentHash, 0);
+        } else if (parentLane === undefined) {
+          parentLane = parentIndex === 0 ? lane : freeLane(1);
           commitToLane.set(parentHash, parentLane);
-          laneToHash[parentLane] = parentHash;
         }
 
+        laneToHash[parentLane] = parentHash;
         branches.push({ from: lane, to: parentLane, isMerge: parentIndex > 0 });
       });
     }
@@ -179,6 +209,10 @@ const CommitRow = ({
     cx: node.lane * LANE_WIDTH + LANE_WIDTH / 2,
     cy: ROW_HEIGHT / 2,
   };
+  const laneRefSummary = node.commit.refs?.trim()
+    ? node.commit.refs
+    : "No branch/tag ref at this commit";
+  const tooltipText = `${node.commit.shortHash} - ${node.commit.message}\n${laneRefSummary}`;
 
   return (
     <div>
@@ -201,25 +235,20 @@ const CommitRow = ({
           {prevActiveLanes.map((l) => {
             const x = l * LANE_WIDTH + LANE_WIDTH / 2;
             const color = COLORS[l % COLORS.length];
-            const connectsHere = node.branches.some((b) => b.to === l);
+            const remainsActiveAfterRow = node.activeLanesAfter.includes(l);
 
             if (l === node.lane) {
               // Line from top down to the commit dot.
               return (
                 <line key={`in-${l}`} x1={x} y1={0} x2={x} y2={dot.cy}
-                  stroke={color} strokeWidth="1.5" opacity="0.7" />
-              );
-            } else if (connectsHere) {
-              // Another branch curves to this lane; only draw the top half continuation.
-              return (
-                <line key={`in-${l}`} x1={x} y1={0} x2={x} y2={dot.cy+15}
-                  stroke={color} strokeWidth="1.5" opacity="0.7" />
+                  stroke={color} strokeWidth="1.5" opacity="0.7" strokeLinecap="round" />
               );
             } else {
-              // True pass-through: full height straight line.
+              // If a lane is no longer active after this row, terminate at the row center.
+              const y2 = remainsActiveAfterRow ? ROW_HEIGHT : dot.cy;
               return (
-                <line key={`pass-${l}`} x1={x} y1={0} x2={x} y2={ROW_HEIGHT}
-                  stroke={color} strokeWidth="1.5" opacity="0.7" />
+                <line key={`pass-${l}`} x1={x} y1={0} x2={x} y2={y2}
+                  stroke={color} strokeWidth="1.5" opacity="0.7" strokeLinecap="round" />
               );
             }
           })}
@@ -236,7 +265,7 @@ const CommitRow = ({
               // Straight downward continuation.
               return (
                 <line key={`br-${i}`} x1={x1} y1={y1} x2={x2} y2={y2}
-                  stroke={node.color} strokeWidth="1.5" opacity="0.7" />
+                  stroke={node.color} strokeWidth="1.5" opacity="0.7" strokeLinecap="round" />
               );
             }
 
@@ -252,7 +281,9 @@ const CommitRow = ({
 
           {/* ── Commit dot ───────────────────────────────────────── */}
           <circle cx={dot.cx} cy={dot.cy} r="3.5"
-            fill={node.color} stroke="#1e1e2e" strokeWidth="1.5" />
+            fill={node.color} stroke="#1e1e2e" strokeWidth="1.5">
+            <title>{tooltipText}</title>
+          </circle>
         </svg>
 
         {/* Commit info */}
@@ -281,7 +312,8 @@ const CommitRow = ({
           >
             {expandedLanes.map((lane) => {
               const x = lane * LANE_WIDTH + LANE_WIDTH / 2;
-              const color = COLORS[lane % COLORS.length];
+              const isCommitLane = lane === node.lane;
+              const color = isCommitLane ? node.color : COLORS[lane % COLORS.length];
               return (
                 <line
                   key={`expanded-${node.commit.hash}-${lane}`}
@@ -290,8 +322,8 @@ const CommitRow = ({
                   x2={x}
                   y2="100%"
                   stroke={color}
-                  strokeWidth="1.5"
-                  opacity="0.5"
+                  strokeWidth={1.5}
+                  opacity={isCommitLane ? 0.9 : 0.7}
                 />
               );
             })}

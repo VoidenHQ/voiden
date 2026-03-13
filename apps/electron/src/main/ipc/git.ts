@@ -4,34 +4,65 @@ import { getActiveProject } from "../state";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
+import { invalidateGitCache } from "../git";
 
-// ---------------------------------------------------------------------------
-// Local published-branch store
-// Stored in <repo>/.git/voiden-published.json — git ignores unknown .git files.
-// We write to this whenever we push from Voiden so that published state is
-// known immediately without needing a remote fetch.
-// ---------------------------------------------------------------------------
 
-function publishedFilePath(repoPath: string): string {
-  return path.join(repoPath, '.git', 'voiden-published.json');
+function trackingToRemoteName(tracking: string | null | undefined): string | null {
+  if (!tracking) return null;
+  const slash = tracking.indexOf('/');
+  if (slash <= 0) return null;
+  return tracking.slice(0, slash);
 }
 
-function readPublishedBranches(repoPath: string): Set<string> {
-  try {
-    const raw = fs.readFileSync(publishedFilePath(repoPath), 'utf8');
-    const data = JSON.parse(raw);
-    return new Set(Array.isArray(data) ? data : []);
-  } catch {
-    return new Set();
+function normalizeBranchForPush(branch: string, remote?: string | null): {
+  localBranch: string;
+  remoteBranch: string;
+} {
+  if (branch === 'HEAD') {
+    return { localBranch: 'HEAD', remoteBranch: 'HEAD' };
   }
+
+  if (branch.startsWith('refs/heads/')) {
+    const name = branch.slice('refs/heads/'.length);
+    return { localBranch: name, remoteBranch: name };
+  }
+
+  if (branch.startsWith('remotes/')) {
+    const parts = branch.split('/');
+    const remoteName = parts[1];
+    const remoteBranch = parts.slice(2).join('/');
+    return { localBranch: remoteBranch, remoteBranch };
+  }
+
+  if (remote && branch.startsWith(`${remote}/`)) {
+    const remoteBranch = branch.slice(remote.length + 1);
+    return { localBranch: remoteBranch, remoteBranch };
+  }
+
+  if (branch.includes('/')) {
+    const remoteBranch = branch.split('/').slice(1).join('/');
+    return { localBranch: remoteBranch, remoteBranch };
+  }
+
+  return { localBranch: branch, remoteBranch: branch };
 }
 
-function markBranchPublished(repoPath: string, branch: string): void {
-  try {
-    const branches = readPublishedBranches(repoPath);
-    branches.add(branch);
-    fs.writeFileSync(publishedFilePath(repoPath), JSON.stringify([...branches]), 'utf8');
-  } catch { /* ignore write errors */ }
+function normalizeCurrentBranchName(branch: string | null | undefined): string | null {
+  if (!branch) return null;
+  if (branch.startsWith('refs/heads/')) {
+    return branch.slice('refs/heads/'.length);
+  }
+  if (branch.startsWith('remotes/')) {
+    return branch.split('/').slice(2).join('/');
+  }
+  const slash = branch.indexOf('/');
+  if (slash > 0) {
+    const prefix = branch.slice(0, slash);
+    if (prefix === 'origin') {
+      return branch.slice(slash + 1);
+    }
+  }
+  return branch;
 }
 
 export function registerGitIpcHandlers() {
@@ -176,47 +207,150 @@ export function registerGitIpcHandlers() {
         git.branch(),
       ]);
 
-      const currentBranch = branchSummary.current;
+      const currentBranch = normalizeCurrentBranchName(branchSummary.current);
+      const rawTracking = status.tracking || null;
 
-      // Determine if the current branch has been published to the remote.
-      //
-      // Two checks — either one being true means published:
-      //   1. We pushed it from Voiden and recorded it in voiden-published.json
-      //   2. The remote-tracking ref exists locally (branch was fetched/cloned)
-      // Remote-tracking branches (remotes/origin/... or origin/...) are always published
-      const isRemoteTrackingBranch = currentBranch?.startsWith('remotes/') || currentBranch?.startsWith('origin/');
+      let upstreamShort: string | null = null;
+      let upstreamFullRef: string | null = null;
+      try {
+        const [shortRaw, fullRaw] = await Promise.all([
+          git.raw(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}']),
+          git.raw(['rev-parse', '--symbolic-full-name', '@{upstream}']),
+        ]);
+        upstreamShort = shortRaw.trim() || null;
+        upstreamFullRef = fullRaw.trim() || null;
+      } catch {
+        upstreamShort = null;
+        upstreamFullRef = null;
+      }
 
-      const publishedBranches = readPublishedBranches(activeProject);
-      let isPublished = isRemoteTrackingBranch || publishedBranches.has(currentBranch);
-
-      if (!isPublished) {
+      // Upstream can be configured but not actually exist as a local remote-tracking ref yet.
+      // In that case, ignore it here and fall back to our resolved remote-ref lookup.
+      if (upstreamFullRef) {
         try {
-          await git.raw(['rev-parse', '--verify', `refs/remotes/origin/${currentBranch}`]);
-          isPublished = true;
-          // Cache it so future checks are instant
-          markBranchPublished(activeProject, currentBranch);
+          await git.raw(['show-ref', '--verify', upstreamFullRef]);
         } catch {
-          // Remote-tracking ref doesn't exist — branch is local-only
+          upstreamFullRef = null;
         }
       }
 
-      // git status only gives accurate ahead/behind when the branch has a
-      // configured upstream. If published but no tracking, compute manually
-      // by comparing HEAD against refs/remotes/origin/<branch>.
+      let configuredTracking: string | null = null;
+      if (currentBranch) {
+        try {
+          const [remoteRaw, mergeRaw] = await Promise.all([
+            git.raw(['config', '--get', `branch.${currentBranch}.remote`]),
+            git.raw(['config', '--get', `branch.${currentBranch}.merge`]),
+          ]);
+          const remote = remoteRaw.trim();
+          const mergeRef = mergeRaw.trim();
+          const mergeBranch = mergeRef.replace(/^refs\/heads\//, '');
+          if (remote && remote !== '.' && mergeRef.startsWith('refs/heads/') && mergeBranch) {
+            configuredTracking = `${remote}/${mergeBranch}`;
+          }
+        } catch {
+          configuredTracking = null;
+        }
+      }
+
+      // A branch is "published" if a remote-tracking ref exists for it.
+      // Remote-tracking branches (remotes/origin/... or origin/...) are always published.
+      const isRemoteTrackingBranch = currentBranch?.startsWith('remotes/') || currentBranch?.startsWith('origin/');
+
+      // Resolve the remote-tracking ref: prefer configured upstream, then search all remotes.
+      let resolvedRemoteRef: string | null =
+        upstreamFullRef && upstreamFullRef.startsWith('refs/remotes/')
+          ? upstreamFullRef
+          : rawTracking
+          ? `refs/remotes/${rawTracking}`
+          : configuredTracking
+            ? `refs/remotes/${configuredTracking}`
+            : null;
+
+      if (!resolvedRemoteRef && currentBranch && !isRemoteTrackingBranch) {
+        try {
+          const raw = await git.raw(['for-each-ref', `refs/remotes/*/${currentBranch}`, '--format=%(refname)']);
+          const refs = raw.trim().split('\n').filter(Boolean);
+          if (refs.length > 0) {
+            resolvedRemoteRef = refs.find(r => r.includes('/origin/')) || refs[0];
+          }
+        } catch {
+          // No remote-tracking refs found — branch is local-only
+        }
+      }
+
+      // Published = has a remote-tracking ref we can compare against
+      const isPublished =
+        isRemoteTrackingBranch ||
+        Boolean(rawTracking) ||
+        Boolean(configuredTracking) ||
+        Boolean(resolvedRemoteRef);
+
+      // Return a stable tracking value even when the local branch has no configured upstream
+      // but a matching remote branch exists.
+      const tracking =
+        upstreamShort ||
+        rawTracking ||
+        configuredTracking ||
+        (resolvedRemoteRef ? resolvedRemoteRef.replace(/^refs\/remotes\//, "") : null);
+
+      // Always compute ahead/behind via rev-list for ground-truth accuracy.
+      // simple-git's status.ahead can be 0 when tracking info isn't fully resolved.
       let ahead = status.ahead;
       let behind = status.behind;
 
-      if (isPublished && !status.tracking && currentBranch && !isRemoteTrackingBranch) {
+      let comparedWithUpstream = false;
+      if (upstreamFullRef) {
         try {
-          const remoteRef = `refs/remotes/origin/${currentBranch}`;
+          const countsRaw = await git.raw(['rev-list', '--left-right', '--count', `HEAD...${upstreamFullRef}`]);
+          const [aheadRaw, behindRaw] = countsRaw.trim().split(/\s+/);
+          ahead = parseInt(aheadRaw || '0', 10) || 0;
+          behind = parseInt(behindRaw || '0', 10) || 0;
+          comparedWithUpstream = true;
+        } catch {
+          comparedWithUpstream = false;
+        }
+      }
+
+      if (!comparedWithUpstream && isPublished && resolvedRemoteRef && !isRemoteTrackingBranch) {
+        try {
           const [aheadRaw, behindRaw] = await Promise.all([
-            git.raw(['rev-list', '--count', `${remoteRef}..HEAD`]),
-            git.raw(['rev-list', '--count', `HEAD..${remoteRef}`]),
+            git.raw(['rev-list', '--count', `${resolvedRemoteRef}..HEAD`]),
+            git.raw(['rev-list', '--count', `HEAD..${resolvedRemoteRef}`]),
           ]);
           ahead = parseInt(aheadRaw.trim()) || 0;
           behind = parseInt(behindRaw.trim()) || 0;
         } catch {
-          // remote ref not available — leave at defaults
+          // remote ref not available — fall back to status values
+        }
+      }
+
+      // Ground-truth count of commits reachable from HEAD that are not reachable from any
+      // fetched remote-tracking branch. This covers unpublished branches and cases where
+      // upstream metadata is incomplete.
+      let outgoingCount = 0;
+      if (!resolvedRemoteRef) {
+        try {
+          const outgoingRaw = await git.raw(['rev-list', '--count', 'HEAD', '--not', '--remotes']);
+          outgoingCount = parseInt(outgoingRaw.trim()) || 0;
+        } catch {
+          outgoingCount = 0;
+        }
+
+        if (outgoingCount > ahead) {
+          ahead = outgoingCount;
+        }
+      }
+
+      // For unpublished branches, determine whether HEAD contains local commits that are not
+      // present on any fetched remote branch yet. This allows the UI to show "Publish" only
+      // after a new commit exists on the branch.
+      let outgoing = ahead > 0;
+      if (!resolvedRemoteRef && !outgoing && !isPublished && currentBranch && !isRemoteTrackingBranch) {
+        try {
+          const containingRemoteBranches = await git.raw(['branch', '-r', '--contains', 'HEAD']);
+          outgoing = containingRemoteBranches.trim().length === 0;
+        } catch {
+          outgoing = false;
         }
       }
 
@@ -241,10 +375,11 @@ export function registerGitIpcHandlers() {
         untracked: status.not_added,
         deleted: status.deleted,
         published: isPublished,
-        tracking: status.tracking || null,
-        current: status.current,
+        tracking,
+        current: currentBranch || status.current,
         ahead,
         behind,
+        outgoing,
       };
     } catch (error) {
       console.error("Error getting git status:", error);
@@ -353,13 +488,29 @@ export function registerGitIpcHandlers() {
         throw new Error("Not a git repository");
       }
 
-      // Use git restore (modern) or checkout (fallback) to discard changes
-      // Try restore first (Git 2.23+), fall back to checkout if it fails
-      try {
-        await git.raw(['restore', ...files]);
-      } catch (restoreError) {
-        // Fallback to checkout for older git versions
-        await git.checkout(['--', ...files]);
+      const status = await git.status();
+      const untrackedSet = new Set(status.not_added);
+
+      const untrackedFiles = files.filter(f => untrackedSet.has(f));
+      const trackedFiles = files.filter(f => !untrackedSet.has(f));
+
+      // Delete untracked files from disk
+      for (const file of untrackedFiles) {
+        const fullPath = path.join(activeProject, file);
+        try {
+          await fs.promises.unlink(fullPath);
+        } catch (_e) {
+          // ignore if already gone
+        }
+      }
+
+      // Use git restore (modern) or checkout (fallback) to discard tracked changes
+      if (trackedFiles.length > 0) {
+        try {
+          await git.raw(['restore', ...trackedFiles]);
+        } catch (restoreError) {
+          await git.checkout(['--', ...trackedFiles]);
+        }
       }
 
       return true;
@@ -506,26 +657,7 @@ export function registerGitIpcHandlers() {
     }
   });
 
-  ipcMain.handle("git:push", async (_event, _projectName: string) => {
-    const activeProject = await getActiveProject(_event);
-    if (!activeProject) {
-      throw new Error("No active project selected.");
-    }
-
-    try {
-      const git = simpleGit(activeProject);
-      const isRepo = await git.checkIsRepo();
-      if (!isRepo) {
-        throw new Error("Not a git repository");
-      }
-      await git.push("origin", "master", ["-uf"]);
-    } catch (error) {
-      console.error("Error pushing to git remote:", error);
-      throw error;
-    }
-  });
-
-  // Push current branch to origin
+  // Push current branch to tracked remote (fallback: origin, then first remote)
   ipcMain.handle("git:pushBranch", async (event: IpcMainInvokeEvent) => {
     const activeProject = await getActiveProject(event);
     if (!activeProject) {
@@ -539,20 +671,47 @@ export function registerGitIpcHandlers() {
         throw new Error("Not a git repository");
       }
       const status = await git.status();
-      const branch = status.current;
-      if (!branch) {
+      const currentBranch = status.current;
+      if (!currentBranch) {
         throw new Error("Could not determine current branch");
       }
-      await git.push("origin", branch, ["--set-upstream"]);
-      markBranchPublished(activeProject, branch);
-      return { branch };
+      const remotes = await git.getRemotes(false);
+      const trackedRemote = trackingToRemoteName(status.tracking || null);
+      const fallbackRemote = remotes.find((r) => r.name === "origin")?.name || remotes[0]?.name;
+      const remote = trackedRemote || fallbackRemote;
+      if (!remote) {
+        throw new Error("No remote configured for push");
+      }
+
+      // Prefer the configured/upstream branch name when available. This avoids pushing to
+      // "HEAD" when the worktree is in a detached state but tracking still points to a branch.
+      const branchForPush = status.tracking || currentBranch;
+      const { localBranch, remoteBranch } = normalizeBranchForPush(branchForPush, remote);
+      if (!remoteBranch || remoteBranch === 'HEAD') {
+        throw new Error("Cannot push from detached HEAD without a target branch");
+      }
+
+      // Always use --set-upstream so tracking is configured after every Voiden push.
+      // This ensures getStatus reliably detects published state via status.tracking.
+      await git.raw(['push', '--set-upstream', remote, `HEAD:refs/heads/${remoteBranch}`]);
+
+      // Push does not necessarily advance local refs/remotes/* immediately.
+      // Update the remote-tracking ref locally so ahead/behind is correct right after push.
+      try {
+        const head = (await git.revparse(['HEAD'])).trim();
+        await git.raw(['update-ref', `refs/remotes/${remote}/${remoteBranch}`, head]);
+      } catch {
+        // Ignore local ref update failures; push already succeeded.
+      }
+
+      return { branch: localBranch === 'HEAD' ? remoteBranch : localBranch };
     } catch (error) {
       console.error("Error pushing branch:", error);
       throw error;
     }
   });
 
-  // Get the fetch URL of the origin remote (or null if not configured)
+  // Get the fetch URL of the tracked remote (fallback: origin, then first remote)
   ipcMain.handle("git:getRemoteUrl", async (event: IpcMainInvokeEvent) => {
     const activeProject = await getActiveProject(event);
     if (!activeProject) return null;
@@ -560,9 +719,21 @@ export function registerGitIpcHandlers() {
       const git = simpleGit(activeProject);
       const isRepo = await git.checkIsRepo();
       if (!isRepo) return null;
+      const status = await git.status();
       const remotes = await git.getRemotes(true);
+      const trackedRemote = trackingToRemoteName(status.tracking || null);
+      if (trackedRemote) {
+        const tracked = remotes.find((r) => r.name === trackedRemote);
+        if (tracked?.refs?.fetch || tracked?.refs?.push) {
+          return tracked.refs.fetch || tracked.refs.push || null;
+        }
+      }
       const origin = remotes.find((r) => r.name === "origin");
-      return origin?.refs?.fetch || null;
+      if (origin?.refs?.fetch || origin?.refs?.push) {
+        return origin.refs.fetch || origin.refs.push || null;
+      }
+      const first = remotes[0];
+      return first?.refs?.fetch || first?.refs?.push || null;
     } catch {
       return null;
     }
@@ -614,7 +785,61 @@ export function registerGitIpcHandlers() {
     const git = simpleGit(activeProject);
     const isRepo = await git.checkIsRepo();
     if (!isRepo) return null;
-    await git.fetch(["--prune"]);
+    const remotes = await git.getRemotes(false);
+    if (remotes.length === 0) {
+      await git.fetch(["--prune", "--all"]);
+    } else {
+      for (const remote of remotes) {
+        await git.raw([
+          'fetch',
+          remote.name,
+          '--prune',
+          `+refs/heads/*:refs/remotes/${remote.name}/*`,
+        ]);
+      }
+    }
+    invalidateGitCache(activeProject);
+    return true;
+  });
+
+  // Stash current changes (with optional message)
+  ipcMain.handle("git:stash", async (event: IpcMainInvokeEvent, message?: string) => {
+    const activeProject = await getActiveProject(event);
+    if (!activeProject) throw new Error("No active project selected.");
+    const git = simpleGit(activeProject);
+    const isRepo = await git.checkIsRepo();
+    if (!isRepo) throw new Error("Not a git repository");
+    const args = message ? ['push', '-m', message] : ['push'];
+    await git.raw(['stash', ...args]);
+    return true;
+  });
+
+  // List all stashes
+  ipcMain.handle("git:stashList", async (event: IpcMainInvokeEvent) => {
+    const activeProject = await getActiveProject(event);
+    if (!activeProject) return [];
+    try {
+      const git = simpleGit(activeProject);
+      const isRepo = await git.checkIsRepo();
+      if (!isRepo) return [];
+      const raw = await git.raw(['stash', 'list', '--format=%gd|%s|%cr']);
+      return raw.trim().split('\n').filter(Boolean).map((line, index) => {
+        const [ref, subject, date] = line.split('|');
+        return { index, ref: ref?.trim(), message: subject?.trim(), date: date?.trim() };
+      });
+    } catch {
+      return [];
+    }
+  });
+
+  // Pop a stash by index
+  ipcMain.handle("git:stashPop", async (event: IpcMainInvokeEvent, index: number) => {
+    const activeProject = await getActiveProject(event);
+    if (!activeProject) throw new Error("No active project selected.");
+    const git = simpleGit(activeProject);
+    const isRepo = await git.checkIsRepo();
+    if (!isRepo) throw new Error("Not a git repository");
+    await git.raw(['stash', 'pop', `stash@{${index}}`]);
     return true;
   });
 
@@ -630,7 +855,21 @@ export function registerGitIpcHandlers() {
       if (!isRepo) {
         throw new Error("Not a git repository");
       }
-      const result = await git.pull();
+      const status = await git.status();
+      const remotes = await git.getRemotes(false);
+      const trackedRemote = trackingToRemoteName(status.tracking || null);
+      const fallbackRemote = remotes.find((r) => r.name === "origin")?.name || remotes[0]?.name;
+
+      let result;
+      if (status.tracking) {
+        // Tracked upstream — plain pull
+        result = await git.pull();
+      } else if (fallbackRemote && status.current) {
+        // No tracking — pull from origin/<currentBranch> explicitly
+        result = await git.pull(trackedRemote || fallbackRemote, status.current);
+      } else {
+        throw new Error("No remote configured for pull");
+      }
       return result;
     } catch (error) {
       console.error("Error pulling from remote:", error);
