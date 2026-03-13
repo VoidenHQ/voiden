@@ -96,6 +96,34 @@ export const createFileTreeContextMenu = (mainWindow: BrowserWindow) => {
           accelerator: process.platform === "darwin" ? "Cmd+Backspace" : "Delete",
           click: async () => {
             const res = await deleteDirectory(data.path);
+
+            // Close any open tabs whose source lives inside the deleted directory.
+            const delAppState = getAppState(event);
+            const delLayout = delAppState.activeDirectory
+              ? delAppState.directories[delAppState.activeDirectory]?.layout
+              : delAppState.unsaved.layout;
+            if (delLayout) {
+              const dirPrefix = data.path.endsWith(path.sep) ? data.path : data.path + path.sep;
+              const tabsToRemove: Array<{ panelId: string; tabId: string }> = [];
+              const collectTabs = (el: any) => {
+                if (el.type === "panel") {
+                  for (const tab of el.tabs) {
+                    if (tab.source && (tab.source === data.path || tab.source.startsWith(dirPrefix))) {
+                      tabsToRemove.push({ panelId: el.id, tabId: tab.id });
+                    }
+                  }
+                } else if (el.children) {
+                  for (const child of el.children) collectTabs(child);
+                }
+              };
+              collectTabs(delLayout);
+              let stateChanged = false;
+              for (const { panelId, tabId } of tabsToRemove) {
+                if (removeTabFromPanel(delLayout, panelId, tabId)) stateChanged = true;
+              }
+              if (stateChanged) await saveState(delAppState);
+            }
+
             senderWindow?.webContents.send("directory:delete", data);
           },
         });
@@ -202,43 +230,59 @@ export const createFileTreeContextMenu = (mainWindow: BrowserWindow) => {
           });
 
           if (response === 1) {
+            const appState = getAppState(event);
+            const layout = appState.activeDirectory ? appState.directories[appState.activeDirectory]?.layout : appState.unsaved.layout;
+
             // Delete all items
             for (const item of data) {
               if (item.type === "folder") {
                 await fs.promises.rm(item.path, { recursive: true, force: true });
+
+                // Close any open tabs whose source lives inside the deleted directory.
+                if (layout) {
+                  const dirPrefix = item.path.endsWith(path.sep) ? item.path : item.path + path.sep;
+                  let stateChanged = false;
+                  // Collect tabs to remove first (mutating while iterating is unsafe).
+                  const tabsToRemove: Array<{ panelId: string; tabId: string }> = [];
+                  const collectTabs = (el: any, panelId?: string) => {
+                    if (el.type === "panel") {
+                      for (const tab of el.tabs) {
+                        if (tab.source && (tab.source === item.path || tab.source.startsWith(dirPrefix))) {
+                          tabsToRemove.push({ panelId: el.id, tabId: tab.id });
+                        }
+                      }
+                    } else if (el.children) {
+                      for (const child of el.children) collectTabs(child);
+                    }
+                  };
+                  collectTabs(layout);
+                  for (const { panelId, tabId } of tabsToRemove) {
+                    if (removeTabFromPanel(layout, panelId, tabId)) stateChanged = true;
+                  }
+                  if (stateChanged) await saveState(appState);
+                }
+
                 bulkSenderWindow?.webContents.send("directory:delete", item);
               } else {
                 await shell.trashItem(item.path);
-                bulkSenderWindow?.webContents.send("file:delete", item);
 
-
-                const appState = getAppState(event);
-                const layout = appState.activeDirectory ? appState.directories[appState.activeDirectory]?.layout : appState.unsaved.layout;
-                if (!layout) {
-                  throw new Error("No layout found to close tab.");
-                }
-
-                // Build a dummy tab that represents the file tab.
-                // We assume that file tabs are of type "document" and that their 'source' field is the file path.
-                const dummyTab: Tab = {
-                  id: "", // not used in the search
-                  type: "document",
-                  title: item.name,
-                  source: item.path,
-                  directory: null,
-                };
-
-                // Use the helper to search for the tab in the "main" panel.
-                const tabToRemove = findTabInPanel(layout, "main", dummyTab);
-                if (!tabToRemove) {
-                  // console.warn("No matching tab found for file:", data.path);
-                } else {
-                  // Remove the tab using its real id.
-                  const removed = removeTabFromPanel(layout, "main", tabToRemove.id);
-                  if (removed) {
-                    await saveState(appState);
+                // Remove the open tab BEFORE notifying the UI so the refetch sees updated state.
+                if (layout) {
+                  const dummyTab: Tab = {
+                    id: "",
+                    type: "document",
+                    title: item.name,
+                    source: item.path,
+                    directory: null,
+                  };
+                  const tabToRemove = findTabInPanel(layout, "main", dummyTab);
+                  if (tabToRemove) {
+                    const removed = removeTabFromPanel(layout, "main", tabToRemove.id);
+                    if (removed) await saveState(appState);
                   }
                 }
+
+                bulkSenderWindow?.webContents.send("file:delete", item);
               }
             }
           }
