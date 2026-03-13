@@ -44,12 +44,15 @@ export const CopyGrpcurlButton: React.FC<CopyGrpcurlButtonProps> = ({ tab, conte
             }
 
             // Generate grpcurl command
-            const grpcurlCommand = await generateGrpcurlFromJson(jsonContent);
+            const rawGrpcurlCommand = await generateGrpcurlFromJson(jsonContent);
 
-            if (!grpcurlCommand) {
+            if (!rawGrpcurlCommand) {
                 console.warn('Failed to generate grpcurl command');
                 return;
             }
+
+            // Resolve {{VAR}} and {{process.xxx}} placeholders
+            const grpcurlCommand = await (window as any).electron?.env?.replaceVariables(rawGrpcurlCommand) ?? rawGrpcurlCommand;
 
             // Copy to clipboard
             if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
