@@ -194,6 +194,7 @@ async function getDefaultState(skipDefault?:boolean): Promise<AppState | null> {
   const gitSourceControlId = crypto.randomUUID();
   const extensionBrowserId = crypto.randomUUID();
   const responsePanelId = crypto.randomUUID();
+  const historyPanelId = crypto.randomUUID();
 
   // Only get sample project if there are no windows
   if (windowManager.getAllWindows().length === 0 && !skipDefault) {
@@ -279,6 +280,10 @@ async function getDefaultState(skipDefault?:boolean): Promise<AppState | null> {
               id: responsePanelId,
               type: "responsePanel",
             },
+            {
+              id: historyPanelId,
+              type: "history",
+            },
           ],
         },
       },
@@ -336,6 +341,10 @@ async function getDefaultState(skipDefault?:boolean): Promise<AppState | null> {
           {
             id: responsePanelId,
             type: "responsePanel",
+          },
+          {
+            id: historyPanelId,
+            type: "history",
           },
         ],
       },

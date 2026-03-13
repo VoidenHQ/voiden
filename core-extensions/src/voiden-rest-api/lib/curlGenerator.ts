@@ -11,7 +11,7 @@ interface RequestData {
     queryParams?: Array<{key: string, value: string}>;
     pathParams?: Array<{key: string, value: string}>;
     body?: string;
-    bodyType?: 'json' | 'xml' | 'form' | 'multipart' | 'text';
+    bodyType?: 'json' | 'xml' | 'yaml' | 'form' | 'multipart' | 'text';
     multipartData?: Array<{key: string, value: string, type?: string}>;
 }
 
@@ -103,6 +103,8 @@ export const generateCurlCommand = (data: RequestData): string => {
                     parts.push(`-H "Content-Type: application/json"`);
                 } else if (data.bodyType === 'xml') {
                     parts.push(`-H "Content-Type: application/xml"`);
+                } else if (data.bodyType === 'yaml') {
+                    parts.push(`-H "Content-Type: application/yaml"`);
                 } else if (data.bodyType === 'form') {
                     parts.push(`-H "Content-Type: application/x-www-form-urlencoded"`);
                 }
@@ -183,9 +185,12 @@ export const generateCurlFromRequestObject = (req: any): string => {
         } else if (contentType.includes('application/json')) {
             data.body = req.body;
             data.bodyType = 'json';
-        } else if (contentType.includes('application/xml')) {
+        } else if (contentType.includes('application/xml') || contentType.includes('text/xml')) {
             data.body = req.body;
             data.bodyType = 'xml';
+        } else if (contentType.includes('yaml')) {
+            data.body = req.body;
+            data.bodyType = 'yaml';
         } else {
             data.body = req.body;
             data.bodyType = 'text';
@@ -241,8 +246,12 @@ export const generateCurlFromRequestObject = (req: any): string => {
     if (!hasContentType && data.bodyType !== 'multipart') {
         if (data.bodyType === 'json') {
             data.headers = [...(data.headers||[]), { key: 'Content-Type', value: 'application/json' }];
-        }
-        if (data.bodyType === 'form') {
+        } else if (data.bodyType === 'xml') {
+            data.headers = [...(data.headers||[]), { key: 'Content-Type', value: 'application/xml' }];
+        } else if (data.bodyType === 'yaml') {
+            const yamlMime = (req.content_type || req.contentType || '').includes('x-yaml') ? 'application/x-yaml' : 'application/yaml';
+            data.headers = [...(data.headers||[]), { key: 'Content-Type', value: yamlMime }];
+        } else if (data.bodyType === 'form') {
             data.headers = [...(data.headers||[]), { key: 'Content-Type', value: 'application/x-www-form-urlencoded' }];
         }
     }
