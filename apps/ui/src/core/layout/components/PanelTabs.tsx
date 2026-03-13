@@ -42,7 +42,7 @@ interface PanelState {
   activeSidebarTabId?: string;
 }
 
-const savePanelStateForTab = (tabId: string) => {
+export const savePanelStateForTab = (tabId: string) => {
   const { rightPanelOpen } = usePanelStore.getState();
   // Capture which right sidebar tab is currently active
   let activeSidebarTabId: string | undefined;

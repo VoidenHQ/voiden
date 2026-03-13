@@ -21,17 +21,20 @@ import { useEditorEnhancementStore } from '@/plugins';
 function buildVoidMarkdownFromEntry(entry: HistoryEntry, schema: ReturnType<typeof getSchema>): string {
   const content: any[] = [];
 
-  // Method
+  // Request node — wraps method + url as a single request block (matches RequestNode structure)
   content.push({
-    type: 'method',
-    attrs: { method: entry.request.method },
-    content: [{ type: 'text', text: entry.request.method }],
-  });
-
-  // URL
-  content.push({
-    type: 'url',
-    content: [{ type: 'text', text: entry.request.url }],
+    type: 'request',
+    content: [
+      {
+        type: 'method',
+        attrs: { method: entry.request.method },
+        content: [{ type: 'text', text: entry.request.method }],
+      },
+      {
+        type: 'url',
+        content: [{ type: 'text', text: entry.request.url }],
+      },
+    ],
   });
 
   // Request headers

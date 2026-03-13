@@ -15,6 +15,7 @@ import { getQueryClient } from "@/main";
 import { useEditorStore } from "@/core/editors/voiden/VoidenEditor";
 import type { Tab } from "../../../../electron/src/shared/types";
 import { MainEditor } from "./components/MainEditor";
+import { savePanelStateForTab } from "./components/PanelTabs";
 import { useElectronEvent } from "@/core/providers/ElectronEventProvider";
 import { useGetPanelTabs, useAddPanelTab, useActivateTab } from "./hooks";
 import { setEnvJumpTarget } from "@/core/environment/components/EnvironmentEditor";
@@ -47,9 +48,18 @@ export const AppLayout = () => {
   // preventing a visible flash where the old tab's panel state bleeds into the new tab.
   const activeTabId = panelTabs?.activeTabId;
   const knownTabIdsRef = useRef<Set<string> | null>(null);
+  const prevActiveTabIdRef = useRef<string | null>(null);
   useLayoutEffect(() => {
     if (!activeTabId) return;
     const queryClient = getQueryClient();
+
+    // Save panel state for the tab we're leaving so it can be restored later.
+    // This covers the case where the user opens a new file from the left panel
+    // (which bypasses the tab-click handler in PanelTabs that normally saves state).
+    if (prevActiveTabIdRef.current && prevActiveTabIdRef.current !== activeTabId) {
+      savePanelStateForTab(prevActiveTabIdRef.current);
+    }
+    prevActiveTabIdRef.current = activeTabId;
     const currentPanelData = queryClient.getQueryData<{ tabs?: Tab[]; activeTabId?: string }>(["panel:tabs", "main"]);
     const targetTab = currentPanelData?.tabs?.find((tab) => tab.id === activeTabId);
     const currentTabIds = new Set((currentPanelData?.tabs || []).map((tab) => tab.id));
