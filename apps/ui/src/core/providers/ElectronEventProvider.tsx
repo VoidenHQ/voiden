@@ -5,7 +5,6 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import { globalSaveFile } from "@/core/file-system/hooks";
 import { useLoadEnv, useSetActiveEnv } from "@/core/environment/hooks";
-import { reloadAllTabs } from "@/core/git/hooks/useGit";
 import { toast } from "@/core/components/ui/sonner";
 
 // Define the shape of our context.
@@ -114,9 +113,8 @@ export const ElectronEventProvider: React.FC<{ children: React.ReactNode }> = ({
       "git:changed": async (data: any) => {
         queryClient.invalidateQueries({ queryKey: ["files:tree"] });
         queryClient.invalidateQueries({ queryKey: ["git:branches"] });
-
-        // Reload all open tabs using the shared helper function
-        await reloadAllTabs(queryClient);
+        queryClient.invalidateQueries({ queryKey: ["git:status"] });
+        queryClient.invalidateQueries({ queryKey: ["git:log"] });
 
         handleEvent("git:changed", data);
       },
