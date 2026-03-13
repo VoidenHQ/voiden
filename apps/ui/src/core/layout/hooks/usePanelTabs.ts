@@ -15,17 +15,25 @@ export const useGetPanelTabs = (panelId: string) => {
 
 export const useGetTabContent = (panelId: string) => {
   const { data: panelData } = useGetPanelTabs(panelId);
+  const queryClient = useQueryClient();
 
   const activeTabId = panelData?.activeTabId;
   const tab = panelData?.tabs?.find((tab) => tab.id === activeTabId);
+  const queryKey = ["tab:content", panelId, tab?.id, tab?.source] as const;
   return useQuery({
-    queryKey: ["tab:content", panelId, tab?.id, tab?.source],
+    queryKey,
     enabled: !!tab,
     staleTime: Infinity,
     refetchOnMount: false,
     refetchOnWindowFocus: false,
     queryFn: async () => {
       const content = await window.electron?.tab.getContent(tab);
+
+      // If content hasn't changed, return the cached reference to prevent re-renders
+      const cached = queryClient.getQueryData(queryKey);
+      if (cached && (cached as any).content === content?.content) {
+        return cached;
+      }
 
       // If this is an autosaved document, pre-populate the Zustand store
       // so the editor treats it as unsaved content
