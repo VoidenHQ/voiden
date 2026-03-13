@@ -56,7 +56,7 @@ export interface ExtensionData {
 
 // SIDEBAR PANELS LOGIC
 // define sidebar tab types – these are the minimal bits that go in left/right sidebars
-type SidebarTabType = "fileExplorer" | "settings" | "extensionBrowser" | "responsePanel" | "custom";
+type SidebarTabType = "fileExplorer" | "settings" | "extensionBrowser" | "responsePanel" | "history" | "custom";
 
 // a sidebar tab holds just enough info so the ui can render the appropriate icon/view,
 // while extension-specific info is carried in meta (like extension id, view key, etc.)
