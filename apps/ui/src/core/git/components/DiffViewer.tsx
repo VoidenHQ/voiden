@@ -1,7 +1,7 @@
 import { useGetBranchDiff, useGetFileAtBranch } from "@/core/git/hooks";
-import { Loader2, FileIcon, FilePlus, FileEdit, FileX, GitCompareArrows, Split, FileText } from "lucide-react";
+import { Loader2, FileIcon, GitCompareArrows, Split, FileText, ArrowRight } from "lucide-react";
 import { cn } from "@/core/lib/utils";
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import * as Diff from "diff";
 import { useQuery } from "@tanstack/react-query";
 
@@ -40,25 +40,92 @@ interface DiffViewerProps {
       compareBranch: string;
       filePath?: string;
       isWorkingDirectory?: boolean;
+      viewOnly?: boolean;
     };
   };
 }
 
 type DiffMode = "split" | "unified";
 
+// Simple read-only file viewer for a file at a specific commit
+const FileAtCommitViewer = ({ branch, filePath }: { branch: string; filePath: string }) => {
+  const { data: content, isLoading } = useGetFileAtBranch(branch, filePath);
+
+  if (isLoading) {
+    return (
+      <div className="flex-1 flex items-center justify-center">
+        <Loader2 className="animate-spin text-comment" size={20} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex-1 overflow-auto">
+      <pre className="p-4 text-xs font-mono text-text whitespace-pre leading-5">
+        {content ?? <span className="text-comment italic">File not found at this commit</span>}
+      </pre>
+    </div>
+  );
+};
+
 export const DiffViewer = ({ tab }: DiffViewerProps) => {
   const baseBranch = tab.meta?.baseBranch;
   const compareBranch = tab.meta?.compareBranch;
   const isWorkingDirectory = tab.meta?.isWorkingDirectory;
+  const viewOnly = tab.meta?.viewOnly;
   const singleFilePath = tab.meta?.filePath;
 
   // Skip branch diff if comparing with working directory
   const { data: diffData, isLoading } = useGetBranchDiff(
-    isWorkingDirectory ? undefined : baseBranch,
-    isWorkingDirectory ? undefined : compareBranch
+    isWorkingDirectory || viewOnly ? undefined : baseBranch,
+    isWorkingDirectory || viewOnly ? undefined : compareBranch
   );
   const [selectedFile, setSelectedFile] = useState<string | null>(singleFilePath || null);
   const [diffMode, setDiffMode] = useState<DiffMode>("split");
+  const [panelWidth, setPanelWidth] = useState(30); // percentage
+  const isDraggingRef = useRef(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Auto-select first file when diff data loads
+  useEffect(() => {
+    if (diffData?.files?.length && !selectedFile) {
+      setSelectedFile(diffData.files[0].path);
+    }
+  }, [diffData, selectedFile]);
+
+  const handleDividerMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    isDraggingRef.current = true;
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      if (!isDraggingRef.current || !containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const pct = ((moveEvent.clientX - rect.left) / rect.width) * 100;
+      setPanelWidth(Math.max(10, Math.min(60, pct)));
+    };
+
+    const onMouseUp = () => {
+      isDraggingRef.current = false;
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+    };
+
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
+  }, []);
+
+  // View-only: show raw file content at the commit (no diff)
+  if (viewOnly && singleFilePath && compareBranch) {
+    return (
+      <div className="flex flex-col h-full bg-bg">
+        <div className="px-4 py-2 border-b border-border flex items-center gap-2">
+          <FileIcon size={14} className="text-comment flex-shrink-0" />
+          <span className="text-xs font-mono text-text">{singleFilePath}</span>
+        </div>
+        <FileAtCommitViewer branch={compareBranch} filePath={singleFilePath} />
+      </div>
+    );
+  }
 
   // For working directory diffs, skip to file view directly
   if (isWorkingDirectory && singleFilePath) {
@@ -128,146 +195,87 @@ export const DiffViewer = ({ tab }: DiffViewerProps) => {
     );
   }
 
-  const getFileIcon = (status: string) => {
-    switch (status[0]) {
-      case "A":
-        return <FilePlus size={16} className="text-green-500" />;
-      case "M":
-        return <FileEdit size={16} className="text-blue-500" />;
-      case "D":
-        return <FileX size={16} className="text-red-500" />;
-      case "R":
-        return <FileEdit size={16} className="text-yellow-500" />;
-      default:
-        return <FileIcon size={16} className="text-comment" />;
-    }
-  };
-
-  const getStatusLabel = (status: string) => {
-    switch (status[0]) {
-      case "A":
-        return "Added";
-      case "M":
-        return "Modified";
-      case "D":
-        return "Deleted";
-      case "R":
-        return "Renamed";
-      default:
-        return status;
-    }
-  };
-
   return (
-    <div className="flex h-full bg-bg">
-      {/* File Tree Sidebar */}
-      <div className="w-80 border-r border-border flex flex-col">
-        {/* Sidebar Header */}
-        <div className="p-4 border-b border-border">
-          <div className="flex items-center gap-2 mb-3">
-            <GitCompareArrows size={16} className="text-accent" />
-            <h2 className="text-sm font-medium text-text">Branch Comparison</h2>
-          </div>
-          <div className="flex items-center gap-2 text-xs">
-            <span className="text-comment">Base:</span>
-            <span className="text-accent font-mono">{baseBranch}</span>
-          </div>
-          <div className="flex items-center gap-2 text-xs mt-1">
-            <span className="text-comment">Compare:</span>
-            <span className="text-accent font-mono">{compareBranch}</span>
-          </div>
+    <div className="flex flex-col h-full bg-bg">
+      {/* ── Top header: comparison info + stats ── */}
+      <div className="flex-shrink-0 px-4 py-2.5 border-b border-border flex items-center gap-4">
+        <GitCompareArrows size={14} className="text-accent flex-shrink-0" />
+        <div className="flex items-center gap-1.5 text-xs font-mono min-w-0 flex-1">
+          <span className="text-accent truncate max-w-[200px]">{baseBranch}</span>
+          <ArrowRight size={12} className="text-comment flex-shrink-0" />
+          <span className="text-green-400 truncate max-w-[200px]">{compareBranch}</span>
         </div>
-
-        {/* Summary Stats */}
-        <div className="p-4 border-b border-border bg-active/20">
-          <div className="grid grid-cols-3 gap-2 text-xs">
-            <div className="text-center">
-              <div className="text-comment">Files</div>
-              <div className="text-text font-medium">{diffData.summary.files}</div>
-            </div>
-            <div className="text-center">
-              <div className="text-green-500">+{diffData.summary.insertions}</div>
-              <div className="text-comment text-[10px]">additions</div>
-            </div>
-            <div className="text-center">
-              <div className="text-red-500">-{diffData.summary.deletions}</div>
-              <div className="text-comment text-[10px]">deletions</div>
-            </div>
-          </div>
-        </div>
-
-        {/* File List */}
-        <div className="flex-1 overflow-y-auto">
-          {diffData.files.length === 0 ? (
-            <div className="p-4 text-center text-comment text-sm">No changes</div>
-          ) : (
-            <div className="p-2">
-              {diffData.files.map((file: any) => (
-                <button
-                  key={file.path}
-                  onClick={() => setSelectedFile(file.path)}
-                  className={cn(
-                    "w-full flex items-start gap-2 p-2 rounded text-left transition-colors",
-                    "hover:bg-active/50",
-                    selectedFile === file.path ? "bg-active border-l-2 border-accent" : "border-l-2 border-transparent"
-                  )}
-                >
-                  <div className="flex-shrink-0 mt-0.5">{getFileIcon(file.status)}</div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm text-text truncate font-mono">{file.path}</div>
-                    <div className="text-xs text-comment mt-0.5">{getStatusLabel(file.status)}</div>
-                    {file.oldPath && file.oldPath !== file.path && (
-                      <div className="text-xs text-comment mt-0.5 truncate">
-                        from: {file.oldPath}
-                      </div>
-                    )}
-                  </div>
-                </button>
-              ))}
-            </div>
+        <div className="flex items-center gap-3 text-xs flex-shrink-0">
+          <span className="text-comment">{diffData.summary.files} file{diffData.summary.files !== 1 ? 's' : ''}</span>
+          {diffData.summary.insertions > 0 && (
+            <span className="text-green-500">+{diffData.summary.insertions}</span>
           )}
+          {diffData.summary.deletions > 0 && (
+            <span className="text-red-500">-{diffData.summary.deletions}</span>
+          )}
+        </div>
+        {/* Diff mode toggle */}
+        <div className="flex items-center gap-1 flex-shrink-0">
+          <button
+            onClick={() => setDiffMode("split")}
+            className={cn("px-2 py-0.5 text-xs rounded flex items-center gap-1 transition-colors",
+              diffMode === "split" ? "bg-accent text-bg" : "bg-active/50 text-comment hover:text-text")}
+          >
+            <Split size={11} /> Split
+          </button>
+          <button
+            onClick={() => setDiffMode("unified")}
+            className={cn("px-2 py-0.5 text-xs rounded flex items-center gap-1 transition-colors",
+              diffMode === "unified" ? "bg-accent text-bg" : "bg-active/50 text-comment hover:text-text")}
+          >
+            <FileText size={11} /> Unified
+          </button>
         </div>
       </div>
 
-      {/* Diff Content */}
-      <div className="flex-1 flex flex-col">
-        {selectedFile ? (
-          <>
-            {/* Diff Header */}
-            <div className="p-4 border-b border-border flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <FileIcon size={16} className="text-comment" />
-                <span className="text-sm font-mono text-text">{selectedFile}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setDiffMode("split")}
-                  className={cn(
-                    "px-3 py-1 text-xs rounded flex items-center gap-1 transition-colors",
-                    diffMode === "split"
-                      ? "bg-accent text-bg"
-                      : "bg-active text-comment hover:text-text"
-                  )}
-                >
-                  <Split size={12} />
-                  Split
-                </button>
-                <button
-                  onClick={() => setDiffMode("unified")}
-                  className={cn(
-                    "px-3 py-1 text-xs rounded flex items-center gap-1 transition-colors",
-                    diffMode === "unified"
-                      ? "bg-accent text-bg"
-                      : "bg-active text-comment hover:text-text"
-                  )}
-                >
-                  <FileText size={12} />
-                  Unified
-                </button>
-              </div>
+      {/* ── Body: resizable file list + wide diff ── */}
+      <div ref={containerRef} className="flex flex-1 min-h-0 select-none">
+        {/* File list — resizable */}
+        <div style={{ width: `${panelWidth}%`, minWidth: 80 }} className="border-r border-border flex flex-col overflow-hidden flex-shrink-0">
+          {diffData.files.length === 0 ? (
+            <div className="p-2 text-center text-comment text-[10px]">No changes</div>
+          ) : (
+            <div className="flex-1 overflow-y-auto">
+              {diffData.files.map((file: any) => {
+                const fileName = file.path.split('/').pop() || file.path;
+                const statusColor =
+                  file.status[0] === 'A' ? 'bg-green-500' :
+                  file.status[0] === 'D' ? 'bg-red-500' :
+                  file.status[0] === 'R' ? 'bg-yellow-500' : 'bg-blue-500';
+                return (
+                  <button
+                    key={file.path}
+                    onClick={() => setSelectedFile(file.path)}
+                    title={file.path}
+                    className={cn(
+                      "w-full flex items-center gap-1.5 px-2 py-1.5 text-left transition-colors",
+                      "hover:bg-active/50",
+                      selectedFile === file.path ? "bg-active border-l-2 border-accent" : "border-l-2 border-transparent"
+                    )}
+                  >
+                    <span className={cn("w-1.5 h-1.5 rounded-full flex-shrink-0", statusColor)} />
+                    <span className="text-[11px] text-text font-mono truncate">{fileName}</span>
+                  </button>
+                );
+              })}
             </div>
+          )}
+        </div>
 
-            {/* Diff Display */}
+        {/* Drag divider */}
+        <div
+          onMouseDown={handleDividerMouseDown}
+          className="w-1 cursor-col-resize hover:bg-accent/40 active:bg-accent/60 flex-shrink-0 transition-colors"
+        />
+
+        {/* Diff panel */}
+        <div className="flex-1 flex flex-col min-w-0">
+          {selectedFile ? (
             <FileDiffContent
               baseBranch={baseBranch}
               compareBranch={compareBranch}
@@ -275,15 +283,15 @@ export const DiffViewer = ({ tab }: DiffViewerProps) => {
               mode={diffMode}
               isWorkingDirectory={false}
             />
-          </>
-        ) : (
-          <div className="flex-1 flex items-center justify-center text-comment">
-            <div className="text-center">
-              <FileIcon size={48} className="mx-auto mb-4 opacity-50" />
-              <p className="text-sm">Select a file to view diff</p>
+          ) : (
+            <div className="flex-1 flex items-center justify-center text-comment">
+              <div className="text-center">
+                <FileIcon size={36} className="mx-auto mb-3 opacity-40" />
+                <p className="text-xs">Select a file to view diff</p>
+              </div>
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </div>
   );
@@ -418,7 +426,7 @@ const FileDiffContent = ({ baseBranch, compareBranch, filePath, mode, isWorkingD
     }
 
     return (
-      <div className="flex-1 flex">
+      <div className="flex-1 flex overflow-y-auto">
         {/* Left side - Base */}
         <div className="flex-1 border-r border-border flex flex-col">
           <div className="px-4 py-2 bg-red-500/10 border-b border-border text-xs text-comment flex items-center gap-2">
