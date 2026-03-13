@@ -28,6 +28,7 @@ import {
   convertToJsonNode,
   convertToXMLNode,
   convertToYmlNode,
+  convertToUrlTableNode,
   convertToMethodNode,
   convertToMultipartTableNode,
   convertToQueryTableNode,
@@ -234,70 +235,107 @@ export const pasteCurl = (editor: Editor, request: ImportRequest) => {
 
     // Step 5: Add request body based on content type
     if (request.body) {
+      const mimeType = request.body.mimeType || "";
+
       // Handle URL-encoded form data
-      if (request.body.mimeType === "application/x-www-form-urlencoded" && request.body.params) {
-        // TODO: Fix - convertToUrlTableNode doesn't exist, needs proper implementation
-        // editorJsonContent = findAndReplaceOrAddNode(
-        //   editorJsonContent,
-        //   "url-table",
-        //   convertToUrlTableNode(request.body.params.map((param) => [param.name, param.value || ""])),
-        // );
+      if (mimeType === "application/x-www-form-urlencoded" && request.body.params) {
+        editorJsonContent = findAndReplaceOrAddNode(
+          editorJsonContent,
+          "url-table",
+          convertToUrlTableNode(request.body.params.map((param) => [param.name, param.value || ""])),
+        );
       }
       // Handle multipart form data
-      else if (request.body.mimeType === "multipart/form-data" && request.body.params) {
-        const formatFileName = (fileName: string) => {
-          return `@${fileName.replace(/^"|"$/g, "")}`;
-        };
+      else if (mimeType === "multipart/form-data" && request.body.params) {
+        const formatFileName = (fileName: string) => `@${fileName.replace(/^"|"$/g, "")}`;
 
         const tableData = request.body.params.map((param) => {
           const name = param.name;
           const value = param.fileName ? formatFileName(param.fileName) : param.value || "";
-          const valueWithoutQuotes = value.replace(/^"|"$/g, "");
-          return [name, valueWithoutQuotes];
+          return [name, value.replace(/^"|"$/g, "")];
         });
 
         editorJsonContent = findAndReplaceOrAddNode(editorJsonContent, "multipart-table", convertToMultipartTableNode(tableData));
       }
       // Handle YAML body
-      else if (["application/x-yaml", "text/yaml", "text/x-yaml", "application/yaml"].includes(request.body.mimeType || "") && request.body.text) {
-        const bodyText = request.body.text;
-
+      else if (["application/x-yaml", "text/yaml", "text/x-yaml", "application/yaml"].includes(mimeType) && request.body.text) {
         editorJsonContent = findAndReplaceOrAddNode(
           editorJsonContent,
           "yml_body",
-          convertToYmlNode(bodyText, request.body.mimeType || "application/x-yaml")
+          convertToYmlNode(request.body.text, mimeType || "application/x-yaml"),
         );
       }
       // Handle XML body
-      else if (["application/xml", "text/xml"].includes(request.body.mimeType || "") && request.body.text) {
-        const bodyText = request.body.text;
-
+      else if (["application/xml", "text/xml", "application/xhtml+xml"].includes(mimeType) && request.body.text) {
         editorJsonContent = findAndReplaceOrAddNode(
           editorJsonContent,
           "xml_body",
-          convertToXMLNode(bodyText, request.body.mimeType || "application/xml")
+          convertToXMLNode(request.body.text, mimeType || "application/xml"),
         );
       }
-      // Handle JSON/text body
-      else if (["application/hal+json", "application/json", "text/plain"].includes(request.body.mimeType || "") && request.body.text) {
-        const contentType = request.body.mimeType && ["application/json", "application/hal+json"].includes(request.body.mimeType) ? "json" : "text";
-
-        // Prettify JSON payload if applicable
-        const rawJson = request.body.text;
-        let bodyText = rawJson;
-        if (contentType === "json") {
-          try {
-            bodyText = prettifyJSONC(rawJson);
-          } catch (e) {
-           // silently fail
-          }
-        }
+      // Handle HTML body
+      else if (mimeType === "text/html" && request.body.text) {
+        editorJsonContent = findAndReplaceOrAddNode(
+          editorJsonContent,
+          "json_body",
+          convertToJsonNode(request.body.text, "html"),
+        );
+      }
+      // Handle JSON body (including JSON variants and hal+json)
+      else if (["application/json", "application/hal+json", "application/ld+json", "application/problem+json"].includes(mimeType) && request.body.text) {
+        let bodyText = request.body.text;
+        try { bodyText = prettifyJSONC(request.body.text); } catch { /* silently fail */ }
 
         editorJsonContent = findAndReplaceOrAddNode(
           editorJsonContent,
           "json_body",
-          convertToJsonNode(bodyText, contentType)
+          convertToJsonNode(bodyText, "json"),
         );
+      }
+      // Handle plain text body
+      else if (mimeType === "text/plain" && request.body.text) {
+        editorJsonContent = findAndReplaceOrAddNode(
+          editorJsonContent,
+          "json_body",
+          convertToJsonNode(request.body.text, "text"),
+        );
+      }
+      // Fallback: unknown or missing content type but body text is present — auto-detect
+      else if (request.body.text) {
+        const trimmed = request.body.text.trim();
+
+        // Looks like XML/HTML (starts with a tag)
+        if (trimmed.startsWith("<")) {
+          editorJsonContent = findAndReplaceOrAddNode(
+            editorJsonContent,
+            "xml_body",
+            convertToXMLNode(request.body.text, "application/xml"),
+          );
+        }
+        // Looks like YAML (key: value lines, no leading { or [)
+        else if (!trimmed.startsWith("{") && !trimmed.startsWith("[") && /^[a-zA-Z_][\w-]*\s*:/m.test(trimmed)) {
+          editorJsonContent = findAndReplaceOrAddNode(
+            editorJsonContent,
+            "yml_body",
+            convertToYmlNode(request.body.text, "application/x-yaml"),
+          );
+        }
+        // Try JSON, fall back to plain text
+        else {
+          let bodyText = request.body.text;
+          let detectedType = "text";
+          try {
+            JSON.parse(trimmed);
+            bodyText = prettifyJSONC(request.body.text);
+            detectedType = "json";
+          } catch { /* not JSON */ }
+
+          editorJsonContent = findAndReplaceOrAddNode(
+            editorJsonContent,
+            "json_body",
+            convertToJsonNode(bodyText, detectedType),
+          );
+        }
       }
     }
 

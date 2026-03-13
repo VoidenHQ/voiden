@@ -46,6 +46,8 @@ interface ResponseStore {
 
   /** Set response content for a specific tab */
   setResponse: (tabId: string, doc: any, markdown: string | null) => void;
+  /** Hydrate response content for a tab without mutating loading/request state */
+  hydrateResponse: (tabId: string, doc: any, markdown: string | null) => void;
 
   /** Get response for a specific tab */
   getResponse: (tabId: string) => TabResponse | null;
@@ -112,6 +114,17 @@ export const useResponseStore = create<ResponseStore>()(
         },
         isLoading: false,
         currentRequestTabId: null, // Clear after response is stored
+      })),
+
+      hydrateResponse: (tabId, doc, markdown) => set((state) => ({
+        responses: {
+          ...state.responses,
+          [tabId]: {
+            responseDoc: doc,
+            responseMarkdown: markdown,
+            error: null,
+          },
+        },
       })),
 
       getResponse: (tabId) => {

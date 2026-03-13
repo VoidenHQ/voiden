@@ -1,5 +1,5 @@
 import React, { useEffect } from "react";
-import { Files, ArrowDownUp, Blocks, Search, GitBranch, icons } from "lucide-react";
+import { Files, ArrowDownUp, Blocks, Search, GitBranch, History, icons } from "lucide-react";
 import { cn } from "@/core/lib/utils";
 import { useGetSidebarTabs, useActivateSidebarTab } from "@/core/layout/hooks";
 import { usePluginStore } from "@/plugins";
@@ -12,6 +12,7 @@ const sidebarTabIconMap = {
   responsePanel: <ArrowDownUp size={14} />,
   extensionBrowser: <Blocks size={14} />,
   gitSourceControl: <GitBranch size={14} />,
+  history: <History size={14} />,
 };
 
 const sidebarTabLabelMap: Record<string, string> = {
@@ -19,6 +20,7 @@ const sidebarTabLabelMap: Record<string, string> = {
   responsePanel: "Response Panel",
   extensionBrowser: "Extensions",
   gitSourceControl: "Source Control",
+  history: "History",
 };
 
 // Helper to safely render lucide icons
