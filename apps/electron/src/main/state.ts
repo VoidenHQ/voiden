@@ -644,6 +644,17 @@ export const ipcStateHandlers = () => {
         };
       }
 
+      case "conflict": {
+        // Git merge conflict resolver
+        return {
+          type: "conflict",
+          tabId,
+          title,
+          source,
+          meta: tab.meta,
+        };
+      }
+
       case "environmentEditor":
         return { type: "environmentEditor", tabId, title };
 
