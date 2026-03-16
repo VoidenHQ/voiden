@@ -1,5 +1,5 @@
 import { useSettings, ProxyConfig } from "@/core/settings/hooks/useSettings";
-import { Check, RefreshCw, Plus, Trash2, Edit2, Palette, Type, FileText, Globe, Network, Terminal as TerminalIcon, Download, Search, Keyboard, WrapText, Timer  } from "lucide-react";
+import { Check, RefreshCw, Plus, Trash2, Edit2, Palette, Type, FileText, Globe, Network, Terminal as TerminalIcon, Download, Search, Keyboard, WrapText, Timer, FolderOpen } from "lucide-react";
 import { useEffect, useMemo, useState, useRef } from "react";
 import { loadThemeById, getAvailableThemes } from "@/utils/themeLoader";
 import { Kbd } from "@/core/components/ui/kbd";
@@ -71,10 +71,10 @@ const Toggle = ({ checked, onChange, disabled }: { checked: boolean; onChange: (
   </button>
 );
 
-const Input = (props: React.InputHTMLAttributes<HTMLInputElement>) => (
+const Input = ({ className = "", ...props }: React.InputHTMLAttributes<HTMLInputElement>) => (
   <input
     {...props}
-    className={`px-3 py-1.5 rounded-md bg-editor text-text border border-[--panel-border] focus:outline-none focus:ring-2`}
+    className={`px-3 py-1.5 rounded-md bg-editor text-text border border-[--panel-border] focus:outline-none focus:ring-2 ${className}`}
     style={{
       '--tw-ring-color': 'var(--icon-primary)'
     } as React.CSSProperties}
@@ -83,11 +83,12 @@ const Input = (props: React.InputHTMLAttributes<HTMLInputElement>) => (
 
 export const SettingsScreen = () => {
   const { settings, loading, save, saveImmediate, reset, onChange } = useSettings();
-  const [activeSection, setActiveSection] = useState("appearance");
+  const [activeSection, setActiveSection] = useState("projects");
   const [searchQuery, setSearchQuery] = useState("");
 
   const cursorTypes = useMemo(() => ["text", "default", "pointer"], []);
   const [fontFamilyDraft, setFontFamilyDraft] = useState("");
+  const [projectDirectoryDraft, setProjectDirectoryDraft] = useState("");
   const [availableThemes, setAvailableThemes] = useState<{ value: string; label: string }[]>([]);
   const [showProxyForm, setShowProxyForm] = useState(false);
   const [editingProxy, setEditingProxy] = useState<ProxyConfig | null>(null);
@@ -117,6 +118,7 @@ export const SettingsScreen = () => {
   const commonFonts = useMemo(() => VALID_FONT_FAMILIES, []);
 
   // Refs for scrolling
+  const projectsRef = useRef<HTMLElement>(null);
   const appearanceRef = useRef<HTMLElement>(null);
   const editorRef = useRef<HTMLElement>(null);
   const networkRef = useRef<HTMLElement>(null);
@@ -126,6 +128,7 @@ export const SettingsScreen = () => {
   const keyboardRef = useRef<HTMLElement>(null);
 
   const sections = [
+    { id: "projects", label: "Projects", icon: <FolderOpen className="w-4 h-4" />, ref: projectsRef },
     { id: "appearance", label: "Appearance", icon: <Palette className="w-4 h-4" />, ref: appearanceRef },
     { id: "editor", label: "Editor", icon: <FileText className="w-4 h-4" />, ref: editorRef },
     { id: "network", label: "Network", icon: <Network className="w-4 h-4" />, ref: networkRef },
@@ -204,8 +207,9 @@ export const SettingsScreen = () => {
   useEffect(() => {
     if (!loading && settings) {
       setFontFamilyDraft(settings.appearance.font_family ?? "");
+      setProjectDirectoryDraft(settings.projects.default_directory ?? "");
     }
-  }, [loading, settings?.appearance.font_family]);
+  }, [loading, settings?.appearance.font_family, settings?.projects.default_directory]);
 
   // Intersection Observer to update active section based on scroll position
   useEffect(() => {
@@ -281,6 +285,26 @@ export const SettingsScreen = () => {
     } else {
       setFontFamilyDraft(settings.appearance.font_family);
     }
+  };
+
+  const commitProjectDirectory = async () => {
+    const trimmed = projectDirectoryDraft.trim();
+    if (trimmed && trimmed !== settings.projects.default_directory) {
+      await saveImmediate({ projects: { default_directory: trimmed } });
+      return;
+    }
+    setProjectDirectoryDraft(settings.projects.default_directory);
+  };
+
+  const handleBrowseProjectDirectory = async () => {
+    const [selectedPath] = (await window.electron?.dialog.openFile({
+      defaultPath: projectDirectoryDraft || settings.projects.default_directory,
+      properties: ["openDirectory", "createDirectory"],
+    })) ?? [];
+
+    if (!selectedPath) return;
+    setProjectDirectoryDraft(selectedPath);
+    await saveImmediate({ projects: { default_directory: selectedPath } });
   };
 
   // Proxy validation
@@ -629,6 +653,48 @@ export const SettingsScreen = () => {
       {/* Main Content */}
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-4xl mx-auto p-8 space-y-10">
+          {/* Projects */}
+          <section ref={projectsRef} data-section="projects">
+            <SectionHeader
+              icon={<FolderOpen className="w-5 h-5" />}
+              title="Projects"
+              description="Choose where Voiden creates and bootstraps projects by default"
+            />
+            <div>
+              {matchesSearch("Projects Default project directory sample project workspace folder") && (
+                <div className="rounded-md px-2 py-4 hover:bg-panel/30 transition-all">
+                  <div className="ml-7 flex w-full items-center gap-2">
+                    <div className="min-w-0 flex-1">
+                      <Input
+                        value={projectDirectoryDraft}
+                        onChange={(event) => setProjectDirectoryDraft(event.target.value)}
+                        onBlur={commitProjectDirectory}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            void commitProjectDirectory();
+                          }
+                        }}
+                        placeholder="Choose a folder"
+                        className="w-full border-border"
+                      />
+                    </div>
+                    <button
+                      onClick={handleBrowseProjectDirectory}
+                      className="shrink-0 px-3 py-1.5 rounded-md bg-panel hover:bg-active border border-border transition-colors"
+                    >
+                      Browse
+                    </button>
+                  </div>
+                  <div className="ml-7 mt-3 rounded-md border border-border bg-panel/40 px-3 py-2">
+                    <p className="text-xs text-comment leading-relaxed">
+                      Voiden uses this folder for new project creation and for the onboarding sample project.
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </section>
+
           {/* Appearance */}
           <section ref={appearanceRef} data-section="appearance">
             <SectionHeader

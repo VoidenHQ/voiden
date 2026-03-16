@@ -44,12 +44,17 @@ export type Settings = {
   cli: {
     installed: boolean; // Whether CLI is currently installed in PATH
   };
+  projects: {
+    default_directory: string;
+  };
 };
 
 const userFile = path.join(app.getPath("userData"), "settings.json");
 
 // In dev you may want a different path; in prod use process.resourcesPath.
-const defaultsFile = app.isPackaged ? path.join(process.resourcesPath, "default.settings.json") : path.join(__dirname, "../../default.settings.json");
+const defaultsFile = app.isPackaged
+  ? path.join(process.resourcesPath, "default.settings.json")
+  : path.join(__dirname, "../../default.settings.json");
 
 function readJSON<T>(p: string): T | undefined {
   try {
@@ -60,9 +65,16 @@ function readJSON<T>(p: string): T | undefined {
 }
 
 function deepMerge<T>(base: T, override: Partial<T>): T {
-  const out: any = Array.isArray(base) ? [...(base as any)] : { ...(base as any) };
+  const out: any = Array.isArray(base)
+    ? [...(base as any)]
+    : { ...(base as any) };
   for (const [k, v] of Object.entries(override ?? {})) {
-    if (v && typeof v === "object" && !Array.isArray(v) && typeof (out as any)[k] === "object") {
+    if (
+      v &&
+      typeof v === "object" &&
+      !Array.isArray(v) &&
+      typeof (out as any)[k] === "object"
+    ) {
       (out as any)[k] = deepMerge((out as any)[k], v as any);
     } else {
       (out as any)[k] = v;
@@ -72,6 +84,29 @@ function deepMerge<T>(base: T, override: Partial<T>): T {
 }
 
 let cache: Settings;
+
+export function getDefaultProjectsDirectory() {
+  return path.join(app.getPath("home"), "Voiden");
+}
+
+function normalizeSettings(settings: Settings): Settings {
+  const next = { ...settings };
+
+  if (!next.cli) {
+    next.cli = { installed: false };
+  }
+
+  if (!next.projects) {
+    next.projects = { default_directory: getDefaultProjectsDirectory() };
+  }
+
+  const trimmedDirectory = next.projects.default_directory?.trim();
+  next.projects.default_directory = trimmedDirectory
+    ? path.resolve(trimmedDirectory)
+    : getDefaultProjectsDirectory();
+
+  return next;
+}
 
 export function loadSettings(): Settings {
   const defaults = readJSON<Settings>(defaultsFile);
@@ -96,7 +131,7 @@ export function loadSettings(): Settings {
   }
 
   // Now merge: user settings (potentially with beta channel) override defaults
-  cache = deepMerge(defaults, user);
+  cache = normalizeSettings(deepMerge(defaults, user));
 
   // Ensure file exists with current settings
   try {
@@ -112,7 +147,7 @@ export function getSettings(): Settings {
 }
 
 export function saveSettings(patch: Partial<Settings>): Settings {
-  const merged = deepMerge(getSettings(), patch);
+  const merged = normalizeSettings(deepMerge(getSettings(), patch));
   fs.writeFileSync(userFile, JSON.stringify(merged, null, 2));
   cache = merged;
 
@@ -126,25 +161,30 @@ export function saveSettings(patch: Partial<Settings>): Settings {
 export function resetSettings(): Settings {
   const defaults = readJSON<Settings>(defaultsFile);
   if (!defaults) throw new Error("default.settings.json missing or invalid");
-  fs.writeFileSync(userFile, JSON.stringify(defaults, null, 2));
-  cache = defaults;
+  cache = normalizeSettings(defaults);
+  fs.writeFileSync(userFile, JSON.stringify(cache, null, 2));
   return cache;
 }
 
-export async function toggleEarlyAccess(enable: boolean): Promise<{ confirmed: boolean; settings?: Settings }> {
+export async function toggleEarlyAccess(
+  enable: boolean,
+): Promise<{ confirmed: boolean; settings?: Settings }> {
   const focusedWindow = BrowserWindow.getFocusedWindow();
-  
-  const result = await dialog.showMessageBox(focusedWindow || BrowserWindow.getAllWindows()[0], {
-    type: "warning",
-    title: "Restart Required",
-    message: enable ? "Enable Early Access?" : "Disable Early Access?",
-    detail: enable 
-      ? "Toggling Early Access will restart the application to apply changes. You'll get early access to new features and updates, but builds may be less stable.\n\nDo you want to continue?"
-      : "Toggling Early Access will restart the application to apply changes.\n\nDo you want to continue?",
-    buttons: ["Restart Now", "Cancel"],
-    defaultId: 0,
-    cancelId: 1,
-  });
+
+  const result = await dialog.showMessageBox(
+    focusedWindow || BrowserWindow.getAllWindows()[0],
+    {
+      type: "warning",
+      title: "Restart Required",
+      message: enable ? "Enable Early Access?" : "Disable Early Access?",
+      detail: enable
+        ? "Toggling Early Access will restart the application to apply changes. You'll get early access to new features and updates, but builds may be less stable.\n\nDo you want to continue?"
+        : "Toggling Early Access will restart the application to apply changes.\n\nDo you want to continue?",
+      buttons: ["Restart Now", "Cancel"],
+      defaultId: 0,
+      cancelId: 1,
+    },
+  );
 
   if (result.response === 0) {
     // User clicked "Restart Now"
@@ -173,7 +213,11 @@ export function registerSettingsIpc() {
   loadSettings();
 
   ipcMain.handle("usersettings:get", () => getSettings());
-  ipcMain.handle("usersettings:set", (_e, patch: Partial<Settings>) => saveSettings(patch));
+  ipcMain.handle("usersettings:set", (_e, patch: Partial<Settings>) =>
+    saveSettings(patch),
+  );
   ipcMain.handle("usersettings:reset", () => resetSettings());
-  ipcMain.handle("usersettings:toggleEarlyAccess", (_e, enable: boolean) => toggleEarlyAccess(enable));
+  ipcMain.handle("usersettings:toggleEarlyAccess", (_e, enable: boolean) =>
+    toggleEarlyAccess(enable),
+  );
 }
