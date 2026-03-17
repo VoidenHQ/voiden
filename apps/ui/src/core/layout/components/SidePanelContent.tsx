@@ -5,6 +5,7 @@ import { usePluginStore } from "@/plugins";
 import { ResponsePanelContainer } from "@/core/request-engine/components/ResponsePanelContainer";
 import { GitSourceControl } from "@/core/git/components/GitSourceControl";
 import { HistorySidebar } from "@/core/history/components/HistorySidebar";
+import { GlobalHistorySidebar } from "@/core/history/components/GlobalHistorySidebar";
 
 const sidebarComponentMap: Record<string, React.ReactNode> = {
   fileExplorer: <FileSystemList />,
@@ -12,6 +13,7 @@ const sidebarComponentMap: Record<string, React.ReactNode> = {
   responsePanel: <ResponsePanelContainer />,
   gitSourceControl: <GitSourceControl />,
   history: <HistorySidebar />,
+  globalHistory: <GlobalHistorySidebar />,
 };
 
 export const SidePanelContent = ({ side }: { side: "left" | "right" }) => {

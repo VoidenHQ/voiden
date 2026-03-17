@@ -17,6 +17,8 @@ export const directoriesApi = {
 
 export const dialogApi = {
   openFile: (options: Electron.OpenDialogOptions) => ipcRenderer.invoke("dialog:openFile", options),
+  showMessageBox: (options: Electron.MessageBoxOptions): Promise<number> =>
+    ipcRenderer.invoke("dialog:showMessageBox", options),
 };
 
 export const editorApi = {
@@ -55,6 +57,7 @@ export const sidebarApi = {
       title: string;
     },
   ) => ipcRenderer.invoke("sidebar:registerSidebarTab", sidebarId, tab),
+  setHistoryEnabled: (enabled: boolean) => ipcRenderer.invoke("sidebar:setHistoryEnabled", enabled),
 };
 
 export const settingsApi = {

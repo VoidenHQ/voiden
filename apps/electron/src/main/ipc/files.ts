@@ -217,6 +217,36 @@ export function registerFileIpcHandlers() {
     return await dropFolder(targetPath, sourcePath);
   });
 
+  ipcMain.handle("files:listDir", async (_event, dirPath: string) => {
+    try {
+      const entries = await fs.promises.readdir(dirPath);
+      return entries;
+    } catch {
+      return [];
+    }
+  });
+
+  ipcMain.handle("files:stat", async (_event, filePath: string) => {
+    try {
+      const stat = await fs.promises.stat(filePath);
+      return { size: stat.size, mtime: stat.mtimeMs, exists: true };
+    } catch {
+      return { exists: false };
+    }
+  });
+
+  ipcMain.handle("files:hash", async (_event, filePath: string) => {
+    try {
+      const { createHash } = await import("node:crypto");
+      const content = await fs.promises.readFile(filePath);
+      const hash = createHash("sha256").update(content).digest("hex");
+      const size = content.byteLength;
+      return { exists: true, hash, size };
+    } catch {
+      return { exists: false };
+    }
+  });
+
   ipcMain.handle("dialog:openFile", async (_event, options) => {
     const focusedWindow = BrowserWindow.getFocusedWindow();
     const result = await dialog.showOpenDialog(focusedWindow, options);
@@ -225,4 +255,15 @@ export function registerFileIpcHandlers() {
     }
     return result.filePaths;
   });
+
+  ipcMain.handle(
+    "dialog:showMessageBox",
+    async (_event, options: Electron.MessageBoxOptions) => {
+      const focusedWindow = BrowserWindow.getFocusedWindow();
+      const result = focusedWindow
+        ? await dialog.showMessageBox(focusedWindow, options)
+        : await dialog.showMessageBox(options);
+      return result.response;
+    },
+  );
 }

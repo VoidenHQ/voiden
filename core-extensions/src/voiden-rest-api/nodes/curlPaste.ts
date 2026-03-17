@@ -181,7 +181,63 @@ function insertParagraphNodes(view: EditorView, lines: string[]): void {
  * @param editor - The TipTap editor instance
  * @param request - The parsed ImportRequest from the cURL command
  */
-export const pasteCurl = (editor: Editor, request: ImportRequest) => {
+const isAbsolutePath = (p: string) =>
+  p.startsWith('/') || /^[A-Za-z]:[\\/]/.test(p);
+
+export const pasteCurl = async (editor: Editor, request: ImportRequest) => {
+  // Pre-resolve multipart file paths to absolute before the sync editor update.
+  let multipartRows: any[] | null = null;
+  if (request.body?.mimeType === 'multipart/form-data' && request.body.params) {
+    let activeProject: string | undefined;
+    try {
+      // @ts-ignore
+      const { getQueryClient } = await import(/* @vite-ignore */ '@/main');
+      const qc = getQueryClient();
+      const projects = (qc.getQueryData(["projects"]) as any);
+      activeProject = projects?.activeProject;
+    } catch { /* ignore */ }
+
+    const makeCell = (content: any[]) => ({
+      type: 'tableCell',
+      attrs: { colspan: 1, rowspan: 1, colwidth: null },
+      content: [{ type: 'paragraph', content }],
+    });
+
+    multipartRows = await Promise.all(
+      request.body.params.map(async (param: any) => {
+        const keyCell = makeCell(param.name ? [{ type: 'text', text: param.name }] : []);
+
+        const rawFile = param.fileName
+          ? param.fileName.replace(/^"|"$/g, '').replace(/^@/, '')
+          : null;
+
+        let resolvedPath = rawFile;
+        if (rawFile && !isAbsolutePath(rawFile) && activeProject) {
+          try {
+            const joined = await (window as any).electron?.utils?.pathJoin?.(activeProject, rawFile);
+            if (joined) {
+              const result = await (window as any).electron?.files?.hash?.(joined);
+              if (result?.exists) resolvedPath = joined;
+            }
+          } catch { /* best-effort */ }
+        }
+
+        const valCell = resolvedPath
+          ? makeCell([{
+              type: 'fileLink',
+              attrs: {
+                filePath: resolvedPath,
+                filename: resolvedPath.split(/[\\/]/).pop() ?? resolvedPath,
+                isExternal: true,
+              },
+            }])
+          : makeCell(param.value ? [{ type: 'text', text: param.value }] : []);
+
+        return { type: 'tableRow', attrs: { disabled: false }, content: [keyCell, valCell] };
+      }),
+    );
+  }
+
   updateEditorContent(editor, (editorJsonContent) => {
     const requestBlocks = ["headers-table", "query-table", "url-table", "multipart-table", "cookies-table", "json_body", "xml_body", "yml_body"];
 
@@ -246,16 +302,13 @@ export const pasteCurl = (editor: Editor, request: ImportRequest) => {
         );
       }
       // Handle multipart form data
-      else if (mimeType === "multipart/form-data" && request.body.params) {
-        const formatFileName = (fileName: string) => `@${fileName.replace(/^"|"$/g, "")}`;
-
-        const tableData = request.body.params.map((param) => {
-          const name = param.name;
-          const value = param.fileName ? formatFileName(param.fileName) : param.value || "";
-          return [name, value.replace(/^"|"$/g, "")];
-        });
-
-        editorJsonContent = findAndReplaceOrAddNode(editorJsonContent, "multipart-table", convertToMultipartTableNode(tableData));
+      else if (mimeType === "multipart/form-data" && (multipartRows || request.body.params)) {
+        const rows = multipartRows ?? [];
+        const multipartNode = {
+          type: "multipart-table",
+          content: [{ type: "table", content: rows }],
+        };
+        editorJsonContent = findAndReplaceOrAddNode(editorJsonContent, "multipart-table", multipartNode);
       }
       // Handle YAML body
       else if (["application/x-yaml", "text/yaml", "text/x-yaml", "application/yaml"].includes(mimeType) && request.body.text) {
@@ -313,11 +366,27 @@ export const pasteCurl = (editor: Editor, request: ImportRequest) => {
           );
         }
         // Looks like YAML (key: value lines, no leading { or [)
-        else if (!trimmed.startsWith("{") && !trimmed.startsWith("[") && /^[a-zA-Z_][\w-]*\s*:/m.test(trimmed)) {
+        else if (!trimmed.startsWith("{") && !trimmed.startsWith("[") && !trimmed.startsWith("<") && /^[a-zA-Z_][\w-]*\s*:/m.test(trimmed)) {
           editorJsonContent = findAndReplaceOrAddNode(
             editorJsonContent,
             "yml_body",
             convertToYmlNode(request.body.text, "application/x-yaml"),
+          );
+        }
+        // Looks like URL-encoded form data (key=value pairs, no JSON/XML indicators)
+        else if (!trimmed.startsWith("{") && !trimmed.startsWith("[") && !trimmed.startsWith("<") && /^[^=\s]+=/.test(trimmed)) {
+          const params = trimmed.split("&").map((pair) => {
+            const eqIdx = pair.indexOf("=");
+            if (eqIdx === -1) return [decodeURIComponent(pair.trim()), ""];
+            return [
+              decodeURIComponent(pair.slice(0, eqIdx).trim()),
+              decodeURIComponent(pair.slice(eqIdx + 1).trim()),
+            ];
+          });
+          editorJsonContent = findAndReplaceOrAddNode(
+            editorJsonContent,
+            "url-table",
+            convertToUrlTableNode(params),
           );
         }
         // Try JSON, fall back to plain text

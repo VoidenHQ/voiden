@@ -57,6 +57,11 @@
       "description": "Registers handlers for building requests and processing responses"
     },
 
+    "history": {
+      "registersCurlBuilder": true,
+      "description": "Registers a REST-aware cURL builder for history entries. Other plugins can do the same via context.history.registerCurlBuilder()."
+    },
+
     "slashCommands": {
       "groups": [
         {
@@ -88,6 +93,7 @@
     "Response visualization with status, headers, and body",
     "Collapsible response sections",
     "Syntax highlighting for JSON and XML responses",
-    "Request/response pipeline integration"
+    "Request/response pipeline integration",
+    "History API integration: custom cURL builder for global history export"
   ]
 }

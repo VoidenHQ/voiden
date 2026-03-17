@@ -59,8 +59,23 @@ function extractTableData(
                     keyValuePair.key = textContent || "";
                   } else if (cellIndex === 1) {
                     if (type === "multipart-table") {
-                      keyValuePair.value = cellNode.attrs?.file || "";
-                      keyValuePair.type = "file";
+                      // Prefer legacy cellNode.attrs.file, then look for a fileLink inline node
+                      const legacyFile = cellNode.attrs?.file || "";
+                      if (legacyFile) {
+                        keyValuePair.value = legacyFile;
+                        keyValuePair.type = "file";
+                      } else {
+                        const paragraphContent = cellNode.content?.[0]?.content;
+                        const fileLinkNode = paragraphContent?.find((n: any) => n.type === "fileLink");
+                        if (fileLinkNode?.attrs?.filePath) {
+                          keyValuePair.value = fileLinkNode.attrs.filePath;
+                          keyValuePair.type = "file";
+                        } else {
+                          // Plain text value
+                          keyValuePair.value = textContent || "";
+                          keyValuePair.type = "text";
+                        }
+                      }
                     } else {
                       keyValuePair.value = textContent || "";
                     }

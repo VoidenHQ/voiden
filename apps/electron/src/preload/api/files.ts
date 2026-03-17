@@ -37,6 +37,9 @@ export const filesApi = {
   deleteDirectory: (path: string) => ipcRenderer.invoke("files:deleteDirectory", path),
   bulkDelete: (items: FileTreeItem[]) => ipcRenderer.invoke("files:bulkDelete", items),
   getVoidFiles: () => ipcRenderer.invoke("files:getVoidFiles"),
+  listDir: (dirPath: string): Promise<string[]> => ipcRenderer.invoke("files:listDir", dirPath),
+  stat: (filePath: string): Promise<{ exists: boolean; size?: number; mtime?: number }> => ipcRenderer.invoke("files:stat", filePath),
+  hash: (filePath: string): Promise<{ exists: boolean; hash?: string; size?: number }> => ipcRenderer.invoke("files:hash", filePath),
   onReferencesUpdated: (callback: (filePaths: string[]) => void) => {
     const handler = (_: unknown, filePaths: string[]) => callback(filePaths);
     ipcRenderer.on("files:referencesUpdated", handler);
