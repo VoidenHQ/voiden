@@ -188,6 +188,7 @@ declare global {
         resolveConflict: (file: string, resolution: 'current' | 'incoming' | 'both', sectionIndex?: number) => Promise<{ resolved: boolean }>;
         getFileContent: (file: string) => Promise<string>;
         saveResolvedFile: (file: string, content: string) => Promise<{ success: boolean }>;
+        uncommit: () => Promise<boolean>;
       };
       plugins: {
         get: () => Promise<string[]>;

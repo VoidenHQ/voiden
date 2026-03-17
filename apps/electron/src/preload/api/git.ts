@@ -33,4 +33,5 @@ export const gitApi = {
     ipcRenderer.invoke("git:resolveConflict", file, resolution, sectionIndex),
   getFileContent: (file: string) => ipcRenderer.invoke("git:getFileContent", file),
   saveResolvedFile: (file: string, content: string) => ipcRenderer.invoke("git:saveResolvedFile", file, content),
+  uncommit: () => ipcRenderer.invoke("git:uncommit"),
 };

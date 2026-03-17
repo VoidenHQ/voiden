@@ -1044,6 +1044,18 @@ export function registerGitIpcHandlers() {
     return { success: true };
   });
 
+  // Undo the last commit — moves changes back to the staging area (soft reset)
+  ipcMain.handle("git:uncommit", async (event: IpcMainInvokeEvent) => {
+    const activeProject = await getActiveProject(event);
+    if (!activeProject) throw new Error("No active project selected.");
+    const git = simpleGit(activeProject);
+    const isRepo = await git.checkIsRepo();
+    if (!isRepo) throw new Error("Not a git repository");
+    await git.reset(['--soft', 'HEAD~1']);
+    invalidateGitCache(activeProject);
+    return true;
+  });
+
   ipcMain.handle("git:pull", async (event: IpcMainInvokeEvent) => {
     const activeProject = await getActiveProject(event);
     if (!activeProject) {

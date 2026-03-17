@@ -1,4 +1,4 @@
-import { useGetGitStatus, useStageFiles, useUnstageFiles, useCommit, useDiscardFiles, useGetGitBranches, useInitializeGit, usePushToRemote, usePullFromRemote, useCloneRepo, useFetchRemote, useGetGitRemote, useStash, useStashList, useStashPop } from "@/core/git/hooks";
+import { useGetGitStatus, useStageFiles, useUnstageFiles, useCommit, useDiscardFiles, useGetGitBranches, useInitializeGit, usePushToRemote, usePullFromRemote, useCloneRepo, useFetchRemote, useGetGitRemote, useStash, useStashList, useStashPop, useUncommit, useGetGitLog } from "@/core/git/hooks";
 import { useSetActiveProject, useOpenProject } from "@/core/projects/hooks/useProjects";
 import { Loader2, FilePlus, FileEdit, FileX, GitBranch, Check, Plus, Minus, RotateCcw, GitCommit, ArrowUp, ArrowDown, RefreshCw, ChevronDown, ChevronRight, GitFork, Eye, EyeOff, MoreVertical, CloudDownload, Archive, ArrowDownToLine, X } from "lucide-react";
 import { cn } from "@/core/lib/utils";
@@ -29,6 +29,8 @@ export const GitSourceControl = () => {
   const { mutate: stash, isPending: isStashing } = useStash();
   const { mutate: stashPop, isPending: isPopping } = useStashPop();
   const { data: stashList } = useStashList();
+  const { mutateAsync: uncommitAsync, isPending: isUncommitting } = useUncommit();
+  const { data: gitLog } = useGetGitLog(1);
 
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isFetchingAll, setIsFetchingAll] = useState(false);
@@ -132,9 +134,9 @@ export const GitSourceControl = () => {
 
   const handleDiscardAll = () => {
     if (!status) return;
-    const isUntracked = status?.untracked;
-    if (isUntracked.length==0) return;
-    discardFiles(isUntracked, {
+    const allUnstaged = [...status.modified, ...status.deleted, ...status.untracked].filter(f => !status.staged.includes(f));
+    if (allUnstaged.length === 0) return;
+    discardFiles(allUnstaged, {
       onSuccess: (result: any) => {
         if (result?.canceled) return;
         toast.success("All changes discarded");
@@ -173,6 +175,19 @@ export const GitSourceControl = () => {
         });
       },
     });
+  };
+
+  const handleUncommit = async () => {
+    try {
+      await uncommitAsync();
+      toast.success("Last commit undone", {
+        description: "Changes moved back to staged area",
+      });
+    } catch (error: any) {
+      toast.error("Failed to undo commit", {
+        description: error?.message || String(error),
+      });
+    }
   };
 
   const handleCommit = async () => {
@@ -393,7 +408,7 @@ export const GitSourceControl = () => {
               <button
                 onClick={() => { setMenuOpen(false); handleRefresh(); }}
                 disabled={isRefreshing}
-                className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-text hover:bg-active/50 disabled:opacity-50"
+                className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-text hover:bg-accent/20 disabled:opacity-50"
               >
                 <RefreshCw size={12} className={cn("text-comment", isRefreshing && "animate-spin")} />
                 Refresh
@@ -401,7 +416,7 @@ export const GitSourceControl = () => {
               <button
                 onClick={() => { setMenuOpen(false); handlePull(); }}
                 disabled={isPulling}
-                className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-text hover:bg-active/50 disabled:opacity-50"
+                className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-text hover:bg-accent/20 disabled:opacity-50"
               >
                 <ArrowDown size={12} className="text-comment" />
                 {isPulling ? "Pulling…" : "Pull"}
@@ -411,18 +426,29 @@ export const GitSourceControl = () => {
               <div className="border-t border-border my-1" />
               <button
                 onClick={() => { setMenuOpen(false); setStashOpen(true); }}
-                className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-text hover:bg-active/50"
+                className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-text hover:bg-accent/20"
               >
                 <Archive size={12} className="text-comment" />
                 Stash…
               </button>
 
-              {/* Section 3: Fetch All */}
+              {/* Section 3: Undo Last Commit */}
+              <div className="border-t border-border my-1" />
+              <button
+                onClick={() => { setMenuOpen(false); handleUncommit(); }}
+                disabled={isUncommitting || !gitLog?.all.length}
+                className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-text hover:bg-accent/20 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <RotateCcw size={12} className="text-comment" />
+                Undo Last Commit
+              </button>
+
+              {/* Section 4: Fetch All */}
               <div className="border-t border-border my-1" />
               <button
                 onClick={() => { setMenuOpen(false); handleFetchAll(); }}
                 disabled={isFetchingAll}
-                className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-text hover:bg-active/50 disabled:opacity-50"
+                className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-text hover:bg-accent/20 disabled:opacity-50"
               >
                 <CloudDownload size={12} className={cn("text-comment", isFetchingAll && "animate-pulse")} />
                 Fetch All
@@ -553,7 +579,8 @@ export const GitSourceControl = () => {
                 ? `Push ${status.ahead} commit${status.ahead !== 1 ? "s" : ""}`
                 : "Publish branch"}
           </button>
-        ) }
+        )}
+
       </div>
 
       {/* Scrollable file lists */}

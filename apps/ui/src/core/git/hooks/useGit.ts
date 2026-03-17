@@ -338,6 +338,18 @@ export const useStashPop = () => {
   });
 };
 
+export const useUncommit = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async () => window.electron?.git.uncommit(),
+    onSuccess: () => {
+      queryClient.refetchQueries({ queryKey: ["git:status"] });
+      queryClient.refetchQueries({ queryKey: ["git:log"] });
+      queryClient.refetchQueries({ queryKey: ["git:branches"] });
+    },
+  });
+};
+
 export const useGetConflicts = () => {
   return useQuery({
     queryKey: ["git:conflicts"],
