@@ -364,12 +364,13 @@ export const coreExtensions: ExtensionMetadata[] = [
   {
     "id": "voiden-scripting",
     "name": "Voiden Scripting",
-    "version": "1.0.0",
-    "description": "Pre-request and post-response JavaScript scripting for API requests with vd API access",
+    "version": "1.1.0",
+    "description": "Pre-request and post-response scripting in JavaScript, Python, and Shell (bash) with a unified voiden.* API",
     "author": "Voiden Team",
     "enabled": true,
+    "mainProcess": true,
     "priority": 25,
-    "readme": "Add JavaScript pre-request and post-response scripts to your API requests. Use the vd API to read/write request data, work with environment/runtime variables, and control request flow. Insert with /pre-script and /post-script slash commands. Note: for request body, pass a string payload; if you pass an object/JSON value it should be stringified.",
+    "readme": "Add pre-request and post-response scripts to your API requests in JavaScript, Python, or Shell (bash). All languages share the same voiden.* API: read/write request data, access environment and runtime variables, log output, run assertions, and cancel requests. Script runners (Node.js, Python, bash) are exposed as plugin IPC channels (ext:voiden-scripting:script:executeNode/executePython/executeShell) so other plugins can reuse them. Insert scripts with /pre-script and /post-script slash commands.",
     "capabilities": {
       "blocks": {
         "owns": [
@@ -412,17 +413,19 @@ export const coreExtensions: ExtensionMetadata[] = [
       "sdk": "^1.0.0"
     },
     "features": [
-      "Pre-request JavaScript scripts (runs before request is sent)",
-      "Post-response JavaScript scripts (runs after response is received)",
-      "voiden.request API for reading/writing request data",
-      "voiden.response API for reading response data",
-      "voiden.env.get for active environment variable access",
-      "voiden.variables.get/set for Voiden runtime variable access",
-      "Request body should be string payload (stringify JSON/object values before sending)",
-      "voiden.log() for script output logging",
-      "voiden.assert(condition, message) for script-based assertions",
+      "Pre-request and post-response scripts in JavaScript, Python, or Shell (bash)",
+      "Unified voiden.* API across all three languages (voiden.request, voiden.response, voiden.env, voiden.variables)",
+      "voiden.request.url/method/headers/body/queryParams/pathParams — read/write",
+      "voiden.response.status/statusText/headers/body/time/size — read (post-script only)",
+      "voiden.env.get(key) — synchronous environment variable access",
+      "voiden.variables.get/set — synchronous runtime variable access, persisted to .voiden/.process.env.json",
+      "voiden.log() for script output logging with level support (log/info/debug/warn/error)",
+      "voiden.assert(actual, operator, expected, message?) for script-based assertions",
       "voiden.cancel() to cancel request from pre-script",
-      "CodeMirror JavaScript editor with syntax highlighting"
+      "Shell scripts use the same voiden.* dot-notation (bash supports dot function names)",
+      "Plugin IPC channels exposed for other plugins: ext:voiden-scripting:script:executeNode, executePython, executeShell",
+      "Inline ghost-text autocomplete for voiden.* API in all three languages",
+      "CodeMirror editor with syntax highlighting, linting, and prettify for JS/Python"
     ],
     "type": "core"
   },

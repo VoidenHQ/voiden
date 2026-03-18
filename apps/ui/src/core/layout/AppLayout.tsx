@@ -13,6 +13,7 @@ import { useGetAppState } from "@/core/state/hooks";
 import { saveTabById } from "@/core/file-system/hooks";
 import { getQueryClient } from "@/main";
 import { useEditorStore } from "@/core/editors/voiden/VoidenEditor";
+import { hideSlashMenu } from "@/core/editors/voiden/SlashCommand";
 import type { Tab } from "../../../../electron/src/shared/types";
 import { MainEditor } from "./components/MainEditor";
 import { useElectronEvent } from "@/core/providers/ElectronEventProvider";
@@ -354,6 +355,7 @@ export const AppLayout = () => {
   });
 
   useElectronEvent("menu:show-about", () => {
+    hideSlashMenu();
     setIsAboutModalOpen(true);
   });
 
@@ -384,7 +386,7 @@ export const AppLayout = () => {
   return (
     <div className="h-screen w-screen bg-bg font-sans text-text text-base flex flex-col overflow-hidden select-none">
       {/* Top Navigation Bar */}
-      <TopNavBar onShowAbout={() => setIsAboutModalOpen(true)} />
+      <TopNavBar onShowAbout={() => { hideSlashMenu(); setIsAboutModalOpen(true); }} />
 
       {/* Main Content Area with Resizable Panels */}
       <div className="flex-1 min-h-0">

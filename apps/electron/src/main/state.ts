@@ -824,7 +824,22 @@ export const ipcStateHandlers = () => {
       }
     }
 
-    const filterDirectories = Object.fromEntries(Object.entries(appState.directories).filter(([key, el]) => !el.hidden));
+    // Aggregate directories from all open windows so that projects opened
+    // in other windows also appear in the Recent Projects list.
+    const allDirectories: Record<string, any> = {};
+    for (const winState of windowManager.getAllWindows()) {
+      if (winState) {
+        for (const [projectPath, layoutState] of Object.entries(winState.directories)) {
+          if (!allDirectories[projectPath]) {
+            allDirectories[projectPath] = layoutState;
+          }
+        }
+      }
+    }
+    // Current window's state takes precedence (e.g. hidden flag set in this window)
+    const mergedDirectories = { ...allDirectories, ...appState.directories };
+
+    const filterDirectories = Object.fromEntries(Object.entries(mergedDirectories).filter(([key, el]) => !el.hidden));
 
     const projects = Object.keys(filterDirectories);
     const activeProject = appState.activeDirectory;

@@ -1,6 +1,7 @@
 /**
  * Static validation for script bodies.
- * Detects async voiden/vd methods called without 'await' before execution.
+ * Checks argument counts, operator validity, and common mistakes.
+ * JavaScript env/variable access is synchronous (no await needed).
  */
 
 export interface ScriptValidationError {
@@ -10,13 +11,6 @@ export interface ScriptValidationError {
   message: string;
   severity?: 'error' | 'warning' | 'info';
 }
-
-/** voiden/vd methods that return Promises and require 'await'. */
-const ASYNC_VD_METHODS = [
-  'voiden.env.get',
-  'voiden.variables.set',
-  'voiden.variables.get',
-];
 
 /** Supported function calls exposed by the scripting runtime. */
 const SUPPORTED_VD_CALLS = new Set([
@@ -421,32 +415,6 @@ export function validateScript(scriptBody: string): ScriptValidationError[] {
       });
     }
 
-    // Check for each async method
-    for (const method of ASYNC_VD_METHODS) {
-      let searchFrom = 0;
-      while (true) {
-        const methodIdx = cleaned.indexOf(method + '(', searchFrom);
-        if (methodIdx === -1) break;
-
-        // Check if 'await' appears before this call in the same line portion
-        const before = cleaned.substring(0, methodIdx);
-        // Look for 'await' as the last keyword token before the method call
-        // This matches: `await voiden.`, `= await voiden.`, `(await voiden.`, etc.
-        const hasAwait = /\bawait\s+$/.test(before);
-
-        if (!hasAwait) {
-          errors.push({
-            line: i + 1,
-            column: methodIdx + 1,
-            method,
-            message: `'${method}()' must be called with 'await'. Example: await ${method}(...)`,
-          });
-        }
-
-        searchFrom = methodIdx + method.length;
-      }
-    }
-
     // Detect unknown vd function calls + argument lint for supported calls.
     for (const call of findVdCallsWithArgs(cleaned)) {
       if (!SUPPORTED_VD_CALLS.has(call.method)) {
@@ -621,6 +589,75 @@ export function validatePythonScript(scriptBody: string): ScriptValidationError[
       column: unclosed.column,
       message: `Unclosed '${unclosed.ch}'.`,
     });
+  }
+
+  return errors;
+}
+
+/**
+ * Validate a Shell (bash) script body with lightweight static checks.
+ * Returns an array of errors (empty = valid).
+ */
+export function validateShellScript(scriptBody: string): ScriptValidationError[] {
+  if (!scriptBody || !scriptBody.trim()) return [];
+
+  const errors: ScriptValidationError[] = [];
+  const lines = scriptBody.split('\n');
+
+  const stripShComments = (line: string): string => {
+    let result = '';
+    let inString: string | null = null;
+    let escaped = false;
+
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (escaped) {
+        result += ch;
+        escaped = false;
+        continue;
+      }
+      if (ch === '\\' && inString) {
+        result += ch;
+        escaped = true;
+        continue;
+      }
+      if (inString) {
+        result += ch;
+        if (ch === inString) inString = null;
+        continue;
+      }
+      if (ch === '"' || ch === "'") {
+        inString = ch;
+        result += ch;
+        continue;
+      }
+      if (ch === '#') break;
+      result += ch;
+    }
+    return result;
+  };
+
+  const VOIDEN_SH_KEYWORDS = /^(voiden_log|voiden_env_get|voiden_variables_get|voiden_variables_set|voiden_assert|voiden_cancel|if|elif|else|fi|for|while|do|done|case|esac|function|return|export|local|echo|printf|source|\.)\b/;
+  const SH_CODE_SYMBOLS = /[=\$\(\)\[\]{};|&<>]/;
+
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i];
+    const cleaned = stripShComments(raw);
+    const trimmed = cleaned.trim();
+    if (!trimmed) continue;
+
+    // Plain text detection for shell
+    if (!VOIDEN_SH_KEYWORDS.test(trimmed) && !SH_CODE_SYMBOLS.test(trimmed)) {
+      if (/^[A-Za-z][A-Za-z0-9_'"\-]*(\s+[A-Za-z0-9_'"\-]+)+$/.test(trimmed)) {
+        errors.push({
+          line: i + 1,
+          column: 1,
+          severity: 'warning',
+          message: "This line looks like plain text. Comment it with '#' or quote it.",
+        });
+      }
+    }
+
   }
 
   return errors;
