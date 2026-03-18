@@ -15,6 +15,7 @@ const FONT_SIZE_MIN = 10;
 const FONT_SIZE_MAX = 20;
 const AUTO_SAVE_DELAY_MIN = 0;
 const AUTO_SAVE_DELAY_MAX = 300;
+const DEFAULT_PROJECT_DIRECTORY = "Voiden";
 
 // Validation function
 function validateSettings(settings: UserSettings): UserSettings {
@@ -154,6 +155,24 @@ function validateSettings(settings: UserSettings): UserSettings {
     validated.updates.channel = "stable";
   }
 
+  if (!validated.cli) {
+    validated.cli = {
+      installed: false,
+    };
+  }
+
+  if (typeof validated.cli.installed !== "boolean") {
+    validated.cli.installed = false;
+  }
+
+  if (!validated.projects) {
+    validated.projects = {
+      default_directory: DEFAULT_PROJECT_DIRECTORY,
+    };
+  }
+
+  if (typeof validated.projects.default_directory !== "string" || validated.projects.default_directory.trim() === "") {
+    validated.projects.default_directory = DEFAULT_PROJECT_DIRECTORY;
   // Validate history settings
   if (!validated.history) {
     validated.history = { enabled: false, retention_days: 2 };
@@ -213,6 +232,11 @@ export type UserSettings = {
   updates: {
     channel: "stable" | "early-access";
   };
+  cli: {
+    installed: boolean;
+  };
+  projects: {
+    default_directory: string;
   history?: {
     /** Whether request history recording is enabled (default: false) */
     enabled: boolean;
@@ -242,7 +266,6 @@ export function useSettings() {
     }
   }, [settings?.appearance?.font_size]);
 
-
   useEffect(() => {
     if (settings?.appearance?.font_family) {
       document.documentElement.style.setProperty(
@@ -251,7 +274,6 @@ export function useSettings() {
       );
     }
   }, [settings?.appearance?.font_family]);
-
 
   useEffect(() => {
     let cancelled = false;
@@ -278,6 +300,8 @@ export function useSettings() {
       proxy: { ...currentSettings.proxy, ...patch.proxy },
       terminal: { ...currentSettings.terminal, ...patch.terminal },
       updates: { ...currentSettings.updates, ...patch.updates },
+      cli: { ...currentSettings.cli, ...patch.cli },
+      projects: { ...currentSettings.projects, ...patch.projects },
       history: { ...currentSettings.history, ...patch.history },
     };
     const validatedSettings = validateSettings(mergedSettings as UserSettings);
@@ -300,7 +324,7 @@ export function useSettings() {
     if (settings && settings.appearance && settings.appearance.theme) {
       await loadThemeById(settings.appearance.theme);
     }
-  })
+  });
 
   const onChange = (callback?: (next: UserSettings) => void) => {
     const off = window.electron?.userSettings.onChange((raw: UserSettings) => {

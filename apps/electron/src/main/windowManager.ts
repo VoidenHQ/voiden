@@ -185,7 +185,6 @@ class WindowManager {
     }
   }
 
-
   async createWindow(windowId?: string,skipDefault?:boolean): Promise<BrowserWindow> {
     const win = await createWindow();
 
@@ -295,7 +294,6 @@ class WindowManager {
     this.deleteWindowStateFile(id);
     this.closeWindow(id);
   }
-
 
   private isLoadingWindows = false;
 
@@ -451,10 +449,18 @@ class WindowManager {
     }
   }
   focusWindowByProject(projectPath: string) {
+    if (!projectPath) {
+      return false;
+    }
+
     const normalizedPath = path.normalize(projectPath);
     for (const [windowId] of this.windows.entries()) {
       const state = this.getWindowState(windowId);
-      const normalizedWindowPath = path.normalize(state.activeDirectory as string);
+      if (!state?.activeDirectory) {
+        continue;
+      }
+
+      const normalizedWindowPath = path.normalize(state.activeDirectory);
       if (normalizedWindowPath === normalizedPath) {
         const win: BrowserWindow = this.browserWindows.get(windowId) as BrowserWindow;
         if (!win.isDestroyed()) {
@@ -472,7 +478,6 @@ class WindowManager {
       }
     }
     return false;
-
   }
 }
 
