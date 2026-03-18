@@ -244,7 +244,7 @@ const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({ label, count, o
       <div className="flex items-center gap-1 w-full border-border border-b group/sec mb-1 bg-bg p-2 rounded">
         <button
           onClick={onToggle}
-          className="flex items-center gap-1 flex-1 text-left min-w-0"
+          className="flex items-center gap-1 flex-1 text-left min-w-0 pl-2"
         >
           {open
             ? <ChevronDown size={10} className="text-comment shrink-0" />
@@ -257,13 +257,13 @@ const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({ label, count, o
           <button
             onClick={handleCopy}
             title={copied ? 'Copied!' : 'Copy'}
-            className={`shrink-0 p-0.5 rounded transition-colors ${copied ? 'text-green-400' : 'text-comment/50 hover:text-text'}`}
+            className={`shrink-0 p-0.5 rounded transition-colors ${copied ? 'text-green-400' : 'opacity-0 group-hover/sec:opacity-100 text-comment hover:text-text'}`}
           >
             {copied ? <Check size={10} /> : <Copy size={10} />}
           </button>
         )}
       </div>
-      {open && children}
+      {open && <div className="pl-4">{children}</div>}
     </div>
   );
 };
@@ -339,6 +339,10 @@ const EntryCard: React.FC<EntryCardProps> = ({ entry, isCopied, query, sourceFil
     (h) => h.key.toLowerCase().includes(q) || h.value.toLowerCase().includes(q),
   ) : false;
   const matchInBody = q ? entry.request?.body?.toLowerCase().includes(q) : false;
+  const matchInResponseHeaders = q ? entry.response?.headers?.some(
+    (h) => h.key.toLowerCase().includes(q) || h.value.toLowerCase().includes(q),
+  ) : false;
+  const matchInResponseBody = q ? entry.response?.body?.toLowerCase().includes(q) : false;
 
   const handleCardClick = () => {
     if (isSelecting) { onToggleSelect?.(); } else { setExpanded((v) => !v); }
@@ -409,17 +413,19 @@ const EntryCard: React.FC<EntryCardProps> = ({ entry, isCopied, query, sourceFil
         )}
 
         {/* Match-location chips */}
-        {(matchInHeaders || matchInBody) && (
-          <div className="flex items-center gap-1 mt-1">
+        {(matchInHeaders || matchInBody || matchInResponseHeaders || matchInResponseBody) && (
+          <div className="flex items-center gap-1 mt-1 flex-wrap">
             {matchInHeaders && (
-              <span className="text-[9px] px-1 py-0.5 rounded bg-yellow-400/10 text-yellow-400/80 border border-yellow-400/20">
-                in headers
-              </span>
+              <span className="text-[9px] px-1 py-0.5 rounded bg-yellow-400/10 text-yellow-400/80 border border-yellow-400/20">in req headers</span>
             )}
             {matchInBody && (
-              <span className="text-[9px] px-1 py-0.5 rounded bg-yellow-400/10 text-yellow-400/80 border border-yellow-400/20">
-                in body
-              </span>
+              <span className="text-[9px] px-1 py-0.5 rounded bg-yellow-400/10 text-yellow-400/80 border border-yellow-400/20">in req body</span>
+            )}
+            {matchInResponseHeaders && (
+              <span className="text-[9px] px-1 py-0.5 rounded bg-yellow-400/10 text-yellow-400/80 border border-yellow-400/20">in res headers</span>
+            )}
+            {matchInResponseBody && (
+              <span className="text-[9px] px-1 py-0.5 rounded bg-yellow-400/10 text-yellow-400/80 border border-yellow-400/20">in response</span>
             )}
           </div>
         )}
@@ -501,12 +507,19 @@ const EntryCard: React.FC<EntryCardProps> = ({ entry, isCopied, query, sourceFil
               )}
               {entry.request?.headers && entry.request.headers.length > 0 && (
                 <CollapsibleSection label="Headers" count={entry.request.headers.length} open={openSections.reqHeaders} onToggle={() => toggle('reqHeaders')} copyValue={entry.request.headers.map((h) => `${h.key}: ${h.value}`).join('\n')}>
-                  <HistoryCodeViewer value={entry.request.headers.map((h) => `${h.key}: ${h.value}`).join('\n')} contentType="text/plain" />
+                  <div className="bg-bg rounded p-2 space-y-0.5 font-mono text-[11px]">
+                    {entry.request.headers.map((h, i) => (
+                      <div key={i} className="flex gap-2 py-0.5 border-b border-border last:border-0">
+                        <span className="text-comment shrink-0 min-w-[100px]"><Highlight text={h.key} query={query} /></span>
+                        <span className="text-text break-all"><Highlight text={h.value} query={query} /></span>
+                      </div>
+                    ))}
+                  </div>
                 </CollapsibleSection>
               )}
               {entry.request?.body && (
                 <CollapsibleSection label="Body" open={openSections.reqBody} onToggle={() => toggle('reqBody')} copyValue={entry.request.body}>
-                  <HistoryCodeViewer value={entry.request.body} contentType={entry.request.contentType} />
+                  <pre className="whitespace-pre-wrap break-words font-mono text-[11px] text-text bg-bg rounded p-2 max-h-[280px] overflow-y-auto"><Highlight text={entry.request.body} query={query} /></pre>
                 </CollapsibleSection>
               )}
               {entry.request?.fileAttachments && entry.request.fileAttachments.length > 0 && (
@@ -551,12 +564,19 @@ const EntryCard: React.FC<EntryCardProps> = ({ entry, isCopied, query, sourceFil
                       )}
                       {entry.response?.headers && entry.response.headers.length > 0 && (
                         <CollapsibleSection label="Headers" count={entry.response.headers.length} open={openSections.resHeaders} onToggle={() => toggle('resHeaders')} copyValue={entry.response.headers.map((h) => `${h.key}: ${h.value}`).join('\n')}>
-                          <HistoryCodeViewer value={entry.response.headers.map((h) => `${h.key}: ${h.value}`).join('\n')} contentType="text/plain" />
+                          <div className="bg-bg rounded p-2 space-y-0.5 font-mono text-[11px]">
+                            {entry.response.headers.map((h, i) => (
+                              <div key={i} className="flex gap-2 py-0.5 border-b border-border last:border-0">
+                                <span className="text-comment shrink-0 min-w-[100px]"><Highlight text={h.key} query={query} /></span>
+                                <span className="text-text break-all"><Highlight text={h.value} query={query} /></span>
+                              </div>
+                            ))}
+                          </div>
                         </CollapsibleSection>
                       )}
                       {entry.response?.body && (
                         <CollapsibleSection label="Body" open={openSections.resBody} onToggle={() => toggle('resBody')} copyValue={entry.response.body}>
-                          <HistoryCodeViewer value={entry.response.body} contentType={entry.response.contentType} />
+                          <pre className="whitespace-pre-wrap break-words font-mono text-[11px] text-text bg-bg rounded p-2 max-h-[280px] overflow-y-auto"><Highlight text={entry.response.body} query={query} /></pre>
                         </CollapsibleSection>
                       )}
                       {!entry.response?.error && !entry.response?.body && (!entry.response?.headers || entry.response.headers.length === 0) && (
@@ -930,6 +950,10 @@ export const HistorySidebar: React.FC = () => {
           if (e.request.body.toLowerCase().includes(q)) return true;
         }
       }
+      if (e.response?.headers?.some(
+        (h) => h.key.toLowerCase().includes(q) || h.value.toLowerCase().includes(q)
+      )) return true;
+      if (e.response?.body && e.response.body.toLowerCase().includes(q)) return true;
       return false;
     });
   }, [displayEntries, search, dateFilter, dateFrom, dateTo]);

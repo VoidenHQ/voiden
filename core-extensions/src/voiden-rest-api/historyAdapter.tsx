@@ -37,7 +37,7 @@ interface HistoryAdapter {
   canHandle(pipelineContext: any): boolean;
   captureEntry(pipelineContext: any): Promise<HistoryPluginEntry> | HistoryPluginEntry;
   exportToVoid?(entry: any): Promise<string> | string;
-  RequestViewer: React.FC<{ requestState: unknown }>;
+  RequestViewer: React.FC<{ requestState: unknown }> | null;
   ResponseViewer: React.FC<{ responseState: unknown }> | null;
 }
 
@@ -572,6 +572,6 @@ export const restApiHistoryAdapter: HistoryAdapter = {
   captureEntry,
   exportToVoid,
 
-  RequestViewer: RestApiRequestViewer,
-  ResponseViewer: RestApiResponseViewer,
+  RequestViewer: null,
+  ResponseViewer: null,
 };
