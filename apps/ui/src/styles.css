@@ -4,8 +4,9 @@
 
 /* Table cell styling - applied via CSS instead of HTMLAttributes to preserve selection */
 .ProseMirror td {
-  @apply first:border-l-0 last:border-r-0 border-b-0 p-1 px-2 align-middle h-6 border relative box-border text-sm overflow-hidden max-w-full break-all overflow-visible w-full;
-  background-color: var(--editor-bg);
+  @apply first:border-l-0 last:border-r-0 border-b-0 p-1.5 px-3 align-middle h-8 border relative box-border text-sm overflow-hidden max-w-full break-all overflow-visible w-full;
+  border-color: color-mix(in srgb, var(--ui-line) 30%, transparent);
+  background-color: transparent;
 }
 
 /* Local Fonts - Embedded for performance and offline support */
@@ -58,18 +59,25 @@
 @layer base {
   :root {
     /* Base Font Settings (User Configurable) */
-    --font-size-base: 0.9375rem; /* 15px - default value, better for cross-platform readability */
-    --font-family-base: "Inconsolata", monospace; /* default value */
+    --font-size-base: 0.875rem; /* 14px - editor/code font size */
+    --font-family-base: "Inconsolata", monospace; /* editor/code font */
 
-    /* Typography Scale - Relative to base font size for proper scaling */
-    /* Using calc() to scale proportionally with --font-size-base */
-    --font-size-xs: calc(var(--font-size-base) * 0.85);   /* 85% of base */
-    --font-size-sm: calc(var(--font-size-base) * 0.93);   /* 93% of base */
-    --font-size-lg: calc(var(--font-size-base) * 1.067);  /* 106.7% of base */
-    --font-size-xl: calc(var(--font-size-base) * 1.133);  /* 113.3% of base */
-    --font-size-2xl: calc(var(--font-size-base) * 1.267); /* 126.7% of base */
-    --font-size-3xl: calc(var(--font-size-base) * 1.4);   /* 140% of base */
-    --font-size-4xl: calc(var(--font-size-base) * 1.533); /* 153.3% of base */
+    /* UI Font Settings - proportional font for chrome/panels/labels */
+    --font-size-ui: 0.8125rem; /* 13px - compact UI like Cursor/VS Code */
+    --font-family-ui: "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+
+    /* Mono font alias for code editors */
+    --font-family-mono: var(--font-family-base);
+
+    /* Typography Scale - Relative to UI font size for proper scaling */
+    /* Using calc() to scale proportionally with --font-size-ui */
+    --font-size-xs: calc(var(--font-size-ui) * 0.846);   /* ~11px at 13px base */
+    --font-size-sm: calc(var(--font-size-ui) * 0.923);   /* ~12px at 13px base */
+    --font-size-lg: calc(var(--font-size-ui) * 1.077);   /* ~14px at 13px base */
+    --font-size-xl: calc(var(--font-size-ui) * 1.154);   /* ~15px at 13px base */
+    --font-size-2xl: calc(var(--font-size-ui) * 1.308);  /* ~17px at 13px base */
+    --font-size-3xl: calc(var(--font-size-ui) * 1.462);  /* ~19px at 13px base */
+    --font-size-4xl: calc(var(--font-size-ui) * 1.615);  /* ~21px at 13px base */
 
     /* Heading Settings - Compact spacing like Cursor/terminals */
     --heading-font-weight: 500; /* medium - easier on eyes */
@@ -234,15 +242,15 @@
   }
 
   body {
-    font-size: var(--font-size-base);
-    font-family: var(--font-family-base);
-    line-height: var(--paragraph-line-height);
+    font-size: var(--font-size-ui);
+    font-family: var(--font-family-ui);
+    line-height: 1.4;
     /* Better font rendering across platforms */
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
-    /* Slightly heavier font weight for better readability on Windows/Linux */
-    font-weight: 450;
+    font-weight: 400;
+    letter-spacing: -0.01em;
     overflow: hidden;
   }
 
@@ -351,6 +359,11 @@
 .text-base {
   font-size: var(--font-size-base) !important;
   font-family: var(--font-family-base) !important;
+}
+
+.text-ui {
+  font-size: var(--font-size-ui) !important;
+  font-family: var(--font-family-ui) !important;
 }
 
 .find-highlight {

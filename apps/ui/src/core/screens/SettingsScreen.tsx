@@ -14,6 +14,8 @@ const VALID_FONT_FAMILIES = [
 
 const FONT_SIZE_MIN = 10;
 const FONT_SIZE_MAX = 20;
+const UI_FONT_SIZE_MIN = 10;
+const UI_FONT_SIZE_MAX = 16;
 const AUTO_SAVE_DELAY_MIN = 0;
 const AUTO_SAVE_DELAY_MAX = 300;
 
@@ -677,11 +679,11 @@ export const SettingsScreen = () => {
                   <span style={{ color: 'var(--icon-error)' }}>Error syncing themes: {themeSyncError}</span>
                 </div>
               )}
-              {matchesSearch("Font size Base editor font size in pixels") && (
+              {matchesSearch("Editor Font size Code editor font size in pixels") && (
                 <Row
                   icon={<Type className="w-4 h-4" />}
-                  title="Font size"
-                  description="Base editor font size in pixels."
+                  title="Editor Font size"
+                  description="Code editor font size in pixels."
                   control={
                   <select
                     className="px-3 py-1.5 rounded-md bg-editor text-text border border-[--panel-border] focus:outline-none focus:ring-2 focus:ring-[var(--icon-primary)] min-w-[180px]"
@@ -694,6 +696,31 @@ export const SettingsScreen = () => {
                     }}
                   >
                     {Array.from({ length: FONT_SIZE_MAX - FONT_SIZE_MIN + 1 }, (_, i) => FONT_SIZE_MIN + i).map((size) => (
+                      <option key={size} value={size}>
+                        {size}px
+                      </option>
+                    ))}
+                  </select>
+                }
+                />
+              )}
+              {matchesSearch("UI Font size Interface font size for panels sidebar and labels") && (
+                <Row
+                  icon={<Type className="w-4 h-4" />}
+                  title="UI Font size"
+                  description="Interface font size for panels, sidebar, and labels."
+                  control={
+                  <select
+                    className="px-3 py-1.5 rounded-md bg-editor text-text border border-[--panel-border] focus:outline-none focus:ring-2 focus:ring-[var(--icon-primary)] min-w-[180px]"
+                    value={settings.appearance.ui_font_size ?? 13}
+                    onChange={(e) => {
+                      const value = Number(e.target.value);
+                      if (value >= UI_FONT_SIZE_MIN && value <= UI_FONT_SIZE_MAX) {
+                        save({ appearance: { ui_font_size: value } });
+                      }
+                    }}
+                  >
+                    {Array.from({ length: UI_FONT_SIZE_MAX - UI_FONT_SIZE_MIN + 1 }, (_, i) => UI_FONT_SIZE_MIN + i).map((size) => (
                       <option key={size} value={size}>
                         {size}px
                       </option>

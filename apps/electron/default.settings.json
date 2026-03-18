@@ -1,8 +1,9 @@
 {
   "appearance": {
     "theme": "voiden",
-    "font_size": 15,
+    "font_size": 14,
     "font_family": "Inconsolata",
+    "ui_font_size": 13,
     "cursor_type": "text",
     "code_wrap": true
   },

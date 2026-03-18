@@ -13,6 +13,8 @@ const VALID_FONT_FAMILIES = [
 // Validation ranges
 const FONT_SIZE_MIN = 10;
 const FONT_SIZE_MAX = 20;
+const UI_FONT_SIZE_MIN = 10;
+const UI_FONT_SIZE_MAX = 16;
 const AUTO_SAVE_DELAY_MIN = 0;
 const AUTO_SAVE_DELAY_MAX = 300;
 
@@ -31,6 +33,13 @@ function validateSettings(settings: UserSettings): UserSettings {
   if (!validated.appearance.font_family ||
     !VALID_FONT_FAMILIES.includes(validated.appearance.font_family)) {
     validated.appearance.font_family = "Inconsolata"; // Default fallback
+  }
+
+  // Validate UI font size
+  if (typeof validated.appearance.ui_font_size !== 'number' ||
+    validated.appearance.ui_font_size < UI_FONT_SIZE_MIN ||
+    validated.appearance.ui_font_size > UI_FONT_SIZE_MAX) {
+    validated.appearance.ui_font_size = 13; // Default fallback
   }
 
   // Validate auto save delay
@@ -173,6 +182,7 @@ export type UserSettings = {
     theme?: string;
     font_size: number;
     font_family: string;
+    ui_font_size: number;
     cursor_type: "text" | "default" | "pointer";
     code_wrap: boolean;
   };
@@ -226,8 +236,21 @@ export function useSettings() {
         "--font-family-base",
         `${settings.appearance.font_family}`
       );
+      document.documentElement.style.setProperty(
+        "--font-family-mono",
+        `${settings.appearance.font_family}`
+      );
     }
   }, [settings?.appearance?.font_family]);
+
+  useEffect(() => {
+    if (settings?.appearance?.ui_font_size) {
+      document.documentElement.style.setProperty(
+        "--font-size-ui",
+        `${settings.appearance.ui_font_size}px`
+      );
+    }
+  }, [settings?.appearance?.ui_font_size]);
 
 
   useEffect(() => {

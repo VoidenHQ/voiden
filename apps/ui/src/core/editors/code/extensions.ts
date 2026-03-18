@@ -53,7 +53,7 @@ const defaultSettingsQuietlight: CreateThemeOptions["settings"] = {
   gutterBorder: "transparent",
   lineHighlight: config.lineHighlight,
   fontSize: "var(--font-size-base)",
-  fontFamily: "var(--font-family-base)",
+  fontFamily: "var(--font-family-mono, monospace)",
 };
 
 const quietlightStyle: CreateThemeOptions["styles"] = [
