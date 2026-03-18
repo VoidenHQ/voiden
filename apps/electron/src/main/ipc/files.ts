@@ -105,29 +105,32 @@ export function registerFileIpcHandlers() {
         return null;
       }
 
-      await fs.promises.writeFile(filePath, content, "utf8");
+      filePath = chosenFilePath;
+    }
 
-      if (tabId) {
-        const appState = getAppState();
-        const layout = appState.activeDirectory
-          ? appState.directories[appState.activeDirectory]?.layout
-          : appState.unsaved.layout;
-        const tab = findTabById(layout, "main", tabId);
-        if (tab) {
-          tab.source = filePath;
-          tab.title = path.basename(filePath);
-          await saveState(appState);
+    await fs.promises.writeFile(filePath, content, "utf8");
 
-          // Clean up autosaved file if this was an unsaved document
-          if (wasUnsaved) {
-            await deleteAutosaveFile(tabId);
-          }
+    if (tabId) {
+      const appState = getAppState();
+      const layout = appState.activeDirectory
+        ? appState.directories[appState.activeDirectory]?.layout
+        : appState.unsaved.layout;
+      const tab = findTabById(layout, "main", tabId);
+      if (tab) {
+        tab.source = filePath;
+        tab.title = path.basename(filePath);
+        await saveState(appState);
+
+        // Clean up autosaved file if this was an unsaved document
+        if (wasUnsaved) {
+          await deleteAutosaveFile(tabId);
         }
       }
+    }
 
-      return filePath;
-    },
-  );
+    return filePath;
+  },
+);
 
   ipcMain.handle(
     "files:create-void",

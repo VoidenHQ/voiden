@@ -46,6 +46,7 @@ export type Settings = {
   };
   projects: {
     default_directory: string;
+  };
   history?: {
     enabled?: boolean;
     retention_days?: number;
@@ -175,6 +176,9 @@ export function resetSettings(): Settings {
   if (!defaults) throw new Error("default.settings.json missing or invalid");
   cache = normalizeSettings(defaults);
   fs.writeFileSync(userFile, JSON.stringify(cache, null, 2));
+  for (const w of BrowserWindow.getAllWindows()) {
+    w.webContents.send("settings:changed", cache);
+  }
   return cache;
 }
 

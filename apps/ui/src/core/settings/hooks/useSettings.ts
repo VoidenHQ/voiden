@@ -173,6 +173,8 @@ function validateSettings(settings: UserSettings): UserSettings {
 
   if (typeof validated.projects.default_directory !== "string" || validated.projects.default_directory.trim() === "") {
     validated.projects.default_directory = DEFAULT_PROJECT_DIRECTORY;
+  }
+
   // Validate history settings
   if (!validated.history) {
     validated.history = { enabled: false, retention_days: 2 };
@@ -237,6 +239,7 @@ export type UserSettings = {
   };
   projects: {
     default_directory: string;
+  };
   history?: {
     /** Whether request history recording is enabled (default: false) */
     enabled: boolean;

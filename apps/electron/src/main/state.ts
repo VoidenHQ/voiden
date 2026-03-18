@@ -999,9 +999,6 @@ export const ipcStateHandlers = () => {
       }
     }
 
-    const filterDirectories = Object.fromEntries(
-      Object.entries(appState.directories).filter(([key, el]) => !el.hidden),
-    );
     // Aggregate directories from all open windows so that projects opened
     // in other windows also appear in the Recent Projects list.
     const allDirectories: Record<string, any> = {};
