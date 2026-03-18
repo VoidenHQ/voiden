@@ -310,6 +310,7 @@ const DragPopoverContent: React.FC<DragPopoverContentProps> = React.memo(
           className="bg-bg border border-border rounded-md shadow-lg text-text text-sm p-1 z-50"
           sideOffset={8}
           onKeyDown={onKeyDown}
+          onCloseAutoFocus={(e) => e.preventDefault()}
         >
           <>
             <DragMenuItem onClick={handleAddBlockAbove} label="Add Block Above" shortcut={<span className="inline-block mr-1"><Kbd keys="⌘⇧↑" size="sm"></Kbd></span>} />
