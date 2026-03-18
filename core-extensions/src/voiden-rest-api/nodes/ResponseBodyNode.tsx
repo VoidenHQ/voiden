@@ -17,6 +17,7 @@ import { Copy, Download, Eye, FileDown, FileText, WrapText } from "lucide-react"
 export interface ResponseBodyAttrs {
   body: any;
   contentType: string | null;
+  downloadFilename: string | null;
 }
 
 const prettifyHtml = (html: string): string => {
@@ -63,7 +64,7 @@ export const createResponseBodyNode = (
   useParentResponseDoc: (editor: any, getPos: () => number) => { openNodes: string[]; parentPos: number | null }
 ) => {
   const ResponseBodyComponent = ({ node, getPos, editor }: any) => {
-    const { body, contentType } = node.attrs as ResponseBodyAttrs;
+    const { body, contentType, downloadFilename } = node.attrs as ResponseBodyAttrs;
     const [viewMode, setViewMode] = React.useState<ViewMode>("preview");
     const [isPrettified, setIsPrettified] = React.useState(false);
 
@@ -106,25 +107,39 @@ export const createResponseBodyNode = (
     const handleDownload = () => {
       try {
         let blob: Blob;
-        let fileName = `response_${Date.now()}`;
 
-        // Determine file extension
-        const extMap: Record<string, string> = {
-          "image/png": ".png",
-          "image/jpeg": ".jpg",
-          "image/gif": ".gif",
-          "image/webp": ".webp",
-          "video/mp4": ".mp4",
-          "video/webm": ".webm",
-          "audio/mpeg": ".mp3",
-          "audio/wav": ".wav",
-          "application/pdf": ".pdf",
-          "application/json": ".json",
-          "application/xml": ".xml",
-          "text/html": ".html",
-          "text/plain": ".txt",
-        };
-        fileName += extMap[ct] || "";
+        // Precedence: Content-Disposition filename > content-type derived name
+        let fileName: string;
+        if (downloadFilename) {
+          fileName = downloadFilename;
+        } else {
+          const extMap: Record<string, string> = {
+            "image/png": ".png",
+            "image/jpeg": ".jpg",
+            "image/gif": ".gif",
+            "image/webp": ".webp",
+            "image/svg+xml": ".svg",
+            "video/mp4": ".mp4",
+            "video/webm": ".webm",
+            "audio/mpeg": ".mp3",
+            "audio/wav": ".wav",
+            "application/pdf": ".pdf",
+            "application/json": ".json",
+            "application/xml": ".xml",
+            "application/zip": ".zip",
+            "application/gzip": ".gz",
+            "application/x-tar": ".tar",
+            "application/octet-stream": ".bin",
+            "text/html": ".html",
+            "text/plain": ".txt",
+            "text/csv": ".csv",
+            "text/xml": ".xml",
+            "text/calendar": ".ics",
+            "text/yaml": ".yaml",
+            "text/x-yaml": ".yaml",
+          };
+          fileName = `response_${Date.now()}` + (extMap[ct] || "");
+        }
 
         if (typeof body === "string") {
           blob = new Blob([body], { type: contentType || "text/plain" });
@@ -620,6 +635,9 @@ export const createResponseBodyNode = (
           default: null,
         },
         contentType: {
+          default: null,
+        },
+        downloadFilename: {
           default: null,
         },
       };
