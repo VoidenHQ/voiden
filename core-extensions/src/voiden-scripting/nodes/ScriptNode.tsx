@@ -2,7 +2,7 @@ import { mergeAttributes, Node, NodeViewProps } from "@tiptap/core";
 import { ReactNodeViewRenderer } from "@tiptap/react";
 import React from "react";
 import { Sparkles } from "lucide-react";
-import { validatePythonScript, validateScript } from "../lib/validateScript";
+import { validatePythonScript, validateScript, validateShellScript } from "../lib/validateScript";
 
 /**
  * Basic JavaScript prettifier that fixes indentation based on braces/brackets.
@@ -143,6 +143,9 @@ export const createScriptNode = (
       if (language === 'python') {
         return (content: string) => validatePythonScript(content);
       }
+      if (language === 'shell') {
+        return (content: string) => validateShellScript(content);
+      }
       return undefined;
     }, [language]);
 
@@ -170,7 +173,7 @@ export const createScriptNode = (
             helpContent={HelpContent}
           />
           <div className="flex items-center justify-end gap-2 px-2 py-1 border-b border-[rgba(0,0,0,0.1)]" contentEditable={false}>
-            {!isImported && props.editor.isEditable && (language === 'javascript' || language === 'python') && (
+            {!isImported && props.editor.isEditable && (language === 'javascript' || language === 'python') && /* no prettify for shell */ (
               <button
                 className="flex items-center gap-1 px-1.5 py-0.5 text-xs font-mono text-comment hover:text-text transition-colors opacity-60 hover:opacity-100"
                 onClick={() => {
@@ -197,6 +200,7 @@ export const createScriptNode = (
             >
               <option value="javascript">JavaScript</option>
               <option value="python">Python</option>
+              <option value="shell">Shell (bash)</option>
             </select>
           </div>
           <div style={{ height: 'auto' }}>
