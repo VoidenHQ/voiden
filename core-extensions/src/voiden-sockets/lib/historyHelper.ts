@@ -120,14 +120,42 @@ export async function saveSessionToHistory(
         }
       : undefined;
 
+    const resolvedMethod = opts.url.startsWith('grpc://')
+      ? 'GRPC'
+      : opts.url.startsWith('grpcs://')
+        ? 'GRPCS'
+        : opts.method;
+
+    const requestState = {
+      method: resolvedMethod,
+      url: opts.url,
+      headers: opts.headers,
+      ...(requestBody ? { body: requestBody } : {}),
+      ...(grpcMeta ? { grpcMeta } : {}),
+    };
+
+    const responseState = {
+      body: bodyStr,
+      error: opts.error ?? null,
+      timing,
+    };
+
     await context.history?.save(
       {
+        pluginId: 'voiden-sockets',
+        meta: {
+          label: `${resolvedMethod} ${opts.url}`,
+          method: resolvedMethod,
+          url: opts.url,
+          connectionMade: !opts.error,
+          error: opts.error ?? null,
+          duration: timing?.duration,
+        },
+        requestState,
+        responseState,
+        // Legacy fields kept for backward compat with old stored entries and cURL builder
         request: {
-          method: opts.url.startsWith('grpc://')
-            ? 'GRPC'
-            : opts.url.startsWith('grpcs://')
-              ? 'GRPCS'
-              : opts.method,
+          method: resolvedMethod,
           url: opts.url,
           headers: opts.headers,
           ...(requestBody ? { body: requestBody } : {}),

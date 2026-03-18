@@ -10,7 +10,7 @@ import manifest from "./manifest.json";
 import React from 'react';
 import { CopyWebsocatButton } from './components/CopyWebsocatButton';
 import { CopyGrpcurlButton } from './components/CopyGrpcurlButton';
-import { SocketHistoryRenderer } from './components/SocketHistoryRenderer';
+import { socketHistoryAdapter } from './historyAdapter';
 
 // Lazily cached store reference so the synchronous predicates can read unsaved content.
 // Lazily cached store reference so the synchronous predicate can read unsaved content.
@@ -423,9 +423,11 @@ export default function createSocketPlugin(context: PluginContext) {
         });
       }
 
-      // Register history renderer for socket entries (replaces default JSON dump in history sidebar)
-      if ((context as any).history?.registerRenderer) {
-        (context as any).history.registerRenderer(SocketHistoryRenderer);
+      // Register socket history adapter with the adapter registry
+      {
+        // @ts-ignore - Path resolved at runtime in app context
+        const { historyAdapterRegistry } = await import(/* @vite-ignore */ '@/core/history/adapterRegistry');
+        historyAdapterRegistry.register(socketHistoryAdapter);
       }
 
       // Register history curl builder for socket protocols (WS/WSS → websocat, GRPC/GRPCS → grpcurl)
@@ -493,74 +495,6 @@ export default function createSocketPlugin(context: PluginContext) {
         });
       }
 
-      // Register .void file builder for socket history entries
-      if ((context as any).history?.registerVoidBuilder) {
-        (context as any).history.registerVoidBuilder((entry: any, schema: any, helpers: any) => {
-          const method = (entry.request?.method ?? '').toUpperCase();
-          const url = entry.request?.url ?? '';
-          const headers: Array<{ key: string; value: string }> = entry.request?.headers ?? [];
-
-          const isGrpc = /^GRPCS?$/.test(method);
-
-          // Build socket-request node — use the actual protocol as the method text
-          const socketRequestContent: any[] = [
-            {
-              type: 'smethod',
-              attrs: { method, importedFrom: '', visible: true },
-              content: [{ type: 'text', text: method }],
-            },
-            {
-              type: 'surl',
-              content: [{ type: 'text', text: url }],
-            },
-          ];
-
-          // gRPC entries include a proto node populated from stored grpcMeta
-          if (isGrpc) {
-            const grpcMeta = entry.request?.grpcMeta ?? {};
-            const protoFilePath = grpcMeta.protoFilePath ?? null;
-            const protoFileName = protoFilePath ? protoFilePath.split('/').pop() ?? null : null;
-            socketRequestContent.push({
-              type: 'proto',
-              attrs: {
-                fileName: protoFileName,
-                filePath: protoFilePath,
-                packageName: grpcMeta.package || null,
-                services: grpcMeta.services ?? [],
-                selectedService: grpcMeta.service || null,
-                selectedMethod: grpcMeta.method || null,
-                callType: grpcMeta.callType || null,
-              },
-            });
-          }
-
-          const content: any[] = [
-            { type: 'socket-request', content: socketRequestContent },
-          ];
-
-          // Add headers table if present
-          if (headers.length > 0) {
-            content.push({
-              type: 'headers-table',
-              content: [{
-                type: 'table',
-                content: headers.map((h) => ({
-                  type: 'tableRow',
-                  attrs: { disabled: false },
-                  content: [h.key, h.value].map((col) => ({
-                    type: 'tableCell',
-                    attrs: { colspan: 1, rowspan: 1, colwidth: null },
-                    content: [{ type: 'paragraph', content: col ? [{ type: 'text', text: col }] : [] }],
-                  })),
-                })),
-              }],
-            });
-          }
-
-          const doc = { type: 'doc', content };
-          return helpers.toMarkdown(JSON.stringify(doc), schema);
-        });
-      }
     },
     onunload: async () => { },
   };

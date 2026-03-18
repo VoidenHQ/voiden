@@ -1,6 +1,7 @@
 import { Editor, Node, NodeViewProps, mergeAttributes } from "@tiptap/core";
 import { NodeViewWrapper, ReactNodeViewRenderer } from "@tiptap/react";
 import { Play } from "lucide-react";
+import { activeWsConnections, closeAllActiveWsConnections } from './MessagesNode';
 
 // function to prevent enter key from creating a new line when in method node
 const preventEnter = (editor: Editor) => {
@@ -42,7 +43,12 @@ export const createSocketMethodNode = (useSendRestRequest: any) => {
           </span>
           <div
             className="border-x border-stone-700/80 border-t p-1 hover:bg-stone-700 cursor-pointer text-http-get"
-            onClick={() => {
+            onClick={async () => {
+              if (activeWsConnections.size > 0) {
+                const ok = window.confirm('An active connection exists. It will be closed to reconnect. Continue?');
+                if (!ok) return;
+                await closeAllActiveWsConnections();
+              }
               refetch();
             }}
             style={{ cursor: 'pointer', userSelect: 'none' }}

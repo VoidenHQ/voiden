@@ -211,8 +211,18 @@ type MessageFormat = 'text' | 'json' | 'html' | 'xml';
 
 // Module-level deduplication: prevents multiple component instances (e.g. during
 // React remount or keep-alive cache churn) from connecting or saving the same session twice.
-const activeWsConnections = new Set<string>(); // wsIds currently being connected
+export const activeWsConnections = new Set<string>(); // wsIds currently being connected
 const savedWsSessions = new Set<string>(); // wsIds whose session has been saved this lifecycle
+
+/** Closes all active WS connections — called before initiating a new one. */
+export async function closeAllActiveWsConnections(): Promise<void> {
+  const ids = Array.from(activeWsConnections);
+  await Promise.all(ids.map(async (id) => {
+    try {
+      await (window as any)?.electron?.request?.closeWss({ wsId: id, code: 4000, reason: 'Reconnecting' });
+    } catch { /* best-effort */ }
+  }));
+}
 
 // Factory function to create the node with context components
 export const createMessagesNode = (NodeViewWrapper: any, context: PluginContext) => {
@@ -574,23 +584,22 @@ export const createMessagesNode = (NodeViewWrapper: any, context: PluginContext)
     }, [wsId]);
 
     const handleConnect = async () => {
-      if (isConnected.current) {
-        await (window as any)?.electron?.request?.pauseWss({ wsId, reason: "User disconnected" });
+      if (connected) {
+        await (window as any)?.electron?.request?.pauseWss({ wsId, reason: "User paused" });
         isConnected.current = false;
-        setIsPaused(true);
-      } else {
-        // Resume the paused connection instead of reconnecting
+      } else if (isPaused) {
         await (window as any)?.electron?.request?.resumeWss?.(wsId);
         isConnected.current = true;
         setIsPaused(false);
       }
-    }
+    };
 
     const handleClose = async () => {
-      if (isConnected.current && wsId) {
-        await (window as any)?.electron?.request?.closeWss({ wsId, code: 4000, reason: "User closed connection" });
-        setConnected(false);
-      }
+      if (!wsId) return;
+      await (window as any)?.electron?.request?.closeWss({ wsId, code: 4000, reason: "User closed connection" });
+      isConnected.current = false;
+      setConnected(false);
+      setIsPaused(false);
     };
 
     React.useEffect(() => {
@@ -653,7 +662,15 @@ export const createMessagesNode = (NodeViewWrapper: any, context: PluginContext)
 
       switch (it.kind) {
         case "system-open":
-          return null;
+          return (
+            <div key={idx} className={`${lineBase} text-green-400`}>
+              <span>●</span>
+              <div className="flex-1">
+                <div className="font-mono">CONNECTED</div>
+                {it.url && <div className="text-xs text-comment">{time} • {it.url}</div>}
+              </div>
+            </div>
+          );
         case "system-pause":
           return (
             <div key={idx} className={`${lineBase} text-yellow-400`}>
@@ -770,10 +787,6 @@ export const createMessagesNode = (NodeViewWrapper: any, context: PluginContext)
       );
     }
 
-    if (items.length === 0) {
-      return <NodeViewWrapper />;
-    }
-
     return (
       <NodeViewWrapper className="messages-node" style={{ userSelect: "text" }} contentEditable={false}>
         <div className="flex flex-col" style={{ height: '83vh' }}>
@@ -789,7 +802,7 @@ export const createMessagesNode = (NodeViewWrapper: any, context: PluginContext)
 
           {/* Input + SEND */}
           {
-            isConnected.current && (
+            connected && (
               <div className="bg-bg px-2 py-2">
                 <div className="bg-gray-50 border-t border-stone-700/80">
                   <div className="flex items-center justify-between px-3 py-2 border-b border-stone-700/80">
@@ -804,22 +817,23 @@ export const createMessagesNode = (NodeViewWrapper: any, context: PluginContext)
                         </option>
                       ))}
                     </select>
-                    <div id="ws-button" className={`${(!isConnected.current) ? 'cursor-not-allowed' : "cursor-pointer"}`}>
-                      <button
-                        className={`w-full ${(!isConnected.current) ? '!cursor-not-allowed' : "!cursor-pointer"} px-2 py-1 rounded text-sm font-medium transition-colors border-stone-700/80 border`}
-                        onClick={handleSend}
-                        disabled={!connected || !wsId}
-                        title={connected ? "Send message (Ctrl+Enter)" : "Not connected"}
-                        style={{
-                          cursor: isConnected.current ? 'pointer!important' : 'not-allowed'
-                        }}
-                      >
-                        SEND
-                      </button>
-                    </div>
+                    <button
+                      className="px-2 py-1 rounded text-sm font-medium transition-colors border-stone-700/80 border disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                      onClick={handleSend}
+                      disabled={!messageContent.trim()}
+                      title="Send message"
+                    >
+                      SEND
+                    </button>
                   </div>
 
-                  <div className="p-3 border-stone-700/80 border">
+                  <div
+                    className="p-3 border-stone-700/80 border"
+                    onKeyDown={(e) => e.stopPropagation()}
+                    onKeyUp={(e) => e.stopPropagation()}
+
+                    onClick={(e) => e.stopPropagation()}
+                  >
                     {context.ui.components.CodeEditor && (
                       <context.ui.components.CodeEditor
                         lang={messageFormat === 'json' ? 'json' : messageFormat === 'html' ? 'html' : messageFormat === 'xml' ? 'xml' : 'plaintext'}
@@ -827,7 +841,7 @@ export const createMessagesNode = (NodeViewWrapper: any, context: PluginContext)
                           handleMessageChange(val)
                         }}
                         value={messageContent}
-                        readOnly={!isConnected.current || !wsId}
+                        readOnly={!connected || !wsId}
                       />
                     )}
                   </div>
@@ -855,7 +869,7 @@ export const createMessagesNode = (NodeViewWrapper: any, context: PluginContext)
           <div className="border border-stone-700/80 w-full flex justify-between px-3 py-2">
 
             <div className="flex gap-4">
-              {wsId && isConnected.current && (
+              {wsId && connected && (
                 <div onClick={handleConnect} id="ws-button" className="flex items-center cursor-pointer">
                   <span className="flex p-1 hover:bg-active rounded transition-colors items-center gap-1 text-sm">
                     <Square className={"text-yellow-500"} size={14} /> Pause
@@ -869,9 +883,13 @@ export const createMessagesNode = (NodeViewWrapper: any, context: PluginContext)
                   </span>
                 </div>
               )}
-              <div onClick={handleClose} id="ws-button" className="flex items-center">
-                {isConnected.current && <span className="flex p-1 hover:bg-active rounded transition-colors items-center gap-1 text-sm text-text"> <X className={"text-red-500"} size={14} /> Close </span>}
-              </div>
+              {(connected || isPaused) && wsId && (
+                <div onClick={handleClose} id="ws-button" className="flex items-center cursor-pointer">
+                  <span className="flex p-1 hover:bg-active rounded transition-colors items-center gap-1 text-sm text-text">
+                    <X className={"text-red-500"} size={14} /> Disconnect
+                  </span>
+                </div>
+              )}
             </div>
             <div className="flex items-center gap-2">
               {items.length > 0 && (

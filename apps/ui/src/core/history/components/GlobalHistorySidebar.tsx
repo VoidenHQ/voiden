@@ -1,17 +1,15 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import ReactCodeMirror from '@uiw/react-codemirror';
 import { Clock, Copy, Check, Search, RotateCcw, Zap, ChevronDown, ChevronRight, Loader2, RefreshCw, FileText, X, Paperclip, AlertTriangle, ChevronsUpDown, ChevronsDownUp, Download, Trash2, Square, CheckSquare, MoreHorizontal } from 'lucide-react';
 import { useHistoryStore } from '../historyStore';
 import { readAllHistory, clearAllHistory, removeEntriesFromHistory, checkAttachmentChanges, AttachmentChange } from '../historyManager';
 import { FileAttachmentMeta, HistoryEntryWithFile } from '../types';
 import { getProjectPathFn, importCurlFn } from '../pipelineHooks';
 import { buildCurlForEntry, getHistoryRenderer, buildVoidFileForEntry, useEditorEnhancementStore } from '@/plugins';
+import { historyAdapterRegistry } from '../adapterRegistry';
 import { getSchema } from '@tiptap/core';
 import { voidenExtensions } from '@/core/editors/voiden/extensions';
 import { METHOD_COLORS } from '@/constants';
 import { Tip } from '@/core/components/ui/Tip';
-import { voidenTheme } from '@/core/editors/code/CodeEditor';
-import { renderLang } from '@/core/editors/code/lib/extensions/renderLang';
 import { toast } from '@/core/components/ui/sonner';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -85,50 +83,7 @@ function statusBadge(status?: number, error?: string | null): string {
   return 'text-red-400';
 }
 
-function detectLang(contentType?: string | null, body?: string): string {
-  const ct = (contentType ?? '').toLowerCase();
-  if (ct.includes('json')) return 'json';
-  if (ct.includes('xml')) return 'xml';
-  if (ct.includes('html')) return 'html';
-  if (ct.includes('yaml')) return 'yaml';
-  if (ct.includes('javascript')) return 'javascript';
-  const first = body?.trimStart()[0];
-  if (first === '{' || first === '[') return 'json';
-  if (first === '<') return 'xml';
-  return 'text';
-}
 
-const HistoryCodeViewer: React.FC<{ value: string; contentType?: string | null }> = ({ value, contentType }) => {
-  const lang = detectLang(contentType, value);
-  const extensions = renderLang(lang === 'json' ? 'jsonc' : lang);
-  return (
-    <div style={{ maxHeight: 300, overflow: 'hidden' }} className="rounded overflow-hidden">
-      <ReactCodeMirror
-        value={value}
-        readOnly
-        theme={voidenTheme}
-        extensions={extensions}
-        basicSetup={{
-          lineNumbers: true,
-          foldGutter: false,
-          dropCursor: false,
-          allowMultipleSelections: false,
-          indentOnInput: false,
-          highlightActiveLine: false,
-          highlightActiveLineGutter: false,
-          bracketMatching: false,
-          closeBrackets: false,
-          autocompletion: false,
-          rectangularSelection: false,
-          crosshairCursor: false,
-          searchKeymap: false,
-          syntaxHighlighting: true,
-        }}
-        style={{ maxHeight: 300, overflow: 'auto', fontSize: 11 }}
-      />
-    </div>
-  );
-};
 
 interface CollapsibleSectionProps {
   label: string;
@@ -153,7 +108,7 @@ const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({ label, count, o
   return (
     <div className="bg-bg">
       <div className="flex items-center gap-1 w-full border-border border-b group/sec mb-1 bg-bg p-2 rounded">
-        <button onClick={onToggle} className="flex items-center gap-1 flex-1 text-left min-w-0">
+        <button onClick={onToggle} className="flex items-center gap-1 flex-1 text-left min-w-0 pl-2">
           {open
             ? <ChevronDown size={10} className="text-comment shrink-0" />
             : <ChevronRight size={10} className="text-comment shrink-0" />}
@@ -171,7 +126,7 @@ const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({ label, count, o
           </button>
         )}
       </div>
-      {open && children}
+      {open && <div className="pl-4">{children}</div>}
     </div>
   );
 };
@@ -324,6 +279,10 @@ const EntryRow: React.FC<EntryRowProps> = ({ entry, query, copiedId, projectPath
     (h) => h.key.toLowerCase().includes(q) || h.value.toLowerCase().includes(q),
   ) : false;
   const matchInBody = q ? entry.request.body?.toLowerCase().includes(q) : false;
+  const matchInResponseHeaders = q ? entry.response.headers?.some(
+    (h) => h.key.toLowerCase().includes(q) || h.value.toLowerCase().includes(q),
+  ) : false;
+  const matchInResponseBody = q ? entry.response.body?.toLowerCase().includes(q) : false;
 
   const url = entry.request.url || '—';
   const isSocketEntry = /^(WSS?|GRPCS?)$/i.test(entry.request.method || '');
@@ -405,6 +364,16 @@ const EntryRow: React.FC<EntryRowProps> = ({ entry, query, copiedId, projectPath
           </div>
         )}
 
+        {/* Match-location chips */}
+        {(matchInHeaders || matchInBody || matchInResponseHeaders || matchInResponseBody) && (
+          <div className="flex items-center gap-1 mt-1 flex-wrap">
+            {matchInHeaders && <span className="text-[9px] px-1 py-0.5 rounded bg-yellow-400/10 text-yellow-400/80 border border-yellow-400/20">in req headers</span>}
+            {matchInBody && <span className="text-[9px] px-1 py-0.5 rounded bg-yellow-400/10 text-yellow-400/80 border border-yellow-400/20">in req body</span>}
+            {matchInResponseHeaders && <span className="text-[9px] px-1 py-0.5 rounded bg-yellow-400/10 text-yellow-400/80 border border-yellow-400/20">in res headers</span>}
+            {matchInResponseBody && <span className="text-[9px] px-1 py-0.5 rounded bg-yellow-400/10 text-yellow-400/80 border border-yellow-400/20">in response</span>}
+          </div>
+        )}
+
         {/* Meta + actions */}
         <div className="flex items-center mt-2 gap-2">
           <div className="flex items-center gap-2.5 flex-1 min-w-0">
@@ -445,7 +414,15 @@ const EntryRow: React.FC<EntryRowProps> = ({ entry, query, copiedId, projectPath
 
       {/* Expanded detail */}
       {expanded && (() => {
-        const PluginRenderer = getHistoryRenderer(entry);
+        const legacyRenderer = getHistoryRenderer(entry);
+        const adapterForRenderer = !legacyRenderer && entry.pluginId ? historyAdapterRegistry.get(entry.pluginId) : null;
+        const PluginRenderer: React.ComponentType<{ entry: any }> | null = legacyRenderer
+          ?? (adapterForRenderer?.ResponseViewer
+            ? (({ entry: e }: { entry: any }) => {
+                const RV = adapterForRenderer.ResponseViewer!;
+                return <RV responseState={e.responseState ?? e.response} requestState={e.requestState ?? e.request} />;
+              })
+            : null);
         return (
           <div className="border-t border-border" onClick={(e) => e.stopPropagation()}>
             <>
@@ -484,10 +461,14 @@ const EntryRow: React.FC<EntryRowProps> = ({ entry, query, copiedId, projectPath
                       onToggle={() => toggle('reqHeaders')}
                       copyValue={entry.request.headers.map((h) => `${h.key}: ${h.value}`).join('\n')}
                     >
-                      <HistoryCodeViewer
-                        value={entry.request.headers.map((h) => `${h.key}: ${h.value}`).join('\n')}
-                        contentType="text/plain"
-                      />
+                      <div className="bg-bg rounded p-2 space-y-0.5 font-mono text-[11px]">
+                        {entry.request.headers.map((h, i) => (
+                          <div key={i} className="flex gap-2 py-0.5 border-b border-border last:border-0">
+                            <span className="text-comment shrink-0 min-w-[100px]"><Highlight text={h.key} query={query} /></span>
+                            <span className="text-text break-all"><Highlight text={h.value} query={query} /></span>
+                          </div>
+                        ))}
+                      </div>
                     </CollapsibleSection>
                   )}
                   {entry.request.body && (
@@ -497,7 +478,7 @@ const EntryRow: React.FC<EntryRowProps> = ({ entry, query, copiedId, projectPath
                       onToggle={() => toggle('reqBody')}
                       copyValue={entry.request.body}
                     >
-                      <HistoryCodeViewer value={entry.request.body} contentType={entry.request.contentType} />
+                      <pre className="whitespace-pre-wrap break-words font-mono text-[11px] text-text bg-bg rounded p-2 max-h-[280px] overflow-y-auto"><Highlight text={entry.request.body ?? ''} query={query} /></pre>
                     </CollapsibleSection>
                   )}
                   {entry.request.fileAttachments && entry.request.fileAttachments.length > 0 && (
@@ -509,12 +490,6 @@ const EntryRow: React.FC<EntryRowProps> = ({ entry, query, copiedId, projectPath
                       <p className="text-[11px] font-mono text-text break-all">
                         <Highlight text={toRelativePath(entry.filePath, projectPath)} query={query} />
                       </p>
-                    </div>
-                  )}
-                  {(matchInHeaders || matchInBody) && (
-                    <div className="flex items-center gap-1">
-                      {matchInHeaders && <span className="text-[9px] px-1 py-0.5 rounded bg-yellow-400/10 text-yellow-400/80 border border-yellow-400/20">in headers</span>}
-                      {matchInBody && <span className="text-[9px] px-1 py-0.5 rounded bg-yellow-400/10 text-yellow-400/80 border border-yellow-400/20">in body</span>}
                     </div>
                   )}
                 </div>
@@ -552,10 +527,14 @@ const EntryRow: React.FC<EntryRowProps> = ({ entry, query, copiedId, projectPath
                             onToggle={() => toggle('resHeaders')}
                             copyValue={entry.response.headers.map((h) => `${h.key}: ${h.value}`).join('\n')}
                           >
-                            <HistoryCodeViewer
-                              value={entry.response.headers.map((h) => `${h.key}: ${h.value}`).join('\n')}
-                              contentType="text/plain"
-                            />
+                            <div className="bg-bg rounded p-2 space-y-0.5 font-mono text-[11px]">
+                              {entry.response.headers.map((h, i) => (
+                                <div key={i} className="flex gap-2 py-0.5 border-b border-border last:border-0">
+                                  <span className="text-comment shrink-0 min-w-[100px]"><Highlight text={h.key} query={query} /></span>
+                                  <span className="text-text break-all"><Highlight text={h.value} query={query} /></span>
+                                </div>
+                              ))}
+                            </div>
                           </CollapsibleSection>
                         )}
                         {entry.response.body && (
@@ -565,7 +544,7 @@ const EntryRow: React.FC<EntryRowProps> = ({ entry, query, copiedId, projectPath
                             onToggle={() => toggle('resBody')}
                             copyValue={entry.response.body}
                           >
-                            <HistoryCodeViewer value={entry.response.body} contentType={entry.response.contentType} />
+                            <pre className="whitespace-pre-wrap break-words font-mono text-[11px] text-text bg-bg rounded p-2 max-h-[280px] overflow-y-auto"><Highlight text={entry.response?.body ?? ''} query={query} /></pre>
                           </CollapsibleSection>
                         )}
                         {!entry.response.error && !entry.response.body && (!entry.response.headers || entry.response.headers.length === 0) && (
@@ -668,6 +647,10 @@ export const GlobalHistorySidebar: React.FC = () => {
             if (e.request.body.toLowerCase().includes(q)) return true;
           }
         }
+        if (e.response.headers?.some(
+          (h) => h.key.toLowerCase().includes(q) || h.value.toLowerCase().includes(q),
+        )) return true;
+        if (e.response.body && e.response.body.toLowerCase().includes(q)) return true;
         return false;
       });
     }
@@ -719,15 +702,17 @@ export const GlobalHistorySidebar: React.FC = () => {
   const handleReplay = useCallback(async (entry: HistoryEntryWithFile) => {
     await guardAttachments(entry, async () => {
       try {
-        if (!importCurlFn) return;
         const base = entry.filePath
           ? (entry.filePath.split('/').pop()?.replace(/\.void$/, '') ?? 'replay')
           : 'replay';
         const d = new Date();
         const pad = (n: number) => String(n).padStart(2, '0');
         const dt = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+        const title = `replay-${base}-${dt}.void`;
+
+        if (!importCurlFn) return;
         const curl = buildCurlForEntry(entry, projectPath ?? undefined);
-        await importCurlFn(`replay-${base}-${dt}.void`, curl);
+        await importCurlFn(title, curl);
       } catch { }
     });
   }, [guardAttachments]);

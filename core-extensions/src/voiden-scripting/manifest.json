@@ -1,7 +1,7 @@
 {
   "id": "voiden-scripting",
   "name": "Voiden Scripting",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Pre-request and post-response JavaScript scripting for API requests with vd API access",
   "author": "Voiden Team",
   "enabled": true,

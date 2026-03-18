@@ -25,6 +25,7 @@ import {
 } from "@voiden/sdk/ui";
 import { extensionLogger } from "@/core/lib/logger";
 import { AnyExtension } from "@tiptap/core";
+import { historyAdapterRegistry } from "@/core/history/adapterRegistry";
 import { parseMarkdown } from "@/core/editors/voiden/markdownConverter";
 import { useVoidenEditorStore, useEditorStore } from "@/core/editors/voiden/VoidenEditor";
 import { proseClasses } from "@/core/editors/voiden/VoidenEditor";
@@ -670,6 +671,10 @@ export const createPlugin = (pluginModule: (context: PluginContext) => Plugin, e
         nodeDisplayNames.set(nodeType, displayName);
       });
     },
+    registerHistoryAdapter: (adapter: any) => {
+      extensionLogger.info(`Plugin "${extensionId}" registering history adapter`);
+      historyAdapterRegistry.register(adapter);
+    },
   };
 
   const plugin = pluginModule(context);
@@ -718,6 +723,7 @@ export const getPlugins = async () => {
   Object.entries(coreNodeDisplayNames).forEach(([type, name]) => nodeDisplayNames.set(type, name)); // Re-seed core display names
   requestOrchestrator.clear();
   pasteOrchestrator.clear();
+  historyAdapterRegistry.clear();
 
   // ── Core history (not a plugin — registered here so it survives plugin reloads) ──
   {
@@ -756,6 +762,24 @@ export const getPlugins = async () => {
           }
         };
         setTimeout(() => tryPaste(15), 400);
+      },
+      async (title: string, markdown: string) => {
+        const [{ getSchema }, { voidenExtensions }] = await Promise.all([
+          import('@tiptap/core'),
+          import('@/core/editors/voiden/extensions'),
+        ]);
+        const pluginExts = useEditorEnhancementStore.getState().voidenExtensions;
+        const schema = getSchema([...voidenExtensions, ...pluginExts]);
+        const doc = parseMarkdown(markdown, schema);
+
+        const tabId = crypto.randomUUID();
+        const tabTitle = title.endsWith('.void') ? title : `${title}.void`;
+        await window.electron?.autosave?.save(tabId, JSON.stringify(doc));
+        await window.electron?.state.addPanelTab('main', { id: tabId, type: 'document', title: tabTitle, source: null });
+        await window.electron?.state.activatePanelTab('main', tabId);
+        const qc = getQueryClient();
+        qc.invalidateQueries({ queryKey: ['panel:tabs'], exact: false });
+        qc.invalidateQueries({ queryKey: ['tab:content'], exact: false });
       },
     );
 
