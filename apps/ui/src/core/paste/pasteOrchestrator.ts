@@ -163,9 +163,11 @@ export class PasteOrchestrator {
       }
     }
 
-    // If inside a table cell, don't intercept - let prosemirror-tables handle paste
+    // Inside a table cell: insert as plain text to prevent TipTap's markdown parser
+    // from converting the content (e.g. backtick-wrapped text → code block).
     if (insideTableCell) {
-      return false;
+      view.dispatch(view.state.tr.insertText(text));
+      return true;
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

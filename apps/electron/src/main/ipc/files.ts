@@ -82,7 +82,16 @@ export function registerFileIpcHandlers() {
         const os = await import("node:os");
         activeDirectory = os.default.homedir();
       }
-      const defaultPath = path.join(activeDirectory, "untitled.void");
+      let defaultName = "untitled.void";
+      if (tabId) {
+        const appState = getAppState();
+        const layout = appState.activeDirectory ? appState.directories[appState.activeDirectory]?.layout : appState.unsaved.layout;
+        const tab = findTabById(layout, "main", tabId);
+        if (tab?.title) {
+          defaultName = tab.title.endsWith(".void") ? tab.title : tab.title + ".void";
+        }
+      }
+      const defaultPath = path.join(activeDirectory, defaultName);
       const { canceled, filePath: chosenFilePath } = await dialog.showSaveDialog({
         title: "Save File",
         defaultPath,

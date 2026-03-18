@@ -30,7 +30,6 @@ import {
   convertToYmlNode,
   convertToUrlTableNode,
   convertToMethodNode,
-  convertToMultipartTableNode,
   convertToQueryTableNode,
   convertToURLNode,
   findAndReplaceOrAddNode,
@@ -57,10 +56,12 @@ const prettifyJSONC = (json: string) => {
   }
 };
 
-const parseMarkdown = (markdown: string, schema: any) => {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const parseMarkdown = (_markdown: string, _schema: any) => {
   // Stub - TODO: Implement proper markdown parsing via SDK
-  return { type: 'doc', content: [] };
+  return { type: 'doc', content: [] as any[] };
 };
+
 
 // ============================================================================
 // Constants
@@ -207,20 +208,43 @@ export const pasteCurl = async (editor: Editor, request: ImportRequest) => {
       request.body.params.map(async (param: any) => {
         const keyCell = makeCell(param.name ? [{ type: 'text', text: param.name }] : []);
 
+        // File path — from @path notation or a value that looks like a project-relative path
         const rawFile = param.fileName
           ? param.fileName.replace(/^"|"$/g, '').replace(/^@/, '')
           : null;
 
-        let resolvedPath = rawFile;
-        if (rawFile && !isAbsolutePath(rawFile) && activeProject) {
-          try {
-            const joined = await (window as any).electron?.utils?.pathJoin?.(activeProject, rawFile);
-            if (joined) {
-              const result = await (window as any).electron?.files?.hash?.(joined);
-              if (result?.exists) resolvedPath = joined;
-            }
-          } catch { /* best-effort */ }
+        // Treat param.value as a file path if it starts with / or \ and isn't a URL
+        const rawPathFromValue = !rawFile && param.value
+          ? (() => {
+              const v = String(param.value).trim();
+              return (v.startsWith('/') || v.startsWith('\\')) && !v.includes('://') ? v : null;
+            })()
+          : null;
+
+        const filePath = rawFile ?? rawPathFromValue;
+
+        let resolvedPath = filePath;
+        let isExternalFile = false;
+
+        if (rawFile) {
+          if (!isAbsolutePath(rawFile) && activeProject) {
+            // Relative @path → try to resolve to absolute
+            try {
+              const joined = await (window as any).electron?.utils?.pathJoin?.(activeProject, rawFile);
+              if (joined) {
+                const result = await (window as any).electron?.files?.hash?.(joined);
+                if (result?.exists) { resolvedPath = joined; isExternalFile = true; }
+              }
+            } catch { /* best-effort */ }
+          } else {
+            // Looks absolute — confirm it actually exists on the filesystem
+            try {
+              const result = await (window as any).electron?.files?.hash?.(rawFile);
+              isExternalFile = !!result?.exists;
+            } catch { /* best-effort */ }
+          }
         }
+        // rawPathFromValue: always project-relative → isExternalFile stays false
 
         const valCell = resolvedPath
           ? makeCell([{
@@ -228,7 +252,7 @@ export const pasteCurl = async (editor: Editor, request: ImportRequest) => {
               attrs: {
                 filePath: resolvedPath,
                 filename: resolvedPath.split(/[\\/]/).pop() ?? resolvedPath,
-                isExternal: true,
+                isExternal: isExternalFile,
               },
             }])
           : makeCell(param.value ? [{ type: 'text', text: param.value }] : []);

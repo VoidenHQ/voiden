@@ -1,3 +1,5 @@
+import { HistoryEntryMeta } from './adapterRegistry';
+
 /**
  * Metadata captured for a file attached via multipart/form-data.
  * Raw file content is NOT stored — only enough info to detect changes and warn on replay.
@@ -16,6 +18,8 @@ export interface FileAttachmentMeta {
   /** MIME type */
   mimeType?: string;
 }
+
+// ─── Legacy shapes (kept for backward compat with old stored entries) ─────────
 
 export interface HistoryRequestEntry {
   method: string;
@@ -60,13 +64,30 @@ export interface HistoryResponseEntry {
   headers?: Array<{ key: string; value: string }>;
 }
 
+// ─── Entry ───────────────────────────────────────────────────────────────────
+
 export interface HistoryEntry {
   id: string;
   timestamp: number;
+
+  // ── New adapter-based fields (present on entries created after the refactor) ──
+
+  /** ID of the plugin adapter that owns this entry */
+  pluginId?: string;
+  /** Standardised metadata for the entry card header */
+  meta?: HistoryEntryMeta;
+  /** Plugin-owned request state — opaque to core */
+  requestState?: unknown;
+  /** Plugin-owned response state — opaque to core */
+  responseState?: unknown;
+
+  // ── Legacy fields (entries written before the refactor, and REST API entries
+  //    that still populate these for cURL export / full-text search) ──────────
+
   /** Plugin ID that saved this entry (e.g. 'voiden-rest-api'). Set by context.history.save(). */
   source?: string;
-  request: HistoryRequestEntry;
-  response: HistoryResponseEntry;
+  request?: HistoryRequestEntry;
+  response?: HistoryResponseEntry;
 }
 
 export interface HistoryFile {
@@ -78,4 +99,30 @@ export interface HistoryFile {
 /** HistoryEntry annotated with its source .void file path — used in the global history view */
 export interface HistoryEntryWithFile extends HistoryEntry {
   filePath: string;
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+/**
+ * Returns display meta for an entry.
+ * Prefers the adapter-populated `meta` field; falls back to legacy `request`/`response`.
+ */
+export function getEntryMeta(entry: HistoryEntry): HistoryEntryMeta {
+  if (entry.meta) return entry.meta;
+  return {
+    label: `${entry.request?.method ?? 'GET'} ${entry.request?.url ?? ''}`,
+    method: entry.request?.method,
+    url: entry.request?.url ?? '',
+    connectionMade: !entry.response?.error,
+    statusCode: entry.response?.status,
+    statusText: entry.response?.statusText,
+    error: entry.response?.error ?? null,
+    duration: entry.response?.timing?.duration,
+    bytesContent: entry.response?.bytesContent,
+  };
+}
+
+/** Returns the pluginId for an entry, defaulting to the REST API plugin. */
+export function getEntryPluginId(entry: HistoryEntry): string {
+  return entry.pluginId ?? 'voiden-rest-api';
 }

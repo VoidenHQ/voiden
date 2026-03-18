@@ -6,6 +6,7 @@ import { readAllHistory, clearAllHistory, removeEntriesFromHistory, checkAttachm
 import { FileAttachmentMeta, HistoryEntryWithFile } from '../types';
 import { getProjectPathFn, importCurlFn } from '../pipelineHooks';
 import { buildCurlForEntry, getHistoryRenderer, buildVoidFileForEntry, useEditorEnhancementStore } from '@/plugins';
+import { historyAdapterRegistry } from '../adapterRegistry';
 import { getSchema } from '@tiptap/core';
 import { voidenExtensions } from '@/core/editors/voiden/extensions';
 import { METHOD_COLORS } from '@/constants';
@@ -445,7 +446,15 @@ const EntryRow: React.FC<EntryRowProps> = ({ entry, query, copiedId, projectPath
 
       {/* Expanded detail */}
       {expanded && (() => {
-        const PluginRenderer = getHistoryRenderer(entry);
+        const legacyRenderer = getHistoryRenderer(entry);
+        const adapterForRenderer = !legacyRenderer && entry.pluginId ? historyAdapterRegistry.get(entry.pluginId) : null;
+        const PluginRenderer: React.ComponentType<{ entry: any }> | null = legacyRenderer
+          ?? (adapterForRenderer?.ResponseViewer
+            ? (({ entry: e }: { entry: any }) => {
+                const RV = adapterForRenderer.ResponseViewer!;
+                return <RV responseState={e.responseState ?? e.response} requestState={e.requestState ?? e.request} />;
+              })
+            : null);
         return (
           <div className="border-t border-border" onClick={(e) => e.stopPropagation()}>
             <>
@@ -719,15 +728,17 @@ export const GlobalHistorySidebar: React.FC = () => {
   const handleReplay = useCallback(async (entry: HistoryEntryWithFile) => {
     await guardAttachments(entry, async () => {
       try {
-        if (!importCurlFn) return;
         const base = entry.filePath
           ? (entry.filePath.split('/').pop()?.replace(/\.void$/, '') ?? 'replay')
           : 'replay';
         const d = new Date();
         const pad = (n: number) => String(n).padStart(2, '0');
         const dt = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+        const title = `replay-${base}-${dt}.void`;
+
+        if (!importCurlFn) return;
         const curl = buildCurlForEntry(entry, projectPath ?? undefined);
-        await importCurlFn(`replay-${base}-${dt}.void`, curl);
+        await importCurlFn(title, curl);
       } catch { }
     });
   }, [guardAttachments]);

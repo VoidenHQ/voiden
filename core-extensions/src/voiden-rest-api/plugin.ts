@@ -7,6 +7,7 @@
 
 import { PluginContext } from '@voiden/sdk/ui';
 import { VoidenRestApiExtension } from './extension';
+import { restApiHistoryAdapter } from './historyAdapter';
 import { createResponseStatusNode } from './nodes/ResponseStatusNode';
 import { createResponseHeadersNode } from './nodes/ResponseHeadersNode';
 import { createRequestHeadersNode } from './nodes/RequestHeadersNode';
@@ -560,6 +561,9 @@ const voidenRestApiPlugin = (context: PluginContext) => {
       if (typeof extension.onLoad !== 'function') {
         throw new Error('Extension missing required onLoad method');
       }
+
+      // Register history adapter so core delegates entry building to this plugin
+      (context as any).registerHistoryAdapter?.(restApiHistoryAdapter);
 
       // Call extension's onLoad (this registers slash commands)
       await extension.onLoad();

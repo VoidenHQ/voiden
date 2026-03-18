@@ -338,10 +338,17 @@ export function buildCurlFromEntry(entry: HistoryEntry, projectPath?: string): s
     const fileKeys = new Set((entry.request.fileAttachments ?? []).map((a) => a.key));
     for (const att of (entry.request.fileAttachments ?? [])) {
       let filePath = att.path ?? att.name;
-      // Use relative path when the attachment is inside the active project
+      // If path is not absolute, resolve it relative to the project root so
+      // the generated -F flag works regardless of the shell's working directory.
       if (projectPath && filePath) {
-        const withSep = projectPath.endsWith('/') ? projectPath : projectPath + '/';
-        if (filePath.startsWith(withSep)) filePath = filePath.slice(withSep.length);
+        // A path is truly absolute only if it begins with the projectPath prefix or is a
+        // Windows drive-letter path. A leading "/" alone is insufficient — fileLink nodes
+        // store project-relative paths like "/README.md" that start with "/" but are NOT
+        // filesystem-absolute.
+        const isAbsolute = filePath.startsWith(projectPath) || /^[A-Za-z]:[/\\]/.test(filePath);
+        if (!isAbsolute) {
+          filePath = projectPath.replace(/[/\\]+$/, '') + '/' + filePath.replace(/^[/\\]+/, '');
+        }
       }
       parts.push(`-F "${att.key}=@${filePath}"`);
     }
