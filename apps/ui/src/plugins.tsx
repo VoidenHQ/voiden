@@ -4,7 +4,7 @@ import * as _ReactShim from "react";
 import * as _ReactJSXShim from "react/jsx-runtime";
 import * as _ReactDOMShim from "react-dom";
 import * as _ReactDOMClientShim from "react-dom/client";
-import { coreExtensionPlugins, handleCurl, pasteCurl } from "@voiden/core-extensions";
+import { coreExtensionPlugins } from "@voiden/core-extensions";
 import { PluginErrorBoundary } from "@/core/components/ErrorBoundary";
 import { getProjects } from "@/core/projects/hooks";
 import { useGetExtensions } from "@/core/extensions/hooks";
@@ -25,6 +25,7 @@ import {
 } from "@voiden/sdk/ui";
 import { extensionLogger } from "@/core/lib/logger";
 import { AnyExtension } from "@tiptap/core";
+import { historyAdapterRegistry } from "@/core/history/adapterRegistry";
 import { parseMarkdown } from "@/core/editors/voiden/markdownConverter";
 import { useVoidenEditorStore, useEditorStore } from "@/core/editors/voiden/VoidenEditor";
 import { proseClasses } from "@/core/editors/voiden/VoidenEditor";
@@ -39,6 +40,64 @@ import { useSendRestRequest } from "@/core/request-engine";
 import { RequestBlockHeader } from "@/core/editors/voiden/nodes/RequestBlockHeader";
 import { useParentResponseDoc } from "@/core/extensions/hooks/useParentResponseDoc";
 import { toast } from "sonner";
+import { HistoryEntry } from "@/core/history/types";
+import { buildCurlFromEntry } from "@/core/history/historyManager";
+import { buildVoidMarkdownFromEntry } from "@/core/history/voidFileBuilder";
+import { prosemirrorToMarkdown } from "@/core/file-system/hooks/useFileSystem";
+
+export type VoidBuilderHelpers = {
+  /** Convert a ProseMirror doc JSON string to .void markdown using the full editor schema */
+  toMarkdown: (docJson: string, schema: any) => string;
+};
+
+// ── Plugin history exporter registry ─────────────────────────────────────────
+// Plugins register custom cURL builders, void file builders, and optional entry renderers.
+const historyExporters: Record<string, {
+  buildCurl?: (entry: HistoryEntry, projectPath?: string) => string;
+  buildVoidFile?: (entry: HistoryEntry, schema: any, helpers: VoidBuilderHelpers) => string;
+  renderer?: React.ComponentType<{ entry: HistoryEntry }>;
+}> = {};
+
+// ── Curl importer registry ────────────────────────────────────────────────────
+// Each plugin registers its own curl importer. Core iterates these instead of
+// calling plugin-specific functions directly.
+type CurlImporter = (curlString: string, editor: any) => Promise<boolean>;
+const curlImporters: CurlImporter[] = [];
+
+/**
+ * Build a cURL string for a history entry, delegating to the plugin's registered builder
+ * (if any) before falling back to the default REST cURL builder.
+ */
+export function buildCurlForEntry(entry: HistoryEntry, projectPath?: string): string {
+  if (entry.source && historyExporters[entry.source]?.buildCurl) {
+    return historyExporters[entry.source].buildCurl!(entry, projectPath);
+  }
+  return buildCurlFromEntry(entry, projectPath);
+}
+
+/**
+ * Returns the plugin-registered renderer for a history entry, or null if none.
+ * The renderer is a React component receiving { entry } and responsible for rendering
+ * the plugin-specific expanded detail view of the entry.
+ */
+export function getHistoryRenderer(entry: HistoryEntry): React.ComponentType<{ entry: HistoryEntry }> | null {
+  if (entry.source && historyExporters[entry.source]?.renderer) {
+    return historyExporters[entry.source].renderer!;
+  }
+  return null;
+}
+
+/**
+ * Build .void file markdown for a history entry.
+ * Delegates to the plugin's registered void builder (if any), falling back to
+ * the default REST-API builder that generates a request + headers + body block.
+ */
+export function buildVoidFileForEntry(entry: HistoryEntry, schema: any): string {
+  if (entry.source && historyExporters[entry.source]?.buildVoidFile) {
+    return historyExporters[entry.source].buildVoidFile!(entry, schema, { toMarkdown: prosemirrorToMarkdown });
+  }
+  return buildVoidMarkdownFromEntry(entry, schema);
+}
 
 interface PluginError {
   extensionId: string;
@@ -367,15 +426,17 @@ export const createPlugin = (pluginModule: (context: PluginContext) => Plugin, e
         queryClient.invalidateQueries({ queryKey: ["tab:content"], exact: false });
 
         // Parse the curl
-        const request = handleCurl(curlString);
-        if (!request) return;
-
         // Poll for the VoidenEditor to mount with this tabId, then paste curl
-        const tryPaste = (attempts: number) => {
+        const tryPaste = async (attempts: number) => {
           if (attempts <= 0) return;
           const editor = useVoidenEditorStore.getState().editor;
           if (editor && editor.storage.tabId === tabId) {
-            pasteCurl(editor, request);
+            let handled = false;
+            for (const importer of curlImporters) {
+              try { handled = await importer(curlString, editor); } catch { /* skip */ }
+              if (handled) return;
+            }
+            pasteOrchestrator.handlePatternText(editor.view, curlString);
           } else {
             setTimeout(() => tryPaste(attempts - 1), 200);
           }
@@ -498,6 +559,82 @@ export const createPlugin = (pluginModule: (context: PluginContext) => Plugin, e
       registerPatternHandler: (handler: PatternHandler) => {
         pasteOrchestrator.registerPatternHandler(handler, extensionId);
       },
+      registerCurlImporter: (handler: CurlImporter) => {
+        curlImporters.push(handler);
+      },
+    },
+    history: {
+      /**
+       * Save a history entry for a given .void file path.
+       * The entry is automatically tagged with the calling plugin's ID as `source`.
+       */
+      save: async (partial: Omit<HistoryEntry, 'id' | 'timestamp'>, filePath: string): Promise<void> => {
+        try {
+          const { appendToHistory } = await import('@/core/history/historyManager');
+          const { useHistoryStore } = await import('@/core/history/historyStore');
+          const projects = await getProjects();
+          const projectPath = projects?.activeProject ?? null;
+          if (!projectPath) return;
+          const settings = await (window as any).electron?.userSettings?.get();
+          if (settings?.history?.enabled === false) return;
+          const retentionDays = Math.min(90, Math.max(1, settings?.history?.retention_days ?? 2));
+          const entry: HistoryEntry = {
+            id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+            timestamp: Date.now(),
+            source: extensionId,
+            ...partial,
+          };
+          const updated = await appendToHistory(projectPath, filePath, entry, retentionDays);
+          const store = useHistoryStore.getState();
+          if (store.currentFilePath === filePath) {
+            store.setEntries(filePath, updated.entries);
+          }
+          // Update global history so the sidebar refreshes without a manual reload
+          const entryWithFile = { ...entry, filePath };
+          store.setAllEntries([entryWithFile, ...store.allEntries.filter((e) => e.id !== entryWithFile.id)]);
+        } catch (e) {
+          extensionLogger.error(`[history] Plugin ${extensionId} failed to save entry:`, e);
+        }
+      },
+      /**
+       * Register a custom cURL builder for this plugin's history entries.
+       * Used by the global history sidebar when rendering entries with source === extensionId.
+       */
+      registerCurlBuilder: (builder: (entry: HistoryEntry, projectPath?: string) => string): void => {
+        historyExporters[extensionId] = { ...historyExporters[extensionId], buildCurl: builder };
+      },
+      /**
+       * Register a custom React renderer for this plugin's history entries.
+       * The component receives { entry } and is rendered in the expanded detail view
+       * of the global history sidebar — keeping plugin-specific rendering out of core.
+       */
+      registerRenderer: (component: React.ComponentType<{ entry: HistoryEntry }>): void => {
+        historyExporters[extensionId] = { ...historyExporters[extensionId], renderer: component };
+      },
+      /**
+       * Register a custom .void file builder for this plugin's history entries.
+       * Called during export — receives the entry and the full TipTap schema.
+       * Return a markdown string that will be written as the .void file content.
+       */
+      registerVoidBuilder: (builder: (entry: HistoryEntry, schema: any, helpers: VoidBuilderHelpers) => string): void => {
+        historyExporters[extensionId] = { ...historyExporters[extensionId], buildVoidFile: builder };
+      },
+      /**
+       * Read all history entries across all .void files in the active project.
+       */
+      readAll: async (): Promise<Array<HistoryEntry & { filePath: string }>> => {
+        try {
+          const { readAllHistory } = await import('@/core/history/historyManager');
+          const projects = await getProjects();
+          const projectPath = projects?.activeProject ?? null;
+          if (!projectPath) return [];
+          const settings = await (window as any).electron?.userSettings?.get();
+          const retentionDays = Math.min(90, Math.max(1, settings?.history?.retention_days ?? 2));
+          return readAllHistory(projectPath, retentionDays);
+        } catch {
+          return [];
+        }
+      },
     },
     onBuildRequest: (handler) => {
       requestOrchestrator.registerRequestHandler(handler);
@@ -533,6 +670,10 @@ export const createPlugin = (pluginModule: (context: PluginContext) => Plugin, e
       Object.entries(displayNames).forEach(([nodeType, displayName]) => {
         nodeDisplayNames.set(nodeType, displayName);
       });
+    },
+    registerHistoryAdapter: (adapter: any) => {
+      extensionLogger.info(`Plugin "${extensionId}" registering history adapter`);
+      historyAdapterRegistry.register(adapter);
     },
   };
 
@@ -574,12 +715,77 @@ export const getPlugins = async () => {
     panels: { main: [], bottom: [] },
   });
   Object.keys(exposedHelpers).forEach(key => delete exposedHelpers[key]);
+  Object.keys(historyExporters).forEach(key => delete historyExporters[key]);
+  curlImporters.length = 0;
   linkableNodeTypes.clear(); // Clear linkable node types on plugin reload
   coreLinkableNodeTypes.forEach(type => linkableNodeTypes.add(type)); // Re-seed core linkable types
   nodeDisplayNames.clear(); // Clear node display names on plugin reload
   Object.entries(coreNodeDisplayNames).forEach(([type, name]) => nodeDisplayNames.set(type, name)); // Re-seed core display names
   requestOrchestrator.clear();
   pasteOrchestrator.clear();
+  historyAdapterRegistry.clear();
+
+  // ── Core history (not a plugin — registered here so it survives plugin reloads) ──
+  {
+    const { hookRegistry: hr, PipelineStage } = await import('@/core/request-engine/pipeline');
+    const { preProcessingHistoryHook, postProcessingHistoryHook, initHistoryContext } = await import('@/core/history/pipelineHooks');
+
+    hr.unregisterExtension('core-history');
+
+    initHistoryContext(
+      async () => {
+        const p = await getProjects();
+        return p?.activeProject ?? null;
+      },
+      async (title: string, curlString: string) => {
+        const tabId = crypto.randomUUID();
+        const tabTitle = title.endsWith('.void') ? title : `${title}.void`;
+        const emptyDoc = JSON.stringify({ type: 'doc', content: [] });
+        await window.electron?.autosave?.save(tabId, emptyDoc);
+        await window.electron?.state.addPanelTab('main', { id: tabId, type: 'document', title: tabTitle, source: null });
+        await window.electron?.state.activatePanelTab('main', tabId);
+        const qc = getQueryClient();
+        qc.invalidateQueries({ queryKey: ['panel:tabs'], exact: false });
+        qc.invalidateQueries({ queryKey: ['tab:content'], exact: false });
+        const tryPaste = async (attempts: number) => {
+          if (attempts <= 0) return;
+          const editor = useVoidenEditorStore.getState().editor;
+          if (editor && editor.storage.tabId === tabId) {
+            let handled = false;
+            for (const importer of curlImporters) {
+              try { handled = await importer(curlString, editor); } catch { /* skip */ }
+              if (handled) return;
+            }
+            pasteOrchestrator.handlePatternText(editor.view, curlString);
+          } else {
+            setTimeout(() => tryPaste(attempts - 1), 200);
+          }
+        };
+        setTimeout(() => tryPaste(15), 400);
+      },
+      async (title: string, markdown: string) => {
+        const [{ getSchema }, { voidenExtensions }] = await Promise.all([
+          import('@tiptap/core'),
+          import('@/core/editors/voiden/extensions'),
+        ]);
+        const pluginExts = useEditorEnhancementStore.getState().voidenExtensions;
+        const schema = getSchema([...voidenExtensions, ...pluginExts]);
+        const doc = parseMarkdown(markdown, schema);
+
+        const tabId = crypto.randomUUID();
+        const tabTitle = title.endsWith('.void') ? title : `${title}.void`;
+        await window.electron?.autosave?.save(tabId, JSON.stringify(doc));
+        await window.electron?.state.addPanelTab('main', { id: tabId, type: 'document', title: tabTitle, source: null });
+        await window.electron?.state.activatePanelTab('main', tabId);
+        const qc = getQueryClient();
+        qc.invalidateQueries({ queryKey: ['panel:tabs'], exact: false });
+        qc.invalidateQueries({ queryKey: ['tab:content'], exact: false });
+      },
+    );
+
+    hr.registerHook('core-history', PipelineStage.PreProcessing, preProcessingHistoryHook, 50);
+    hr.registerHook('core-history', PipelineStage.PostProcessing, postProcessingHistoryHook, 50);
+  }
 
   const extensions = getQueryClient().getQueryData(["extensions"]) as any[];
 

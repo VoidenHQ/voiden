@@ -22,7 +22,9 @@ const handleTableDelete = (editor: Editor) => {
       );
     });
 
-    const isEmpty = selection.$head.node().textContent === "";
+    // Use content.size instead of textContent so inline atom nodes (e.g. fileLink)
+    // are not mistaken for empty — atoms have no text but do have content size.
+    const isEmpty = selection.$head.node().content.size === 0;
 
     if (isWrapperNode && isEmpty) {
       return true;

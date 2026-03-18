@@ -46,6 +46,9 @@ export type Settings = {
   };
   projects: {
     default_directory: string;
+  history?: {
+    enabled?: boolean;
+    retention_days?: number;
   };
 };
 
@@ -133,6 +136,11 @@ export function loadSettings(): Settings {
   // Now merge: user settings (potentially with beta channel) override defaults
   cache = normalizeSettings(deepMerge(defaults, user));
 
+  // Clamp retention_days so a hand-edited JSON cannot bypass limits
+  if ((cache as any).history?.retention_days !== undefined) {
+    (cache as any).history.retention_days = Math.min(90, Math.max(1, Number((cache as any).history.retention_days) || 2));
+  }
+
   // Ensure file exists with current settings
   try {
     fs.mkdirSync(path.dirname(userFile), { recursive: true });
@@ -147,7 +155,11 @@ export function getSettings(): Settings {
 }
 
 export function saveSettings(patch: Partial<Settings>): Settings {
-  const merged = normalizeSettings(deepMerge(getSettings(), patch));
+  const merged = deepMerge(getSettings(), patch);
+  // Clamp retention_days so values outside [1, 90] can never be persisted
+  if ((merged as any).history?.retention_days !== undefined) {
+    (merged as any).history.retention_days = Math.min(90, Math.max(1, Number((merged as any).history.retention_days) || 2));
+  }
   fs.writeFileSync(userFile, JSON.stringify(merged, null, 2));
   cache = merged;
 

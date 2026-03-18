@@ -79,26 +79,30 @@ export function registerFileIpcHandlers() {
     async (_event, filePath, content, tabId): Promise<string | null> => {
       const wasUnsaved = !filePath;
 
-      if (!filePath) {
-        let activeDirectory = await getActiveProject();
-        if (!activeDirectory) {
-          const os = await import("node:os");
-          activeDirectory = os.default.homedir();
+    if (!filePath) {
+      let activeDirectory = await getActiveProject();
+      if (!activeDirectory) {
+        const os = await import("node:os");
+        activeDirectory = os.default.homedir();
+      }
+      let defaultName = "untitled.void";
+      if (tabId) {
+        const appState = getAppState();
+        const layout = appState.activeDirectory ? appState.directories[appState.activeDirectory]?.layout : appState.unsaved.layout;
+        const tab = findTabById(layout, "main", tabId);
+        if (tab?.title) {
+          defaultName = tab.title.endsWith(".void") ? tab.title : tab.title + ".void";
         }
-        const defaultPath = path.join(activeDirectory, "untitled.void");
-        const { canceled, filePath: chosenFilePath } =
-          await dialog.showSaveDialog({
-            title: "Save File",
-            defaultPath,
-            filters: [{ name: "Voiden Files", extensions: ["void"] }],
-          });
+      }
+      const defaultPath = path.join(activeDirectory, defaultName);
+      const { canceled, filePath: chosenFilePath } = await dialog.showSaveDialog({
+        title: "Save File",
+        defaultPath,
+        filters: [{ name: "Voiden Files", extensions: ["void"] }],
+      });
 
-        if (canceled || !chosenFilePath) {
-          return null;
-        }
-        filePath = chosenFilePath.endsWith(".void")
-          ? chosenFilePath
-          : chosenFilePath + ".void";
+      if (canceled || !chosenFilePath) {
+        return null;
       }
 
       await fs.promises.writeFile(filePath, content, "utf8");
@@ -301,6 +305,36 @@ export function registerFileIpcHandlers() {
     },
   );
 
+  ipcMain.handle("files:listDir", async (_event, dirPath: string) => {
+    try {
+      const entries = await fs.promises.readdir(dirPath);
+      return entries;
+    } catch {
+      return [];
+    }
+  });
+
+  ipcMain.handle("files:stat", async (_event, filePath: string) => {
+    try {
+      const stat = await fs.promises.stat(filePath);
+      return { size: stat.size, mtime: stat.mtimeMs, exists: true };
+    } catch {
+      return { exists: false };
+    }
+  });
+
+  ipcMain.handle("files:hash", async (_event, filePath: string) => {
+    try {
+      const { createHash } = await import("node:crypto");
+      const content = await fs.promises.readFile(filePath);
+      const hash = createHash("sha256").update(content).digest("hex");
+      const size = content.byteLength;
+      return { exists: true, hash, size };
+    } catch {
+      return { exists: false };
+    }
+  });
+
   ipcMain.handle("dialog:openFile", async (_event, options) => {
     const focusedWindow = BrowserWindow.getFocusedWindow();
     const result = await dialog.showOpenDialog(focusedWindow, options);
@@ -309,4 +343,15 @@ export function registerFileIpcHandlers() {
     }
     return result.filePaths;
   });
+
+  ipcMain.handle(
+    "dialog:showMessageBox",
+    async (_event, options: Electron.MessageBoxOptions) => {
+      const focusedWindow = BrowserWindow.getFocusedWindow();
+      const result = focusedWindow
+        ? await dialog.showMessageBox(focusedWindow, options)
+        : await dialog.showMessageBox(options);
+      return result.response;
+    },
+  );
 }

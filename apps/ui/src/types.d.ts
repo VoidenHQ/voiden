@@ -201,6 +201,12 @@ declare global {
           baseBranch: string,
           compareBranch: string,
         ) => Promise<{
+        getBranches: () => Promise<{ branches: string[]; activeBranch: string }>;
+        checkout: (projectPath: string, branch: string) => Promise<{ activeBranch: string; branches: string[] }>;
+        createBranch: (projectPath: string, branch: string) => Promise<{ activeBranch: string; branches: string[] }>;
+        createBranchFrom: (projectPath: string, branch: string, fromBranch: string) => Promise<{ activeBranch: string; branches: string[] }>;
+        updateGitignore: (filePatterns: string | string[], rootDir?: string) => Promise<void>;
+        diffBranches: (baseBranch: string, compareBranch: string) => Promise<{
           summary: { files: number; insertions: number; deletions: number };
           files: { status: string; path: string; oldPath: string | null }[];
         }>;
@@ -220,11 +226,14 @@ declare global {
           modified: string[];
           untracked: string[];
           deleted: string[];
+          published: boolean;
           current: string;
           tracking: string | null;
           ahead: number;
           behind: number;
+          outgoing: boolean;
         }>;
+        clone: (repoUrl: string, token?: string) => Promise<{ clonedPath: string; clonedInPlace: boolean; isNewProject: boolean }>;
         stage: (files: string[]) => Promise<boolean>;
         unstage: (files: string[]) => Promise<boolean>;
         commit: (message: string) => Promise<any>;
@@ -249,6 +258,18 @@ declare global {
             deletions: number;
           }[]
         >;
+        getCommitFiles: (commitHash: string) => Promise<{
+          path: string;
+          changes: number;
+          insertions: number;
+          deletions: number;
+        }[]>;
+        fetchRemote: () => Promise<boolean | null>;
+        push: () => Promise<{ branch: string }>;
+        pull: () => Promise<any>;
+        stash: (message?: string) => Promise<boolean>;
+        stashList: () => Promise<{ index: number; ref: string; message: string; date: string }[]>;
+        stashPop: (index: number) => Promise<boolean>;
       };
       plugins: {
         get: () => Promise<string[]>;

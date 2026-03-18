@@ -4,12 +4,16 @@ import { ExtensionBrowser } from "@/core/extensions/components/ExtensionBrowser"
 import { usePluginStore } from "@/plugins";
 import { ResponsePanelContainer } from "@/core/request-engine/components/ResponsePanelContainer";
 import { GitSourceControl } from "@/core/git/components/GitSourceControl";
+import { HistorySidebar } from "@/core/history/components/HistorySidebar";
+import { GlobalHistorySidebar } from "@/core/history/components/GlobalHistorySidebar";
 
 const sidebarComponentMap: Record<string, React.ReactNode> = {
   fileExplorer: <FileSystemList />,
   extensionBrowser: <ExtensionBrowser />,
   responsePanel: <ResponsePanelContainer />,
   gitSourceControl: <GitSourceControl />,
+  history: <HistorySidebar />,
+  globalHistory: <GlobalHistorySidebar />,
 };
 
 export const SidePanelContent = ({ side }: { side: "left" | "right" }) => {
@@ -20,24 +24,16 @@ export const SidePanelContent = ({ side }: { side: "left" | "right" }) => {
   const activeTab = sidebarTabs?.tabs?.find((t: any) => t.id === activeTabId);
   const activeType = activeTab?.type;
 
-  // Response panel is always mounted so its shortcuts remain active.
-  const isResponseActive = activeType === 'responsePanel';
-
   return (
     <>
-      {/* Response panel: always mounted, visibility toggled */}
-      <div className="h-full bg-bg" style={{ display: isResponseActive ? undefined : 'none' }}>
-        <ResponsePanelContainer />
-      </div>
-
-      {/* Other built-in tabs: only the active one renders */}
-      {activeTab && activeType !== 'responsePanel' && activeType !== 'custom' && sidebarComponentMap[activeType] && (
-        <div className="h-full bg-bg">
-          {sidebarComponentMap[activeType]}
+      {/* Built-in tabs: always mounted, shown/hidden via CSS to preserve state */}
+      {Object.entries(sidebarComponentMap).map(([type, node]) => (
+        <div key={type} className="h-full bg-bg" style={{ display: activeType === type ? undefined : 'none' }}>
+          {node}
         </div>
-      )}
+      ))}
 
-      {/* Custom (plugin) tabs */}
+      {/* Custom (plugin) tabs: always mounted once registered, shown/hidden via CSS */}
       {(pluginTabs || []).map((extensionTab: any) => {
         const matchingTab = sidebarTabs?.tabs?.find(
           (t: any) => t.type === 'custom' && t.meta?.customTabKey === extensionTab.id

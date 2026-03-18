@@ -4,6 +4,7 @@ import { cn } from "@/core/lib/utils";
 import { usePanelStore } from "@/core/stores/panelStore";
 import { useGetPanelTabs } from "./usePanelTabs";
 import { useNewTerminalTab } from "@/core/terminal/hooks";
+import { useGetAppState } from "@/core/state/hooks";
 
 const STORAGE_KEYS = {
   LEFT_PANEL: "novus:left-panel-collapsed",
@@ -102,14 +103,25 @@ export const useBottomPanel = ({ defaultSize = 0, minSize = 20, panelId = "botto
 
   const { data: tabs } = useGetPanelTabs(panelId);
   const { mutate: createTerminalTab } = useNewTerminalTab();
+  const { data: appState } = useGetAppState();
+
+  // Per-project localStorage key for the user's explicit open/close choice.
+  const bottomPanelStateKey = (dir: string) => `voiden:bottom-panel-open:${dir}`;
+
+  const saveBottomPanelState = (dir: string | null | undefined, open: boolean) => {
+    if (!dir) return;
+    localStorage.setItem(bottomPanelStateKey(dir), JSON.stringify(open));
+  };
+
+  const dirChangedRef = useRef(false);
 
   const handleToggleBottomPanel = useCallback(() => {
     if (ref.current) {
       if (ref.current.isCollapsed()) {
         ref.current.expand();
         openBottomPanel();
+        saveBottomPanelState(appState?.activeDirectory, true);
 
-        // Only check tabs if the data is available
         if (tabs?.tabs) {
           const tabCount = tabs.tabs.length;
           if (tabCount === 0) {
@@ -119,9 +131,10 @@ export const useBottomPanel = ({ defaultSize = 0, minSize = 20, panelId = "botto
       } else {
         ref.current.collapse();
         closeBottomPanel();
+        saveBottomPanelState(appState?.activeDirectory, false);
       }
     }
-  }, [tabs, panelId, createTerminalTab, openBottomPanel, closeBottomPanel]);
+  }, [tabs, panelId, appState?.activeDirectory, createTerminalTab, openBottomPanel, closeBottomPanel]);
 
   // Listen for changes in the global state and sync the panel
   useEffect(() => {
@@ -132,12 +145,43 @@ export const useBottomPanel = ({ defaultSize = 0, minSize = 20, panelId = "botto
         ref.current.collapse();
       }
     }
+    // Persist the change for the current project (covers all close paths,
+    // e.g. closing the last tab from PanelTabs, not just the toggle button).
+    if (!dirChangedRef.current) {
+      saveBottomPanelState(appState?.activeDirectory, bottomPanelOpen);
+    }
   }, [bottomPanelOpen]);
 
-  // Save collapsed state to localStorage
+  // Restore per-project bottom panel state when the active directory changes.
+  // Wait for the new project's tabs to load, then apply the stored open/closed state.
+  // Falls back to activeTabId for projects never explicitly toggled.
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.BOTTOM_PANEL, JSON.stringify(!bottomPanelOpen));
-  }, [bottomPanelOpen]);
+    dirChangedRef.current = true;
+  }, [appState?.activeDirectory]);
+
+  useEffect(() => {
+    if (!dirChangedRef.current) return;
+    if (tabs === undefined) return;
+
+    dirChangedRef.current = false;
+
+    const dir = appState?.activeDirectory;
+    let shouldBeOpen: boolean;
+
+    if (dir) {
+      const stored = localStorage.getItem(bottomPanelStateKey(dir));
+      shouldBeOpen = stored !== null ? JSON.parse(stored) : !!tabs.activeTabId;
+    } else {
+      shouldBeOpen = !!tabs.activeTabId;
+    }
+
+    if (shouldBeOpen && !bottomPanelOpen) {
+      openBottomPanel();
+    } else if (!shouldBeOpen && bottomPanelOpen) {
+      closeBottomPanel();
+      ref.current?.collapse();
+    }
+  }, [tabs]);
 
   // Keyboard shortcut: Cmd+J
   useEffect(() => {

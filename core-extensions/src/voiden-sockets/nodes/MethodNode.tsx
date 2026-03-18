@@ -1,6 +1,7 @@
 import { Editor, Node, NodeViewProps, mergeAttributes } from "@tiptap/core";
-import { NodeViewContent, NodeViewWrapper, ReactNodeViewRenderer } from "@tiptap/react";
+import { NodeViewWrapper, ReactNodeViewRenderer } from "@tiptap/react";
 import { Play } from "lucide-react";
+import { activeWsConnections, closeAllActiveWsConnections } from './MessagesNode';
 
 // function to prevent enter key from creating a new line when in method node
 const preventEnter = (editor: Editor) => {
@@ -36,13 +37,18 @@ export const createSocketMethodNode = (useSendRestRequest: any) => {
 
     return (
       <NodeViewWrapper>
-        <div className="flex justify-between">
-          <NodeViewContent
-            className={`m-0 font-mono my-0 font-semibold  text-green-500`}
-          />
+        <div className="flex justify-between" contentEditable={false}>
+          <span className="m-0 font-mono my-0 font-semibold text-green-500 select-none" style={{ userSelect: 'none' }}>
+            {method}
+          </span>
           <div
             className="border-x border-stone-700/80 border-t p-1 hover:bg-stone-700 cursor-pointer text-http-get"
-            onClick={() => {
+            onClick={async () => {
+              if (activeWsConnections.size > 0) {
+                const ok = window.confirm('An active connection exists. It will be closed to reconnect. Continue?');
+                if (!ok) return;
+                await closeAllActiveWsConnections();
+              }
               refetch();
             }}
             style={{ cursor: 'pointer', userSelect: 'none' }}
@@ -67,7 +73,7 @@ export const createSocketMethodNode = (useSendRestRequest: any) => {
     addAttributes() {
       return {
         method: {
-          default: "GET",
+          default: "WSS",
         },
         importedFrom: {
           default: "",
@@ -76,19 +82,6 @@ export const createSocketMethodNode = (useSendRestRequest: any) => {
           default: true,
         },
       };
-    },
-    onSelectionUpdate() {
-      const node = this.editor.state.selection.$head.node();
-      if (node?.type.name === "smethod") {
-        const newMethod = this.editor.state.selection.$head.node().textContent;
-        const currentMethod = node.attrs.method;
-        // Only update if the method has actually changed
-        if (newMethod !== currentMethod) {
-          this.editor.commands.updateAttributes("smethod", {
-            method: newMethod,
-          });
-        }
-      }
     },
     parseHTML() {
       return [

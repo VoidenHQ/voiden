@@ -163,6 +163,109 @@ async function getDefaultState(
   const gitSourceControlId = crypto.randomUUID();
   const extensionBrowserId = crypto.randomUUID();
   const responsePanelId = crypto.randomUUID();
+  const historyPanelId = crypto.randomUUID();
+  const globalHistoryPanelId = crypto.randomUUID();
+
+  // Only get sample project if there are no windows
+  if (windowManager.getAllWindows().length === 0 && !skipDefault) {
+    await ensureSampleProject();
+
+    // Create default document only when sample project exists
+    const defaultDocument: Tab = {
+      id: crypto.randomUUID(),
+      type: "document",
+      title: "hello.void",
+      source: `${SAMPLE_PROJECT_DIR}/hello.void`,
+      directory: null,
+    };
+
+    return {
+      activeDirectory: SAMPLE_PROJECT_DIR,
+      onboarding: false,
+      directories: {
+        [SAMPLE_PROJECT_DIR]: {
+          layout: {
+            id: "group",
+            type: "group",
+            children: [
+              {
+                id: "main",
+                type: "panel",
+                tabs: [defaultDocument],
+                activeTabId: defaultDocument.id,
+              },
+              {
+                id: "bottom",
+                type: "panel",
+                tabs: [],
+                activeTabId: null,
+              },
+            ],
+          },
+        },
+      },
+      unsaved: {
+        layout: {
+          id: "group",
+          type: "group",
+          children: [
+            {
+              id: "main",
+              type: "panel",
+              tabs: [defaultDocument],
+              activeTabId: defaultDocument.id,
+            },
+            {
+              id: "bottom",
+              type: "panel",
+              tabs: [],
+              activeTabId: null,
+            },
+          ],
+        },
+        activeEnv: null,
+      },
+      sidebars: {
+        left: {
+          activeTabId: fileExplorerId,
+          tabs: [
+            {
+              id: fileExplorerId,
+              type: "fileExplorer",
+            },
+            {
+              id: gitSourceControlId,
+              type: "gitSourceControl",
+            },
+            {
+              id: extensionBrowserId,
+              type: "extensionBrowser",
+            },
+            {
+              id: globalHistoryPanelId,
+              type: "globalHistory",
+            },
+          ],
+        },
+        right: {
+          activeTabId: responsePanelId,
+          tabs: [
+            {
+              id: responsePanelId,
+              type: "responsePanel",
+            },
+            {
+              id: historyPanelId,
+              type: "history",
+            },
+          ],
+        },
+      },
+      extensions: [],
+    };
+  }
+
+  // If there are existing windows, return empty state
   return {
     activeDirectory: null,
     onboarding: windowManager.getAllWindows().length > 0 || !!skipDefault,
@@ -204,6 +307,10 @@ async function getDefaultState(
             id: extensionBrowserId,
             type: "extensionBrowser",
           },
+          {
+            id: globalHistoryPanelId,
+            type: "globalHistory",
+          },
         ],
       },
       right: {
@@ -212,6 +319,10 @@ async function getDefaultState(
           {
             id: responsePanelId,
             type: "responsePanel",
+          },
+          {
+            id: historyPanelId,
+            type: "history",
           },
         ],
       },

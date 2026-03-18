@@ -47,6 +47,21 @@ export const initializeState = async (
   appState = await loadState(skipDefault);
 
   appSettings = await loadSettings();
+
+  // Migration: ensure the history tab exists in the right sidebar
+  const hasHistoryTab = appState.sidebars.right.tabs.some((t) => t.type === "history");
+  if (!hasHistoryTab) {
+    appState.sidebars.right.tabs.push({ id: crypto.randomUUID(), type: "history" });
+  }
+
+  // Migration: ensure the global history tab exists in the left sidebar (after extensionBrowser)
+  // Also remove it from the right sidebar if it was previously placed there.
+  appState.sidebars.right.tabs = appState.sidebars.right.tabs.filter((t: any) => t.type !== "globalHistory");
+  const hasGlobalHistoryTab = appState.sidebars.left.tabs.some((t: any) => t.type === "globalHistory");
+  if (!hasGlobalHistoryTab) {
+    appState.sidebars.left.tabs.push({ id: crypto.randomUUID(), type: "globalHistory" });
+  }
+
   // Initialize extension manager after the state is loaded.
   extensionManager = new ExtensionManager(appState);
   await extensionManager.loadInstalledCommunityExtensions();
@@ -754,6 +769,17 @@ export const ipcStateHandlers = () => {
         };
       }
 
+      case "conflict": {
+        // Git merge conflict resolver
+        return {
+          type: "conflict",
+          tabId,
+          title,
+          source,
+          meta: tab.meta,
+        };
+      }
+
       case "environmentEditor":
         return { type: "environmentEditor", tabId, title };
 
@@ -923,6 +949,38 @@ export const ipcStateHandlers = () => {
     },
   );
 
+  // Toggle history-related sidebar tabs (left: globalHistory, right: history) based on setting
+  ipcMain.handle("sidebar:setHistoryEnabled", async (_event, enabled: boolean) => {
+    const appState = getAppState();
+
+    if (enabled) {
+      // Add globalHistory to left if missing
+      const hasGlobal = appState.sidebars.left.tabs.some((t: any) => t.type === "globalHistory");
+      if (!hasGlobal) {
+        appState.sidebars.left.tabs.push({ id: crypto.randomUUID(), type: "globalHistory" });
+      }
+      // Add history to right if missing
+      const hasHistory = appState.sidebars.right.tabs.some((t: any) => t.type === "history");
+      if (!hasHistory) {
+        appState.sidebars.right.tabs.push({ id: crypto.randomUUID(), type: "history" });
+      }
+    } else {
+      // Remove both tabs
+      appState.sidebars.left.tabs = appState.sidebars.left.tabs.filter((t: any) => t.type !== "globalHistory");
+      appState.sidebars.right.tabs = appState.sidebars.right.tabs.filter((t: any) => t.type !== "history");
+      // If active tab was removed, reset activeTabId
+      if (!appState.sidebars.left.tabs.some((t: any) => t.id === appState.sidebars.left.activeTabId)) {
+        appState.sidebars.left.activeTabId = appState.sidebars.left.tabs[0]?.id ?? null;
+      }
+      if (!appState.sidebars.right.tabs.some((t: any) => t.id === appState.sidebars.right.activeTabId)) {
+        appState.sidebars.right.activeTabId = appState.sidebars.right.tabs[0]?.id ?? null;
+      }
+    }
+
+    await saveState(appState);
+    return { success: true };
+  });
+
   // Add a new IPC handler to activate a tab.
   ipcMain.handle(
     "tab:activate",
@@ -944,6 +1002,22 @@ export const ipcStateHandlers = () => {
     const filterDirectories = Object.fromEntries(
       Object.entries(appState.directories).filter(([key, el]) => !el.hidden),
     );
+    // Aggregate directories from all open windows so that projects opened
+    // in other windows also appear in the Recent Projects list.
+    const allDirectories: Record<string, any> = {};
+    for (const winState of windowManager.getAllWindows()) {
+      if (winState) {
+        for (const [projectPath, layoutState] of Object.entries(winState.directories)) {
+          if (!allDirectories[projectPath]) {
+            allDirectories[projectPath] = layoutState;
+          }
+        }
+      }
+    }
+    // Current window's state takes precedence (e.g. hidden flag set in this window)
+    const mergedDirectories = { ...allDirectories, ...appState.directories };
+
+    const filterDirectories = Object.fromEntries(Object.entries(mergedDirectories).filter(([key, el]) => !el.hidden));
 
     const projects = Object.keys(filterDirectories);
     const activeProject = appState.activeDirectory;

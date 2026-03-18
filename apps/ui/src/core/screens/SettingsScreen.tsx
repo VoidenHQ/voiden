@@ -1,5 +1,5 @@
 import { useSettings, ProxyConfig } from "@/core/settings/hooks/useSettings";
-import { Check, RefreshCw, Plus, Trash2, Edit2, Palette, Type, FileText, Globe, Network, Terminal as TerminalIcon, Download, Search, Keyboard, WrapText, Timer, FolderOpen } from "lucide-react";
+import { Check, RefreshCw, Plus, Trash2, Edit2, Palette, Type, FileText, Globe, Network, Terminal as TerminalIcon, Download, Search, Keyboard, WrapText, Timer, History, ChevronUp, ChevronDown } from "lucide-react";
 import { useEffect, useMemo, useState, useRef } from "react";
 import { loadThemeById, getAvailableThemes } from "@/utils/themeLoader";
 import { Kbd } from "@/core/components/ui/kbd";
@@ -87,6 +87,7 @@ export const SettingsScreen = () => {
   const [searchQuery, setSearchQuery] = useState("");
 
   const cursorTypes = useMemo(() => ["text", "default", "pointer"], []);
+  const [retentionDraft, setRetentionDraft] = useState<string | null>(null);
   const [fontFamilyDraft, setFontFamilyDraft] = useState("");
   const [projectDirectoryDraft, setProjectDirectoryDraft] = useState("");
   const [availableThemes, setAvailableThemes] = useState<{ value: string; label: string }[]>([]);
@@ -126,6 +127,8 @@ export const SettingsScreen = () => {
   const terminalRef = useRef<HTMLElement>(null);
   const cliRef = useRef<HTMLElement>(null);
   const keyboardRef = useRef<HTMLElement>(null);
+  const historyRef = useRef<HTMLElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
 
   const sections = [
     { id: "projects", label: "Projects", icon: <FolderOpen className="w-4 h-4" />, ref: projectsRef },
@@ -135,8 +138,10 @@ export const SettingsScreen = () => {
     { id: "updates", label: "Updates", icon: <Download className="w-4 h-4" />, ref: updatesRef },
     { id: "terminal", label: "Terminal", icon: <TerminalIcon className="w-4 h-4" />, ref: terminalRef },
     { id: "cli", label: "CLI", icon: <TerminalIcon className="w-4 h-4" />, ref: cliRef },
+    { id: "history", label: "History", icon: <History className="w-4 h-4" />, ref: historyRef },
     { id: "keyboard", label: "Keyboard", icon: <Keyboard className="w-4 h-4" />, ref: keyboardRef },
-  ];
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  ], []);
 
   // Keyboard shortcuts organized by category
   // Using Mac symbols - Kbd component will convert to Windows/Linux equivalents
@@ -211,54 +216,33 @@ export const SettingsScreen = () => {
     }
   }, [loading, settings?.appearance.font_family, settings?.projects.default_directory]);
 
-  // Intersection Observer to update active section based on scroll position
+  // Clear retention draft when saved value updates (save completed or external reset)
   useEffect(() => {
-    const observerOptions = {
-      root: null,
-      rootMargin: '0px 0px -80% 0px',
-      threshold: 0,
-    };
+    setRetentionDraft(null);
+  }, [settings?.history?.retention_days]);
 
-    let intersectingSections: { id: string; top: number }[] = [];
+  // Scroll listener to update active section based on scroll position
+  useEffect(() => {
+    if(loading || !settings) return;
+    const container = contentRef.current;
+    if (!container) return;
 
-    const observerCallback = (entries: IntersectionObserverEntry[]) => {
-      entries.forEach((entry) => {
-        const sectionId = entry.target.getAttribute('data-section');
-        if (!sectionId) return;
-
-        if (entry.isIntersecting) {
-          const rect = entry.target.getBoundingClientRect();
-          const existing = intersectingSections.find(s => s.id === sectionId);
-          if (existing) {
-            existing.top = rect.top;
-          } else {
-            intersectingSections.push({ id: sectionId, top: rect.top });
-          }
-        } else {
-          intersectingSections = intersectingSections.filter(s => s.id !== sectionId);
+    const handleScroll = () => {
+      const containerTop = container.getBoundingClientRect().top;
+      let active = sections[0].id;
+      for (const section of sections) {
+        if (!section.ref.current) continue;
+        const rect = section.ref.current.getBoundingClientRect();
+        if (rect.top <= containerTop + 80) {
+          active = section.id;
         }
-      });
-
-      // Find the section closest to the top of the viewport
-      if (intersectingSections.length > 0) {
-        intersectingSections.sort((a, b) => a.top - b.top);
-        setActiveSection(intersectingSections[0].id);
       }
+      setActiveSection(active);
     };
 
-    const observer = new IntersectionObserver(observerCallback, observerOptions);
-
-    // Observe all section refs
-    sections.forEach((section) => {
-      if (section.ref.current) {
-        observer.observe(section.ref.current);
-      }
-    });
-
-    return () => {
-      observer.disconnect();
-    };
-  }, [sections]);
+    container.addEventListener('scroll', handleScroll, { passive: true });
+    return () => container.removeEventListener('scroll', handleScroll);
+  }, [sections,loading,settings]);
 
   if (loading || !settings) {
     return <div className="h-full w-full flex items-center justify-center text-comment">Loading settings…</div>;
@@ -595,8 +579,8 @@ export const SettingsScreen = () => {
   return (
     <div className="h-full w-full bg-editor text-text flex">
       {/* Sidebar */}
-      <div className="w-56 bg-panel/30 border-r border-[--panel-border] flex flex-col">
-        <div className="p-4 border-b border-[--panel-border]">
+      <div className="w-56 bg-panel/30 border-r border-border flex flex-col">
+        <div className="p-4 border-b border-border">
           <h1 className="text-lg font-semibold mb-3">Settings</h1>
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-comment" />
@@ -605,7 +589,7 @@ export const SettingsScreen = () => {
               placeholder="Search settings"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-3 py-2 bg-editor border border-[--panel-border] rounded-md text-sm focus:outline-none focus:ring-2"
+              className="w-full pl-9 pr-3 py-2 bg-editor border border-border rounded-md text-sm focus:outline-none focus:ring-2"
               style={{ '--tw-ring-color': 'var(--icon-primary)' } as React.CSSProperties}
             />
           </div>
@@ -634,7 +618,7 @@ export const SettingsScreen = () => {
           ))}
         </div>
 
-        <div className="p-4 border-t border-[--panel-border]">
+        <div className="p-4 border-t border-border">
           <button
             onClick={async () => {
               await reset();
@@ -643,7 +627,7 @@ export const SettingsScreen = () => {
                 await loadThemeById(resetSettings.appearance.theme);
               }
             }}
-            className="w-full flex items-center justify-center gap-2 bg-panel hover:bg-active px-3 py-2 rounded-md text-sm border border-[--panel-border] transition-colors"
+            className="w-full flex items-center justify-center gap-2 bg-panel hover:bg-active px-3 py-2 rounded-md text-sm border border-border transition-colors"
           >
             <RefreshCw className="w-4 h-4" /> Reset All
           </button>
@@ -651,7 +635,7 @@ export const SettingsScreen = () => {
       </div>
 
       {/* Main Content */}
-      <div className="flex-1 overflow-y-auto">
+      <div ref={contentRef} className="flex-1 overflow-y-auto">
         <div className="max-w-4xl mx-auto p-8 space-y-10">
           {/* Projects */}
           <section ref={projectsRef} data-section="projects">
@@ -702,7 +686,7 @@ export const SettingsScreen = () => {
               title="Appearance"
               description="Customize the visual style of your editor"
             />
-            <div className="border-b border-[--panel-border] mb-6"></div>
+            <div className="border-b border-border mb-6"></div>
             <div>
               {matchesSearch("Theme Choose a color theme for the editor") && (
                 <Row
@@ -712,7 +696,7 @@ export const SettingsScreen = () => {
                   control={
                     <div className="flex items-center gap-2">
                       <select
-                        className="px-3 py-1.5 rounded-md bg-editor text-text border border-[--panel-border] focus:outline-none focus:ring-2 focus:ring-[var(--icon-primary)] min-w-[180px]"
+                        className="px-3 py-1.5 rounded-md bg-editor text-text border border-border focus:outline-none focus:ring-2 focus:ring-[var(--icon-primary)] min-w-[180px]"
                         value={settings.appearance.theme || "voiden"}
                         onChange={async (e) => {
                           const newTheme = e.target.value;
@@ -729,7 +713,7 @@ export const SettingsScreen = () => {
                       <button
                         onClick={handleSyncThemes}
                         disabled={isSyncingThemes}
-                        className="p-1.5 rounded-md bg-panel hover:bg-active border border-[--panel-border] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="p-1.5 rounded-md bg-panel hover:bg-active border border-border transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                         title="Sync themes from app"
                       >
                         <RefreshCw className={`w-4 h-4 ${isSyncingThemes ? 'animate-spin' : ''}`} />
@@ -750,7 +734,7 @@ export const SettingsScreen = () => {
                   description="Base editor font size in pixels."
                   control={
                   <select
-                    className="px-3 py-1.5 rounded-md bg-editor text-text border border-[--panel-border] focus:outline-none focus:ring-2 focus:ring-[var(--icon-primary)] min-w-[180px]"
+                    className="px-3 py-1.5 rounded-md bg-editor text-text border border-border focus:outline-none focus:ring-2 focus:ring-[var(--icon-primary)] min-w-[180px]"
                     value={settings.appearance.font_size}
                     onChange={(e) => {
                       const value = Number(e.target.value);
@@ -775,7 +759,7 @@ export const SettingsScreen = () => {
                   description="Select a monospace font for the editor."
                   control={
                   <select
-                    className="px-3 py-1.5 rounded-md bg-editor text-text border border-[--panel-border] focus:outline-none focus:ring-2 focus:ring-[var(--icon-primary)] min-w-[180px]"
+                    className="px-3 py-1.5 rounded-md bg-editor text-text border border-border focus:outline-none focus:ring-2 focus:ring-[var(--icon-primary)] min-w-[180px]"
                     value={fontFamilyDraft}
                     onChange={(e) => {
                       const selectedFont = e.target.value;
@@ -818,7 +802,7 @@ export const SettingsScreen = () => {
               title="Editor"
               description="Configure editor behavior and features"
             />
-            <div className="border-b border-[--panel-border] mb-6"></div>
+            <div className="border-b border-border mb-6"></div>
             <div>
               {matchesSearch("Auto save Automatically persist changes while typing") && (
                 <Row
@@ -840,7 +824,7 @@ export const SettingsScreen = () => {
                   description="How long to wait after typing before saving changes."
                   control={
                     <select
-                      className="px-3 py-1.5 rounded-md bg-editor text-text border border-[--panel-border] focus:outline-none focus:ring-2 focus:ring-[var(--icon-primary)] min-w-[180px]"
+                      className="px-3 py-1.5 rounded-md bg-editor text-text border border-border focus:outline-none focus:ring-2 focus:ring-[var(--icon-primary)] min-w-[180px]"
                       value={settings.editor.auto_save_delay}
                       onChange={(e) => {
                         const value = Number(e.target.value);
@@ -869,7 +853,7 @@ export const SettingsScreen = () => {
               title="Network"
               description="Configure network and proxy settings"
             />
-            <div className="border-b border-[--panel-border] mb-6"></div>
+            <div className="border-b border-border mb-6"></div>
 
             <div className="space-y-6">
               {/* Requests */}
@@ -895,7 +879,7 @@ export const SettingsScreen = () => {
                     description="Maximum time to wait for a response before aborting the request."
                     control={
                       <select
-                        className="px-3 py-1.5 rounded-md bg-editor text-text border border-[--panel-border] focus:outline-none focus:ring-2 focus:ring-[var(--icon-primary)] min-w-[180px]"
+                        className="px-3 py-1.5 rounded-md bg-editor text-text border border-border focus:outline-none focus:ring-2 focus:ring-[var(--icon-primary)] min-w-[180px]"
                         value={settings.requests.timeout}
                         onChange={(e) => {
                           save({ requests: { timeout: Number(e.target.value) } });
@@ -1003,7 +987,7 @@ export const SettingsScreen = () => {
               title="Updates"
               description="Manage application update preferences"
             />
-            <div className="border-b border-[--panel-border] mb-6"></div>
+            <div className="border-b border-border mb-6"></div>
             <div>
               {matchesSearch("Early Access early access new features updates beta") && (
                 <Row
@@ -1028,7 +1012,7 @@ export const SettingsScreen = () => {
               title="Terminal"
               description="Configure terminal appearance and fonts"
             />
-            <div className="border-b border-[--panel-border] mb-6"></div>
+            <div className="border-b border-border mb-6"></div>
             <div>
               {matchesSearch("Use Nerd Font terminal font JetBrains Mono icons") && (
                 <div className="py-4 hover:bg-panel/30 transition-all px-2 rounded-md">
@@ -1072,7 +1056,7 @@ export const SettingsScreen = () => {
                 )}
 
                 {settings.terminal.nerd_font_installed && !isDownloadingFont && (
-                  <div className="mt-3 pt-3 border-t border-[--panel-border]">
+                  <div className="mt-3 pt-3 border-t border-border">
                     <button
                       onClick={handleUninstallFont}
                       className="text-sm transition"
@@ -1097,7 +1081,7 @@ export const SettingsScreen = () => {
               title="Command Line Interface"
               description="Install the voiden command to launch Voiden from your terminal"
             />
-            <div className="border-b border-[--panel-border] mb-6"></div>
+            <div className="border-b border-border mb-6"></div>
             <div>
               {matchesSearch("CLI command line terminal voiden install") && (
                 <div className="space-y-4">
@@ -1135,7 +1119,7 @@ export const SettingsScreen = () => {
                           </button>
                           <button
                             onClick={handleShowCliInstructions}
-                            className="px-4 py-2 bg-panel hover:bg-active rounded-md text-sm border border-[--panel-border] transition"
+                            className="px-4 py-2 bg-panel hover:bg-active rounded-md text-sm border border-border transition"
                           >
                             Show Instructions
                           </button>
@@ -1177,6 +1161,96 @@ export const SettingsScreen = () => {
             </div>
           </section>
 
+ <section ref={historyRef} data-section="history">
+            <SectionHeader
+              icon={<History className="w-5 h-5" />}
+              title="Request History"
+              description="Automatically record each request and its response per .void file"
+            />
+            <div className="border-b border-border mb-6"></div>
+            <Row
+              icon={<History className="w-4 h-4" />}
+              title="Enable History"
+              description="Record requests and responses in .voiden/history/. Disabled by default."
+              control={
+                <Toggle
+                  checked={settings?.history?.enabled ?? false}
+                  onChange={(v) => save({ history: { enabled: v, retention_days: settings?.history?.retention_days ?? 2 } })}
+                />
+              }
+            />
+            {(settings?.history?.enabled ?? false) && (
+              <Row
+                icon={<Timer className="w-4 h-4" />}
+                title="Retention Period"
+                description="Number of days to keep history entries. Older entries are pruned automatically."
+                control={(() => {
+                  const savedDays = settings?.history?.retention_days ?? 2;
+                  const display = retentionDraft !== null ? retentionDraft : String(savedDays);
+                  const num = Number(display);
+                  const isInvalid = display !== "" && (isNaN(num) || !Number.isInteger(num) || num < 1 || num > 90);
+                  const step = (dir: 1 | -1) => {
+                    const base = retentionDraft !== null && retentionDraft !== "" && !isNaN(Number(retentionDraft))
+                      ? Math.round(Number(retentionDraft))
+                      : savedDays;
+                    const next = Math.min(90, Math.max(1, base + dir));
+                    setRetentionDraft(null);
+                    save({ history: { enabled: true, retention_days: next } });
+                  };
+                  return (
+                    <div className="flex flex-col items-end gap-1">
+                      <div className="flex items-center gap-2">
+                        <div
+                          className="flex items-stretch rounded border border-border overflow-hidden"
+                        >
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            value={display}
+                            onChange={(e) => setRetentionDraft(e.target.value.replace(/[^0-9]/g, ''))}
+                            onBlur={() => {
+                              if (retentionDraft === null || retentionDraft === "") {
+                                setRetentionDraft(null);
+                                return;
+                              }
+                              const n = Number(retentionDraft);
+                              const clamped = Math.min(90, Math.max(1, isNaN(n) ? savedDays : Math.round(n)));
+                              // Show clamped value immediately — draft clears when settings update
+                              setRetentionDraft(String(clamped));
+                              save({ history: { enabled: true, retention_days: clamped } });
+                            }}
+                            className="w-14 text-center bg-editor text-text text-sm px-2 py-1.5 focus:outline-none"
+                          />
+                          <div className="flex flex-col border-l border-[--border]">
+                            <button
+                              type="button"
+                              onClick={() => step(1)}
+                              className="flex-1 flex items-center justify-center px-1.5 bg-panel hover:bg-active transition-colors border-b border-[--border]"
+                            >
+                              <ChevronUp className="w-3 h-3" style={{ color: 'var(--icon-secondary)' }} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => step(-1)}
+                              className="flex-1 flex items-center justify-center px-1.5 bg-panel hover:bg-active transition-colors"
+                            >
+                              <ChevronDown className="w-3 h-3" style={{ color: 'var(--icon-secondary)' }} />
+                            </button>
+                          </div>
+                        </div>
+                        <span className="text-sm text-comment">days</span>
+                      </div>
+                      {isInvalid && (
+                        <span className="text-xs" style={{ color: 'var(--icon-error)' }}>
+                          {num < 1 || display === "0" ? "Min is 1 day" : "Max is 90 days"}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })()}
+              />
+            )}
+          </section>
           {/* Keyboard Shortcuts */}
           <section ref={keyboardRef} data-section="keyboard">
             <SectionHeader
@@ -1184,7 +1258,7 @@ export const SettingsScreen = () => {
               title="Keyboard Shortcuts"
               description="View all keyboard shortcuts for quick actions"
             />
-            <div className="border-b border-[--panel-border] mb-6"></div>
+            <div className="border-b border-border mb-6"></div>
             <div className="space-y-6">
               {keyboardShortcuts.map((group) => {
                 const filteredShortcuts = group.shortcuts.filter(
@@ -1210,8 +1284,10 @@ export const SettingsScreen = () => {
             </div>
           </section>
 
+         
+
           <div className="pt-8 pb-4 text-center">
-            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-panel/50 border border-[--panel-border]">
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-panel/50 border border-border">
               <Check className="w-3.5 h-3.5" style={{ color: 'var(--icon-success)' }} />
               <span className="text-xs text-comment">Changes save automatically</span>
             </div>
@@ -1222,7 +1298,7 @@ export const SettingsScreen = () => {
       {/* Proxy Form Modal */}
       {showProxyForm && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-editor border border-[--panel-border] rounded-xl p-6 w-full max-w-md space-y-4">
+          <div className="bg-editor border border-border rounded-xl p-6 w-full max-w-md space-y-4">
             <h3 className="text-lg font-semibold">
               {editingProxy ? 'Edit Proxy' : 'Add Proxy'}
             </h3>

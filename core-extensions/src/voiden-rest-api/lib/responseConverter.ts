@@ -111,6 +111,19 @@ export function convertResponseToVoidenDoc(response: HttpResponse): any {
     contentType = contentTypeHeader?.value || undefined;
   }
 
+  // Extract filename from Content-Disposition header (e.g. attachment; filename="file.ics")
+  let downloadFilename: string | null = null;
+  const contentDisposition = headersArray.find(
+    h => h.key.toLowerCase() === 'content-disposition'
+  )?.value;
+  if (contentDisposition) {
+    // Try filename*=UTF-8''... first, then filename="..."
+    const filenameStarMatch = contentDisposition.match(/filename\*\s*=\s*(?:[^']*'')?([^;\s]+)/i);
+    const filenameMatch = contentDisposition.match(/filename\s*=\s*"?([^";\s]+)"?/i);
+    const raw = filenameStarMatch ? decodeURIComponent(filenameStarMatch[1]) : filenameMatch?.[1] ?? null;
+    if (raw) downloadFilename = raw;
+  }
+
   // Build the Voiden document structure
   // Store metadata in doc attrs for ResponsePanelContainer to access
   const responseDocContent: any[] = [
@@ -120,6 +133,7 @@ export function convertResponseToVoidenDoc(response: HttpResponse): any {
       attrs: {
         body: response.body || null,
         contentType: contentType || null,
+        downloadFilename,
       },
     },
   ];
