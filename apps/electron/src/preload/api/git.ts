@@ -28,4 +28,10 @@ export const gitApi = {
   stash: (message?: string) => ipcRenderer.invoke("git:stash", message),
   stashList: () => ipcRenderer.invoke("git:stashList"),
   stashPop: (index: number) => ipcRenderer.invoke("git:stashPop", index),
+  getConflicts: () => ipcRenderer.invoke("git:getConflicts"),
+  resolveConflict: (file: string, resolution: 'current' | 'incoming' | 'both', sectionIndex?: number) =>
+    ipcRenderer.invoke("git:resolveConflict", file, resolution, sectionIndex),
+  getFileContent: (file: string) => ipcRenderer.invoke("git:getFileContent", file),
+  saveResolvedFile: (file: string, content: string) => ipcRenderer.invoke("git:saveResolvedFile", file, content),
+  uncommit: () => ipcRenderer.invoke("git:uncommit"),
 };

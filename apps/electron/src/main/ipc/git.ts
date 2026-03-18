@@ -1,4 +1,4 @@
-import { ipcMain, IpcMainInvokeEvent } from "electron";
+import { ipcMain, IpcMainInvokeEvent, dialog, BrowserWindow } from "electron";
 import simpleGit from "simple-git";
 import { getActiveProject } from "../state";
 import * as fs from "fs";
@@ -374,6 +374,7 @@ export function registerGitIpcHandlers() {
         modified: status.modified,
         untracked: status.not_added,
         deleted: status.deleted,
+        conflicted: status.conflicted,
         published: isPublished,
         tracking,
         current: currentBranch || status.current,
@@ -493,6 +494,29 @@ export function registerGitIpcHandlers() {
 
       const untrackedFiles = files.filter(f => untrackedSet.has(f));
       const trackedFiles = files.filter(f => !untrackedSet.has(f));
+
+      // Show native confirmation dialog
+      const win = BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow();
+      const isSingle = files.length === 1;
+      const isUntrackedSingle = isSingle && untrackedFiles.length === 1;
+      const message = isUntrackedSingle
+        ? `Delete "${path.basename(files[0])}"?`
+        : isSingle
+          ? `Discard changes in "${path.basename(files[0])}"?`
+          : `Discard changes in ${files.length} file(s)?`;
+      const detail = isUntrackedSingle
+        ? "This untracked file will be permanently deleted."
+        : "This action cannot be undone.";
+
+      const { response } = await dialog.showMessageBox(win!, {
+        type: "warning",
+        buttons: ["Cancel", isUntrackedSingle ? "Delete" : "Discard"],
+        defaultId: 1,
+        cancelId: 0,
+        message,
+        detail,
+      });
+      if (response === 0) return { canceled: true };
 
       // Delete untracked files from disk
       for (const file of untrackedFiles) {
@@ -840,6 +864,195 @@ export function registerGitIpcHandlers() {
     const isRepo = await git.checkIsRepo();
     if (!isRepo) throw new Error("Not a git repository");
     await git.raw(['stash', 'pop', `stash@{${index}}`]);
+    return true;
+  });
+
+  // ── Conflict resolution ────────────────────────────────────────────────────
+
+  function parseConflictSections(content: string): Array<{
+    current: string;
+    incoming: string;
+    base: string | null;
+    index: number;
+  }> {
+    const lines = content.split('\n');
+    const sections: Array<{ current: string; incoming: string; base: string | null; index: number }> = [];
+    let i = 0;
+    let sectionIndex = 0;
+
+    while (i < lines.length) {
+      if (lines[i].startsWith('<<<<<<<')) {
+        const currentLines: string[] = [];
+        const incomingLines: string[] = [];
+        const baseLines: string[] = [];
+        let state: 'current' | 'base' | 'incoming' = 'current';
+        i++;
+
+        while (i < lines.length && !lines[i].startsWith('>>>>>>>')) {
+          if (lines[i].startsWith('=======')) {
+            state = 'incoming';
+          } else if (lines[i].startsWith('|||||||')) {
+            state = 'base';
+          } else if (state === 'current') {
+            currentLines.push(lines[i]);
+          } else if (state === 'base') {
+            baseLines.push(lines[i]);
+          } else {
+            incomingLines.push(lines[i]);
+          }
+          i++;
+        }
+
+        sections.push({
+          current: currentLines.join('\n'),
+          incoming: incomingLines.join('\n'),
+          base: baseLines.length > 0 ? baseLines.join('\n') : null,
+          index: sectionIndex++,
+        });
+      }
+      i++;
+    }
+    return sections;
+  }
+
+  function resolveConflictContent(
+    content: string,
+    resolution: 'current' | 'incoming' | 'both',
+    sectionIndex?: number,
+  ): string {
+    const lines = content.split('\n');
+    const result: string[] = [];
+    let i = 0;
+    let currentSection = 0;
+
+    while (i < lines.length) {
+      if (lines[i].startsWith('<<<<<<<')) {
+        const currentLines: string[] = [];
+        const incomingLines: string[] = [];
+        let state: 'current' | 'base' | 'incoming' = 'current';
+        i++;
+
+        while (i < lines.length && !lines[i].startsWith('>>>>>>>')) {
+          if (lines[i].startsWith('=======')) {
+            state = 'incoming';
+          } else if (lines[i].startsWith('|||||||')) {
+            state = 'base';
+          } else if (state === 'current') {
+            currentLines.push(lines[i]);
+          } else if (state === 'incoming') {
+            incomingLines.push(lines[i]);
+          }
+          i++;
+        }
+
+        // Resolve this section (or all if sectionIndex undefined)
+        const shouldResolve = sectionIndex === undefined || sectionIndex === currentSection;
+        if (shouldResolve) {
+          if (resolution === 'current') {
+            result.push(...currentLines);
+          } else if (resolution === 'incoming') {
+            result.push(...incomingLines);
+          } else {
+            result.push(...currentLines, ...incomingLines);
+          }
+        } else {
+          // Keep conflict markers intact for this section
+          result.push(`<<<<<<< HEAD`);
+          result.push(...currentLines);
+          result.push('=======');
+          result.push(...incomingLines);
+          result.push(`>>>>>>> incoming`);
+        }
+        currentSection++;
+      } else {
+        result.push(lines[i]);
+      }
+      i++;
+    }
+
+    return result.join('\n');
+  }
+
+  ipcMain.handle("git:getConflicts", async (event: IpcMainInvokeEvent) => {
+    const activeProject = await getActiveProject(event);
+    if (!activeProject) return [];
+    const git = simpleGit(activeProject);
+    const isRepo = await git.checkIsRepo();
+    if (!isRepo) return [];
+
+    const status = await git.status();
+    const conflicted = status.conflicted;
+
+    const conflicts = await Promise.all(
+      conflicted.map(async (file) => {
+        try {
+          const filePath = path.join(activeProject, file);
+          const content = fs.readFileSync(filePath, 'utf8');
+          const sections = parseConflictSections(content);
+          return { file, sections, hasConflict: sections.length > 0 };
+        } catch {
+          return { file, sections: [], hasConflict: false };
+        }
+      })
+    );
+
+    return conflicts;
+  });
+
+  ipcMain.handle(
+    "git:resolveConflict",
+    async (
+      event: IpcMainInvokeEvent,
+      file: string,
+      resolution: 'current' | 'incoming' | 'both',
+      sectionIndex?: number,
+    ) => {
+      const activeProject = await getActiveProject(event);
+      if (!activeProject) throw new Error("No active project selected.");
+
+      const filePath = path.join(activeProject, file);
+      const content = fs.readFileSync(filePath, 'utf8');
+      const resolved = resolveConflictContent(content, resolution, sectionIndex);
+      fs.writeFileSync(filePath, resolved, 'utf8');
+
+      // If no conflict markers remain, auto-stage the file
+      if (!resolved.includes('<<<<<<<')) {
+        const git = simpleGit(activeProject);
+        await git.add(file);
+      }
+
+      return { resolved: !resolved.includes('<<<<<<<') };
+    }
+  );
+
+  ipcMain.handle("git:getFileContent", async (event: IpcMainInvokeEvent, file: string) => {
+    const activeProject = await getActiveProject(event);
+    if (!activeProject) throw new Error("No active project selected.");
+    const filePath = path.join(activeProject, file);
+    return fs.readFileSync(filePath, 'utf8');
+  });
+
+  // Write resolved content to disk and stage the file
+  ipcMain.handle("git:saveResolvedFile", async (event: IpcMainInvokeEvent, file: string, content: string) => {
+    const activeProject = await getActiveProject(event);
+    if (!activeProject) throw new Error("No active project selected.");
+    const filePath = path.join(activeProject, file);
+    fs.writeFileSync(filePath, content, 'utf8');
+    const git = simpleGit(activeProject);
+    await git.add(file);
+    invalidateGitCache(activeProject);
+    return { success: true };
+  });
+
+  // Undo the last commit — moves changes back to the staging area (soft reset)
+  ipcMain.handle("git:uncommit", async (event: IpcMainInvokeEvent) => {
+    const activeProject = await getActiveProject(event);
+    if (!activeProject) throw new Error("No active project selected.");
+    const git = simpleGit(activeProject);
+    const isRepo = await git.checkIsRepo();
+    if (!isRepo) throw new Error("Not a git repository");
+    await git.reset(['--soft', 'HEAD~1']);
+    invalidateGitCache(activeProject);
     return true;
   });
 

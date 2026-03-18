@@ -338,6 +338,56 @@ export const useStashPop = () => {
   });
 };
 
+export const useUncommit = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async () => window.electron?.git.uncommit(),
+    onSuccess: () => {
+      queryClient.refetchQueries({ queryKey: ["git:status"] });
+      queryClient.refetchQueries({ queryKey: ["git:log"] });
+      queryClient.refetchQueries({ queryKey: ["git:branches"] });
+    },
+  });
+};
+
+export const useGetConflicts = () => {
+  return useQuery({
+    queryKey: ["git:conflicts"],
+    queryFn: async () => window.electron?.git.getConflicts() ?? [],
+    refetchInterval: 2000,
+  });
+};
+
+export const useResolveConflict = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      file,
+      resolution,
+      sectionIndex,
+    }: {
+      file: string;
+      resolution: 'current' | 'incoming' | 'both';
+      sectionIndex?: number;
+    }) => window.electron?.git.resolveConflict(file, resolution, sectionIndex),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["git:conflicts"] });
+      queryClient.invalidateQueries({ queryKey: ["git:status"] });
+    },
+  });
+};
+
+export const useGetFileContent = (file: string | null) => {
+  return useQuery({
+    queryKey: ["git:fileContent", file],
+    queryFn: async () => {
+      if (!file) return null;
+      return window.electron?.git.getFileContent(file) ?? null;
+    },
+    enabled: !!file,
+  });
+};
+
 // Periodically fetches from remote so ahead/behind counts stay accurate.
 // Returns a manual trigger for use in refresh actions.
 export const useFetchRemote = () => {

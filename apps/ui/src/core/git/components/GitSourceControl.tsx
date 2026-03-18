@@ -1,4 +1,4 @@
-import { useGetGitStatus, useStageFiles, useUnstageFiles, useCommit, useDiscardFiles, useGetGitBranches, useInitializeGit, usePushToRemote, usePullFromRemote, useCloneRepo, useFetchRemote, useGetGitRemote, useStash, useStashList, useStashPop } from "@/core/git/hooks";
+import { useGetGitStatus, useStageFiles, useUnstageFiles, useCommit, useDiscardFiles, useGetGitBranches, useInitializeGit, usePushToRemote, usePullFromRemote, useCloneRepo, useFetchRemote, useGetGitRemote, useStash, useStashList, useStashPop, useUncommit, useGetGitLog } from "@/core/git/hooks";
 import { useSetActiveProject, useOpenProject } from "@/core/projects/hooks/useProjects";
 import { Loader2, FilePlus, FileEdit, FileX, GitBranch, Check, Plus, Minus, RotateCcw, GitCommit, ArrowUp, ArrowDown, RefreshCw, ChevronDown, ChevronRight, GitFork, Eye, EyeOff, MoreVertical, CloudDownload, Archive, ArrowDownToLine, X } from "lucide-react";
 import { cn } from "@/core/lib/utils";
@@ -6,6 +6,7 @@ import { useState } from "react";
 import { toast } from "@/core/components/ui/sonner";
 import { useAddPanelTab } from "@/core/layout/hooks";
 import { GitGraph } from "./GitGraph";
+import { ConflictResolver } from "./ConflictResolver";
 import { Tip } from "@/core/components/ui/Tip";
 
 export const GitSourceControl = () => {
@@ -28,6 +29,8 @@ export const GitSourceControl = () => {
   const { mutate: stash, isPending: isStashing } = useStash();
   const { mutate: stashPop, isPending: isPopping } = useStashPop();
   const { data: stashList } = useStashList();
+  const { mutateAsync: uncommitAsync, isPending: isUncommitting } = useUncommit();
+  const { data: gitLog } = useGetGitLog(1);
 
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isFetchingAll, setIsFetchingAll] = useState(false);
@@ -108,16 +111,9 @@ export const GitSourceControl = () => {
 
   const handleDiscard = (file: string) => {
     const isUntracked = status?.untracked.includes(file);
-    const message = isUntracked
-      ? `"${file}" is untracked. Delete this file permanently?`
-      : `Are you sure you want to discard changes in ${file}?`;
-
-    if (!confirm(message)) {
-      return;
-    }
-
     discardFiles([file], {
-      onSuccess: () => {
+      onSuccess: (result: any) => {
+        if (result?.canceled) return;
         toast.success(isUntracked ? "File deleted" : "Changes discarded", {
           description: isUntracked ? `Deleted ${file}` : `Discarded changes in ${file}`,
         });
@@ -138,11 +134,13 @@ export const GitSourceControl = () => {
 
   const handleDiscardAll = () => {
     if (!status) return;
-    const tracked = [...status.modified, ...status.deleted].filter(f => !status.staged.includes(f));
-    if (!tracked.length) return;
-    if (!confirm(`Discard all changes in ${tracked.length} file(s)?`)) return;
-    discardFiles(tracked, {
-      onSuccess: () => toast.success("All changes discarded"),
+    const allUnstaged = [...status.modified, ...status.deleted, ...status.untracked].filter(f => !status.staged.includes(f));
+    if (allUnstaged.length === 0) return;
+    discardFiles(allUnstaged, {
+      onSuccess: (result: any) => {
+        if (result?.canceled) return;
+        toast.success("All changes discarded");
+      },
       onError: (error: any) => toast.error("Failed to discard changes", { description: error?.message || String(error) }),
     });
   };
@@ -177,6 +175,19 @@ export const GitSourceControl = () => {
         });
       },
     });
+  };
+
+  const handleUncommit = async () => {
+    try {
+      await uncommitAsync();
+      toast.success("Last commit undone", {
+        description: "Changes moved back to staged area",
+      });
+    } catch (error: any) {
+      toast.error("Failed to undo commit", {
+        description: error?.message || String(error),
+      });
+    }
   };
 
   const handleCommit = async () => {
@@ -331,18 +342,21 @@ export const GitSourceControl = () => {
 
   // Files that are staged but also modified in working tree appear in both lists.
   // Filter them out so they only show in Staged, not in Changes.
+  const conflictedFiles = status.conflicted ?? [];
   const unstagedChanges = [
     ...status.modified,
     ...status.untracked,
     ...status.deleted,
-  ].filter((f) => !status.staged.includes(f));
+  ].filter((f) => !status.staged.includes(f) && !conflictedFiles.includes(f));
+  const stagedChanges = status.staged.filter((f) => !conflictedFiles.includes(f));
 
-  const hasStagedChanges = status.staged.length > 0;
+  const hasConflicts = conflictedFiles.length > 0;
+  const hasStagedChanges = stagedChanges.length > 0;
   const hasUnstagedChanges = unstagedChanges.length > 0;
-  const hasWorkingTreeChanges = hasStagedChanges || hasUnstagedChanges;
+  const hasWorkingTreeChanges = hasConflicts || hasStagedChanges || hasUnstagedChanges;
   const hasPushTarget = status.published || !!status.tracking || !!remoteUrl;
   const canPushNow = hasPushTarget && !hasWorkingTreeChanges && status.outgoing;
-  const totalChanges = status.staged.length + unstagedChanges.length;
+  const totalChanges = conflictedFiles.length + stagedChanges.length + unstagedChanges.length;
 
   return (
     <div className="flex flex-col h-full">
@@ -394,7 +408,7 @@ export const GitSourceControl = () => {
               <button
                 onClick={() => { setMenuOpen(false); handleRefresh(); }}
                 disabled={isRefreshing}
-                className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-text hover:bg-active/50 disabled:opacity-50"
+                className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-text hover:bg-accent/20 disabled:opacity-50"
               >
                 <RefreshCw size={12} className={cn("text-comment", isRefreshing && "animate-spin")} />
                 Refresh
@@ -402,7 +416,7 @@ export const GitSourceControl = () => {
               <button
                 onClick={() => { setMenuOpen(false); handlePull(); }}
                 disabled={isPulling}
-                className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-text hover:bg-active/50 disabled:opacity-50"
+                className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-text hover:bg-accent/20 disabled:opacity-50"
               >
                 <ArrowDown size={12} className="text-comment" />
                 {isPulling ? "Pulling…" : "Pull"}
@@ -412,18 +426,29 @@ export const GitSourceControl = () => {
               <div className="border-t border-border my-1" />
               <button
                 onClick={() => { setMenuOpen(false); setStashOpen(true); }}
-                className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-text hover:bg-active/50"
+                className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-text hover:bg-accent/20"
               >
                 <Archive size={12} className="text-comment" />
                 Stash…
               </button>
 
-              {/* Section 3: Fetch All */}
+              {/* Section 3: Undo Last Commit */}
+              <div className="border-t border-border my-1" />
+              <button
+                onClick={() => { setMenuOpen(false); handleUncommit(); }}
+                disabled={isUncommitting || !gitLog?.all.length}
+                className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-text hover:bg-accent/20 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <RotateCcw size={12} className="text-comment" />
+                Undo Last Commit
+              </button>
+
+              {/* Section 4: Fetch All */}
               <div className="border-t border-border my-1" />
               <button
                 onClick={() => { setMenuOpen(false); handleFetchAll(); }}
                 disabled={isFetchingAll}
-                className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-text hover:bg-active/50 disabled:opacity-50"
+                className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-text hover:bg-accent/20 disabled:opacity-50"
               >
                 <CloudDownload size={12} className={cn("text-comment", isFetchingAll && "animate-pulse")} />
                 Fetch All
@@ -527,7 +552,7 @@ export const GitSourceControl = () => {
         {!canPushNow ? (
           <button
             onClick={handleCommit}
-            disabled={isCommitting || !commitMessage.trim() || !hasStagedChanges}
+            disabled={isCommitting || hasConflicts || !commitMessage.trim() || !hasStagedChanges}
             className={cn(
               "mt-2 w-full flex items-center justify-center gap-2 px-3 py-2 rounded text-sm font-medium transition-colors",
               "disabled:opacity-50 disabled:cursor-not-allowed",
@@ -535,7 +560,7 @@ export const GitSourceControl = () => {
             )}
           >
             {isCommitting ? <RefreshCw size={13} className="animate-spin" /> : <GitCommit size={13} />}
-            {isCommitting ? "Committing…" : `Commit (${status.staged.length})`}
+            {isCommitting ? "Committing…" : hasConflicts ? `Resolve conflicts (${conflictedFiles.length})` : `Commit (${stagedChanges.length})`}
           </button>
         ) : (
           <button
@@ -554,15 +579,17 @@ export const GitSourceControl = () => {
                 ? `Push ${status.ahead} commit${status.ahead !== 1 ? "s" : ""}`
                 : "Publish branch"}
           </button>
-        ) }
+        )}
+
       </div>
 
       {/* Scrollable file lists */}
       <div className="flex-1 flex flex-col overflow-hidden min-h-0">
         <div className="flex-1 overflow-y-auto min-h-0">
+          <ConflictResolver conflicted={conflictedFiles} />
 
           {/* ── Staged Changes ── */}
-          {status.staged.length > 0 && (
+          {stagedChanges.length > 0 && (
             <div>
               <div
                 className="px-3 py-1.5 bg-active/30 border-b border-border flex items-center justify-between cursor-pointer select-none"
@@ -571,7 +598,7 @@ export const GitSourceControl = () => {
                 <div className="flex items-center gap-1">
                   {stagedOpen ? <ChevronDown size={11} className="text-comment" /> : <ChevronRight size={11} className="text-comment" />}
                   <span className="text-[10px] uppercase tracking-wide text-comment">
-                    Staged ({status.staged.length})
+                    Staged ({stagedChanges.length})
                   </span>
                 </div>
                 <Tip label="Unstage all" side="bottom">
@@ -585,7 +612,7 @@ export const GitSourceControl = () => {
               </div>
               {stagedOpen && (
                 <div>
-                  {status.staged.map((file) => (
+                  {stagedChanges.map((file) => (
                     <div
                       key={file}
                       onClick={() => handleFileClick(file, true)}

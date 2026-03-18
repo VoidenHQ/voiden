@@ -364,6 +364,10 @@ const extensionName = "slashCommand";
 
 let popup: any;
 
+export const hideSlashMenu = () => {
+  popup?.[0]?.hide();
+};
+
 export const SlashCommand = Extension.create({
   name: extensionName,
 
