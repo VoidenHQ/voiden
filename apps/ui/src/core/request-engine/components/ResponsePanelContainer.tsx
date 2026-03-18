@@ -176,6 +176,24 @@ export function ResponsePanelContainer() {
   };
 
   const isWssOrGrpc = statusInfo && (statusInfo.protocol === "wss" || statusInfo.protocol === "grpc");
+
+  // Track live WSS connection state for the top bar status tag
+  const [wsConnectedIds, setWsConnectedIds] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    const electron = (window as any).electron;
+    const listen = electron?.request?.listenSecure ?? electron?.request?.listen;
+    if (!listen) return;
+    const offOpen = listen('ws-open', (_e: any, d: any) => {
+      if (d?.wsId) setWsConnectedIds((s) => { const n = new Set(s); n.add(d.wsId); return n; });
+    });
+    const offClose = listen('ws-close', (_e: any, d: any) => {
+      if (d?.wsId) setWsConnectedIds((s) => { const n = new Set(s); n.delete(d.wsId); return n; });
+    });
+    const offError = listen('ws-error', (_e: any, d: any) => {
+      if (d?.wsId && d?.code !== 'CLEANUP_WARNING') setWsConnectedIds((s) => { const n = new Set(s); n.delete(d.wsId); return n; });
+    });
+    return () => { offOpen?.(); offClose?.(); offError?.(); };
+  }, []);
   const isSuccess =
     statusInfo && typeof statusInfo.statusCode === "number" && statusInfo.statusCode >= 200 && statusInfo.statusCode < 300;
   const isError =
@@ -203,6 +221,19 @@ export function ResponsePanelContainer() {
               <div className="size-2 rounded-full bg-red-500" />
               <span className="text-red-500 font-semibold">Request Failed</span>
             </>
+          )}
+
+          {/* WSS connection status tag */}
+          {showContent && statusInfo && (statusInfo.protocol === "wss" || statusInfo.protocol === "ws") && statusInfo.wsId && (
+            <div className="flex items-center space-x-2 flex-shrink-0">
+              <div className={`size-2 rounded-full ${wsConnectedIds.has(statusInfo.wsId) ? 'bg-green-500' : 'bg-border'}`} />
+              <span className="font-bold font-mono text-sm">
+                {wsConnectedIds.has(statusInfo.wsId) ? 'Connected' : 'Disconnected'}
+              </span>
+              {statusInfo.url && (
+                <span className="text-comment text-xs truncate max-w-[200px]">{statusInfo.url}</span>
+              )}
+            </div>
           )}
 
           {/* Success / content status */}

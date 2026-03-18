@@ -195,6 +195,7 @@ async function getDefaultState(skipDefault?:boolean): Promise<AppState | null> {
   const extensionBrowserId = crypto.randomUUID();
   const responsePanelId = crypto.randomUUID();
   const historyPanelId = crypto.randomUUID();
+  const globalHistoryPanelId = crypto.randomUUID();
 
   // Only get sample project if there are no windows
   if (windowManager.getAllWindows().length === 0 && !skipDefault) {
@@ -271,6 +272,10 @@ async function getDefaultState(skipDefault?:boolean): Promise<AppState | null> {
               id: extensionBrowserId,
               type: "extensionBrowser",
             },
+            {
+              id: globalHistoryPanelId,
+              type: "globalHistory",
+            },
           ],
         },
         right: {
@@ -332,6 +337,10 @@ async function getDefaultState(skipDefault?:boolean): Promise<AppState | null> {
           {
             id: extensionBrowserId,
             type: "extensionBrowser",
+          },
+          {
+            id: globalHistoryPanelId,
+            type: "globalHistory",
           },
         ],
       },

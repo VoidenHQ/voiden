@@ -37,6 +37,14 @@ export const initializeState = async (skipDefault?:boolean): Promise<AppState> =
     appState.sidebars.right.tabs.push({ id: crypto.randomUUID(), type: "history" });
   }
 
+  // Migration: ensure the global history tab exists in the left sidebar (after extensionBrowser)
+  // Also remove it from the right sidebar if it was previously placed there.
+  appState.sidebars.right.tabs = appState.sidebars.right.tabs.filter((t: any) => t.type !== "globalHistory");
+  const hasGlobalHistoryTab = appState.sidebars.left.tabs.some((t: any) => t.type === "globalHistory");
+  if (!hasGlobalHistoryTab) {
+    appState.sidebars.left.tabs.push({ id: crypto.randomUUID(), type: "globalHistory" });
+  }
+
   // Initialize extension manager after the state is loaded.
   extensionManager = new ExtensionManager(appState);
   await extensionManager.loadInstalledCommunityExtensions();
@@ -808,6 +816,38 @@ export const ipcStateHandlers = () => {
       return { sidebarId, tabId: newTab.id };
     },
   );
+
+  // Toggle history-related sidebar tabs (left: globalHistory, right: history) based on setting
+  ipcMain.handle("sidebar:setHistoryEnabled", async (_event, enabled: boolean) => {
+    const appState = getAppState();
+
+    if (enabled) {
+      // Add globalHistory to left if missing
+      const hasGlobal = appState.sidebars.left.tabs.some((t: any) => t.type === "globalHistory");
+      if (!hasGlobal) {
+        appState.sidebars.left.tabs.push({ id: crypto.randomUUID(), type: "globalHistory" });
+      }
+      // Add history to right if missing
+      const hasHistory = appState.sidebars.right.tabs.some((t: any) => t.type === "history");
+      if (!hasHistory) {
+        appState.sidebars.right.tabs.push({ id: crypto.randomUUID(), type: "history" });
+      }
+    } else {
+      // Remove both tabs
+      appState.sidebars.left.tabs = appState.sidebars.left.tabs.filter((t: any) => t.type !== "globalHistory");
+      appState.sidebars.right.tabs = appState.sidebars.right.tabs.filter((t: any) => t.type !== "history");
+      // If active tab was removed, reset activeTabId
+      if (!appState.sidebars.left.tabs.some((t: any) => t.id === appState.sidebars.left.activeTabId)) {
+        appState.sidebars.left.activeTabId = appState.sidebars.left.tabs[0]?.id ?? null;
+      }
+      if (!appState.sidebars.right.tabs.some((t: any) => t.id === appState.sidebars.right.activeTabId)) {
+        appState.sidebars.right.activeTabId = appState.sidebars.right.tabs[0]?.id ?? null;
+      }
+    }
+
+    await saveState(appState);
+    return { success: true };
+  });
 
   // Add a new IPC handler to activate a tab.
   ipcMain.handle("tab:activate", async (event, panelId: string, tabId: string) => {

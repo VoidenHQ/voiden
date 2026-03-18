@@ -5,7 +5,7 @@
  * post-processing (priority 50): builds a history entry and persists it to disk.
  */
 
-import { HistoryEntry } from './types';
+import { FileAttachmentMeta, HistoryEntry } from './types';
 import { useHistoryStore } from './historyStore';
 import { appendToHistory } from './historyManager';
 import { useResponseStore } from '@/core/request-engine/stores/responseStore';
@@ -74,10 +74,15 @@ export async function postProcessingHistoryHook(context: any): Promise<void> {
   const { requestState, responseState } = context;
   if (!requestState || !responseState) return;
 
+  // Socket protocols (wss/ws/grpc/grpcs) save their own history via saveSessionToHistory
+  // when the session ends — skip the REST pipeline entry to avoid duplicates.
+  const proto = requestState.protocolType;
+  if (proto === 'wss' || proto === 'ws' || proto === 'grpc' || proto === 'grpcs') return;
+
   try {
-    // Respect user settings
+    // Respect user settings — history is opt-in (disabled unless explicitly enabled)
     const settings = await (window as any).electron?.userSettings?.get();
-    if (settings?.history?.enabled === false) return;
+    if (!settings?.history?.enabled) return;
     const retentionDays = Math.min(90, Math.max(1, settings?.history?.retention_days ?? 2));
 
     // Use the platform's secure env:replaceVariables IPC to resolve all {{VAR}} and {{process.xxx}}
@@ -91,17 +96,90 @@ export async function postProcessingHistoryHook(context: any): Promise<void> {
 
     const rawHeaders = ((requestState.headers ?? []) as any[]).filter((h) => h.enabled !== false && h.key);
 
-    // Resolve body: string → replace vars; object → JSON.stringify then replace; bodyParams → serialize as form
+    // ── Multipart file-attachment metadata ───────────────────────────────────
+    // For multipart/form-data requests, capture file metadata instead of raw bytes.
+    // Files are identified by bodyParams entries with type === 'file'.
+    const isMultipart = (requestState.contentType ?? '').toLowerCase().includes('multipart');
+    let fileAttachments: FileAttachmentMeta[] | undefined;
+
+    const bodyParamsList: any[] = Array.isArray(requestState.bodyParams)
+      ? requestState.bodyParams
+      : Array.isArray(requestState.body_params) ? requestState.body_params : [];
+
+    if (isMultipart && bodyParamsList.length > 0) {
+      const fileParams = bodyParamsList.filter((p: any) => p.enabled !== false && p.type === 'file' && p.key);
+      if (fileParams.length > 0) {
+        fileAttachments = await Promise.all(
+          fileParams.map(async (p: any): Promise<FileAttachmentMeta> => {
+            const rawPath: string = typeof p.value === 'string'
+              ? p.value.replace(/^@/, '')
+              : '';
+
+            // Resolve to absolute path, then hash for change-detection.
+            // rawPath may be:
+            //   1. Already absolute (external file via dialog): /Users/.../photo.jpg
+            //   2. Project-relative (internal file stripped of project prefix): /docs/photo.jpg
+            //   3. Just a filename (from paste): photo.jpg
+            // Strategy: try rawPath as-is; if not found and projectPath available, try project-relative join.
+            let absolutePath = rawPath;
+            let hashResult: { exists: boolean; hash?: string; size?: number } | null = null;
+            if (rawPath) {
+              try {
+                hashResult = await (window as any).electron?.files?.hash?.(rawPath) ?? null;
+                if (!hashResult?.exists && projectPath) {
+                  // Not found as-is — resolve as project-relative
+                  const joined = await (window as any).electron?.utils?.pathJoin?.(
+                    projectPath,
+                    rawPath.replace(/^[\\/]/, ''),
+                  );
+                  if (joined) {
+                    const joinedResult = await (window as any).electron?.files?.hash?.(joined) ?? null;
+                    if (joinedResult?.exists) {
+                      absolutePath = joined;
+                      hashResult = joinedResult;
+                    }
+                  }
+                }
+              } catch { /* best-effort */ }
+            }
+
+            const meta: FileAttachmentMeta = {
+              key: p.key,
+              name: rawPath.split(/[\\/]/).pop() ?? rawPath,
+              path: absolutePath || undefined,
+              mimeType: p.contentType ?? p.mimeType ?? undefined,
+            };
+            if (hashResult?.exists) {
+              meta.hash = hashResult.hash;
+              meta.size = hashResult.size;
+            }
+            return meta;
+          }),
+        );
+      }
+    }
+
+    // Resolve body: string → replace vars; object → JSON.stringify then replace;
+    // bodyParams → for multipart show summary (files already captured above), for form-urlencoded serialize
     let rawBodyStr: string | undefined;
     if (typeof requestState.body === 'string' && requestState.body) {
       rawBodyStr = requestState.body;
     } else if (requestState.body !== null && requestState.body !== undefined && typeof requestState.body === 'object') {
       try { rawBodyStr = JSON.stringify(requestState.body); } catch { rawBodyStr = undefined; }
-    } else if (Array.isArray(requestState.bodyParams) && requestState.bodyParams.length > 0) {
-      rawBodyStr = (requestState.bodyParams as any[])
-        .filter((p) => p.enabled !== false && p.key)
-        .map((p) => `${p.key}=${p.value ?? ''}`)
-        .join('&');
+    } else if (bodyParamsList.length > 0) {
+      const enabledParams = bodyParamsList.filter((p: any) => p.enabled !== false && p.key);
+      if (isMultipart) {
+        // For multipart, store a human-readable summary (not raw paths for file params)
+        rawBodyStr = enabledParams
+          .map((p: any) => p.type === 'file'
+            ? `${p.key}=@${(typeof p.value === 'string' ? p.value.replace(/^@/, '') : '').split('/').pop() ?? '(file)'}`
+            : `${p.key}=${p.value ?? ''}`)
+          .join(' | ');
+      } else {
+        rawBodyStr = enabledParams
+          .map((p: any) => `${p.key}=${p.value ?? ''}`)
+          .join('&');
+      }
     }
 
     const [resolvedUrl, resolvedBody, resolvedHeaders] = await Promise.all([
@@ -133,6 +211,7 @@ export async function postProcessingHistoryHook(context: any): Promise<void> {
         headers: resolvedHeaders,
         body: resolvedBody,
         contentType: requestState.contentType ?? undefined,
+        ...(fileAttachments?.length ? { fileAttachments } : {}),
       },
       response: {
         status: responseState.status,
@@ -147,7 +226,11 @@ export async function postProcessingHistoryHook(context: any): Promise<void> {
     };
 
     const updated = await appendToHistory(projectPath, filePath, entry, retentionDays);
-    useHistoryStore.getState().setEntries(filePath, updated.entries);
+    const store = useHistoryStore.getState();
+    store.setEntries(filePath, updated.entries);
+    // Prepend to global history view so it refreshes without manual reload
+    const entryWithFile = { ...entry, filePath };
+    store.setAllEntries([entryWithFile, ...store.allEntries.filter((e) => e.id !== entryWithFile.id)]);
   } catch (e) {
     console.error('[history] Failed to save history entry:', e);
   }

@@ -24,7 +24,19 @@ export const  useSendRestRequest = (editor: Editor) => {
   const context = useQuery({
     queryKey: ["request", activeDocument?.id],
     queryFn: async () => {
+      const wasPanelOpen = usePanelStore.getState().rightPanelOpen;
       openRightPanel();
+      if (!wasPanelOpen) {
+        // Panel was freshly opened — switch to the first (response) tab
+        try {
+          const tabs = await (window as any).electron?.sidebar?.getTabs?.("right");
+          const firstTab = (tabs?.tabs as any[] | undefined)?.[0];
+          if (firstTab) {
+            await (window as any).electron?.sidebar?.activateTab?.("right", firstTab.id);
+            queryClient.invalidateQueries({ queryKey: ["sidebar:tabs", "right"] });
+          }
+        } catch { /* best-effort */ }
+      }
       if (activeDocument?.id) {
         useResponseStore.getState().setActiveResponseNodeForTab(activeDocument.id, "response-body");
       }

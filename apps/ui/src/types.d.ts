@@ -143,7 +143,6 @@ declare global {
           modified: string[];
           untracked: string[];
           deleted: string[];
-          conflicted: string[];
           published: boolean;
           current: string;
           tracking: string | null;
@@ -180,15 +179,6 @@ declare global {
         stash: (message?: string) => Promise<boolean>;
         stashList: () => Promise<{ index: number; ref: string; message: string; date: string }[]>;
         stashPop: (index: number) => Promise<boolean>;
-        getConflicts: () => Promise<{
-          file: string;
-          sections: { current: string; incoming: string; base: string | null; index: number }[];
-          hasConflict: boolean;
-        }[]>;
-        resolveConflict: (file: string, resolution: 'current' | 'incoming' | 'both', sectionIndex?: number) => Promise<{ resolved: boolean }>;
-        getFileContent: (file: string) => Promise<string>;
-        saveResolvedFile: (file: string, content: string) => Promise<{ success: boolean }>;
-        uncommit: () => Promise<boolean>;
       };
       plugins: {
         get: () => Promise<string[]>;

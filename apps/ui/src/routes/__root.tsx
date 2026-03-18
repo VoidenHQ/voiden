@@ -8,11 +8,14 @@ import { ElectronEventProvider } from "@/core/providers";
 import { useState, useEffect } from "react";
 import { CommandPalette } from "@/core/components/CommandPalette";
 import { HelpModal } from "@/core/help/HelpModal";
+import { useHistoryTabSync } from "@/core/layout/hooks";
 
 export const Route = createRootRouteWithContext<{
   queryClient: QueryClient;
 }>()({
   component: () => {
+    useHistoryTabSync();
+
     const [isCommandPaletteFocused, setIsCommandPaletteFocused] = useState(false);
     const [paletteMode, setPaletteMode] = useState<'files' | 'commands'>('files');
 

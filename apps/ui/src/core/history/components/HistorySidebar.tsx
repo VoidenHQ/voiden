@@ -1,80 +1,20 @@
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import ReactCodeMirror from '@uiw/react-codemirror';
 import { useHistoryStore } from '../historyStore';
-import { readHistory, clearHistory, buildCurlFromEntry } from '../historyManager';
+import { readHistory, clearHistory, checkAttachmentChanges, AttachmentChange } from '../historyManager';
 import { getProjectPathFn, importCurlFn } from '../pipelineHooks';
-import { HistoryEntry } from '../types';
+import { HistoryEntry, FileAttachmentMeta } from '../types';
 import { voidenTheme } from '@/core/editors/code/CodeEditor';
 import { renderLang } from '@/core/editors/code/lib/extensions/renderLang';
-import { prosemirrorToMarkdown } from '@/core/file-system/hooks/useFileSystem';
 import { getSchema } from '@tiptap/core';
 import { voidenExtensions } from '@/core/editors/voiden/extensions';
-import { Clock, RotateCcw, Copy, Check, Trash2, Search, Zap, MoreHorizontal, Download, Square, CheckSquare, X, ChevronDown, ChevronRight, ChevronsUpDown, ChevronsDownUp, Loader2 } from 'lucide-react';
+import { Clock, RotateCcw, Copy, Check, Trash2, Search, Zap, MoreHorizontal, Download, Square, CheckSquare, X, ChevronDown, ChevronRight, ChevronsUpDown, ChevronsDownUp, Loader2, FileText, Paperclip, AlertTriangle } from 'lucide-react';
 import { useResponseStore } from '@/core/request-engine/stores/responseStore';
 import { METHOD_COLORS } from '@/constants';
 import { Tip } from '@/core/components/ui/Tip';
 import { useGetPanelTabs } from '@/core/layout/hooks';
-import { useEditorEnhancementStore } from '@/plugins';
-
-// ─── .void file builder ───────────────────────────────────────────────────────
-
-function buildVoidMarkdownFromEntry(entry: HistoryEntry, schema: ReturnType<typeof getSchema>): string {
-  const content: any[] = [];
-
-  // Method
-  content.push({
-    type: 'method',
-    attrs: { method: entry.request.method },
-    content: [{ type: 'text', text: entry.request.method }],
-  });
-
-  // URL
-  content.push({
-    type: 'url',
-    content: [{ type: 'text', text: entry.request.url }],
-  });
-
-  // Request headers
-  if (entry.request.headers?.length) {
-    content.push({
-      type: 'headers-table',
-      content: [{
-        type: 'table',
-        content: entry.request.headers.map((hdr) => ({
-          type: 'tableRow',
-          attrs: { disabled: false },
-          content: [hdr.key, hdr.value].map((col) => ({
-            type: 'tableCell',
-            attrs: { colspan: 1, rowspan: 1, colwidth: null },
-            content: [{ type: 'paragraph', content: col ? [{ type: 'text', text: col }] : [] }],
-          })),
-        })),
-      }],
-    });
-  }
-
-  // Request body
-  if (entry.request.body) {
-    const ct = (entry.request.contentType ?? '').toLowerCase();
-    const trimmed = entry.request.body.trim();
-    if (ct.includes('xml') || (!ct && trimmed.startsWith('<'))) {
-      content.push({
-        type: 'xml_body',
-        attrs: { importedFrom: '', body: entry.request.body, contentType: entry.request.contentType ?? 'application/xml' },
-      });
-    } else {
-      let body = entry.request.body;
-      try { body = JSON.stringify(JSON.parse(body), null, 2); } catch { /* keep as-is */ }
-      content.push({
-        type: 'json_body',
-        attrs: { importedFrom: '', body, contentType: entry.request.contentType ?? 'application/json' },
-      });
-    }
-  }
-
-  const doc = { type: 'doc', content };
-  return prosemirrorToMarkdown(JSON.stringify(doc), schema);
-}
+import { useEditorEnhancementStore, buildCurlForEntry, buildVoidFileForEntry, getHistoryRenderer } from '@/plugins';
+import { toast } from '@/core/components/ui/sonner';
 
 // ─── Code viewer ─────────────────────────────────────────────────────────────
 
@@ -139,6 +79,20 @@ function formatRelativeTime(ts: number): string {
   const h = Math.floor(m / 60);
   if (h < 24) return `${h}h ago`;
   return `${Math.floor(h / 24)}d ago`;
+}
+
+function formatAbsoluteDateTime(ts: number): string {
+  const d = new Date(ts);
+  const now = new Date();
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const mon = months[d.getMonth()];
+  const day = d.getDate();
+  const h = String(d.getHours()).padStart(2, '0');
+  const m = String(d.getMinutes()).padStart(2, '0');
+  const datePart = d.getFullYear() !== now.getFullYear()
+    ? `${mon} ${day}, ${d.getFullYear()}`
+    : `${mon} ${day}`;
+  return `${datePart} · ${h}:${m}`;
 }
 
 function formatDuration(ms?: number): string {
@@ -207,6 +161,61 @@ function statusBadge(status?: number, error?: string | null): string {
   return 'text-red-400';
 }
 
+// ─── File attachments ─────────────────────────────────────────────────────────
+
+interface AttachmentStatus { changed: boolean; missing: boolean; checked: boolean; }
+
+const FileAttachmentsSection: React.FC<{ attachments: FileAttachmentMeta[]; query?: string }> = ({ attachments, query = '' }) => {
+  const [statuses, setStatuses] = useState<Record<string, AttachmentStatus>>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const results: Record<string, AttachmentStatus> = {};
+      await Promise.all(attachments.map(async (a) => {
+        if (!a.path || !a.hash) { results[a.key] = { changed: false, missing: false, checked: false }; return; }
+        try {
+          const result = await (window as any).electron?.files?.hash?.(a.path);
+          if (!result?.exists) { results[a.key] = { changed: false, missing: true, checked: true }; }
+          else { results[a.key] = { changed: result.hash !== a.hash, missing: false, checked: true }; }
+        } catch { results[a.key] = { changed: false, missing: false, checked: false }; }
+      }));
+      if (!cancelled) setStatuses(results);
+    })();
+    return () => { cancelled = true; };
+  }, [attachments]);
+
+  return (
+    <div>
+      <p className="text-[10px] uppercase text-comment tracking-wide mb-1 flex items-center gap-1">
+        <Paperclip size={9} />File Attachments
+      </p>
+      <div className="space-y-1">
+        {attachments.map((a) => {
+          const s = statuses[a.key];
+          const hasWarning = s?.missing || s?.changed;
+          return (
+            <div key={a.key} className={`flex items-start gap-2 text-[11px] font-mono rounded px-2 py-1 ${hasWarning ? 'bg-amber-500/10 border border-amber-500/30' : 'bg-muted/40'}`}>
+              <div className="flex-1 min-w-0">
+                <span className="text-comment"><Highlight text={a.key} query={query} /></span>
+                <span className="text-text/50 mx-1">=</span>
+                <span className="text-text truncate"><Highlight text={a.name} query={query} /></span>
+                {a.size !== undefined && <span className="text-comment/60 ml-1.5">({formatBytes(a.size)})</span>}
+              </div>
+              {s?.checked && hasWarning && (
+                <div className="flex items-center gap-1 shrink-0 text-amber-400" title={s.missing ? 'File no longer exists' : 'File has changed since this request was made'}>
+                  <AlertTriangle size={10} />
+                  <span className="text-[9px]">{s.missing ? 'missing' : 'changed'}</span>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
 // ─── Collapsible section ──────────────────────────────────────────────────────
 
 interface CollapsibleSectionProps {
@@ -260,6 +269,14 @@ const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({ label, count, o
   );
 };
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function toRelativePath(filePath: string, projectPath: string | null): string {
+  if (!projectPath || !filePath) return filePath.split('/').pop() ?? filePath;
+  const prefix = projectPath.endsWith('/') ? projectPath : projectPath + '/';
+  return filePath.startsWith(prefix) ? filePath.slice(prefix.length) : filePath.split('/').pop() ?? filePath;
+}
+
 // ─── Entry card ───────────────────────────────────────────────────────────────
 
 type DetailTab = 'request' | 'response';
@@ -268,6 +285,7 @@ interface EntryCardProps {
   entry: HistoryEntry;
   isCopied: boolean;
   query: string;
+  sourceFile?: string;
   isSelecting?: boolean;
   isSelected?: boolean;
   onToggleSelect?: () => void;
@@ -275,9 +293,17 @@ interface EntryCardProps {
   onCopy: (entry: HistoryEntry) => void;
 }
 
-const EntryCard: React.FC<EntryCardProps> = ({ entry, isCopied, query, isSelecting, isSelected, onToggleSelect, onReplay, onCopy }) => {
+const EntryCard: React.FC<EntryCardProps> = ({ entry, isCopied, query, sourceFile, isSelecting, isSelected, onToggleSelect, onReplay, onCopy }) => {
   const [expanded, setExpanded] = useState(false);
   const [activeTab, setActiveTab] = useState<DetailTab>('request');
+  const [attachmentChanges, setAttachmentChanges] = useState<AttachmentChange[]>([]);
+
+  // Lazily check if any attached files have changed since capture
+  useEffect(() => {
+    const hasCheckable = entry.request.fileAttachments?.some((a) => a.path && a.hash);
+    if (!hasCheckable) return;
+    checkAttachmentChanges(entry).then(setAttachmentChanges).catch(() => {});
+  }, [entry.id]);
 
   // Per-section open state: req-headers, req-body, res-headers, res-body
   const [openSections, setOpenSections] = useState({
@@ -304,7 +330,12 @@ const EntryCard: React.FC<EntryCardProps> = ({ entry, isCopied, query, isSelecti
   const url = entry.request.url || '—';
   const duration = entry.response.timing?.duration;
   const bytes = entry.response.bytesContent;
-  const status = entry.response.error ? 'ERR' : String(entry.response.status ?? '—');
+  const isSocketEntry = /^(WSS?|GRPCS?)$/i.test(entry.request.method || '');
+  const status = entry.response.error
+    ? 'ERR'
+    : isSocketEntry
+      ? 'Closed'
+      : String(entry.response.status ?? '—');
 
   let urlDisplay = url;
   try {
@@ -352,9 +383,20 @@ const EntryCard: React.FC<EntryCardProps> = ({ entry, isCopied, query, isSelecti
           <span className={`text-xs font-mono font-semibold ${statusBadge(entry.response.status, entry.response.error)}`}>
             {status}
           </span>
-          <span className="text-[10px] text-comment ml-auto">
-            {formatRelativeTime(entry.timestamp)}
-          </span>
+          {attachmentChanges.length > 0 && (
+            <Tip
+              label={attachmentChanges.map((c) => `${c.name}: ${c.status}`).join('\n')}
+              side="top"
+            >
+              <span className="flex items-center gap-0.5 px-1 py-0.5 rounded text-[9px] font-medium bg-amber-500/15 text-amber-400 border border-amber-500/30 cursor-default">
+                <AlertTriangle size={9} />
+              </span>
+            </Tip>
+          )}
+          <div className="flex flex-col items-end ml-auto gap-0.5">
+            <span className="text-[10px] text-comment">{formatRelativeTime(entry.timestamp)}</span>
+            <span className="text-[9px] text-comment/50">{formatAbsoluteDateTime(entry.timestamp)}</span>
+          </div>
         </div>
 
         {/* URL */}
@@ -364,6 +406,16 @@ const EntryCard: React.FC<EntryCardProps> = ({ entry, isCopied, query, isSelecti
         >
           <Highlight text={urlDisplay} query={query} />
         </p>
+
+        {/* Source file */}
+        {sourceFile && (
+          <div className="flex items-center gap-1 mt-1">
+            <FileText size={9} className="text-comment/60 shrink-0" />
+            <span className="text-[10px] text-comment truncate">
+              <Highlight text={sourceFile} query={query} />
+            </span>
+          </div>
+        )}
 
         {/* Match-location chips */}
         {(matchInHeaders || matchInBody) && (
@@ -504,84 +556,97 @@ const EntryCard: React.FC<EntryCardProps> = ({ entry, isCopied, query, isSelecti
                   />
                 </CollapsibleSection>
               )}
+
+              {/* File attachments */}
+              {entry.request.fileAttachments && entry.request.fileAttachments.length > 0 && (
+                <FileAttachmentsSection attachments={entry.request.fileAttachments} query={query} />
+              )}
             </div>
           )}
 
           {/* Response tab */}
           {activeTab === 'response' && (
             <div className="px-3 py-2.5 space-y-2">
-              {/* Status line + expand/collapse all */}
-              <div className="flex items-center gap-2">
-                <span className={`text-xs font-mono font-semibold ${statusBadge(entry.response.status, entry.response.error)}`}>
-                  {entry.response.error ? 'Error' : `${entry.response.status ?? '—'} ${entry.response.statusText ?? ''}`}
-                </span>
-                {entry.response.contentType && (
-                  <span className="text-xs text-comment font-mono truncate flex-1 min-w-0">
-                    {entry.response.contentType}
-                  </span>
-                )}
-                {(entry.response.headers?.length || entry.response.body) ? (
-                  <div className="flex items-center gap-2 ml-auto shrink-0">
-                    <button
-                      onClick={() => setAllRes(true)}
-                      disabled={allResOpen}
-                      className="text-[9px] text-comment hover:text-accent disabled:opacity-30 transition-colors"
-                    >
-                      <ChevronsUpDown size={14} />
-                    </button>
-                    <button
-                      onClick={() => setAllRes(false)}
-                      disabled={!allResOpen}
-                      className="text-[9px] text-comment hover:text-accent disabled:opacity-30 transition-colors"
-                    >
-                      <ChevronsDownUp size={14} />
-                    </button>
-                  </div>
-                ) : null}
-              </div>
+              {(() => {
+                const PluginRenderer = getHistoryRenderer(entry);
+                if (PluginRenderer) return <PluginRenderer entry={entry} />;
+                return (
+                  <>
+                    {/* Status line + expand/collapse all */}
+                    <div className="flex items-center gap-2">
+                      <span className={`text-xs font-mono font-semibold ${statusBadge(entry.response.status, entry.response.error)}`}>
+                        {entry.response.error ? 'Error' : `${entry.response.status ?? '—'} ${entry.response.statusText ?? ''}`}
+                      </span>
+                      {entry.response.contentType && (
+                        <span className="text-xs text-comment font-mono truncate flex-1 min-w-0">
+                          {entry.response.contentType}
+                        </span>
+                      )}
+                      {(entry.response.headers?.length || entry.response.body) ? (
+                        <div className="flex items-center gap-2 ml-auto shrink-0">
+                          <button
+                            onClick={() => setAllRes(true)}
+                            disabled={allResOpen}
+                            className="text-[9px] text-comment hover:text-accent disabled:opacity-30 transition-colors"
+                          >
+                            <ChevronsUpDown size={14} />
+                          </button>
+                          <button
+                            onClick={() => setAllRes(false)}
+                            disabled={!allResOpen}
+                            className="text-[9px] text-comment hover:text-accent disabled:opacity-30 transition-colors"
+                          >
+                            <ChevronsDownUp size={14} />
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
 
-              {/* Error */}
-              {entry.response.error && (
-                <div className="text-[10px] text-red-400 bg-red-500/10 rounded px-2 py-1.5 break-all">
-                  {entry.response.error}
-                </div>
-              )}
+                    {/* Error */}
+                    {entry.response.error && (
+                      <div className="text-[10px] text-red-400 bg-red-500/10 rounded px-2 py-1.5 break-all">
+                        {entry.response.error}
+                      </div>
+                    )}
 
-              {/* Response headers */}
-              {entry.response.headers && entry.response.headers.length > 0 && (
-                <CollapsibleSection
-                  label="Headers"
-                  count={entry.response.headers.length}
-                  open={openSections.resHeaders}
-                  onToggle={() => toggle('resHeaders')}
-                  copyValue={entry.response.headers.map((h) => `${h.key}: ${h.value}`).join('\n')}
-                >
-                  <HistoryCodeViewer
-                    value={entry.response.headers.map((h) => `${h.key}: ${h.value}`).join('\n')}
-                    contentType="text/plain"
-                  />
-                </CollapsibleSection>
-              )}
+                    {/* Response headers */}
+                    {entry.response.headers && entry.response.headers.length > 0 && (
+                      <CollapsibleSection
+                        label="Headers"
+                        count={entry.response.headers.length}
+                        open={openSections.resHeaders}
+                        onToggle={() => toggle('resHeaders')}
+                        copyValue={entry.response.headers.map((h) => `${h.key}: ${h.value}`).join('\n')}
+                      >
+                        <HistoryCodeViewer
+                          value={entry.response.headers.map((h) => `${h.key}: ${h.value}`).join('\n')}
+                          contentType="text/plain"
+                        />
+                      </CollapsibleSection>
+                    )}
 
-              {/* Response body */}
-              {entry.response.body && (
-                <CollapsibleSection
-                  label="Body"
-                  open={openSections.resBody}
-                  onToggle={() => toggle('resBody')}
-                  copyValue={entry.response.body}
-                >
-                  <HistoryCodeViewer
-                    value={entry.response.body}
-                    contentType={entry.response.contentType}
-                  />
-                </CollapsibleSection>
-              )}
+                    {/* Response body */}
+                    {entry.response.body && (
+                      <CollapsibleSection
+                        label="Body"
+                        open={openSections.resBody}
+                        onToggle={() => toggle('resBody')}
+                        copyValue={entry.response.body}
+                      >
+                        <HistoryCodeViewer
+                          value={entry.response.body}
+                          contentType={entry.response.contentType}
+                        />
+                      </CollapsibleSection>
+                    )}
 
-              {/* No response data */}
-              {!entry.response.error && !entry.response.body && (!entry.response.headers || entry.response.headers.length === 0) && (
-                <p className="text-[10px] text-comment/60 italic">No response data recorded</p>
-              )}
+                    {/* No response data */}
+                    {!entry.response.error && !entry.response.body && (!entry.response.headers || entry.response.headers.length === 0) && (
+                      <p className="text-[10px] text-comment/60 italic">No response data recorded</p>
+                    )}
+                  </>
+                );
+              })()}
             </div>
           )}
         </div>
@@ -619,6 +684,7 @@ export const HistorySidebar: React.FC = () => {
   const { entries, currentFilePath, setEntries, clearEntries } = useHistoryStore();
   const [activeSource, setActiveSource] = useState<string | null>(null);
   const [activeDocumentTabId, setActiveDocumentTabId] = useState<string | null>(null);
+  const [projectPath, setProjectPath] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
   const [search, setSearch] = useState('');
@@ -655,6 +721,7 @@ export const HistorySidebar: React.FC = () => {
     void (async () => {
       try {
         const projectPath = getProjectPathFn ? await getProjectPathFn() : null;
+        if (!cancelled) setProjectPath(projectPath);
         if (cancelled || !projectPath) return;
         const settings = await (window as any).electron?.userSettings?.get?.();
         const retentionDays = Math.min(90, Math.max(1, settings?.history?.retention_days ?? 2));
@@ -691,22 +758,54 @@ export const HistorySidebar: React.FC = () => {
     return () => document.removeEventListener('mousedown', handler);
   }, [menuOpen]);
 
-  const handleReplay = useCallback(async (entry: HistoryEntry) => {
+  const guardAttachments = useCallback(async (entry: HistoryEntry, action: () => Promise<void>) => {
     try {
-      if (!importCurlFn) return;
-      const curl = buildCurlFromEntry(entry);
-      await importCurlFn(`replay-${entry.request.method.toLowerCase()}-${Date.now()}`, curl);
-    } catch { }
+      const changes = await checkAttachmentChanges(entry);
+      if (changes.length > 0) {
+        const detail = changes.map((c) => `• ${c.name} — ${c.status}`).join('\n');
+        const response = await (window as any).electron?.dialog?.showMessageBox?.({
+          type: 'warning',
+          title: 'Attachment files changed',
+          message: 'Some attached files have changed since this request was recorded.',
+          detail,
+          buttons: ['Cancel', 'Continue anyway'],
+          defaultId: 0,
+          cancelId: 0,
+        });
+        if (response !== 1) return;
+      }
+      await action();
+    } catch {
+      await action();
+    }
   }, []);
 
+  const handleReplay = useCallback(async (entry: HistoryEntry) => {
+    await guardAttachments(entry, async () => {
+      try {
+        if (!importCurlFn) return;
+        const base = activeSource
+          ? (activeSource.split('/').pop()?.replace(/\.void$/, '') ?? 'replay')
+          : 'replay';
+        const d = new Date();
+        const pad = (n: number) => String(n).padStart(2, '0');
+        const dt = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+        const curl = buildCurlForEntry(entry, projectPath ?? undefined);
+        await importCurlFn(`replay-${base}-${dt}.void`, curl);
+      } catch { }
+    });
+  }, [activeSource, guardAttachments]);
+
   const handleCopy = useCallback(async (entry: HistoryEntry) => {
-    try {
-      const curl = buildCurlFromEntry(entry);
-      await navigator.clipboard.writeText(curl);
-      setCopied(entry.id);
-      setTimeout(() => setCopied(null), 1500);
-    } catch { }
-  }, []);
+    await guardAttachments(entry, async () => {
+      try {
+        const curl = buildCurlForEntry(entry, projectPath ?? undefined);
+        await navigator.clipboard.writeText(curl);
+        setCopied(entry.id);
+        setTimeout(() => setCopied(null), 1500);
+      } catch { }
+    });
+  }, [guardAttachments]);
 
   const handleClear = useCallback(async () => {
     if (!activeSource) return;
@@ -716,6 +815,9 @@ export const HistorySidebar: React.FC = () => {
       if (projectPath) {
         await clearHistory(projectPath, activeSource);
         setEntries(activeSource, []);
+        // Also remove these entries from the global history slice
+        const store = useHistoryStore.getState();
+        store.setAllEntries(store.allEntries.filter((e) => e.filePath !== activeSource));
       }
     } catch { } finally {
       setIsClearing(false);
@@ -776,6 +878,31 @@ export const HistorySidebar: React.FC = () => {
 
     if (!toExport.length) return;
 
+    // Check for changed/missing attachments across all entries being exported
+    const exportableWithAttachments = toExport.filter(
+      (e) => e.request.fileAttachments?.some((a) => a.path && a.hash),
+    );
+    if (exportableWithAttachments.length > 0) {
+      const allChanges: AttachmentChange[] = [];
+      for (const e of exportableWithAttachments) {
+        const changes = await checkAttachmentChanges(e);
+        allChanges.push(...changes);
+      }
+      if (allChanges.length > 0) {
+        const detail = allChanges.map((c) => `• ${c.name} — ${c.status}`).join('\n');
+        const response = await (window as any).electron?.dialog?.showMessageBox?.({
+          type: 'warning',
+          title: 'Attachment files changed',
+          message: 'Some attached files have changed since these requests were recorded.',
+          detail,
+          buttons: ['Cancel', 'Export anyway'],
+          defaultId: 0,
+          cancelId: 0,
+        });
+        if (response !== 1) return;
+      }
+    }
+
     // Build full schema: base voiden extensions + plugin-registered extensions (e.g. method, url, headers-table).
     // Must include plugin extensions or prosemirrorToMarkdown throws "Unknown node type: method".
     const pluginExts = useEditorEnhancementStore.getState().voidenExtensions;
@@ -801,13 +928,18 @@ export const HistorySidebar: React.FC = () => {
         const fileName = `${tabBasename}-${timeStr}.void`;
         const filePath = await electronAny?.utils?.pathJoin(dayFolderPath, fileName);
         if (filePath) {
-          const markdown = buildVoidMarkdownFromEntry(entry, fullSchema);
+          const markdown = buildVoidFileForEntry(entry, fullSchema);
           await electronAny?.files?.write(filePath, markdown);
         }
       }
     }
 
     setMenuOpen(false);
+    setSelectedIds(new Set());
+    setIsSelecting(false);
+    toast.success(`Exported ${toExport.length} ${toExport.length === 1 ? 'entry' : 'entries'}`, {
+      description: rootFolderPath,
+    });
   }, [activeSource]);
 
   const handleClearSelected = useCallback(async () => {
@@ -823,6 +955,9 @@ export const HistorySidebar: React.FC = () => {
         await electronAny?.files?.write(fullPath, JSON.stringify({ version: '1.0.0', filePath: activeSource, entries: remaining }, null, 2));
       }
       setEntries(activeSource, remaining);
+      // Also remove selected entries from the global history slice
+      const store = useHistoryStore.getState();
+      store.setAllEntries(store.allEntries.filter((e) => !selectedIds.has(e.id)));
     }
     setSelectedIds(new Set());
     setIsSelecting(false);
@@ -860,6 +995,10 @@ export const HistorySidebar: React.FC = () => {
       if (e.request.url.toLowerCase().includes(q)) return true;
       if (e.request.method.toLowerCase().includes(q)) return true;
       if (String(e.response.status ?? '').includes(q)) return true;
+      if (activeSource && activeSource.toLowerCase().includes(q)) return true;
+      if (e.request.fileAttachments?.some(
+        (a) => a.name.toLowerCase().includes(q) || a.key.toLowerCase().includes(q),
+      )) return true;
       if (e.request.headers?.some(
         (h) => h.key.toLowerCase().includes(q) || h.value.toLowerCase().includes(q)
       )) return true;
@@ -896,7 +1035,79 @@ export const HistorySidebar: React.FC = () => {
 
   return (
     <div className="flex flex-col h-full bg-bg overflow-hidden">
-      {/* Toolbar row */}
+
+      {/* Search bar */}
+      <div className="px-2 pt-2 pb-1.5 shrink-0">
+        <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-md bg-muted/60 border border-border focus-within:border-border/80">
+          <Search size={11} className="text-comment shrink-0" />
+          <input
+            type="text"
+            placeholder="Search URL, method, file…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+            className="flex-1 bg-transparent text-xs text-text placeholder:text-comment outline-none min-w-0"
+          />
+          {isActiveFileExecuting && (
+            <span className="flex items-center gap-1 text-[10px] text-comment shrink-0">
+              <Loader2 size={11} className="animate-spin" />
+              Running
+            </span>
+          )}
+          {search && (
+            <button
+              onClick={() => setSearch('')}
+              className="text-comment hover:text-text text-xs shrink-0"
+            >
+              ✕
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Date filter chips */}
+      {displayEntries.length > 0 && (
+        <div className="flex items-center gap-1 px-2 pb-1.5 shrink-0">
+          {(['all', 'today', 'yesterday', 'week', 'custom'] as const).map((f) => (
+            <button
+              key={f}
+              onClick={() => setDateFilter(f)}
+              className={`text-[10px] px-1 py-0.5 mt-2 rounded border transition-colors text-comment ${dateFilter === f
+                  ? 'bg-active/20 border-active text-text'
+                  : 'border-border text-comment hover:border-border/80 hover:text-text'
+                }`}
+            >
+              {f === 'all' ? 'All' : f === 'today' ? 'Today' : f === 'yesterday' ? 'Yesterday' : f === 'week' ? 'This week' : 'Custom'}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Custom date range inputs */}
+      {dateFilter === 'custom' && (
+        <div className="flex items-center gap-1.5 px-2 pb-1.5 mt-2 shrink-0">
+          <input
+            type="datetime-local"
+            value={dateFrom}
+            onChange={(e) => setDateFrom(e.target.value)}
+            onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+            className="flex-1 min-w-0"
+          />
+          <span className="text-[9px] text-comment shrink-0">→</span>
+          <input
+            type="datetime-local"
+            value={dateTo}
+            onChange={(e) => setDateTo(e.target.value)}
+            onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+            className="flex-1 min-w-0"
+          />
+        </div>
+      )}
+
+  {/* Toolbar row */}
       {displayEntries.length > 0 && (
         <div className="flex items-center px-3 pt-2 pb-0.5 shrink-0 gap-2">
           {isSelecting ? (
@@ -978,77 +1189,6 @@ export const HistorySidebar: React.FC = () => {
         </div>
       )}
 
-      {/* Search bar */}
-      <div className="px-2 pt-2 pb-1.5 shrink-0">
-        <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-md bg-muted/60 border border-border focus-within:border-border/80">
-          <Search size={11} className="text-comment shrink-0" />
-          <input
-            type="text"
-            placeholder="Search history..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            onClick={(e) => e.stopPropagation()}
-            onMouseDown={(e) => e.stopPropagation()}
-            className="flex-1 bg-transparent text-xs text-text placeholder:text-comment outline-none min-w-0"
-          />
-          {isActiveFileExecuting && (
-            <span className="flex items-center gap-1 text-[10px] text-comment shrink-0">
-              <Loader2 size={11} className="animate-spin" />
-              Running
-            </span>
-          )}
-          {search && (
-            <button
-              onClick={() => setSearch('')}
-              className="text-comment hover:text-text text-xs shrink-0"
-            >
-              ✕
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Date filter chips */}
-      {displayEntries.length > 0 && (
-        <div className="flex items-center gap-1 px-2 pb-1.5 shrink-0">
-          {(['all', 'today', 'yesterday', 'week', 'custom'] as const).map((f) => (
-            <button
-              key={f}
-              onClick={() => setDateFilter(f)}
-              className={`text-xs px-1 py-0.5 mt-2 rounded border transition-colors text-comment ${dateFilter === f
-                  ? 'bg-active/20 border-active text-text'
-                  : 'border-border text-comment hover:border-border/80 hover:text-text'
-                }`}
-            >
-              {f === 'all' ? 'All' : f === 'today' ? 'Today' : f === 'yesterday' ? 'Yesterday' : f === 'week' ? 'This week' : 'Custom'}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* Custom date range inputs */}
-      {dateFilter === 'custom' && (
-        <div className="flex items-center gap-1.5 px-2 pb-1.5 mt-2 shrink-0">
-          <input
-            type="datetime-local"
-            value={dateFrom}
-            onChange={(e) => setDateFrom(e.target.value)}
-            onClick={(e) => e.stopPropagation()}
-            onMouseDown={(e) => e.stopPropagation()}
-            className="flex-1 min-w-0"
-          />
-          <span className="text-[9px] text-comment shrink-0">→</span>
-          <input
-            type="datetime-local"
-            value={dateTo}
-            onChange={(e) => setDateTo(e.target.value)}
-            onClick={(e) => e.stopPropagation()}
-            onMouseDown={(e) => e.stopPropagation()}
-            className="flex-1 min-w-0"
-          />
-        </div>
-      )}
-
       {/* Body */}
       {isLoading ? (
         <div className="flex items-center justify-center flex-1 text-xs text-comment">
@@ -1094,6 +1234,7 @@ export const HistorySidebar: React.FC = () => {
                     entry={entry}
                     isCopied={copied === entry.id}
                     query={search.trim().toLowerCase()}
+                    sourceFile={activeSource ? toRelativePath(activeSource, projectPath) : undefined}
                     isSelecting={isSelecting}
                     isSelected={selectedIds.has(entry.id)}
                     onToggleSelect={() => toggleSelect(entry.id)}
