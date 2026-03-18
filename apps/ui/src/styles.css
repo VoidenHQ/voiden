@@ -2,11 +2,76 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Table cell styling - applied via CSS instead of HTMLAttributes to preserve selection */
+/* ── Document tables (markdown) — subtle horizontal lines ── */
 .ProseMirror td {
-  @apply first:border-l-0 last:border-r-0 border-b-0 p-1.5 px-3 align-middle h-8 border relative box-border text-sm overflow-hidden max-w-full break-all overflow-visible w-full;
-  border-color: color-mix(in srgb, var(--ui-line) 30%, transparent);
+  padding: 0.5rem 0.75rem;
+  vertical-align: middle;
+  height: 2rem;
+  position: relative;
+  box-sizing: border-box;
+  font-size: var(--font-size-sm);
+  overflow: visible;
+  max-width: 100%;
+  word-break: break-all;
+  width: 100%;
+  border: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--ui-line) 20%, transparent);
   background-color: transparent;
+}
+
+.ProseMirror th {
+  padding: 0.5rem 0.75rem;
+  vertical-align: middle;
+  font-weight: 500;
+  font-size: var(--font-size-sm);
+  border: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--ui-line) 40%, transparent);
+  background-color: transparent;
+  color: var(--fg-primary, var(--editor-fg));
+}
+
+.ProseMirror table {
+  border-collapse: collapse;
+  border: none;
+}
+
+/* ── Interactive key-value tables (request blocks) — visible cell borders ── */
+.node-headers-table td,
+.node-query-table td,
+.node-url-table td,
+.node-multipart-table td,
+.node-path-table td,
+.node-form-table td {
+  border: 1px solid color-mix(in srgb, var(--fg-secondary, var(--ui-line)) 35%, transparent) !important;
+}
+
+.node-headers-table td:first-child,
+.node-query-table td:first-child,
+.node-url-table td:first-child,
+.node-multipart-table td:first-child,
+.node-path-table td:first-child,
+.node-form-table td:first-child {
+  border-left: none !important;
+}
+
+.node-headers-table td:last-child,
+.node-query-table td:last-child,
+.node-url-table td:last-child,
+.node-multipart-table td:last-child,
+.node-path-table td:last-child,
+.node-form-table td:last-child {
+  border-right: none !important;
+}
+
+.node-headers-table table,
+.node-query-table table,
+.node-url-table table,
+.node-multipart-table table,
+.node-path-table table,
+.node-form-table table {
+  border: 1px solid color-mix(in srgb, var(--ui-line) 40%, transparent);
+  border-radius: 6px;
+  overflow: hidden;
 }
 
 /* Local Fonts - Embedded for performance and offline support */
@@ -17,7 +82,7 @@
   font-style: normal;
   font-weight: 100 900;
   font-display: swap;
-  src: url('/fonts/geist-variable.woff2') format('woff2-variations');
+  src: url('/fonts/geist-variable.woff2') format('woff2');
 }
 
 /* Geist Mono (Code Font) */
@@ -26,7 +91,7 @@
   font-style: normal;
   font-weight: 100 900;
   font-display: swap;
-  src: url('/fonts/geist-mono-variable.woff2') format('woff2-variations');
+  src: url('/fonts/geist-mono-variable.woff2') format('woff2');
 }
 
 /* Inconsolata (Default Code Font) */
@@ -35,7 +100,7 @@
   font-style: normal;
   font-weight: 200 900;
   font-display: swap;
-  src: url('/fonts/inconsolata-variable.woff2') format('woff2-variations');
+  src: url('/fonts/inconsolata-variable.woff2') format('woff2');
 }
 
 /* JetBrains Mono (Code Font Option) */
@@ -44,7 +109,7 @@
   font-style: normal;
   font-weight: 100 800;
   font-display: swap;
-  src: url('/fonts/jetbrains-mono-variable.woff2') format('woff2-variations');
+  src: url('/fonts/jetbrains-mono-variable.woff2') format('woff2');
 }
 
 /* Fira Code (Code Font Option with Ligatures) */
@@ -53,14 +118,14 @@
   font-style: normal;
   font-weight: 300 700;
   font-display: swap;
-  src: url('/fonts/fira-code-variable.woff2') format('woff2-variations');
+  src: url('/fonts/fira-code-variable.woff2') format('woff2');
 }
 
 @layer base {
   :root {
     /* Base Font Settings (User Configurable) */
     --font-size-base: 0.875rem; /* 14px - editor/code font size */
-    --font-family-base: "Inconsolata", monospace; /* editor/code font */
+    --font-family-base: "Inconsolata", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; /* editor/code font */
 
     /* UI Font Settings - proportional font for chrome/panels/labels */
     --font-size-ui: 0.8125rem; /* 13px - compact UI like Cursor/VS Code */
@@ -79,16 +144,19 @@
     --font-size-3xl: calc(var(--font-size-ui) * 1.462);  /* ~19px at 13px base */
     --font-size-4xl: calc(var(--font-size-ui) * 1.615);  /* ~21px at 13px base */
 
-    /* Heading Settings - Compact spacing like Cursor/terminals */
-    --heading-font-weight: 500; /* medium - easier on eyes */
-    --heading-letter-spacing: 0; /* normal - monospace doesn't need adjustment */
-    --heading-margin-top: 0.25rem; /* 4px - tight like code editors */
-    --heading-margin-bottom: 0.25rem; /* 4px - minimal spacing */
-    --heading-line-height: 1.2; /* compact like code */
+    /* Heading Settings - Readable document spacing (Obsidian/Notion style) */
+    --heading-font-weight: 600; /* semibold - clear hierarchy */
+    --heading-letter-spacing: -0.02em; /* slightly tight for proportional font */
+    --heading-margin-top: 1.5em; /* breathing room before headings */
+    --heading-margin-bottom: 0.5em; /* space after heading before content */
+    --heading-line-height: 1.3; /* tighter than body, but not cramped */
 
-    /* Paragraph Settings - Compact like terminals */
-    --paragraph-margin-bottom: 0.25rem; /* 4px - minimal gap */
-    --paragraph-line-height: 1.4; /* terminal-like spacing */
+    /* Paragraph Settings - Optimized for long-form readability */
+    --paragraph-margin-bottom: 0.5em; /* visible gap between paragraphs */
+    --paragraph-line-height: 1.6; /* comfortable reading line height */
+
+    /* Prose Content Width - balanced for technical content + readability */
+    --prose-max-width: 860px;
 
     /* Font Weights */
     --font-weight-light: 300;
@@ -263,10 +331,24 @@
     margin-bottom: var(--heading-margin-bottom);
   }
 
-  h1 { font-size: var(--font-size-4xl); }
-  h2 { font-size: var(--font-size-3xl); }
-  h3 { font-size: var(--font-size-2xl); }
+  /* First heading in a document shouldn't have top margin */
+  .ProseMirror > h1:first-child,
+  .ProseMirror > h2:first-child,
+  .ProseMirror > h3:first-child {
+    margin-top: 0;
+  }
+
+  /* Extra breathing room before major sections */
+  h1 { font-size: var(--font-size-4xl); margin-top: 2em; }
+  h2 { font-size: var(--font-size-3xl); margin-top: 1.75em; }
+  h3 { font-size: var(--font-size-2xl); margin-top: 1.5em; }
   h4 { font-size: var(--font-size-xl); }
+
+  /* Paragraph/list spacing defined in base layer */
+  .ProseMirror li {
+    margin-top: 0.25em;
+    margin-bottom: 0.25em;
+  }
 
   p {
     margin-bottom: var(--paragraph-margin-bottom);
@@ -354,6 +436,18 @@
       border-radius: 3px;
     }
   }
+}
+
+/* ── ProseMirror prose spacing ── */
+
+.ProseMirror p {
+  margin-bottom: var(--paragraph-margin-bottom);
+  line-height: var(--paragraph-line-height);
+}
+
+.ProseMirror ul,
+.ProseMirror ol {
+  line-height: var(--paragraph-line-height);
 }
 
 .text-base {

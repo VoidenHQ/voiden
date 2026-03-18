@@ -4,11 +4,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 // Valid font families from SettingsScreen
 const VALID_FONT_FAMILIES = [
+  "System Default",
   "Inconsolata",
   "Geist Mono",
   "JetBrains Mono",
   "Fira Code"
 ];
+
+// System Default maps to platform monospace stack
+const SYSTEM_DEFAULT_MONO = "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace";
 
 // Validation ranges
 const FONT_SIZE_MIN = 10;
@@ -17,6 +21,8 @@ const UI_FONT_SIZE_MIN = 10;
 const UI_FONT_SIZE_MAX = 16;
 const AUTO_SAVE_DELAY_MIN = 0;
 const AUTO_SAVE_DELAY_MAX = 300;
+const CONTENT_WIDTH_MIN = 600;
+const CONTENT_WIDTH_MAX = 1400;
 
 // Validation function
 function validateSettings(settings: UserSettings): UserSettings {
@@ -40,6 +46,13 @@ function validateSettings(settings: UserSettings): UserSettings {
     validated.appearance.ui_font_size < UI_FONT_SIZE_MIN ||
     validated.appearance.ui_font_size > UI_FONT_SIZE_MAX) {
     validated.appearance.ui_font_size = 13; // Default fallback
+  }
+
+  // Validate content width
+  if (typeof validated.appearance.content_width !== 'number' ||
+    validated.appearance.content_width < CONTENT_WIDTH_MIN ||
+    validated.appearance.content_width > CONTENT_WIDTH_MAX) {
+    validated.appearance.content_width = 860; // Default fallback
   }
 
   // Validate auto save delay
@@ -185,6 +198,7 @@ export type UserSettings = {
     ui_font_size: number;
     cursor_type: "text" | "default" | "pointer";
     code_wrap: boolean;
+    content_width: number; // px, max width for document content area
   };
   editor: {
     auto_save: boolean;
@@ -232,14 +246,11 @@ export function useSettings() {
 
   useEffect(() => {
     if (settings?.appearance?.font_family) {
-      document.documentElement.style.setProperty(
-        "--font-family-base",
-        `${settings.appearance.font_family}`
-      );
-      document.documentElement.style.setProperty(
-        "--font-family-mono",
-        `${settings.appearance.font_family}`
-      );
+      const cssFont = settings.appearance.font_family === "System Default"
+        ? SYSTEM_DEFAULT_MONO
+        : `"${settings.appearance.font_family}", monospace`;
+      document.documentElement.style.setProperty("--font-family-base", cssFont);
+      document.documentElement.style.setProperty("--font-family-mono", cssFont);
     }
   }, [settings?.appearance?.font_family]);
 
@@ -251,6 +262,15 @@ export function useSettings() {
       );
     }
   }, [settings?.appearance?.ui_font_size]);
+
+  useEffect(() => {
+    if (settings?.appearance?.content_width) {
+      document.documentElement.style.setProperty(
+        "--prose-max-width",
+        `${settings.appearance.content_width}px`
+      );
+    }
+  }, [settings?.appearance?.content_width]);
 
 
   useEffect(() => {

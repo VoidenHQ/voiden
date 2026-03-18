@@ -35,7 +35,7 @@ const createNodeView =
     const isEditable = !node?.attrs?.importedFrom || title === "Multipart Form";
 
     return (
-      <NodeViewWrapper spellCheck="false" className=" my-4">
+      <NodeViewWrapper spellCheck="false" className="my-4">
         <RequestBlockHeader withBorder title={title} editor={editor} importedDocumentId={node.attrs.importedFrom} />
 
         <NodeViewContent className={`w-full max-w-full`} style={{
