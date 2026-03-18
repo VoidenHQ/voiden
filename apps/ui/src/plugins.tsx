@@ -581,6 +581,47 @@ export const getPlugins = async () => {
   requestOrchestrator.clear();
   pasteOrchestrator.clear();
 
+  // ── Core history (not a plugin — registered here so it survives plugin reloads) ──
+  {
+    const { hookRegistry: hr, PipelineStage } = await import('@/core/request-engine/pipeline');
+    const { preProcessingHistoryHook, postProcessingHistoryHook, initHistoryContext } = await import('@/core/history/pipelineHooks');
+
+    hr.unregisterExtension('core-history');
+
+    initHistoryContext(
+      async () => {
+        const p = await getProjects();
+        return p?.activeProject ?? null;
+      },
+      async (title: string, curlString: string) => {
+        const tabId = crypto.randomUUID();
+        const tabTitle = title.endsWith('.void') ? title : `${title}.void`;
+        const emptyDoc = JSON.stringify({ type: 'doc', content: [] });
+        await window.electron?.autosave?.save(tabId, emptyDoc);
+        await window.electron?.state.addPanelTab('main', { id: tabId, type: 'document', title: tabTitle, source: null });
+        await window.electron?.state.activatePanelTab('main', tabId);
+        const qc = getQueryClient();
+        qc.invalidateQueries({ queryKey: ['panel:tabs'], exact: false });
+        qc.invalidateQueries({ queryKey: ['tab:content'], exact: false });
+        const request = handleCurl(curlString);
+        if (!request) return;
+        const tryPaste = (attempts: number) => {
+          if (attempts <= 0) return;
+          const editor = useVoidenEditorStore.getState().editor;
+          if (editor && editor.storage.tabId === tabId) {
+            pasteCurl(editor, request);
+          } else {
+            setTimeout(() => tryPaste(attempts - 1), 200);
+          }
+        };
+        setTimeout(() => tryPaste(15), 400);
+      },
+    );
+
+    hr.registerHook('core-history', PipelineStage.PreProcessing, preProcessingHistoryHook, 50);
+    hr.registerHook('core-history', PipelineStage.PostProcessing, postProcessingHistoryHook, 50);
+  }
+
   const extensions = getQueryClient().getQueryData(["extensions"]) as any[];
 
   // Register block ownership and create placeholders for disabled plugins

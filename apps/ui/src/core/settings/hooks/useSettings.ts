@@ -154,6 +154,23 @@ function validateSettings(settings: UserSettings): UserSettings {
     validated.updates.channel = "stable";
   }
 
+  // Validate history settings
+  if (!validated.history) {
+    validated.history = { enabled: false, retention_days: 2 };
+  }
+
+  if (typeof validated.history.enabled !== 'boolean') {
+    validated.history.enabled = false;
+  }
+
+  if (
+    typeof validated.history.retention_days !== 'number' ||
+    validated.history.retention_days < 1 ||
+    validated.history.retention_days > 90
+  ) {
+    validated.history.retention_days = 2;
+  }
+
   return validated;
 }
 
@@ -195,6 +212,12 @@ export type UserSettings = {
   };
   updates: {
     channel: "stable" | "early-access";
+  };
+  history?: {
+    /** Whether request history recording is enabled (default: false) */
+    enabled: boolean;
+    /** How many days to retain history entries (1–7, default: 2) */
+    retention_days: number;
   };
 };
 
@@ -255,6 +278,7 @@ export function useSettings() {
       proxy: { ...currentSettings.proxy, ...patch.proxy },
       terminal: { ...currentSettings.terminal, ...patch.terminal },
       updates: { ...currentSettings.updates, ...patch.updates },
+      history: { ...currentSettings.history, ...patch.history },
     };
     const validatedSettings = validateSettings(mergedSettings as UserSettings);
 

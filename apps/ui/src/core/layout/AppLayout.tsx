@@ -1,5 +1,5 @@
 import { Panel, PanelGroup } from "react-resizable-panels";
-import { useEffect, useLayoutEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useSettings } from "@/core/settings/hooks/useSettings";
 import { useLeftPanel, useBottomPanel, useRightPanel } from "./hooks/usePanels";
 import { SidePanelTabs } from "./components/SidePanelTabs";
@@ -22,7 +22,6 @@ import { setEnvJumpTarget } from "@/core/environment/components/EnvironmentEdito
 import { useEnvironments } from "@/core/environment/hooks";
 import { mountVariableValueTooltip, unmountVariableValueTooltip } from "@/core/editors/variableValueTooltip";
 import { usePanelStore } from "@/core/stores/panelStore";
-import { useResponseStore } from "@/core/request-engine/stores/responseStore";
 
 export const AppLayout = () => {
   const { toggle: toggleLeft, panelProps: leftPanelProps, isCollapsed: isLeftCollapsed } = useLeftPanel();
@@ -48,36 +47,52 @@ export const AppLayout = () => {
   // Use useLayoutEffect so panel open/close is applied before the browser paints,
   // preventing a visible flash where the old tab's panel state bleeds into the new tab.
   const activeTabId = panelTabs?.activeTabId;
+  const knownTabIdsRef = useRef<Set<string> | null>(null);
   useLayoutEffect(() => {
     if (!activeTabId) return;
     const queryClient = getQueryClient();
     const currentPanelData = queryClient.getQueryData<{ tabs?: Tab[]; activeTabId?: string }>(["panel:tabs", "main"]);
     const targetTab = currentPanelData?.tabs?.find((tab) => tab.id === activeTabId);
+    const currentTabIds = new Set((currentPanelData?.tabs || []).map((tab) => tab.id));
 
-    let panelStateForTab: { rightPanelOpen?: boolean } | undefined;
+    let isNewlyOpenedTab = false;
+    if (knownTabIdsRef.current === null) {
+      // Initialize on first run; do not treat existing restored tabs as newly opened.
+      knownTabIdsRef.current = new Set(currentTabIds);
+    } else {
+      isNewlyOpenedTab = !knownTabIdsRef.current.has(activeTabId);
+      knownTabIdsRef.current = new Set(currentTabIds);
+    }
+
+    let panelStateForTab: { rightPanelOpen?: boolean; activeSidebarTabId?: string } | undefined;
     const storedStates = localStorage.getItem("panelStates");
     if (storedStates) {
       try {
-        const panelStates = JSON.parse(storedStates) as Array<{ tabId: string; rightPanelOpen: boolean }>;
+        const panelStates = JSON.parse(storedStates) as Array<{ tabId: string; rightPanelOpen: boolean; activeSidebarTabId?: string }>;
         panelStateForTab = panelStates.find((state) => state.tabId === activeTabId);
       } catch {
         panelStateForTab = undefined;
       }
     }
 
-    const hasResponse = !!useResponseStore.getState().responses[activeTabId]?.responseDoc;
-
-    if (!hasResponse) {
-      // No cached response: always close regardless of saved state
-      closeRightPanel();
-    } else if (panelStateForTab) {
-      // Has response + saved state: restore it
+    if (panelStateForTab) {
+      // Restore exactly what was open/closed and which sidebar tab was active for this doc tab
       panelStateForTab.rightPanelOpen ? openRightPanel() : closeRightPanel();
+      if (panelStateForTab.activeSidebarTabId) {
+        const targetSidebarTabId = panelStateForTab.activeSidebarTabId;
+        window.electron?.sidebar.activateTab('right', targetSidebarTabId);
+        // Optimistically update cache so sidebar switches instantly with no refetch flash
+        queryClient.setQueryData(['sidebar:tabs', 'right'], (old: any) =>
+          old ? { ...old, activeTabId: targetSidebarTabId } : old
+        );
+      }
+    } else if (targetTab?.type === "document") {
+      // No saved state: close the right panel so tabs that never had it open
+      // don't inherit the previous tab's open panel (and its response history).
+      closeRightPanel();
     }
-    // Has response + no saved state: leave panel as-is
-    // (e.g. a response just arrived and opened the panel automatically)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTabId]);
+  }, [activeTabId, panelTabs?.tabs]);
 
   // Get app version
   useEffect(() => {

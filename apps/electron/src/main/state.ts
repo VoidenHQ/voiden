@@ -30,6 +30,13 @@ export const initializeState = async (skipDefault?:boolean): Promise<AppState> =
   appState = await loadState(skipDefault);
 
   appSettings = await loadSettings();
+
+  // Migration: ensure the history tab exists in the right sidebar
+  const hasHistoryTab = appState.sidebars.right.tabs.some((t) => t.type === "history");
+  if (!hasHistoryTab) {
+    appState.sidebars.right.tabs.push({ id: crypto.randomUUID(), type: "history" });
+  }
+
   // Initialize extension manager after the state is loaded.
   extensionManager = new ExtensionManager(appState);
   await extensionManager.loadInstalledCommunityExtensions();
@@ -630,6 +637,17 @@ export const ipcStateHandlers = () => {
         // Git branch diff viewer
         return {
           type: "diff",
+          tabId,
+          title,
+          source,
+          meta: tab.meta,
+        };
+      }
+
+      case "conflict": {
+        // Git merge conflict resolver
+        return {
+          type: "conflict",
           tabId,
           title,
           source,

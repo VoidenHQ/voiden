@@ -128,6 +128,7 @@ declare global {
         getBranches: () => Promise<{ branches: string[]; activeBranch: string }>;
         checkout: (projectPath: string, branch: string) => Promise<{ activeBranch: string; branches: string[] }>;
         createBranch: (projectPath: string, branch: string) => Promise<{ activeBranch: string; branches: string[] }>;
+        createBranchFrom: (projectPath: string, branch: string, fromBranch: string) => Promise<{ activeBranch: string; branches: string[] }>;
         updateGitignore: (filePatterns: string | string[], rootDir?: string) => Promise<void>;
         diffBranches: (baseBranch: string, compareBranch: string) => Promise<{
           summary: { files: number; insertions: number; deletions: number };
@@ -142,11 +143,15 @@ declare global {
           modified: string[];
           untracked: string[];
           deleted: string[];
+          conflicted: string[];
+          published: boolean;
           current: string;
           tracking: string | null;
           ahead: number;
           behind: number;
+          outgoing: boolean;
         }>;
+        clone: (repoUrl: string, token?: string) => Promise<{ clonedPath: string; clonedInPlace: boolean; isNewProject: boolean }>;
         stage: (files: string[]) => Promise<boolean>;
         unstage: (files: string[]) => Promise<boolean>;
         commit: (message: string) => Promise<any>;
@@ -169,6 +174,21 @@ declare global {
           insertions: number;
           deletions: number;
         }[]>;
+        fetchRemote: () => Promise<boolean | null>;
+        push: () => Promise<{ branch: string }>;
+        pull: () => Promise<any>;
+        stash: (message?: string) => Promise<boolean>;
+        stashList: () => Promise<{ index: number; ref: string; message: string; date: string }[]>;
+        stashPop: (index: number) => Promise<boolean>;
+        getConflicts: () => Promise<{
+          file: string;
+          sections: { current: string; incoming: string; base: string | null; index: number }[];
+          hasConflict: boolean;
+        }[]>;
+        resolveConflict: (file: string, resolution: 'current' | 'incoming' | 'both', sectionIndex?: number) => Promise<{ resolved: boolean }>;
+        getFileContent: (file: string) => Promise<string>;
+        saveResolvedFile: (file: string, content: string) => Promise<{ success: boolean }>;
+        uncommit: () => Promise<boolean>;
       };
       plugins: {
         get: () => Promise<string[]>;

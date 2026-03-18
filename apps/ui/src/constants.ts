@@ -10,6 +10,18 @@ export const METHOD_COLORS = {
   [key: string]: string;
 };
 
+export const METHOD_BG_COLORS = {
+  GET: "bg-httpbg-get",
+  POST: "bg-httpbg-post",
+  PUT: "bg-httpbg-put",
+  PATCH: "bg-httpbg-patch",
+  DELETE: "bg-httpbg-delete",
+  HEAD: "bg-httpbg-head",
+  OPTIONS: "bg-httpbg-options",
+} as {
+  [key: string]: string;
+};
+
 // Default priority for table = 100
 export const PRIORITIES = {
   SUGGESTIONS: 101,
