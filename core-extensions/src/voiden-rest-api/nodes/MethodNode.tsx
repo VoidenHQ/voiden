@@ -44,11 +44,11 @@ export const createMethodNode = (useSendRestRequest: any) => {
             }`}
           />
           <button
-            className="flex items-center justify-center w-7 h-7 rounded-md border border-border/60 hover:border-border text-status-success hover:bg-hover transition-colors"
+            className="flex items-center justify-center w-7 h-7 rounded-md border hover:bg-hover text-status-success transition-colors"
             onClick={() => {
               refetch();
             }}
-            style={{ cursor: 'pointer', userSelect: 'none' }}
+            style={{ borderColor: 'var(--ui-line)', cursor: 'pointer', userSelect: 'none' }}
           >
             <Play size={12} />
           </button>

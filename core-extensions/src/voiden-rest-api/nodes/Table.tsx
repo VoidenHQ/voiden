@@ -46,7 +46,7 @@ const createNodeView =
         spellCheck="false"
         className="my-3"
       >
-        <div className="rounded-md border border-border/60 overflow-hidden">
+        <div className="rounded-md border overflow-hidden" style={{ borderColor: 'var(--ui-line)' }}>
           <RequestBlockHeader
             title={title}
             editor={editor}

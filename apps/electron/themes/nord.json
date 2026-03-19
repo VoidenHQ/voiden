@@ -10,7 +10,7 @@
     "--bg-secondary": "#272c36",
     "--fg-primary": "#d8dee9",
     "--fg-secondary": "#4c566a",
-    "--border": "#232831",
+    "--border": "#2b303b",
     "--selection": "#3b4252",
     "--hover": "#ffffff0a",
 

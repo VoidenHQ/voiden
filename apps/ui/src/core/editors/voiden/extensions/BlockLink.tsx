@@ -181,9 +181,9 @@ const LinkedBlockNodeView = ({ node, editor, getPos }: any) => {
   // All linked blocks get the same header with unlink button
   return (
     <NodeViewWrapper className="my-3">
-      <div className="rounded-md border border-border/60 overflow-hidden">
+      <div className="rounded-md border overflow-hidden" style={{ borderColor: 'var(--ui-line)' }}>
         {/* Header bar with "IMPORTED" label and clickable filename */}
-        <div className="h-8 px-3 flex items-center justify-between border-b border-border/40 bg-accent/5">
+        <div className="h-8 px-3 flex items-center justify-between border-b bg-accent/5" style={{ borderColor: 'var(--ui-line)' }}>
           <div className="flex items-center gap-2 flex-1">
             <Link2 size={12} className="text-text opacity-50" />
             <span className="text-[11px] font-semibold tracking-wide uppercase text-text opacity-60">Imported:</span>

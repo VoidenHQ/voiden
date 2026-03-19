@@ -13,7 +13,7 @@ export const createRestFileNode = (NodeViewWrapper: any, RequestBlockHeader: any
 
     return (
       <NodeViewWrapper className="not-prose my-3">
-        <div className="rounded-md border border-border/60 overflow-hidden">
+        <div className="rounded-md border overflow-hidden" style={{ borderColor: 'var(--ui-line)' }}>
           <RequestBlockHeader
             title="HTTP-BINARY-FILE"
             editor={editor}

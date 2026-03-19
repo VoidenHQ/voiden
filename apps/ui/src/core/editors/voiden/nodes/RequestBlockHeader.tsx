@@ -15,8 +15,8 @@ export const RequestBlockHeader = ({
 }) => {
   return (
     <div
-      className="h-8 px-3 flex items-center w-full border-b border-border/40"
-      style={{ backgroundColor: 'var(--block-header-bg)' }}
+      className="h-8 px-3 flex items-center w-full border-b"
+      style={{ backgroundColor: 'var(--block-header-bg)', borderColor: 'var(--ui-line)' }}
       contentEditable={false}
     >
       <div className="flex items-center gap-2 flex-1">
