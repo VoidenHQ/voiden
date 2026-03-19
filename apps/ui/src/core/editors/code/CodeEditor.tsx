@@ -51,27 +51,27 @@ function debounce<T extends (...args: any[]) => any>(
 }
 
 export const config = {
-  // UI colors (dark stone-based)
+  // UI colors - theme-aware
   background: "var(--editor-bg)",
   foreground: "var(--editor-fg)",
   caret: "var(--editor-fg)",
-  selection: "rgba(255, 140, 0, 0.3)",
+  selection: "var(--selection)",
   lineHighlight: "transparent",
 
-  // Syntax highlighting colors - using vibrant colors against dark bg
-  keyword: "var(--syntax-keyword)", // blue-400
-  variable: "var(--editor-fg)", // purple-400
-  function: "var(--editor-fg)", // red-400
-  string: "var(--syntax-string)", // green-400
-  constant: "var(--syntax-constant)", // orange-400
-  type: "var(--syntax-entity)", // purple-400
-  class: "var(--syntax-entity)", // red-400
-  number: "var(--syntax-constant)", // orange-400
-  comment: "var(--syntax-comment)", // stone-500
-  heading: "var(--editor-fg)", // red-400
-  invalid: "#f87171", // red-400
-  regexp: "var(--syntax-regexp)", // blue-400
-  tag: "var(--syntax-tag)", // blue-400
+  // Syntax highlighting colors - all theme-aware via CSS variables
+  keyword: "var(--syntax-keyword)",
+  variable: "var(--syntax-entity)",
+  function: "var(--syntax-func)",
+  string: "var(--syntax-string)",
+  constant: "var(--syntax-constant)",
+  type: "var(--syntax-entity)",
+  class: "var(--syntax-markup)",
+  number: "var(--syntax-constant)",
+  comment: "var(--syntax-comment)",
+  heading: "var(--syntax-tag)",
+  invalid: "var(--error, #f87171)",
+  regexp: "var(--syntax-regexp)",
+  tag: "var(--syntax-tag)",
 };
 
 const defaultSettingsQuietlight: CreateThemeOptions["settings"] = {
