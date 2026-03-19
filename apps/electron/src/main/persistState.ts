@@ -1,7 +1,7 @@
 import { app } from "electron";
 import fs from "fs/promises";
 import path from "path";
-import { AppState, AppSettings, PanelElement, Tab } from "src/shared/types";
+import { AppState, AppSettings, PanelElement } from "src/shared/types";
 import { windowManager } from "./windowManager";
 
 const apiReadme = `# Voiden API Extension
@@ -74,68 +74,35 @@ Once all blocks are configured, you can execute the request and get the response
 If you have any questions, feature requests, or need support, feel free to reach out through [email](mailto:hello@apyhub.com) or discord. We're always looking to improve the experience for everyone using the Voiden API Extension.`;
 
 // Change the file paths as needed.
-const SETTINGS_FILE = path.join(app.getPath("userData"), "voiden-settings.json");
+const SETTINGS_FILE = path.join(
+  app.getPath("userData"),
+  "voiden-settings.json",
+);
 const AUTOSAVE_DIR = path.join(app.getPath("userData"), "autosave");
-let TEMPLATE_DIR: string;
-if (!app.isPackaged) {
-  TEMPLATE_DIR = path.resolve(__dirname, "../../src/sample-project");
-} else {
-  // process.resourcesPath points to the resources directory in a packaged app.
-  TEMPLATE_DIR = path.join(process.resourcesPath, "sample-project");
-}
-const SAMPLE_PROJECT_DIR = path.join(app.getPath("home"), "Voiden", "sample");
-// Helper function to copy a directory recursively
-export async function copyDirectory(src: string, dest: string) {
-  await fs.mkdir(dest, { recursive: true });
-  const entries = await fs.readdir(src, { withFileTypes: true });
-  for (const entry of entries) {
-    const srcPath = path.join(src, entry.name);
-    const destPath = path.join(dest, entry.name);
-    if (entry.isDirectory()) {
-      await copyDirectory(srcPath, destPath);
-    } else {
-      await fs.copyFile(srcPath, destPath);
-    }
-  }
-}
-
-// Ensure sample project directory exists and populate it with default files if necessary
-export async function ensureSampleProject() {
-  try {
-    await copyDirectory(TEMPLATE_DIR, SAMPLE_PROJECT_DIR);
-  } catch (err) {
-    // console.error("Failed to initialize sample project:", err);
-  }
-}
 
 // Load or initialize state
-export async function loadState(skipDefault?:boolean): Promise<AppState> {
+export async function loadState(skipDefault?: boolean): Promise<AppState> {
   try {
-    const STATE_FILE = windowManager.getStateFilePath();;
+    const STATE_FILE = windowManager.getStateFilePath();
     const data = await fs.readFile(STATE_FILE, "utf8");
     const state = JSON.parse(data) as AppState;
 
-    // If the state has no active directory, use the sample project
-    if (!state.activeDirectory) {
-      // console.debug("No active directory found, setting sample project as default.");
-      state.activeDirectory = SAMPLE_PROJECT_DIR;
-      await saveState(state);
-    }
-
-    // If the state doesn't include onboarding, add it and persist the update
+    // Existing state file = user already onboarded; mark as complete to skip the modal.
     if (state.onboarding === undefined) {
-      // console.debug("onboarding is missing from state, setting it to false by default.");
-      state.onboarding = false;
+      state.onboarding = true;
       await saveState(state);
     }
 
     // Migration: Add git source control tab if it doesn't exist
-    if (state.sidebars?.left && !state.sidebars.left.tabs.some(tab => tab.type === 'gitSourceControl')) {
+    if (
+      state.sidebars?.left &&
+      !state.sidebars.left.tabs.some((tab) => tab.type === "gitSourceControl")
+    ) {
       const gitSourceControlId = crypto.randomUUID();
       // Insert git tab after file explorer (index 1)
       state.sidebars.left.tabs.splice(1, 0, {
         id: gitSourceControlId,
-        type: 'gitSourceControl',
+        type: "gitSourceControl",
       });
       await saveState(state);
     }
@@ -144,9 +111,8 @@ export async function loadState(skipDefault?:boolean): Promise<AppState> {
   } catch (err) {
     // console.warn("Could not load state file, using default state", err);
 
-    // Create a new state with the sample project as the default
+    // Create a new state for first launch or recovery
     const defaultState = await getDefaultState(skipDefault);
-    defaultState.activeDirectory = windowManager.getAllWindows().length == 0 && !skipDefault? SAMPLE_PROJECT_DIR : '';
     defaultState.id = windowManager.activeWindowId;
     await saveState(defaultState);
     return defaultState;
@@ -189,107 +155,22 @@ export async function saveSettings(settings: AppSettings): Promise<void> {
   await fs.writeFile(SETTINGS_FILE, JSON.stringify(settings, null, 2), "utf8");
 }
 
-async function getDefaultState(skipDefault?:boolean): Promise<AppState | null> {
+async function getDefaultState(_skipDefault?: boolean): Promise<AppState> {
   const fileExplorerId = crypto.randomUUID();
   const gitSourceControlId = crypto.randomUUID();
   const extensionBrowserId = crypto.randomUUID();
   const responsePanelId = crypto.randomUUID();
+  const historyPanelId = crypto.randomUUID();
+  const globalHistoryPanelId = crypto.randomUUID();
 
-  // Only get sample project if there are no windows
-  if (windowManager.getAllWindows().length === 0 && !skipDefault) {
-    await ensureSampleProject();
-
-    // Create default document only when sample project exists
-    const defaultDocument: Tab = {
-      id: crypto.randomUUID(),
-      type: "document",
-      title: "hello.void",
-      source: `${SAMPLE_PROJECT_DIR}/hello.void`,
-      directory: null,
-    };
-
-    return {
-      activeDirectory: SAMPLE_PROJECT_DIR,
-      onboarding: false,
-      directories: {
-        [SAMPLE_PROJECT_DIR]: {
-          layout: {
-            id: "group",
-            type: "group",
-            children: [
-              {
-                id: "main",
-                type: "panel",
-                tabs: [defaultDocument],
-                activeTabId: defaultDocument.id,
-              },
-              {
-                id: "bottom",
-                type: "panel",
-                tabs: [],
-                activeTabId: null,
-              },
-            ],
-          },
-        },
-      },
-      unsaved: {
-        layout: {
-          id: "group",
-          type: "group",
-          children: [
-            {
-              id: "main",
-              type: "panel",
-              tabs: [defaultDocument],
-              activeTabId: defaultDocument.id,
-            },
-            {
-              id: "bottom",
-              type: "panel",
-              tabs: [],
-              activeTabId: null,
-            },
-          ],
-        },
-        activeEnv: null,
-      },
-      sidebars: {
-        left: {
-          activeTabId: fileExplorerId,
-          tabs: [
-            {
-              id: fileExplorerId,
-              type: "fileExplorer",
-            },
-            {
-              id: gitSourceControlId,
-              type: "gitSourceControl",
-            },
-            {
-              id: extensionBrowserId,
-              type: "extensionBrowser",
-            },
-          ],
-        },
-        right: {
-          activeTabId: responsePanelId,
-          tabs: [
-            {
-              id: responsePanelId,
-              type: "responsePanel",
-            },
-          ],
-        },
-      },
-      extensions: [],
-    };
-  }
-
-  // If there are existing windows, return empty state
+  // Fresh first window: onboarding=false triggers the modal (!onboarding → show).
+  // Subsequent windows: onboarding=true skips it (user already completed onboarding).
+  const isFirstWindow = windowManager.getAllWindows().length === 0;
   return {
+    id: null,
     activeDirectory: null,
-    onboarding: true,
+    onboarding: !isFirstWindow,
+    showOnboarding: isFirstWindow,
     directories: {},
     unsaved: {
       layout: {
@@ -328,6 +209,10 @@ async function getDefaultState(skipDefault?:boolean): Promise<AppState | null> {
             id: extensionBrowserId,
             type: "extensionBrowser",
           },
+          {
+            id: globalHistoryPanelId,
+            type: "globalHistory",
+          },
         ],
       },
       right: {
@@ -336,6 +221,10 @@ async function getDefaultState(skipDefault?:boolean): Promise<AppState | null> {
           {
             id: responsePanelId,
             type: "responsePanel",
+          },
+          {
+            id: historyPanelId,
+            type: "history",
           },
         ],
       },
@@ -381,7 +270,10 @@ export async function ensureAutosaveDir() {
 }
 
 // Save unsaved file content to autosave directory
-export async function saveAutosaveFile(tabId: string, content: string): Promise<void> {
+export async function saveAutosaveFile(
+  tabId: string,
+  content: string,
+): Promise<void> {
   await ensureAutosaveDir();
   const filePath = path.join(AUTOSAVE_DIR, `${tabId}.json`);
   await fs.writeFile(filePath, content, "utf8");
@@ -422,7 +314,9 @@ export async function getAutosavedTabIds(): Promise<string[]> {
 }
 
 // Clean up autosaved files that are no longer in use
-export async function cleanupAutosaveFiles(activeTabIds: Set<string>): Promise<void> {
+export async function cleanupAutosaveFiles(
+  activeTabIds: Set<string>,
+): Promise<void> {
   const autosavedIds = await getAutosavedTabIds();
   for (const tabId of autosavedIds) {
     if (!activeTabIds.has(tabId)) {

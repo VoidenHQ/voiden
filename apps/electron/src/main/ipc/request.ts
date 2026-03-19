@@ -415,6 +415,7 @@ const wsConfigs = new Map<string, {
   url: string;
   headers?: Record<string, string>;
   protocols?: string | string[];
+  dispatcher?: Agent | ProxyAgent;
   proxyInfo?: any;
   createdAt: number;
 }>();
@@ -461,6 +462,7 @@ function handleWsConnection(
     url,
     headers,
     protocols,
+    dispatcher,
     proxyInfo,
     createdAt: Date.now()
   });
@@ -1389,6 +1391,7 @@ export function registerRequestIpcHandler() {
     const ws = new WebSocket(config.url, {
       protocols: config.protocols,
       headers: config.headers,
+      dispatcher: config.dispatcher,
     });
     wsRegistry.set(wsId, ws);
 
@@ -1786,14 +1789,17 @@ export function registerRequestIpcHandler() {
       switch (callType) {
         case 'server_streaming':
           await handleServerStreamingCall(grpcId, client, protoFilePath, packageName, service, method, "", metadata, entry);
+          break;
 
         case 'client_streaming':
           // For client streaming, first call creates the stream
           await handleClientStreamingCall(grpcId, client, protoFilePath, packageName, service, method, metadata, entry);
+          break;
 
         case 'bidirectional_streaming':
           // For bidi streaming, first call creates the stream
           await handleBidirectionalStreamingCall(grpcId, client, protoFilePath, packageName, service, method, metadata, entry);
+          break;
       }
       addGrpcMessage(grpcId, "stream-open", {
         target,
@@ -2460,6 +2466,7 @@ async function handleGrpcRequest(
         method: method,
         target: address,
         callType: callType,
+        protoFilePath: protoFilePath || null,
         headers: Object.entries(metadata || {}).map(([k, v]) => ({
           key: k,
           value: v as string
@@ -3091,4 +3098,3 @@ function replayGraphQLSubscriptionMessages(subscriptionId: string) {
     }
   }
 }
-

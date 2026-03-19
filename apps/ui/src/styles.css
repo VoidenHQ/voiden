@@ -2,7 +2,126 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ── Document tables (markdown) — subtle horizontal lines ── */
+/* ─── Date / time inputs — global theme styling ──────────────────────────── */
+
+input[type="date"],
+input[type="time"],
+input[type="datetime-local"],
+input[type="month"],
+input[type="week"] {
+  background-color: var(--ui-panel-bg);
+  color: var(--editor-fg);
+  border: 1px solid var(--ui-line);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-family: var(--font-family-base, monospace);
+  outline: none;
+  color-scheme: dark;
+}
+
+input[type="date"]:focus,
+input[type="time"]:focus,
+input[type="datetime-local"]:focus,
+input[type="month"]:focus,
+input[type="week"]:focus {
+  border-color: var(--ui-selection-normal);
+}
+
+/* Calendar / clock picker icon */
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="time"]::-webkit-calendar-picker-indicator,
+input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+input[type="month"]::-webkit-calendar-picker-indicator,
+input[type="week"]::-webkit-calendar-picker-indicator {
+  background-color: transparent;
+  filter: invert(0.6) sepia(0.1) saturate(0.5);
+  cursor: pointer;
+  opacity: 0.6;
+  padding: 0;
+  margin-left: 2px;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator:hover,
+input[type="time"]::-webkit-calendar-picker-indicator:hover,
+input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover,
+input[type="month"]::-webkit-calendar-picker-indicator:hover,
+input[type="week"]::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+}
+
+/* Editable text region */
+input[type="date"]::-webkit-datetime-edit,
+input[type="time"]::-webkit-datetime-edit,
+input[type="datetime-local"]::-webkit-datetime-edit,
+input[type="month"]::-webkit-datetime-edit,
+input[type="week"]::-webkit-datetime-edit {
+  color: var(--editor-fg);
+  padding: 0;
+}
+
+input[type="date"]::-webkit-datetime-edit-fields-wrapper,
+input[type="time"]::-webkit-datetime-edit-fields-wrapper,
+input[type="datetime-local"]::-webkit-datetime-edit-fields-wrapper,
+input[type="month"]::-webkit-datetime-edit-fields-wrapper,
+input[type="week"]::-webkit-datetime-edit-fields-wrapper {
+  padding: 0;
+}
+
+/* Separators (slashes, colons) */
+input[type="date"]::-webkit-datetime-edit-text,
+input[type="time"]::-webkit-datetime-edit-text,
+input[type="datetime-local"]::-webkit-datetime-edit-text,
+input[type="month"]::-webkit-datetime-edit-text,
+input[type="week"]::-webkit-datetime-edit-text {
+  color: var(--syntax-comment);
+  padding: 0 1px;
+}
+
+/* Individual date/time segments */
+input[type="date"]::-webkit-datetime-edit-month-field,
+input[type="date"]::-webkit-datetime-edit-day-field,
+input[type="date"]::-webkit-datetime-edit-year-field,
+input[type="time"]::-webkit-datetime-edit-hour-field,
+input[type="time"]::-webkit-datetime-edit-minute-field,
+input[type="time"]::-webkit-datetime-edit-ampm-field,
+input[type="datetime-local"]::-webkit-datetime-edit-month-field,
+input[type="datetime-local"]::-webkit-datetime-edit-day-field,
+input[type="datetime-local"]::-webkit-datetime-edit-year-field,
+input[type="datetime-local"]::-webkit-datetime-edit-hour-field,
+input[type="datetime-local"]::-webkit-datetime-edit-minute-field,
+input[type="datetime-local"]::-webkit-datetime-edit-ampm-field,
+input[type="month"]::-webkit-datetime-edit-month-field,
+input[type="month"]::-webkit-datetime-edit-year-field,
+input[type="week"]::-webkit-datetime-edit-week-field,
+input[type="week"]::-webkit-datetime-edit-year-field {
+  color: var(--editor-fg);
+  background-color: transparent;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+input[type="date"]::-webkit-datetime-edit-month-field:focus,
+input[type="date"]::-webkit-datetime-edit-day-field:focus,
+input[type="date"]::-webkit-datetime-edit-year-field:focus,
+input[type="time"]::-webkit-datetime-edit-hour-field:focus,
+input[type="time"]::-webkit-datetime-edit-minute-field:focus,
+input[type="time"]::-webkit-datetime-edit-ampm-field:focus,
+input[type="datetime-local"]::-webkit-datetime-edit-month-field:focus,
+input[type="datetime-local"]::-webkit-datetime-edit-day-field:focus,
+input[type="datetime-local"]::-webkit-datetime-edit-year-field:focus,
+input[type="datetime-local"]::-webkit-datetime-edit-hour-field:focus,
+input[type="datetime-local"]::-webkit-datetime-edit-minute-field:focus,
+input[type="datetime-local"]::-webkit-datetime-edit-ampm-field:focus,
+input[type="month"]::-webkit-datetime-edit-month-field:focus,
+input[type="month"]::-webkit-datetime-edit-year-field:focus,
+input[type="week"]::-webkit-datetime-edit-week-field:focus,
+input[type="week"]::-webkit-datetime-edit-year-field:focus {
+  background-color: var(--ui-selection-normal);
+  color: var(--editor-fg);
+  outline: none;
+}
+
+/* Table cell styling - applied via CSS instead of HTMLAttributes to preserve selection */
 .ProseMirror td {
   padding: 0.5rem 0.75rem;
   vertical-align: middle;
@@ -218,6 +337,7 @@
     --status-success: var(--success, #87d96c);
     --vcs-added: var(--success, #87d96c);
     --http-get: var(--success, #87d96c);
+    --http-get-bg: color-mix(in srgb, var(--http-get) 15%, transparent);
     --test-passed-fg: var(--success, #87d96c);
     --test-passed-bg: var(--success-bg, rgba(135, 217, 108, 0.2));
 
@@ -226,6 +346,7 @@
     --status-error: var(--error, #f27983);
     --vcs-removed: var(--error, #f27983);
     --http-delete: var(--error, #f27983);
+    --http-delete-bg: color-mix(in srgb, var(--http-delete) 15%, transparent);
     --test-failed-fg: var(--error, #f27983);
     --test-failed-bg: var(--error-bg, rgba(242, 121, 131, 0.2));
 
@@ -234,6 +355,8 @@
     --status-warning: var(--warning, #ffd173);
     --http-put: var(--warning, #ffd173);
     --http-patch: var(--warning, #ffd173);
+    --http-put-bg: color-mix(in srgb, var(--http-put) 15%, transparent);
+    --http-patch-bg: color-mix(in srgb, var(--http-patch) 15%, transparent);
     --placeholder-fg: var(--warning, #ffd173);
     --placeholder-border: var(--warning, #ffd173);
     --highlight-search: var(--warning, rgba(255, 209, 115, 0.4));
@@ -243,6 +366,11 @@
     --icon-info: var(--info, #73d0ff);
     --status-info: var(--info, #73d0ff);
     --http-post: var(--info, #73d0ff);
+    --http-post-bg: color-mix(in srgb, var(--http-post) 15%, transparent);
+    --http-head: var(--status-info, #73d0ff);
+    --http-options: var(--syntax-comment, #8a9199);
+    --http-head-bg: color-mix(in srgb, var(--http-head) 15%, transparent);
+    --http-options-bg: color-mix(in srgb, var(--http-options) 15%, transparent);
     --vcs-modified: var(--info, #73d0ff);
 
     /* Accent color aliases */
@@ -338,8 +466,8 @@
   }
 
   /* Extra breathing room before major sections */
-  h1 { font-size: var(--font-size-4xl); margin-top: 2.5em; }
-  h2 { font-size: var(--font-size-3xl); margin-top: 2em; }
+  h1 { font-size: var(--font-size-4xl); margin-top: 1.2em; }
+  h2 { font-size: var(--font-size-3xl); margin-top: 1em; }
   h3 { font-size: var(--font-size-2xl); margin-top: 1.75em; }
   h4 { font-size: var(--font-size-xl); margin-top: 1.5em; }
 

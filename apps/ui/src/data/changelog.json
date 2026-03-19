@@ -1,5 +1,30 @@
 [
   {
+    "version": "v1.3.5",
+    "date": "19/03/2026",
+    "title": "History Tracking, Shell Scripting & Bug Fixes",
+    "description": "Patch release introducing request history tracking with replay, shell scripting support for pre/post scripts, full Git workflow in GitUI, and a customizable data directory — alongside fixes for context menu layering, variable replacement, terminal cleanup, and response download naming.",
+    "icon": "Wrench",
+    "iconColor": "text-blue-400",
+    "bgColor": "bg-gradient-to-br from-blue-900 to-slate-900",
+    "changes": {
+      "Added": [
+        "Request history tracking with configurable retention and replay per .void file",
+        "Shell scripting support for pre and post request scripts",
+        "Expanded GitUI to support a full Git workflow",
+        "Customizable data directory for storing Voiden project files"
+      ],
+      "Fixed": [
+        "Basic blocks context menu appearing on top of the About Voiden popup",
+        "Two context menus stacking on top of each other simultaneously",
+        "Recent project being replaced in the list instead of appended",
+        "Downloaded response ignoring filename and extension from response headers",
+        "Variables not always being replaced in request blocks",
+        "Terminal window not closing when the process exits"
+      ]
+    }
+  },
+  {
     "version": "v1.3.1",
     "date": "10/03/2026",
     "title": "Community Extensions, Cookie Parser & Auto-Save Improvements",

@@ -990,7 +990,7 @@ export const FileSystemList = () => {
     if (activeFile?.source && treeRef.current) {
       const node = treeRef.current.get(activeFile.source);
       if (node) {
-        treeRef.current.scrollTo(activeFile.source, "center");
+        treeRef.current.scrollTo(activeFile.source, "auto");
       }
     }
   }, [activeFile?.source]);

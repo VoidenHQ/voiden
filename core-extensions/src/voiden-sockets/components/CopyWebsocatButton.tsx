@@ -44,12 +44,15 @@ export const CopyWebsocatButton: React.FC<CopyWebsocatButtonProps> = ({ tab, con
             }
 
             // Generate websocat command
-            const websocatCommand = await generateWebsocatFromJson(jsonContent);
+            const rawWebsocatCommand = await generateWebsocatFromJson(jsonContent);
 
-            if (!websocatCommand) {
+            if (!rawWebsocatCommand) {
                 console.warn('Failed to generate websocat command');
                 return;
             }
+
+            // Resolve {{VAR}} and {{process.xxx}} placeholders
+            const websocatCommand = await (window as any).electron?.env?.replaceVariables(rawWebsocatCommand) ?? rawWebsocatCommand;
 
             // Copy to clipboard
             if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {

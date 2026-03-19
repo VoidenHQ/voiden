@@ -1,7 +1,7 @@
 import { useGetGitLog, useGetCommitFiles } from "@/core/git/hooks";
-import { Loader2, ChevronRight, ChevronDown, File } from "lucide-react";
-import { useMemo, useState, useRef, useEffect } from "react";
-import { cn } from "@/core/lib/utils";
+import { useAddPanelTab } from "@/core/layout/hooks";
+import { Loader2, File, Eye } from "lucide-react";
+import { useMemo, useState } from "react";
 
 interface GraphNode {
   commit: {
@@ -16,6 +16,8 @@ interface GraphNode {
   lane: number;
   color: string;
   branches: { from: number; to: number; isMerge?: boolean }[];
+  /** Lanes that still have future commits pending after this row. */
+  activeLanesAfter: number[];
 }
 
 const COLORS = [
@@ -29,61 +31,88 @@ const COLORS = [
   '#10B981', // Emerald
 ];
 
+const LANE_WIDTH = 14;
+const ROW_HEIGHT = 44;
+
+/**
+ * Assigns each commit to a lane and records which lanes are still active
+ * (have pending future commits) after each row. This gives us all the
+ * information needed to draw correct continuation lines between rows.
+ */
 function buildGraph(commits: any[]): GraphNode[] {
   const nodes: GraphNode[] = [];
   const commitToLane = new Map<string, number>();
-  const reservedLanes: string[] = []; // Track what commit each lane is reserved for
+  // laneToHash[l] = hash means lane l is reserved for that future commit.
+  // laneToHash[l] = null/undefined means lane l is free.
+  const laneToHash: (string | null)[] = [];
+  const commitsByHash = new Map(commits.map((commit) => [commit.hash, commit]));
 
-  commits.forEach((commit, index) => {
+  // Keep the first-parent backbone pinned to lane 0 so the outer-left
+  // branch remains the main continuous line and merged branches stay inside.
+  const firstParentBackbone = new Set<string>();
+  if (commits.length > 0) {
+    let current: any | undefined = commits[0];
+    while (current && !firstParentBackbone.has(current.hash)) {
+      firstParentBackbone.add(current.hash);
+      const parentHash = current.parents?.[0];
+      current = parentHash ? commitsByHash.get(parentHash) : undefined;
+    }
+  }
+
+  const freeLane = (startAt = 0): number => {
+    const idx = laneToHash.findIndex(
+      (h, lane) => lane >= startAt && (h === null || h === undefined)
+    );
+    return idx === -1 ? laneToHash.length : idx;
+  };
+
+  for (const commit of commits) {
     let lane: number;
-
-    // Check if this commit already has a lane assigned
     const existingLane = commitToLane.get(commit.hash);
-    if (existingLane !== undefined) {
+    const isBackboneCommit = firstParentBackbone.has(commit.hash);
+
+    if (isBackboneCommit) {
+      lane = 0;
+      commitToLane.set(commit.hash, 0);
+      laneToHash[0] = null; // consume reservation if present
+    } else if (existingLane !== undefined) {
       lane = existingLane;
-      // Remove from reserved since we're processing it now
-      reservedLanes[lane] = '';
+      laneToHash[lane] = null; // consume reservation
     } else {
-      // Find first free lane
-      let freeLaneIndex = reservedLanes.findIndex(hash => !hash);
-      if (freeLaneIndex === -1) {
-        freeLaneIndex = reservedLanes.length;
-        reservedLanes.push('');
-      }
-      lane = freeLaneIndex;
+      // Keep lane 0 reserved for first-parent backbone commits.
+      lane = freeLane(1);
       commitToLane.set(commit.hash, lane);
     }
 
-    const branches: { from: number; to: number; isMerge?: boolean }[] = [];
+    const branches: GraphNode['branches'] = [];
 
-    // Process parents
-    if (commit.parents && commit.parents.length > 0) {
+    if (commit.parents?.length > 0) {
       commit.parents.forEach((parentHash: string, parentIndex: number) => {
+        const parentIsBackbone = firstParentBackbone.has(parentHash);
         let parentLane = commitToLane.get(parentHash);
 
-        if (parentLane === undefined) {
-          if (parentIndex === 0) {
-            // First parent continues on the same lane
-            parentLane = lane;
-          } else {
-            // Additional parent (merge) - find a free lane
-            let freeLaneIndex = reservedLanes.findIndex(hash => !hash);
-            if (freeLaneIndex === -1) {
-              freeLaneIndex = reservedLanes.length;
-              reservedLanes.push('');
-            }
-            parentLane = freeLaneIndex;
+        if (parentIsBackbone) {
+          // Always keep backbone commits on lane 0.
+          // If a prior pass mis-assigned this hash to a phantom lane, clear it.
+          if (parentLane !== undefined && parentLane !== 0 && laneToHash[parentLane] === parentHash) {
+            laneToHash[parentLane] = null;
           }
+          parentLane = 0;
+          commitToLane.set(parentHash, 0);
+        } else if (parentLane === undefined) {
+          parentLane = parentIndex === 0 ? lane : freeLane(1);
           commitToLane.set(parentHash, parentLane);
-          reservedLanes[parentLane] = parentHash;
         }
 
-        branches.push({
-          from: lane,
-          to: parentLane,
-          isMerge: parentIndex > 0,
-        });
+        laneToHash[parentLane] = parentHash;
+        branches.push({ from: lane, to: parentLane, isMerge: parentIndex > 0 });
       });
+    }
+
+    // Capture which lanes are still awaiting future commits.
+    const activeLanesAfter: number[] = [];
+    for (let l = 0; l < laneToHash.length; l++) {
+      if (laneToHash[l]) activeLanesAfter.push(l);
     }
 
     nodes.push({
@@ -91,14 +120,15 @@ function buildGraph(commits: any[]): GraphNode[] {
       lane,
       color: COLORS[lane % COLORS.length],
       branches,
+      activeLanesAfter,
     });
-  });
+  }
 
   return nodes;
 }
 
 export const GitGraph = () => {
-  const { data: log, isLoading } = useGetGitLog(50);
+  const { data: log, isLoading, isFetching } = useGetGitLog(100);
   const [expandedCommit, setExpandedCommit] = useState<string | null>(null);
 
   const graphNodes = useMemo(() => {
@@ -106,246 +136,200 @@ export const GitGraph = () => {
     return buildGraph(log.all);
   }, [log]);
 
+  // Compute a single graphWidth used by every row so content never shifts.
+  const graphWidth = useMemo(() => {
+    if (!graphNodes.length) return 30;
+    const maxLane = graphNodes.reduce((max, node) => {
+      const lanes = [node.lane, ...node.activeLanesAfter, ...node.branches.map((b) => b.to)];
+      return Math.max(max, ...lanes);
+    }, 0);
+    return (maxLane + 1) * LANE_WIDTH + 8;
+  }, [graphNodes]);
+
   if (isLoading) {
     return (
       <div className="flex-1 flex items-center justify-center">
-        <Loader2 className="animate-spin text-comment" size={20} />
+        <Loader2 className="animate-spin text-comment" size={18} />
       </div>
     );
   }
 
   if (!graphNodes.length) {
     return (
-      <div className="flex-1 flex items-center justify-center text-comment text-sm">
+      <div className="flex-1 flex items-center justify-center text-comment text-xs">
         No commit history
       </div>
     );
   }
 
   return (
-    <div className="flex-1 overflow-auto">
-      <div className="relative">
-        {graphNodes.map((node, index) => (
-          <CommitRow
-            key={node.commit.hash}
-            node={node}
-            index={index}
-            graphNodes={graphNodes}
-            expandedCommit={expandedCommit}
-            setExpandedCommit={setExpandedCommit}
-          />
-        ))}
-      </div>
+    <div className="flex-1 overflow-auto relative">
+      {/* Loading overlay while refetching (e.g. after branch switch) */}
+      {isFetching && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-panel/60 backdrop-blur-[1px]">
+          <Loader2 className="animate-spin text-comment" size={18} />
+        </div>
+      )}
+      {graphNodes.map((node, index) => (
+        <CommitRow
+          key={node.commit.hash}
+          node={node}
+          index={index}
+          graphNodes={graphNodes}
+          graphWidth={graphWidth}
+          expandedCommit={expandedCommit}
+          setExpandedCommit={setExpandedCommit}
+        />
+      ))}
     </div>
   );
 };
+
 const CommitRow = ({
   node,
   index,
   graphNodes,
+  graphWidth,
   expandedCommit,
-  setExpandedCommit
+  setExpandedCommit,
 }: {
-  node: any;
+  node: GraphNode;
   index: number;
-  graphNodes: any[];
+  graphNodes: GraphNode[];
+  graphWidth: number;
   expandedCommit: string | null;
   setExpandedCommit: (hash: string | null) => void;
 }) => {
-  const LANE_WIDTH = 16;
-  const contentRef = useRef<HTMLDivElement>(null);
-  const [ROW_HEIGHT, setRowHeight] = useState(40);
-
-  // Measure content height and update rowHeight
-  useEffect(() => {
-    if (contentRef.current) {
-      const contentHeight = contentRef.current.offsetHeight;
-      const totalHeight = Math.max(contentHeight, 40);
-      setRowHeight(totalHeight);
-    }
-  }, [expandedCommit, node.commit.hash]);
-
   const isExpanded = expandedCommit === node.commit.hash;
-  const graphWidth = Math.max(...graphNodes.map(n => n.lane + 1)) * LANE_WIDTH + 20;
+  const prevNode = index > 0 ? graphNodes[index - 1] : null;
+  const prevActiveLanes = prevNode ? prevNode.activeLanesAfter : [];
+  const expandedLanes = node.activeLanesAfter.length > 0 ? node.activeLanesAfter : [node.lane];
+
+  const dot = {
+    cx: node.lane * LANE_WIDTH + LANE_WIDTH / 2,
+    cy: ROW_HEIGHT / 2,
+  };
+  const laneRefSummary = node.commit.refs?.trim()
+    ? node.commit.refs
+    : "No branch/tag ref at this commit";
+  const tooltipText = `${node.commit.shortHash} - ${node.commit.message}\n${laneRefSummary}`;
 
   return (
-    <div className="relative">
+    <div>
+      {/* Main commit row */}
       <div
-        className="flex items-start hover:bg-active/50 cursor-pointer relative"
-        style={{
-          paddingLeft: `${graphWidth}px`
-        }}
-        ref={contentRef}
-        onClick={() => setExpandedCommit(expandedCommit === node.commit.hash ? null : node.commit.hash)}
+        className="flex items-center hover:bg-active/50 cursor-pointer overflow-hidden"
+        style={{ height: ROW_HEIGHT }}
+        onClick={() =>
+          setExpandedCommit(expandedCommit === node.commit.hash ? null : node.commit.hash)
+        }
       >
-        {/* SVG Graph */}
+        {/* Graph SVG */}
         <svg
-          className="absolute left-0 top-0"
           width={graphWidth}
           height={ROW_HEIGHT}
-          style={{ overflow: 'visible' }}
+          viewBox={`0 0 ${graphWidth} ${ROW_HEIGHT}`}
+          className="flex-shrink-0"
         >
-          {/* Draw continuation lines from previous row */}
-          {index > 0 && (() => {
-            const lines: JSX.Element[] = [];
-            const maxLanes = Math.max(...graphNodes.map(n => n.lane + 1));
+          {/* ── Continuation lines ───────────────────────────────── */}
+          {prevActiveLanes.map((l) => {
+            const x = l * LANE_WIDTH + LANE_WIDTH / 2;
+            const color = COLORS[l % COLORS.length];
+            const remainsActiveAfterRow = node.activeLanesAfter.includes(l);
 
-            for (let l = 0; l < maxLanes; l++) {
-              let shouldDraw = false;
-              let lineColor = COLORS[l % COLORS.length];
-
-              if (index > 0) {
-                const prevNode = graphNodes[index - 1];
-                const branchToThisLane = prevNode.branches.find(b => b.to === l);
-
-                if (branchToThisLane && prevNode.lane === l) {
-                  shouldDraw = true;
-                  lineColor = prevNode.color;
-                }
-
-                if (node.lane === l && prevNode.branches.find(b => b.to === l)) {
-                  shouldDraw = true;
-                  lineColor = node.color;
-                }
-              }
-
-              if (shouldDraw) {
-                lines.push(
-                  <line
-                    key={`continue-${l}`}
-                    x1={l * LANE_WIDTH + 10}
-                    y1={0}
-                    x2={l * LANE_WIDTH + 10}
-                    y2={ROW_HEIGHT / 2}
-                    stroke={lineColor}
-                    strokeWidth="2"
-                    opacity="0.6"
-                  />
-                );
-              }
-            }
-            return lines;
-          })()}
-
-          {/* Draw lines to parents */}
-          {node.branches.map((branch, branchIndex) => {
-            const startX = node.lane * LANE_WIDTH + 10;
-            const startY = ROW_HEIGHT / 2;
-            const endX = branch.to * LANE_WIDTH + 10;
-            const endY = ROW_HEIGHT;
-
-            if (branch.from === branch.to) {
+            if (l === node.lane) {
+              // Line from top down to the commit dot.
               return (
-                <line
-                  key={`branch-${branchIndex}`}
-                  x1={startX}
-                  y1={startY}
-                  x2={endX}
-                  y2={endY}
-                  stroke={node.color}
-                  strokeWidth="2"
-                  opacity="0.6"
-                />
+                <line key={`in-${l}`} x1={x} y1={0} x2={x} y2={dot.cy}
+                  stroke={color} strokeWidth="1.5" opacity="0.7" strokeLinecap="round" />
               );
             } else {
-              const curveColor = COLORS[branch.to % COLORS.length];
+              // If a lane is no longer active after this row, terminate at the row center.
+              const y2 = remainsActiveAfterRow ? ROW_HEIGHT : dot.cy;
               return (
-                <path
-                  key={`branch-${branchIndex}`}
-                  d={`M ${startX} ${startY} Q ${startX} ${startY + 15}, ${(startX + endX) / 2} ${(startY + endY) / 2} T ${endX} ${endY}`}
-                  stroke={curveColor}
-                  strokeWidth="2"
-                  fill="none"
-                  opacity="0.6"
-                  strokeLinecap="round"
-                />
+                <line key={`pass-${l}`} x1={x} y1={0} x2={x} y2={y2}
+                  stroke={color} strokeWidth="1.5" opacity="0.7" strokeLinecap="round" />
               );
             }
           })}
 
-          {/* Draw commit dot */}
-          <circle
-            cx={node.lane * LANE_WIDTH + 10}
-            cy={ROW_HEIGHT / 2}
-            r="4"
-            fill={node.color}
-            stroke="#1e1e2e"
-            strokeWidth="1.5"
-          />
+          {/* ── Outgoing branches ─────────────────────────────────── */}
+          {node.branches.map((branch, i) => {
+            const x1 = dot.cx;
+            const y1 = dot.cy;
+            const x2 = branch.to * LANE_WIDTH + LANE_WIDTH / 2;
+            const y2 = ROW_HEIGHT;
+            const branchColor = COLORS[branch.to % COLORS.length];
+
+            if (branch.from === branch.to) {
+              // Straight downward continuation.
+              return (
+                <line key={`br-${i}`} x1={x1} y1={y1} x2={x2} y2={y2}
+                  stroke={node.color} strokeWidth="1.5" opacity="0.7" strokeLinecap="round" />
+              );
+            }
+
+            // Smooth arc: departs straight down from x1, arrives straight down at x2.
+            return (
+              <path key={`br-${i}`}
+                d={`M ${x1} ${y1} C ${x1} ${y2} ${x2} ${y1} ${x2} ${y2}`}
+                stroke={branchColor} strokeWidth="1.5"
+                fill="none" opacity="0.7" strokeLinecap="round"
+              />
+            );
+          })}
+
+          {/* ── Commit dot ───────────────────────────────────────── */}
+          <circle cx={dot.cx} cy={dot.cy} r="3.5"
+            fill={node.color} stroke="#1e1e2e" strokeWidth="1.5">
+            <title>{tooltipText}</title>
+          </circle>
         </svg>
 
         {/* Commit info */}
-        <div className="flex-1 min-w-0 py-1.5 pr-3 pl-2">
-          <div className="flex items-center gap-1.5">
-            {expandedCommit === node.commit.hash ? (
-              <ChevronDown size={12} className="text-comment flex-shrink-0" />
-            ) : (
-              <ChevronRight size={12} className="text-comment flex-shrink-0" />
-            )}
-            <p className="text-xs text-text truncate flex-1 min-w-0">{node.commit.message}</p>
-          </div>
-
-          {node.commit.refs && (
-            <div className="flex gap-1 flex-wrap mt-1 ml-4">
-              {node.commit.refs.split(',').map((ref, i) => {
-                const trimmedRef = ref.trim();
-                const isHead = trimmedRef.includes('HEAD');
-                const isBranch = trimmedRef.includes('->') || (!isHead && !trimmedRef.includes('/'));
-                const displayRef = trimmedRef
-                  .replace('HEAD -> ', '')
-                  .replace('origin/', '')
-                  .replace('tag: ', '');
-
-                if (!displayRef) return null;
-
-                return (
-                  <span
-                    key={i}
-                    className="text-[10px] px-1 py-0.5 rounded whitespace-nowrap"
-                    style={{
-                      backgroundColor: isHead ? 'rgba(0, 217, 255, 0.2)' : isBranch ? 'rgba(168, 85, 247, 0.2)' : 'rgba(255, 107, 107, 0.2)',
-                      color: isHead ? '#00D9FF' : isBranch ? '#A855F7' : '#FF6B6B',
-                    }}
-                  >
-                    {displayRef}
-                  </span>
-                );
-              })}
-            </div>
-          )}
-
-          <div className="flex items-center gap-2 text-[10px] text-comment mt-0.5 ml-4">
-            <span className="truncate max-w-[120px]">{node.commit.author}</span>
-            <span className="font-mono">{node.commit.shortHash}</span>
-            <span className="whitespace-nowrap">{new Date(node.commit.date).toLocaleDateString()}</span>
+        <div className="flex-1 min-w-0 pl-1.5 pr-3 flex flex-col justify-center gap-0.5">
+          <p className="text-xs text-text min-w-0 truncate">
+            {node.commit.message}
+          </p>
+          <div className="flex items-center gap-2 text-[10px] text-comment">
+            <span className="truncate max-w-[80px]">{node.commit.author}</span>
+            <span className="font-mono opacity-70">{node.commit.shortHash}</span>
+            <span className="whitespace-nowrap opacity-70">
+              {new Date(node.commit.date).toLocaleDateString()}
+            </span>
           </div>
         </div>
       </div>
 
       {/* Expanded file list */}
       {isExpanded && (
-        <div className="relative" style={{ paddingLeft: `${graphWidth}px` }}>
-          {/* Continuation line through expanded section */}
-          {index < graphNodes.length - 1 && (
-            <svg
-              className="absolute left-0 top-0"
-              width={graphWidth}
-              height="100%"
-              style={{ pointerEvents: 'none' }}
-            >
-              <line
-                x1={node.lane * LANE_WIDTH + 10}
-                y1={0}
-                x2={node.lane * LANE_WIDTH + 10}
-                y2="100%"
-                stroke={node.color}
-                strokeWidth="2"
-                opacity="0.6"
-              />
-            </svg>
-          )}
-          <div className="pl-2">
-            <CommitFileList commitHash={node.commit.hash} />
+        <div className="relative" style={{ paddingLeft: graphWidth }}>
+          {/* Continue all active lanes through expanded content, including merge parent lanes. */}
+          <svg
+            className="absolute left-0 top-0 pointer-events-none"
+            width={graphWidth}
+            style={{ height: '100%', overflow: 'visible' }}
+          >
+            {expandedLanes.map((lane) => {
+              const x = lane * LANE_WIDTH + LANE_WIDTH / 2;
+              const isCommitLane = lane === node.lane;
+              const color = isCommitLane ? node.color : COLORS[lane % COLORS.length];
+              return (
+                <line
+                  key={`expanded-${node.commit.hash}-${lane}`}
+                  x1={x}
+                  y1={0}
+                  x2={x}
+                  y2="100%"
+                  stroke={color}
+                  strokeWidth={1.5}
+                  opacity={isCommitLane ? 0.9 : 0.7}
+                />
+              );
+            })}
+          </svg>
+          <div className="p-2">
+            <CommitFileList commitHash={node.commit.hash} shortHash={node.commit.shortHash} />
           </div>
         </div>
       )}
@@ -353,46 +337,90 @@ const CommitRow = ({
   );
 };
 
-const CommitFileList = ({ commitHash }: { commitHash: string }) => {
+const CommitFileList = ({ commitHash, shortHash }: { commitHash: string; shortHash: string }) => {
   const { data: files, isLoading } = useGetCommitFiles(commitHash);
+  const { mutate: addPanelTab } = useAddPanelTab();
+
+  const handleFileClick = (filePath: string) => {
+    const fileName = filePath.split('/').pop() || filePath;
+    addPanelTab({
+      panelId: "main",
+      tab: {
+        id: `diff-commit-${commitHash}-${filePath}`,
+        type: "diff",
+        title: `${shortHash}^ >>> ${shortHash} | ${fileName}`,
+        source: filePath,
+        meta: {
+          baseBranch: `${commitHash}^`,
+          compareBranch: commitHash,
+          filePath,
+          isWorkingDirectory: false,
+        },
+      } as any,
+    });
+  };
+
+  const handleViewFile = (filePath: string) => {
+    const fileName = filePath.split('/').pop() || filePath;
+    addPanelTab({
+      panelId: "main",
+      tab: {
+        id: `view-file-${commitHash}-${filePath}`,
+        type: "diff",
+        title: `${fileName} (${shortHash})`,
+        source: filePath,
+        meta: {
+          baseBranch: commitHash,
+          compareBranch: commitHash,
+          filePath,
+          isWorkingDirectory: false,
+          viewOnly: true,
+        },
+      } as any,
+    });
+  };
 
   if (isLoading) {
     return (
-      <div className="px-3 py-2 bg-active/30 border-t border-border">
-        <Loader2 className="animate-spin text-comment" size={16} />
+      <div className="px-3 py-2 bg-active/20 border-t border-border">
+        <Loader2 className="animate-spin text-comment" size={14} />
       </div>
     );
   }
 
   if (!files || files.length === 0) {
     return (
-      <div className="px-3 py-2 bg-active/30 border-t border-border text-xs text-comment">
+      <div className="px-3 py-2 bg-active/20 border-t border-border text-xs text-comment">
         No files changed
       </div>
     );
   }
 
   return (
-    <div className="bg-active/30 border-t border-border ml-8">
-      <div className="px-3 py-1 text-xs text-comment">
+    <div className="bg-panel border-t border-border">
+      <div className="px-3 py-1 text-[10px] text-comment font-medium">
         {files.length} file{files.length !== 1 ? 's' : ''} changed
       </div>
-      {files.map((file) => (
+      {files.map((file: { path: string; insertions: number; deletions: number }) => (
         <div
           key={file.path}
-          className="flex items-center justify-between px-3 py-1 hover:bg-active/50 text-xs"
+          onClick={() => handleFileClick(file.path)}
+          className="flex items-center justify-between px-3 py-1 hover:bg-active/40 cursor-pointer text-xs group"
         >
           <div className="flex items-center gap-2 flex-1 min-w-0">
-            <File size={12} className="text-comment flex-shrink-0" />
-            <span className="text-text font-mono truncate">{file.path}</span>
+            <File size={11} className="text-comment flex-shrink-0" />
+            <span className="text-text font-mono truncate text-[11px]">{file.path}</span>
           </div>
-          <div className="flex items-center gap-2 text-[10px] flex-shrink-0">
-            {file.insertions > 0 && (
-              <span className="text-green-500">+{file.insertions}</span>
-            )}
-            {file.deletions > 0 && (
-              <span className="text-red-500">-{file.deletions}</span>
-            )}
+          <div className="flex items-center gap-2 text-[10px] flex-shrink-0 ml-2">
+            {file.insertions > 0 && <span className="text-green-500">+{file.insertions}</span>}
+            {file.deletions > 0 && <span className="text-red-500">-{file.deletions}</span>}
+            <button
+              onClick={(e) => { e.stopPropagation(); handleViewFile(file.path); }}
+              className="opacity-0 group-hover:opacity-100 text-comment hover:text-text ml-1"
+              title="View file at this commit"
+            >
+              <Eye size={11} />
+            </button>
           </div>
         </div>
       ))}

@@ -455,28 +455,35 @@ export function ResponseViewer({
         }
       `}</style>
       <div className="response-viewer-content">
-        <div className="flex justify-end px-2 pt-2">
-          <div className="inline-flex items-center gap-1">
-            <Tip label="Expand all" side="top" align="end">
-              <button
-                type="button"
-                onClick={handleExpandAllResponseNodes}
-                className="rounded p-1 text-comment transition-colors hover:text-accent"
-              >
-                <ChevronsUpDown size={14} />
-              </button>
-            </Tip>
-            <Tip label="Collapse all" side="top" align="end">
-              <button
-                type="button"
-                onClick={handleCollapseAllResponseNodes}
-                className="rounded p-1 text-comment transition-colors hover:text-accent"
-              >
-                <ChevronsDownUp size={14} />
-              </button>
-            </Tip>
-          </div>
-        </div>
+        {(() => {
+          const protocol = typeof content === 'object' && content !== null ? content?.attrs?.protocol : null;
+          const isSocket = protocol === 'wss' || protocol === 'ws' || protocol === 'grpc' || protocol === 'grpcs';
+          if (isSocket) return null;
+          return (
+            <div className="flex justify-end px-2 pt-2">
+              <div className="inline-flex items-center gap-1">
+                <Tip label="Expand all" side="top" align="end">
+                  <button
+                    type="button"
+                    onClick={handleExpandAllResponseNodes}
+                    className="rounded p-1 text-comment transition-colors hover:text-accent"
+                  >
+                    <ChevronsUpDown size={14} />
+                  </button>
+                </Tip>
+                <Tip label="Collapse all" side="top" align="end">
+                  <button
+                    type="button"
+                    onClick={handleCollapseAllResponseNodes}
+                    className="rounded p-1 text-comment transition-colors hover:text-accent"
+                  >
+                    <ChevronsDownUp size={14} />
+                  </button>
+                </Tip>
+              </div>
+            </div>
+          );
+        })()}
         <EditorContent editor={editor} />
       </div>
     </div>

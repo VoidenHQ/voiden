@@ -71,8 +71,10 @@ function withCopyAction(type: string, message: ReactNode, options?: ToastOptions
 export const toast = Object.assign(
   (message: ReactNode, options?: ToastOptions) => sonnerToast(message, withCopyAction("default", message, options)),
   {
+    // Success: pass options through (description shown), but no copy button
     success: (message: ReactNode, options?: ToastOptions) =>
-      sonnerToast.success(message, withCopyAction("success", message, options)),
+      sonnerToast.success(message, options),
+    // Error, warning, info: include copy button
     error: (message: ReactNode, options?: ToastOptions) =>
       sonnerToast.error(message, withCopyAction("error", message, options)),
     warning: (message: ReactNode, options?: ToastOptions) =>
@@ -83,7 +85,7 @@ export const toast = Object.assign(
     custom: sonnerToast.custom,
     promise: sonnerToast.promise,
     loading: (message: ReactNode, options?: ToastOptions) =>
-      sonnerToast.loading(message, withCopyAction("loading", message, options)),
+      sonnerToast.loading(message, options),
   },
 )
 

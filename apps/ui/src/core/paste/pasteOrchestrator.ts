@@ -123,6 +123,24 @@ export class PasteOrchestrator {
   }
 
   /**
+   * Run only the registered text pattern handlers.
+   * Used by history replay/import flows that already have a command string.
+   */
+  handlePatternText(view: EditorView, text: string, html?: string | null): boolean {
+    for (const { pluginId, handler } of this.patternHandlers) {
+      if (handler.canHandle(text, html || undefined)) {
+        pasteLogger.info(`Delegating text import to pattern handler from plugin "${pluginId}"`);
+        const handled = handler.handle(text, html || undefined, view);
+        if (handled) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  /**
    * Main paste handler - coordinates all paste logic
    */
   handlePaste(view: EditorView, event: ClipboardEvent): boolean {
@@ -145,9 +163,11 @@ export class PasteOrchestrator {
       }
     }
 
-    // If inside a table cell, don't intercept - let prosemirror-tables handle paste
+    // Inside a table cell: insert as plain text to prevent TipTap's markdown parser
+    // from converting the content (e.g. backtick-wrapped text → code block).
     if (insideTableCell) {
-      return false;
+      view.dispatch(view.state.tr.insertText(text));
+      return true;
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -284,14 +304,8 @@ export class PasteOrchestrator {
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // f) PATTERN MATCHING (cURL, GraphQL, SQL, etc.)
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    for (const { pluginId, handler } of this.patternHandlers) {
-      if (handler.canHandle(text, html)) {
-        pasteLogger.info(`Delegating paste to pattern handler from plugin "${pluginId}"`);
-        const handled = handler.handle(text, html, view);
-        if (handled) {
-          return true;
-        }
-      }
+    if (this.handlePatternText(view, text, html)) {
+      return true;
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

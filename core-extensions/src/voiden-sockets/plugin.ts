@@ -10,10 +10,14 @@ import manifest from "./manifest.json";
 import React from 'react';
 import { CopyWebsocatButton } from './components/CopyWebsocatButton';
 import { CopyGrpcurlButton } from './components/CopyGrpcurlButton';
+import { socketHistoryAdapter } from './historyAdapter';
 
 // Lazily cached store reference so the synchronous predicates can read unsaved content.
 // Lazily cached store reference so the synchronous predicate can read unsaved content.
 let _editorStore: any = null;
+
+// Captured proto services from the most recent gRPC build request — injected into the response doc.
+let _pendingProtoServices: any[] | null = null;
 function getEditorStore() {
   if (!_editorStore) {
     // @ts-ignore - resolved at runtime in app context
@@ -204,16 +208,35 @@ export default function createSocketPlugin(context: PluginContext) {
           return
         }
         try {
+          // Capture the source .void file path BEFORE switching to the connected tab
+          let sourceFilePath: string | null = null;
+          try {
+            // @ts-ignore
+            const { useResponseStore } = await import(/* @vite-ignore */ '@/core/request-engine/stores/responseStore');
+            const tabId = useResponseStore.getState().currentRequestTabId;
+            if (tabId) {
+              const panelData = await (window as any).electron?.state?.getPanelTabs('main');
+              const tab = (panelData?.tabs as any[])?.find((t: any) => t.id === tabId && t.type === 'document');
+              sourceFilePath = tab?.source ?? null;
+            }
+          } catch { /* best-effort */ }
+
           const { convertResponseToVoidenDocWithMessageNode, convertResponseToVoidenDocWithGRPCMessageNode } = await import('./lib/responseConverter');
           let responseDoc;
           if (response.protocol === 'wss' || response.protocol === 'ws') {
             responseDoc = convertResponseToVoidenDocWithMessageNode({
-              requestMeta: response.requestMeta,
+              requestMeta: response.requestMeta
+                ? { ...response.requestMeta, sourceFilePath }
+                : { url: '', headers: [], sourceFilePath },
               wsId: response.wsId || '',
             });
           } else {
+            const capturedServices = _pendingProtoServices;
+            _pendingProtoServices = null;
             responseDoc = convertResponseToVoidenDocWithGRPCMessageNode({
-              requestMeta: response.requestMeta,
+              requestMeta: response.requestMeta
+                ? { ...response.requestMeta, sourceFilePath, protoServices: capturedServices }
+                : { url: '', headers: [], package: '', service: '', callType: '', method: '', sourceFilePath, protoServices: capturedServices },
               grpcId: response.grpcId || '',
             });
           }
@@ -241,9 +264,29 @@ export default function createSocketPlugin(context: PluginContext) {
           const { expandLinkedBlocksInDoc } = await import(/* @vite-ignore */ '@/core/editors/voiden/utils/expandLinkedBlocks');
           editorJson = await expandLinkedBlocksInDoc(editorJson);
 
+          // Capture proto services for injection into the response doc
+          try {
+            const socketNode = (editorJson.content as any[])?.find((n: any) => n.type === 'socket-request');
+            const protoNode = socketNode?.content?.find((n: any) => n.type === 'proto');
+            _pendingProtoServices = Array.isArray(protoNode?.attrs?.services) && protoNode.attrs.services.length > 0
+              ? protoNode.attrs.services
+              : null;
+          } catch { _pendingProtoServices = null; }
+
           // Build socket request from editor JSON
           // getRequest will detect socket-request nodes and build appropriate request
           const builtRequest = await getRequest(editorJson, undefined, undefined);
+
+          // Resolve relative proto file path to absolute so the electron process can find the file
+          if (builtRequest?.grpc?.protoFilePath && !builtRequest.grpc.protoFilePath.startsWith('/')) {
+            try {
+              const projectDir = await (window as any).electron?.directories?.getActive();
+              if (projectDir) {
+                const sep = projectDir.endsWith('/') ? '' : '/';
+                builtRequest.grpc.protoFilePath = `${projectDir}${sep}${builtRequest.grpc.protoFilePath}`;
+              }
+            } catch { /* keep as-is */ }
+          }
           const { convertResponseToVoidenDocWithGRPCMessageNode } = await import('./lib/responseConverter');
           let responseDoc;
           if (!builtRequest.grpc && (builtRequest.protocolType === 'grpc' || builtRequest.protocolType === 'grpcs')) {
@@ -343,6 +386,114 @@ export default function createSocketPlugin(context: PluginContext) {
           },
         });
       });
+
+      // CURL IMPORTER: handle websocat/grpcurl paste/replay in the editor
+      if ((context as any).paste?.registerCurlImporter) {
+        (context as any).paste.registerCurlImporter(async (curlString: string, editor: any) => {
+          const trimmed = curlString.trim();
+          const {
+            convertWebsocatToSocketRequest,
+            convertGrpcurlToSocketRequest,
+            updateEditorContent,
+            insertParagraphAfterRequestBlocks,
+          } = await import('./lib/converter');
+
+          let socketRequest: any;
+          if (/^websocat\s+/i.test(trimmed)) {
+            socketRequest = convertWebsocatToSocketRequest(trimmed);
+          } else if (/^grpcurl\s+/i.test(trimmed)) {
+            socketRequest = convertGrpcurlToSocketRequest(trimmed);
+          } else {
+            return false;
+          }
+
+          if (!socketRequest || !editor) return false;
+
+          updateEditorContent(editor, (editorJsonContent: any[]) => {
+            const requestBlocks = ['socket-request', 'headers-table', 'path-table', 'query-table', 'proto'];
+            editorJsonContent = editorJsonContent.filter((node: any) => {
+              if (node.type === 'endpoint') return false;
+              if (node.type && requestBlocks.includes(node.type)) return false;
+              return true;
+            });
+            editorJsonContent.push(...(socketRequest || []));
+            return insertParagraphAfterRequestBlocks(editorJsonContent);
+          });
+          return true;
+        });
+      }
+
+      // Register socket history adapter with the adapter registry
+      {
+        // @ts-ignore - Path resolved at runtime in app context
+        const { historyAdapterRegistry } = await import(/* @vite-ignore */ '@/core/history/adapterRegistry');
+        historyAdapterRegistry.register(socketHistoryAdapter);
+      }
+
+      // Register history curl builder for socket protocols (WS/WSS → websocat, GRPC/GRPCS → grpcurl)
+      if ((context as any).history?.registerCurlBuilder) {
+        (context as any).history.registerCurlBuilder((entry: any, projectPath?: string) => {
+          const method = (entry.request?.method ?? '').toUpperCase();
+          const url = entry.request?.url ?? '';
+          const headers: Array<{ key: string; value: string }> = entry.request?.headers ?? [];
+          const body: string | undefined = entry.request?.body;
+          const grpcMeta = entry.request?.grpcMeta ?? {};
+
+          const headerArgs = headers
+            .filter((h) => h.key && h.value)
+            .map((h) => `-H "${h.key}: ${h.value}"`)
+            .join(' ');
+
+          if (/^WSS?$/.test(method)) {
+            const parts = ['websocat'];
+            if (headerArgs) parts.push(headerArgs);
+            parts.push(url);
+            if (body) return `echo '${body}' | ${parts.join(' ')}`;
+            return parts.join(' ');
+          }
+
+          if (/^GRPCS?$/.test(method)) {
+            const parts = ['grpcurl'];
+            const fullService = grpcMeta.package
+              ? `${grpcMeta.package}.${grpcMeta.service ?? ''}`.replace(/\.$/, '')
+              : (grpcMeta.service ?? '');
+            const fullMethod = fullService && grpcMeta.method
+              ? `${fullService}/${grpcMeta.method}`
+              : '';
+
+            // grpcurl expects plain host:port, not a URL with scheme
+            const host = url.replace(/^grpcs?:\/\//, '');
+
+            if (method === 'GRPC') parts.push('-plaintext');
+            if (headerArgs) parts.push(headerArgs);
+
+            // Use -import-path <dir> -proto <filename> so grpcurl can locate the file
+            if (grpcMeta.protoFilePath) {
+              // Resolve relative proto path to absolute for command-line usability
+              let protoPath: string = grpcMeta.protoFilePath;
+              if (projectPath && protoPath && !protoPath.startsWith('/')) {
+                const sep = projectPath.endsWith('/') ? '' : '/';
+                protoPath = `${projectPath}${sep}${protoPath}`;
+              }
+              const lastSlash = protoPath.lastIndexOf('/');
+              if (lastSlash !== -1) {
+                const dir = protoPath.slice(0, lastSlash);
+                const file = protoPath.slice(lastSlash + 1);
+                parts.push(`-import-path "${dir}" -proto "${file}"`);
+              } else {
+                parts.push(`-proto "${protoPath}"`);
+              }
+            }
+
+            if (body) parts.push(`-d '${body}'`);
+            parts.push(host);
+            if (fullMethod) parts.push(fullMethod);
+            return parts.join(' ');
+          }
+
+          return `# ${method} ${url}`;
+        });
+      }
 
     },
     onunload: async () => { },

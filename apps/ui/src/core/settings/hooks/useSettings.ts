@@ -21,6 +21,7 @@ const UI_FONT_SIZE_MIN = 10;
 const UI_FONT_SIZE_MAX = 16;
 const AUTO_SAVE_DELAY_MIN = 0;
 const AUTO_SAVE_DELAY_MAX = 300;
+const DEFAULT_PROJECT_DIRECTORY = "Voiden";
 const CONTENT_WIDTH_MIN = 600;
 const CONTENT_WIDTH_MAX = 1400;
 
@@ -176,6 +177,43 @@ function validateSettings(settings: UserSettings): UserSettings {
     validated.updates.channel = "stable";
   }
 
+  if (!validated.cli) {
+    validated.cli = {
+      installed: false,
+    };
+  }
+
+  if (typeof validated.cli.installed !== "boolean") {
+    validated.cli.installed = false;
+  }
+
+  if (!validated.projects) {
+    validated.projects = {
+      default_directory: DEFAULT_PROJECT_DIRECTORY,
+    };
+  }
+
+  if (typeof validated.projects.default_directory !== "string" || validated.projects.default_directory.trim() === "") {
+    validated.projects.default_directory = DEFAULT_PROJECT_DIRECTORY;
+  }
+
+  // Validate history settings
+  if (!validated.history) {
+    validated.history = { enabled: false, retention_days: 2 };
+  }
+
+  if (typeof validated.history.enabled !== 'boolean') {
+    validated.history.enabled = false;
+  }
+
+  if (
+    typeof validated.history.retention_days !== 'number' ||
+    validated.history.retention_days < 1 ||
+    validated.history.retention_days > 90
+  ) {
+    validated.history.retention_days = 2;
+  }
+
   return validated;
 }
 
@@ -224,6 +262,18 @@ export type UserSettings = {
     claude: boolean;
     codex: boolean;
   };
+  cli: {
+    installed: boolean;
+  };
+  projects: {
+    default_directory: string;
+  };
+  history?: {
+    /** Whether request history recording is enabled (default: false) */
+    enabled: boolean;
+    /** How many days to retain history entries (1–7, default: 2) */
+    retention_days: number;
+  };
 };
 
 function useDebounced(fn: (...a: any[]) => void, ms: number) {
@@ -246,7 +296,6 @@ export function useSettings() {
       );
     }
   }, [settings?.appearance?.font_size]);
-
 
   useEffect(() => {
     if (settings?.appearance?.font_family) {
@@ -276,6 +325,14 @@ export function useSettings() {
     }
   }, [settings?.appearance?.content_width]);
 
+  useEffect(() => {
+    if (settings?.appearance?.content_width) {
+      document.documentElement.style.setProperty(
+        "--prose-max-width",
+        `${settings.appearance.content_width}px`
+      );
+    }
+  }, [settings?.appearance?.content_width]);
 
   useEffect(() => {
     let cancelled = false;
@@ -303,6 +360,9 @@ export function useSettings() {
       terminal: { ...currentSettings.terminal, ...patch.terminal },
       updates: { ...currentSettings.updates, ...patch.updates },
       skills: { ...currentSettings.skills, ...patch.skills },
+      cli: { ...currentSettings.cli, ...patch.cli },
+      projects: { ...currentSettings.projects, ...patch.projects },
+      history: { ...currentSettings.history, ...patch.history },
     };
     const validatedSettings = validateSettings(mergedSettings as UserSettings);
 
@@ -324,7 +384,7 @@ export function useSettings() {
     if (settings && settings.appearance && settings.appearance.theme) {
       await loadThemeById(settings.appearance.theme);
     }
-  })
+  });
 
   const onChange = (callback?: (next: UserSettings) => void) => {
     const off = window.electron?.userSettings.onChange((raw: UserSettings) => {

@@ -1,6 +1,22 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
   darkMode: ["class"],
+  safelist: [
+    "text-http-get",
+    "text-http-post",
+    "text-http-put",
+    "text-http-patch",
+    "text-http-delete",
+    "text-http-head",
+    "text-http-options",
+    "bg-httpbg-get",
+    "bg-httpbg-post",
+    "bg-httpbg-put",
+    "bg-httpbg-patch",
+    "bg-httpbg-delete",
+    "bg-httpbg-head",
+    "bg-httpbg-options",
+  ],
   content: {
     relative: true,
     files: [
@@ -104,6 +120,15 @@ module.exports = {
           delete: "var(--http-delete)",
           head: "var(--http-head)",
           options: "var(--http-options)",
+        },
+        httpbg: {
+          get: "var(--http-get-bg)",
+          post: "var(--http-post-bg)",
+          put: "var(--http-put-bg)",
+          patch: "var(--http-patch-bg)",
+          delete: "var(--http-delete-bg)",
+          head: "var(--http-head-bg)",
+          options: "var(--http-options-bg)",
         },
 
         // Status indicator colors

@@ -2,7 +2,7 @@
  * Type definitions for the Voiden Scripting extension
  */
 
-export type ScriptLanguage = "javascript" | "python";
+export type ScriptLanguage = "javascript" | "python" | "shell";
 
 export type VdKeyValueCollection =
   | Record<string, string>

@@ -17,6 +17,7 @@ enum UpdateState {
   ERROR = "error"
 }
 
+
 let currentUpdateState: UpdateState = UpdateState.IDLE;
 
 function setUpdateState(state: UpdateState) {
@@ -408,7 +409,9 @@ export async function checkForUpdatesManually(channel: "stable" | "early-access"
     // Use electron-updater directly for both macOS and Windows (NSIS)
     try {
       setUpdateState(UpdateState.CHECKING);
+      isManualUpdateCheck = true;
       const result = await autoUpdater.checkForUpdates();
+      isManualUpdateCheck = false;
       setUpdateState(UpdateState.IDLE);
 
       if (result?.updateInfo && semver.gt(result.updateInfo.version, currentVersion)) {
@@ -416,6 +419,7 @@ export async function checkForUpdatesManually(channel: "stable" | "early-access"
       }
       return { available: false };
     } catch (err) {
+      isManualUpdateCheck = false;
       console.error("Manual update check failed:", err);
       setUpdateState(UpdateState.ERROR);
       return { available: false };
@@ -427,6 +431,7 @@ export async function checkForUpdatesManually(channel: "stable" | "early-access"
 
 // Setup autoUpdater event listeners once
 let autoUpdaterInitialized = false;
+let isManualUpdateCheck = false;
 
 function setupAutoUpdaterListeners() {
   if (autoUpdaterInitialized || !isUpdateSupported()) return;
@@ -480,9 +485,13 @@ function setupAutoUpdaterListeners() {
     setUpdateState(UpdateState.ERROR);
 
     const isNetworkError = /ENOTFOUND|ENETUNREACH|ECONNREFUSED|ECONNRESET|ETIMEDOUT|ERR_INTERNET_DISCONNECTED|ERR_NETWORK_CHANGED|getaddrinfo/i.test(error.message);
+    const wasManual = isManualUpdateCheck;
+    isManualUpdateCheck = false;
 
     if (isNetworkError) {
-      showToast("error", "Update Error", "Download failed: No internet connection", Infinity);
+      if (wasManual) {
+        showToast("error", "Update Error", "No internet connection", 4000);
+      }
     } else {
       showToast("error", "Update Error", `Failed to download update: ${error.message}`);
     }
