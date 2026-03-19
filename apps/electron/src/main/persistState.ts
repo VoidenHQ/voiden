@@ -87,10 +87,9 @@ export async function loadState(skipDefault?: boolean): Promise<AppState> {
     const data = await fs.readFile(STATE_FILE, "utf8");
     const state = JSON.parse(data) as AppState;
 
-    // If the state doesn't include onboarding, add it and persist the update
+    // Existing state file = user already onboarded; mark as complete to skip the modal.
     if (state.onboarding === undefined) {
-      // console.debug("onboarding is missing from state, setting it to false by default.");
-      state.onboarding = false;
+      state.onboarding = true;
       await saveState(state);
     }
 
@@ -156,9 +155,7 @@ export async function saveSettings(settings: AppSettings): Promise<void> {
   await fs.writeFile(SETTINGS_FILE, JSON.stringify(settings, null, 2), "utf8");
 }
 
-async function getDefaultState(
-  skipDefault?: boolean,
-): Promise<AppState | null> {
+async function getDefaultState(_skipDefault?: boolean): Promise<AppState> {
   const fileExplorerId = crypto.randomUUID();
   const gitSourceControlId = crypto.randomUUID();
   const extensionBrowserId = crypto.randomUUID();
@@ -166,109 +163,14 @@ async function getDefaultState(
   const historyPanelId = crypto.randomUUID();
   const globalHistoryPanelId = crypto.randomUUID();
 
-  // Only get sample project if there are no windows
-  if (windowManager.getAllWindows().length === 0 && !skipDefault) {
-    await ensureSampleProject();
-
-    // Create default document only when sample project exists
-    const defaultDocument: Tab = {
-      id: crypto.randomUUID(),
-      type: "document",
-      title: "hello.void",
-      source: `${SAMPLE_PROJECT_DIR}/hello.void`,
-      directory: null,
-    };
-
-    return {
-      activeDirectory: SAMPLE_PROJECT_DIR,
-      onboarding: false,
-      directories: {
-        [SAMPLE_PROJECT_DIR]: {
-          layout: {
-            id: "group",
-            type: "group",
-            children: [
-              {
-                id: "main",
-                type: "panel",
-                tabs: [defaultDocument],
-                activeTabId: defaultDocument.id,
-              },
-              {
-                id: "bottom",
-                type: "panel",
-                tabs: [],
-                activeTabId: null,
-              },
-            ],
-          },
-        },
-      },
-      unsaved: {
-        layout: {
-          id: "group",
-          type: "group",
-          children: [
-            {
-              id: "main",
-              type: "panel",
-              tabs: [defaultDocument],
-              activeTabId: defaultDocument.id,
-            },
-            {
-              id: "bottom",
-              type: "panel",
-              tabs: [],
-              activeTabId: null,
-            },
-          ],
-        },
-        activeEnv: null,
-      },
-      sidebars: {
-        left: {
-          activeTabId: fileExplorerId,
-          tabs: [
-            {
-              id: fileExplorerId,
-              type: "fileExplorer",
-            },
-            {
-              id: gitSourceControlId,
-              type: "gitSourceControl",
-            },
-            {
-              id: extensionBrowserId,
-              type: "extensionBrowser",
-            },
-            {
-              id: globalHistoryPanelId,
-              type: "globalHistory",
-            },
-          ],
-        },
-        right: {
-          activeTabId: responsePanelId,
-          tabs: [
-            {
-              id: responsePanelId,
-              type: "responsePanel",
-            },
-            {
-              id: historyPanelId,
-              type: "history",
-            },
-          ],
-        },
-      },
-      extensions: [],
-    };
-  }
-
-  // If there are existing windows, return empty state
+  // Fresh first window: onboarding=false triggers the modal (!onboarding → show).
+  // Subsequent windows: onboarding=true skips it (user already completed onboarding).
+  const isFirstWindow = windowManager.getAllWindows().length === 0;
   return {
+    id: null,
     activeDirectory: null,
-    onboarding: windowManager.getAllWindows().length > 0 || !!skipDefault,
+    onboarding: !isFirstWindow,
+    showOnboarding: isFirstWindow,
     directories: {},
     unsaved: {
       layout: {

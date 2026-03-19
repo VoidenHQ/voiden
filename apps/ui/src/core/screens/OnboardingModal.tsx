@@ -121,6 +121,10 @@ export default function OnboardingModal() {
         await window.electron?.state.activatePanelTab("main", panelResult?.tabId || tab.id);
       }
 
+      // Mark onboarding complete before invalidating app:state so the refetch
+      // returns onboarding=true and the modal is not re-shown from scratch.
+      await window.electron?.state.updateOnboarding(true);
+
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["projects"] }),
         queryClient.invalidateQueries({ queryKey: ["app:state"] }),
@@ -138,10 +142,8 @@ export default function OnboardingModal() {
     }
   };
 
-  const handleFinish = async () => {
+  const handleFinish = () => {
     setIsOpen(false);
-    await window.electron?.state.updateOnboarding(true);
-    await queryClient.invalidateQueries({ queryKey: ["app:state"] });
   };
 
   return (

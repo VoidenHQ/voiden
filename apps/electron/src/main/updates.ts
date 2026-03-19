@@ -17,6 +17,7 @@ enum UpdateState {
   ERROR = "error"
 }
 
+
 let currentUpdateState: UpdateState = UpdateState.IDLE;
 
 function setUpdateState(state: UpdateState) {
