@@ -32,6 +32,8 @@ export interface HttpResponse {
       host: string;
       port: number;
     };
+    body?: string | null;
+    bodyContentType?: string | null;
   };
   metadata?: {
     assertionResults?: {
@@ -211,6 +213,8 @@ export function convertResponseToVoidenDoc(response: HttpResponse): any {
         method: response.requestMeta?.method || '',
         httpVersion: response.requestMeta?.httpVersion,
         tls: response.requestMeta?.tlsInfo,
+        requestBody: response.requestMeta?.body || null,
+        requestBodyContentType: response.requestMeta?.bodyContentType || null,
       },
     }
   );

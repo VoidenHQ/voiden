@@ -38,8 +38,10 @@ export function registerFileIpcHandlers() {
     try {
       const content = fs.readFileSync(filePath, "utf8");
       return content;
-    } catch (error) {
-      // console.error(`Error reading file: ${error.message}`);
+    } catch (error: any) {
+      if (error?.code === 'ENOENT') {
+        return null;
+      }
       throw error;
     }
   });

@@ -31,6 +31,8 @@ export interface RequestHeadersAttrs {
     };
     isSecure: boolean;
   };
+  requestBody?: string | null;
+  requestBodyContentType?: string | null;
 }
 
 // --- HELPER FUNCTION FOR TLS/SUMMARY DISPLAY ---
@@ -180,7 +182,7 @@ const renderTLSSection = (
 export const createRequestHeadersNode = (NodeViewWrapper: any, CodeEditor: any, useParentResponseDoc: (editor: any, getPos: () => number) => { openNodes: string[]; parentPos: number | null }) => {
   const RequestHeadersComponent = ({ node ,getPos,editor}: any) => {
     // Destructure all required attributes
-    const { headers, url, method, httpVersion, tls } = node.attrs as RequestHeadersAttrs;
+    const { headers, url, method, httpVersion, tls, requestBody, requestBodyContentType } = node.attrs as RequestHeadersAttrs;
      // Read parent's openNodes state - automatically updates when parent changes
     const { openNodes } = useParentResponseDoc(editor, getPos);
     const isCollapsed = !openNodes.includes("request-headers");
@@ -234,6 +236,17 @@ export const createRequestHeadersNode = (NodeViewWrapper: any, CodeEditor: any, 
           <div >
             <div className="bg-bg p-2 text-comment text-sm border-b border-border">No Request Headers Sent</div>
           </div>
+
+          {/* Request Body Sent (even when no headers) */}
+          {requestBody && (
+            <RequestBodySentSection
+              body={requestBody}
+              contentType={requestBodyContentType ?? null}
+              CodeEditor={CodeEditor}
+              openNodes={openNodes}
+              editor={editor}
+            />
+          )}
         </NodeViewWrapper>
       );
     }
@@ -377,7 +390,142 @@ export const createRequestHeadersNode = (NodeViewWrapper: any, CodeEditor: any, 
               );
             })()}
         </div>
+
+        {/* 3. RENDER REQUEST BODY SENT (if available) */}
+        {requestBody && (
+          <RequestBodySentSection
+            body={requestBody}
+            contentType={requestBodyContentType ?? null}
+            CodeEditor={CodeEditor}
+            openNodes={openNodes}
+            editor={editor}
+          />
+        )}
       </NodeViewWrapper>
+    );
+  };
+
+  const RequestBodySentSection = ({
+    body,
+    contentType,
+    CodeEditor: CE,
+    openNodes,
+    editor: ed,
+  }: {
+    body: string;
+    contentType: string | null;
+    CodeEditor: any;
+    openNodes: string[];
+    editor: any;
+  }) => {
+    const isCollapsed = !openNodes.includes("request-headers");
+
+    const handleCopyBody = async () => {
+      try {
+        await navigator.clipboard.writeText(body);
+      } catch {}
+    };
+
+    // Determine language for syntax highlighting
+    let lang = "text";
+    const ct = (contentType || "").toLowerCase();
+    if (ct.includes("json")) lang = "json";
+    else if (ct.includes("xml")) lang = "xml";
+    else if (ct.includes("html")) lang = "html";
+    else if (ct.includes("form-urlencoded")) lang = "text";
+
+    // Try to pretty-print JSON
+    let displayBody = body;
+    if (lang === "json") {
+      try {
+        displayBody = JSON.stringify(JSON.parse(body), null, 2);
+      } catch {}
+    }
+
+    const lineHeight = 20;
+    const lines = displayBody.split("\n").length;
+    const contentHeight = lines * lineHeight + 60;
+    const viewportMaxHeight = window.innerHeight * 0.4;
+    const maxHeight = Math.min(contentHeight, viewportMaxHeight, 600);
+    const shouldFit = contentHeight <= maxHeight;
+
+    return (
+      <div className="my-2">
+        <div
+          className={`flex items-center justify-between ${!isCollapsed ? "bg-panel" : "bg-bg"} hover:bg-panel border-b border-border px-2 py-1.5 header-bar`}
+          style={{ cursor: "pointer", userSelect: "none" }}
+        >
+          <div className="flex items-center gap-2">
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 12 12"
+              fill="none"
+              className="text-comment"
+              style={{
+                transform: isCollapsed ? "rotate(-90deg)" : "rotate(0deg)",
+                transition: "transform 0.2s",
+                pointerEvents: "none",
+              }}
+            >
+              <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            <span className="text-sm font-semibold" style={{ pointerEvents: "none" }}>
+              Request Body Sent
+            </span>
+            {contentType && (
+              <span className="text-xs text-comment" style={{ pointerEvents: "none" }}>
+                ({contentType})
+              </span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-1" style={{ userSelect: "none" }}>
+            {!isCollapsed && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleCopyBody();
+                }}
+                className="response-action-btn px-3 py-1 text-xs text-comment rounded"
+                title="Copy to clipboard"
+                style={{ cursor: "pointer", userSelect: "none" }}
+              >
+                <Copy size={14} />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {!isCollapsed && (
+          <div
+            style={{
+              height: shouldFit ? `${contentHeight}px` : `${maxHeight}px`,
+              maxHeight: `${maxHeight}px`,
+              overflow: "visible",
+              position: "relative",
+            }}
+          >
+            <style>{`
+              .request-body-sent-editor .cm-editor {
+                height: 100% !important;
+              }
+              .request-body-sent-editor .cm-scroller {
+                overflow: auto !important;
+                max-height: ${maxHeight}px !important;
+              }
+              .request-body-sent-editor .cm-panels-top {
+                position: sticky !important;
+                top: 0 !important;
+                z-index: 10 !important;
+              }
+            `}</style>
+            <div className="request-body-sent-editor" style={{ height: "100%", overflow: "auto" }}>
+              <CE autoFocus={false} readOnly lang={lang} value={displayBody} showReplace={false} />
+            </div>
+          </div>
+        )}
+      </div>
     );
   };
 
@@ -402,6 +550,12 @@ export const createRequestHeadersNode = (NodeViewWrapper: any, CodeEditor: any, 
           default: null,
         },
         tls: {
+          default: null,
+        },
+        requestBody: {
+          default: null,
+        },
+        requestBodyContentType: {
           default: null,
         },
       };

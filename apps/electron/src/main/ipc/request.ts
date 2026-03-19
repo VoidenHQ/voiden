@@ -1069,6 +1069,31 @@ export function registerRequestIpcHandler() {
       // Determine protocol type - check for GraphQL first, then default to rest
       const responseProtocol = requestState.protocolType === 'graphql' ? 'graphql' : 'rest';
 
+      // Build a displayable version of the request body (no binary data)
+      let requestBodySent: string | null = null;
+      let requestBodyContentType: string | null = null;
+      if (body && typeof body === 'string') {
+        requestBodySent = body;
+        requestBodyContentType = requestState.contentType || headers['Content-Type'] || null;
+      } else if (requestState.bodyParams && requestState.bodyParams.length > 0) {
+        if (requestState.contentType === 'multipart/form-data') {
+          // Summarize multipart params (exclude binary content)
+          const parts = requestState.bodyParams
+            .filter((p: any) => p.enabled !== false)
+            .map((p: any) => p.type === 'file'
+              ? `${p.key}: [file] ${typeof p.value === 'string' ? p.value.split('/').pop() : 'binary'}`
+              : `${p.key}: ${p.value}`);
+          requestBodySent = parts.join('\n');
+          requestBodyContentType = 'multipart/form-data';
+        } else if (requestState.contentType === 'application/x-www-form-urlencoded') {
+          const parts = requestState.bodyParams
+            .filter((p: any) => p.enabled !== false && p.type === 'text')
+            .map((p: any) => `${p.key}=${p.value}`);
+          requestBodySent = parts.join('&');
+          requestBodyContentType = 'application/x-www-form-urlencoded';
+        }
+      }
+
       return {
         status: response.status,
         protocol: responseProtocol,
@@ -1083,6 +1108,8 @@ export function registerRequestIpcHandler() {
           httpVersion: (response as Response & { httpVersion?: string }).httpVersion || "HTTP/1.1",
           proxy: proxyInfo,
           tlsInfo,
+          body: requestBodySent,
+          bodyContentType: requestBodyContentType,
         },
       };
     } catch (error: any) {

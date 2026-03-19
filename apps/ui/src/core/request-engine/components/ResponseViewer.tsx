@@ -432,10 +432,6 @@ export function ResponseViewer({
           padding-left: 0 !important;
           padding-right: 0 !important;
         }
-        .response-body-node .cm-editor,
-        .response-body-node .cm-scroller,
-        .response-body-editor .cm-editor,
-        .response-body-editor .cm-scroller,
         .response-headers-node .cm-editor,
         .response-headers-node .cm-scroller,
         .response-headers-editor .cm-editor,
@@ -447,7 +443,9 @@ export function ResponseViewer({
         .request-summary-node .cm-editor,
         .request-summary-node .cm-scroller,
         .request-summary-editor .cm-editor,
-        .request-summary-editor .cm-scroller {
+        .request-summary-editor .cm-scroller,
+        .request-body-sent-editor .cm-editor,
+        .request-body-sent-editor .cm-scroller {
           height: auto !important;
           min-height: 180px !important;
           max-height: max(180px, calc(var(--response-panel-height, 70vh) - 170px)) !important;

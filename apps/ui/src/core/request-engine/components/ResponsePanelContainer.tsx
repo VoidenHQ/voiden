@@ -12,7 +12,7 @@ import type { ResponseNodeType } from "../stores/responseStore";
 import { SendRequestButton } from "./SendRequestButton";
 import { ResponseViewer } from "./ResponseViewer";
 import { useMemo, useEffect, useCallback, useState, useRef } from "react";
-import { Shield } from "lucide-react";
+import { Shield, Search } from "lucide-react";
 import { useGetPanelTabs } from "@/core/layout/hooks";
 import { parseMarkdown } from "@/core/editors/voiden/markdownConverter";
 import { getSchema } from "@tiptap/core";
@@ -205,8 +205,40 @@ export function ResponsePanelContainer() {
   const showEmpty = !isLoading && !error && !responseDoc;
   const showError = !isLoading && !!error;
 
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Intercept Cmd+F / Ctrl+F to open CodeMirror search panel in response viewer
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
+        // Find the first visible CodeMirror editor in the response panel
+        const cmEditors = el.querySelectorAll('.cm-editor');
+        for (const cmEl of cmEditors) {
+          const htmlEl = cmEl as HTMLElement & { cmView?: any };
+          // cmView is set by our CodeEditor component's onCreateEditor
+          const view = htmlEl.cmView;
+          if (view && typeof view.focus === 'function') {
+            e.preventDefault();
+            e.stopPropagation();
+            view.focus();
+            import('@codemirror/search').then(({ openSearchPanel }) => {
+              openSearchPanel(view);
+            });
+            return;
+          }
+        }
+      }
+    };
+
+    el.addEventListener('keydown', handleKeyDown);
+    return () => el.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   return (
-    <div className="h-full bg-bg flex flex-col">
+    <div ref={containerRef} className="h-full bg-bg flex flex-col" tabIndex={-1}>
       {/* Sticky top bar */}
       <div className="flex items-center justify-between h-10 border-b border-border px-3 flex-shrink-0 bg-bg">
         <div className="flex items-center space-x-3 font-mono text-sm min-w-0 flex-1">
@@ -277,7 +309,33 @@ export function ResponsePanelContainer() {
               </>
             )}
         </div>
-        {isVoidFile && <SendRequestButton />}
+        <div className="flex items-center gap-1">
+          {showContent && (
+            <button
+              className="p-1.5 text-comment hover:text-text transition-colors rounded"
+              title="Find (⌘F)"
+              onClick={() => {
+                const el = containerRef.current;
+                if (!el) return;
+                const cmEditors = el.querySelectorAll('.cm-editor');
+                for (const cmEl of cmEditors) {
+                  const htmlEl = cmEl as HTMLElement & { cmView?: any };
+                  const view = htmlEl.cmView;
+                  if (view && typeof view.focus === 'function') {
+                    view.focus();
+                    import('@codemirror/search').then(({ openSearchPanel }) => {
+                      openSearchPanel(view);
+                    });
+                    return;
+                  }
+                }
+              }}
+            >
+              <Search size={14} />
+            </button>
+          )}
+          {isVoidFile && <SendRequestButton />}
+        </div>
       </div>
 
       {/* Content area */}
