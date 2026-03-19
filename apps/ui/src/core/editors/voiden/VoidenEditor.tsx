@@ -211,49 +211,49 @@ export const useVoidenExtensionsAndSchema = () => {
 };
 
 export const proseClasses = [
-  // Base styles - relaxed spacing between blocks
-  "space-y-2",
+  // Base styles - generous spacing between blocks (Obsidian/Notion style)
+  "space-y-3",
 
-  // Headings - proportional font, clear hierarchy with breathing room
-  "prose-h1:font-semibold prose-h1:tracking-tight",
-  "prose-h2:font-semibold prose-h2:tracking-tight",
+  // Headings - bold, clear hierarchy with tight tracking
+  "prose-h1:font-bold prose-h1:tracking-tight",
+  "prose-h2:font-bold prose-h2:tracking-tight",
   "prose-h3:font-semibold prose-h3:tracking-tight",
   "prose-h4:font-semibold prose-h4:tracking-tight",
 
   // Text elements - text-base sets the editor's monospace font
   "text-base prose-p:text-text",
-  "prose-strong:font-semibold",
+  "prose-strong:font-bold",
   "prose-em:italic",
 
-  // Lists - comfortable spacing
-  "prose-ul:text-text prose-ul:mb-2 prose-ul:list-disc prose-ul:pl-5",
-  "prose-ol:text-text prose-ol:mb-2 prose-ol:list-decimal prose-ol:pl-5",
-  "prose-li:my-1 prose-li:text-text",
+  // Lists - generous spacing for readability
+  "prose-ul:text-text prose-ul:mb-3 prose-ul:list-disc prose-ul:pl-6",
+  "prose-ol:text-text prose-ol:mb-3 prose-ol:list-decimal prose-ol:pl-6",
+  "prose-li:my-1.5 prose-li:text-text",
 
   // Code - mono font stays for code blocks
-  "prose-pre:bg-bg prose-pre:border prose-pre:border-border prose-pre:mb-2 prose-pre:px-3 prose-pre:py-2 prose-pre:rounded-md",
+  "prose-pre:bg-bg prose-pre:border prose-pre:border-border prose-pre:mb-3 prose-pre:px-4 prose-pre:py-3 prose-pre:rounded-md",
   "prose-code:text-accent prose-code:font-mono prose-code:text-sm",
 
   // Links
   "prose-a:text-accent prose-a:no-underline hover:prose-a:text-orange-400 prose-a:cursor-pointer",
 
-  // Blockquotes
-  "prose-blockquote:border-accent/30 prose-blockquote:bg-bg prose-blockquote:mb-2 prose-blockquote:text-comment",
+  // Blockquotes - clear visual separation
+  "prose-blockquote:border-accent/30 prose-blockquote:bg-bg prose-blockquote:mb-3 prose-blockquote:text-comment",
 
   // Tables - minimal, clean borders
   "[&_table]:w-full",
   "[&_table]:border-collapse",
 
-  // Horizontal rules - with vertical breathing room
-  "prose-hr:border-border prose-hr:my-6",
+  // Horizontal rules - clear section dividers
+  "prose-hr:border-border prose-hr:my-8",
 
   // Figures
-  "prose-figure:my-6",
+  "prose-figure:my-8",
   "prose-figcaption:text-comment prose-figcaption:text-sm",
 
   // Description lists
   "prose-dt:text-text prose-dt:font-semibold prose-dt:mb-1",
-  "prose-dd:text-comment prose-dd:ml-4 prose-dd:mb-2",
+  "prose-dd:text-comment prose-dd:ml-4 prose-dd:mb-3",
 
   // Images
   "prose-img:rounded-md prose-img:border prose-img:border-border",
