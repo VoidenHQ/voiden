@@ -13,6 +13,7 @@ import { createCustomSearchPanel, customSearchPanelStyles } from "./lib/extensio
 import {
   javascript
 } from "@codemirror/lang-javascript";
+import { json } from "@codemirror/lang-json";
 import { html } from "@codemirror/lang-html";
 import { css } from "@codemirror/lang-css";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
@@ -298,7 +299,7 @@ const getLanguageExtension = (filename: string) => {
     case "tsx":
       return javascript({ jsx: true, typescript: true });
     case "json":
-      return javascript();
+      return json();
     case "html":
     case "htm":
       return html();
