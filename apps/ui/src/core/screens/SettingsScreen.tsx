@@ -853,7 +853,7 @@ export const SettingsScreen = () => {
                       value={settings.appearance.content_width ?? 860}
                       onChange={(e) => {
                         const value = Number(e.target.value);
-                        if (value >= CONTENT_WIDTH_MIN && value <= CONTENT_WIDTH_MAX) {
+                        if (value === 0 || (value >= CONTENT_WIDTH_MIN && value <= CONTENT_WIDTH_MAX)) {
                           save({ appearance: { content_width: value } });
                         }
                       }}
@@ -863,6 +863,7 @@ export const SettingsScreen = () => {
                           {size}px{size === 860 ? " (default)" : ""}
                         </option>
                       ))}
+                      <option value={0}>No limit</option>
                     </select>
                   }
                 />

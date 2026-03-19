@@ -49,10 +49,11 @@ function validateSettings(settings: UserSettings): UserSettings {
     validated.appearance.ui_font_size = 13; // Default fallback
   }
 
-  // Validate content width
+  // Validate content width (0 = no limit)
   if (typeof validated.appearance.content_width !== 'number' ||
-    validated.appearance.content_width < CONTENT_WIDTH_MIN ||
-    validated.appearance.content_width > CONTENT_WIDTH_MAX) {
+    (validated.appearance.content_width !== 0 &&
+      (validated.appearance.content_width < CONTENT_WIDTH_MIN ||
+        validated.appearance.content_width > CONTENT_WIDTH_MAX))) {
     validated.appearance.content_width = 860; // Default fallback
   }
 
@@ -317,28 +318,11 @@ export function useSettings() {
   }, [settings?.appearance?.ui_font_size]);
 
   useEffect(() => {
-    if (settings?.appearance?.content_width) {
+    const width = settings?.appearance?.content_width;
+    if (width != null) {
       document.documentElement.style.setProperty(
         "--prose-max-width",
-        `${settings.appearance.content_width}px`
-      );
-    }
-  }, [settings?.appearance?.content_width]);
-
-  useEffect(() => {
-    if (settings?.appearance?.content_width) {
-      document.documentElement.style.setProperty(
-        "--prose-max-width",
-        `${settings.appearance.content_width}px`
-      );
-    }
-  }, [settings?.appearance?.content_width]);
-
-  useEffect(() => {
-    if (settings?.appearance?.content_width) {
-      document.documentElement.style.setProperty(
-        "--prose-max-width",
-        `${settings.appearance.content_width}px`
+        width === 0 ? "100%" : `${width}px`
       );
     }
   }, [settings?.appearance?.content_width]);
