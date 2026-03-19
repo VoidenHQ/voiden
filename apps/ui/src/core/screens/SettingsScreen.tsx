@@ -1,5 +1,5 @@
 import { useSettings, ProxyConfig } from "@/core/settings/hooks/useSettings";
-import { Check, RefreshCw, Plus, Trash2, Edit2, Palette, Type, FileText, Globe, Network, Terminal as TerminalIcon, Download, Search, Keyboard, WrapText, Timer, Columns, Zap, History, ChevronUp, ChevronDown, FolderOpen  } from "lucide-react";
+import { Check, RefreshCw, Plus, Trash2, Edit2, Palette, Type, FileText, Globe, Network, Terminal as TerminalIcon, Download, Search, Keyboard, WrapText, Timer, Columns  } from "lucide-react";
 import { useEffect, useMemo, useState, useRef } from "react";
 import { loadThemeById, getAvailableThemes } from "@/utils/themeLoader";
 import { Kbd } from "@/core/components/ui/kbd";

@@ -335,6 +335,15 @@ export function useSettings() {
   }, [settings?.appearance?.content_width]);
 
   useEffect(() => {
+    if (settings?.appearance?.content_width) {
+      document.documentElement.style.setProperty(
+        "--prose-max-width",
+        `${settings.appearance.content_width}px`
+      );
+    }
+  }, [settings?.appearance?.content_width]);
+
+  useEffect(() => {
     let cancelled = false;
     window.electron?.userSettings.get().then((s) => {
       if (!cancelled) {
