@@ -1358,7 +1358,7 @@ function sanitizeDoc(node: any): any {
         </div>
       )}
 
-      <div className="mx-auto w-full px-2 bg-editor" style={{ maxWidth: 'var(--prose-max-width, 860px)' }}>
+      <div className="w-full px-4 bg-editor">
         {isActive && <VoidenDragMenu editor={editor} />}
         <EditorContent editor={editor} />
       </div>

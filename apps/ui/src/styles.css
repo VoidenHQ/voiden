@@ -466,8 +466,8 @@ input[type="week"]::-webkit-datetime-edit-year-field:focus {
   }
 
   /* Extra breathing room before major sections */
-  h1 { font-size: var(--font-size-4xl); margin-top: 2.5em; }
-  h2 { font-size: var(--font-size-3xl); margin-top: 2em; }
+  h1 { font-size: var(--font-size-4xl); margin-top: 1.2em; }
+  h2 { font-size: var(--font-size-3xl); margin-top: 1em; }
   h3 { font-size: var(--font-size-2xl); margin-top: 1.75em; }
   h4 { font-size: var(--font-size-xl); margin-top: 1.5em; }
 

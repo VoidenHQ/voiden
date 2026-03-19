@@ -584,9 +584,9 @@ export const SettingsScreen = () => {
   return (
     <div className="h-full w-full bg-editor text-text flex">
       {/* Sidebar */}
-      <div className="w-56 bg-panel/30 border-r border-border flex flex-col">
-        <div className="p-4 border-b border-border">
-          <h1 className="text-lg font-semibold mb-3">Settings</h1>
+      <div className="w-48 bg-panel/30 border-r border-border flex flex-col">
+        <div className="p-3 border-b border-border">
+          <h1 className="text-base font-semibold mb-2">Settings</h1>
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-comment" />
             <input
@@ -600,22 +600,22 @@ export const SettingsScreen = () => {
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-2">
+        <div className="flex-1 overflow-y-auto p-1.5">
           {sections.map((section) => (
             <button
               key={section.id}
               onClick={() => scrollToSection(section.id)}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-sm transition-all ${
+              className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-sm transition-all ${
                 activeSection === section.id
                   ? "font-medium"
-                  : "text-text/80 hover:bg-panel hover:text-text"
+                  : "hover:bg-panel"
               }`}
               style={activeSection === section.id ? {
                 backgroundColor: 'color-mix(in srgb, var(--icon-primary) 15%, transparent)',
                 color: 'var(--icon-primary)'
-              } : {}}
+              } : { color: 'var(--text)' }}
             >
-              <span style={{ color: activeSection === section.id ? 'var(--icon-primary)' : 'var(--icon-secondary)' }}>
+              <span style={{ color: activeSection === section.id ? 'var(--icon-primary)' : 'var(--icon-secondary, var(--text))' }}>
                 {section.icon}
               </span>
               {section.label}
@@ -623,7 +623,7 @@ export const SettingsScreen = () => {
           ))}
         </div>
 
-        <div className="p-4 border-t border-border">
+        <div className="p-2 border-t border-border">
           <button
             onClick={async () => {
               await reset();
@@ -641,7 +641,7 @@ export const SettingsScreen = () => {
 
       {/* Main Content */}
       <div ref={contentRef} className="flex-1 overflow-y-auto">
-        <div className="max-w-4xl mx-auto p-8 space-y-10">
+        <div className="p-5 space-y-7">
           {/* Projects */}
           <section ref={projectsRef} data-section="projects">
             <SectionHeader
@@ -652,7 +652,7 @@ export const SettingsScreen = () => {
             <div>
               {matchesSearch("Projects Default project directory sample project workspace folder") && (
                 <div className="rounded-md px-2 py-4 hover:bg-panel/30 transition-all">
-                  <div className="ml-7 flex w-full items-center gap-2">
+                  <div className="flex w-full items-center gap-2">
                     <div className="min-w-0 flex-1">
                       <Input
                         value={projectDirectoryDraft}
@@ -673,11 +673,6 @@ export const SettingsScreen = () => {
                     >
                       Browse
                     </button>
-                  </div>
-                  <div className="ml-7 mt-3 rounded-md border border-border bg-panel/40 px-3 py-2">
-                    <p className="text-xs text-comment leading-relaxed">
-                      Voiden uses this folder for new project creation and for the onboarding sample project.
-                    </p>
                   </div>
                 </div>
               )}
