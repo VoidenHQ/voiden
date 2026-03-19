@@ -131,7 +131,8 @@ export const SettingsScreen = () => {
   const skillsRef = useRef<HTMLElement>(null);
   const keyboardRef = useRef<HTMLElement>(null);
 
-  const [skillsToggling, setSkillsToggling] = useState(false);
+  const [claudeSkillToggling, setClaudeSkillToggling] = useState(false);
+  const [codexSkillToggling, setCodexSkillToggling] = useState(false);
 
   const sections = [
     { id: "appearance", label: "Appearance", icon: <Palette className="w-4 h-4" />, ref: appearanceRef },
@@ -560,13 +561,23 @@ export const SettingsScreen = () => {
     await window.electron?.cli?.showInstructions();
   };
 
-  const handleSkillsToggle = async (enabled: boolean) => {
-    setSkillsToggling(true);
+  const handleClaudeSkillToggle = async (enabled: boolean) => {
+    setClaudeSkillToggling(true);
     try {
-      await window.electron?.skills?.setEnabled(enabled);
-      await save({ skills: { enabled } });
+      await window.electron?.skills?.setClaude(enabled);
+      await save({ skills: { ...settings.skills, claude: enabled } as any });
     } finally {
-      setSkillsToggling(false);
+      setClaudeSkillToggling(false);
+    }
+  };
+
+  const handleCodexSkillToggle = async (enabled: boolean) => {
+    setCodexSkillToggling(true);
+    try {
+      await window.electron?.skills?.setCodex(enabled);
+      await save({ skills: { ...settings.skills, codex: enabled } as any });
+    } finally {
+      setCodexSkillToggling(false);
     }
   };
 
@@ -1188,28 +1199,46 @@ export const SettingsScreen = () => {
               description="Install Voiden skills into AI coding agents so they understand the .void file format"
             />
             <div className="border-b border-[--panel-border] mb-6"></div>
-            <div>
+            <div className="space-y-2">
               {matchesSearch("AI skills claude codex voiden skill enable") && (
-                <div className="space-y-4">
+                <>
                   <div className="py-4 hover:bg-panel/30 transition-all px-2 rounded-md">
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex items-start gap-3 flex-1">
                         <div className="mt-0.5" style={{ color: 'var(--icon-primary)' }}><Zap className="w-4 h-4" /></div>
                         <div className="flex-1">
-                          <div className="font-medium text-text mb-0.5">Enable Voiden Skills</div>
+                          <div className="font-medium text-text mb-0.5">Claude Code</div>
                           <div className="text-xs text-comment leading-relaxed">
-                            Installs a skill into Claude Code (<code className="px-1 py-0.5 bg-panel rounded text-xs">~/.claude/skills/</code>) and Codex (<code className="px-1 py-0.5 bg-panel rounded text-xs">~/.codex/instructions.md</code>) so AI agents can create and edit <code className="px-1 py-0.5 bg-panel rounded text-xs">.void</code> files. Skills update automatically when extensions are enabled or disabled.
+                            Install skill to <code className="px-1 py-0.5 bg-panel rounded text-xs">~/.claude/skills/voiden/</code> so Claude agents understand the <code className="px-1 py-0.5 bg-panel rounded text-xs">.void</code> file format.
                           </div>
                         </div>
                       </div>
                       <Toggle
-                        checked={settings.skills?.enabled ?? false}
-                        onChange={handleSkillsToggle}
-                        disabled={skillsToggling}
+                        checked={settings.skills?.claude ?? false}
+                        onChange={handleClaudeSkillToggle}
+                        disabled={claudeSkillToggling}
                       />
                     </div>
                   </div>
-                </div>
+                  <div className="py-4 hover:bg-panel/30 transition-all px-2 rounded-md">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-start gap-3 flex-1">
+                        <div className="mt-0.5" style={{ color: 'var(--icon-primary)' }}><Zap className="w-4 h-4" /></div>
+                        <div className="flex-1">
+                          <div className="font-medium text-text mb-0.5">Codex</div>
+                          <div className="text-xs text-comment leading-relaxed">
+                            Install skill to <code className="px-1 py-0.5 bg-panel rounded text-xs">~/.codex/skills/voiden/</code> so Codex agents understand the <code className="px-1 py-0.5 bg-panel rounded text-xs">.void</code> file format.
+                          </div>
+                        </div>
+                      </div>
+                      <Toggle
+                        checked={settings.skills?.codex ?? false}
+                        onChange={handleCodexSkillToggle}
+                        disabled={codexSkillToggling}
+                      />
+                    </div>
+                  </div>
+                </>
               )}
             </div>
           </section>

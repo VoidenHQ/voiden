@@ -186,8 +186,9 @@ app.on("ready", async () => {
       await loadMainProcessExtensions(appState.extensions);
     }
     // Recompose skills now that state (extensions list) is available
-    if (settings.skills?.enabled && appState) {
-      recomposeAndInstall(appState).catch(() => {});
+    const skills = settings.skills;
+    if (appState && (skills?.claude || skills?.codex)) {
+      recomposeAndInstall(appState, { claude: skills.claude ?? false, codex: skills.codex ?? false }).catch(() => {});
     }
   } catch (err) {
     console.error("[main] Failed to load main-process extensions:", err);

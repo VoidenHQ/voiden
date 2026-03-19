@@ -34,6 +34,7 @@
     "installed": false
   },
   "skills": {
-    "enabled": false
+    "claude": false,
+    "codex": false
   }
 }

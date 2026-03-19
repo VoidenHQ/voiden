@@ -4,121 +4,74 @@ import * as path from "node:path";
 import { AppState } from "src/shared/types";
 import { composeSkillMarkdown } from "./skillsComposer";
 
-const CODEX_SECTION_START = "<!-- voiden-skills:start -->";
-const CODEX_SECTION_END = "<!-- voiden-skills:end -->";
-
-function getClaudeSkillsDir(): string {
-  return path.join(app.getPath("home"), ".claude", "skills");
+function getClaudeSkillDir(): string {
+  return path.join(app.getPath("home"), ".claude", "skills", "voiden");
 }
 
-function getCodexInstructionsPath(): string {
-  return path.join(app.getPath("home"), ".codex", "instructions.md");
+function getCodexSkillDir(): string {
+  return path.join(app.getPath("home"), ".codex", "skills", "voiden");
 }
 
 // --- Claude Code ---
 
-function installClaudeSkill(markdown: string): void {
-  // Claude Code expects a directory ~/.claude/skills/voiden/ containing SKILL.md
-  const skillDir = path.join(getClaudeSkillsDir(), "voiden");
+function installClaude(markdown: string): void {
+  const skillDir = getClaudeSkillDir();
   try {
     fs.mkdirSync(skillDir, { recursive: true });
     fs.writeFileSync(path.join(skillDir, "SKILL.md"), markdown, "utf-8");
-  } catch {
-    // skip — non-critical
-  }
+  } catch {}
 }
 
-function uninstallClaudeSkill(): void {
-  const targetDir = getClaudeSkillsDir();
-  // Remove current skill directory
+export function uninstallClaudeSkill(): void {
   try {
-    const skillDir = path.join(targetDir, "voiden");
+    const skillDir = getClaudeSkillDir();
     if (fs.existsSync(skillDir)) fs.rmSync(skillDir, { recursive: true, force: true });
   } catch {}
   // Migrate: remove old ZIP-format skills if they exist
   try {
-    const oldZip = path.join(targetDir, "voiden.skill");
-    if (fs.existsSync(oldZip)) fs.unlinkSync(oldZip);
-  } catch {}
-  try {
-    const oldCreator = path.join(targetDir, "voiden-creator.skill");
-    if (fs.existsSync(oldCreator)) fs.unlinkSync(oldCreator);
+    const base = path.join(app.getPath("home"), ".claude", "skills");
+    for (const old of ["voiden.skill", "voiden-creator.skill"]) {
+      const p = path.join(base, old);
+      if (fs.existsSync(p)) fs.unlinkSync(p);
+    }
   } catch {}
 }
 
 // --- Codex ---
 
-function installCodexSkills(composedMarkdown: string): void {
-  if (!composedMarkdown.trim()) return;
-
-  const section = `${CODEX_SECTION_START}\n${composedMarkdown.trim()}\n${CODEX_SECTION_END}`;
-  const instructionsPath = getCodexInstructionsPath();
-
+function installCodex(markdown: string): void {
+  const skillDir = getCodexSkillDir();
   try {
-    fs.mkdirSync(path.dirname(instructionsPath), { recursive: true });
-  } catch {
-    return;
-  }
-
-  let existing = "";
-  try {
-    existing = fs.readFileSync(instructionsPath, "utf-8");
-  } catch {
-    // file doesn't exist yet
-  }
-
-  let updated: string;
-  if (existing.includes(CODEX_SECTION_START)) {
-    updated = existing.replace(
-      new RegExp(`${CODEX_SECTION_START}[\\s\\S]*?${CODEX_SECTION_END}`),
-      section
-    );
-  } else {
-    const separator = existing && !existing.endsWith("\n\n") ? "\n\n" : "";
-    updated = existing + separator + section + "\n";
-  }
-
-  try {
-    fs.writeFileSync(instructionsPath, updated, "utf-8");
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(path.join(skillDir, "SKILL.md"), markdown, "utf-8");
   } catch {}
 }
 
-function uninstallCodexSkills(): void {
-  const instructionsPath = getCodexInstructionsPath();
-  if (!fs.existsSync(instructionsPath)) return;
-
+export function uninstallCodexSkill(): void {
   try {
-    const existing = fs.readFileSync(instructionsPath, "utf-8");
-    if (!existing.includes(CODEX_SECTION_START)) return;
-
-    const updated = existing
-      .replace(new RegExp(`\\n?${CODEX_SECTION_START}[\\s\\S]*?${CODEX_SECTION_END}\\n?`), "")
-      .trimEnd();
-
-    if (updated) {
-      fs.writeFileSync(instructionsPath, updated + "\n", "utf-8");
-    } else {
-      fs.unlinkSync(instructionsPath);
-    }
+    const skillDir = getCodexSkillDir();
+    if (fs.existsSync(skillDir)) fs.rmSync(skillDir, { recursive: true, force: true });
   } catch {}
 }
 
 // --- Public API ---
 
+type SkillTargets = { claude: boolean; codex: boolean };
+
 /**
- * Composes skills from all enabled extensions and installs them to
- * ~/.claude/skills/voiden.skill and ~/.codex/instructions.md
+ * Composes skills from all enabled extensions and installs them to the requested targets:
+ * ~/.claude/skills/voiden/SKILL.md and/or ~/.codex/skills/voiden/SKILL.md
  */
-export async function recomposeAndInstall(appState: AppState): Promise<void> {
+export async function recomposeAndInstall(appState: AppState, targets: SkillTargets): Promise<void> {
   const markdown = composeSkillMarkdown(appState);
-  installClaudeSkill(markdown);
-  installCodexSkills(markdown);
+  if (targets.claude) installClaude(markdown);
+  if (targets.codex) installCodex(markdown);
 }
 
 /**
- * Removes installed skills from ~/.claude/skills/ and ~/.codex/instructions.md
+ * Removes installed skills from all targets.
  */
 export function uninstallSkills(): void {
   uninstallClaudeSkill();
-  uninstallCodexSkills();
+  uninstallCodexSkill();
 }

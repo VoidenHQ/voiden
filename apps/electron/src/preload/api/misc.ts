@@ -187,9 +187,10 @@ export const cliApi = {
 };
 
 export const skillsApi = {
-  setEnabled: (enabled: boolean): Promise<{ success: boolean; message?: string }> =>
-    ipcRenderer.invoke("skills:setEnabled", enabled),
-  getEnabled: (): Promise<boolean> => ipcRenderer.invoke("skills:getEnabled"),
+  setClaude: (enabled: boolean): Promise<{ success: boolean; message?: string }> =>
+    ipcRenderer.invoke("skills:setClaude", enabled),
+  setCodex: (enabled: boolean): Promise<{ success: boolean; message?: string }> =>
+    ipcRenderer.invoke("skills:setCodex", enabled),
 };
 
 export const variablesApi = {

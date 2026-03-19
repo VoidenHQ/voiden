@@ -46,7 +46,8 @@ export type Settings = {
     installed: boolean; // Whether CLI is currently installed in PATH
   };
   skills: {
-    enabled: boolean; // Whether bundled skills are installed to AI coding agents
+    claude: boolean;
+    codex: boolean;
   };
 };
 

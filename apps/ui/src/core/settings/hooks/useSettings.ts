@@ -221,7 +221,8 @@ export type UserSettings = {
     channel: "stable" | "early-access";
   };
   skills?: {
-    enabled: boolean;
+    claude: boolean;
+    codex: boolean;
   };
 };
 

@@ -16,8 +16,9 @@ import { getSettings } from "./settings";
 import { recomposeAndInstall } from "./skillsInstaller";
 
 function maybeRecomposeSkills(state: AppState): void {
-  if (getSettings().skills?.enabled) {
-    recomposeAndInstall(state).catch(() => {});
+  const skills = getSettings().skills;
+  if (skills?.claude || skills?.codex) {
+    recomposeAndInstall(state, { claude: skills.claude ?? false, codex: skills.codex ?? false }).catch(() => {});
   }
 }
 
