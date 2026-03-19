@@ -8,6 +8,7 @@ export const SettingsContent = () => {
   const [cliInstalling, setCliInstalling] = useState(false);
   const [cliMessage, setCliMessage] = useState<string | null>(null);
   const [cliActuallyInstalled, setCliActuallyInstalled] = useState<boolean | null>(null);
+  const [skillsToggling, setSkillsToggling] = useState(false);
 
   // Check actual CLI installation status on mount and when settings change
   useEffect(() => {
@@ -166,6 +167,16 @@ export const SettingsContent = () => {
     await window.electron?.cli?.showInstructions();
   };
 
+  const handleSkillsToggle = async (enabled: boolean) => {
+    setSkillsToggling(true);
+    try {
+      await window.electron?.skills?.setEnabled(enabled);
+      await save({ skills: { enabled } });
+    } finally {
+      setSkillsToggling(false);
+    }
+  };
+
   return (
     <div className="p-6 max-w-4xl mx-auto">
       <h1 className="text-2xl font-bold mb-6">Settings</h1>
@@ -286,6 +297,35 @@ export const SettingsContent = () => {
             <code className="block text-muted-foreground">voiden file.void</code>
             <code className="block text-muted-foreground">voiden /path/to/project</code>
             <code className="block text-muted-foreground">voiden --help</code>
+          </div>
+        </div>
+      </section>
+
+      {/* AI Skills */}
+      <section className="mb-8">
+        <h2 className="text-xl font-semibold mb-4">AI Skills</h2>
+
+        <div className="border border-border rounded-lg p-4 bg-surface">
+          <div className="flex items-start justify-between">
+            <div className="flex-1">
+              <h3 className="font-medium">Enable Voiden Skills</h3>
+              <p className="text-sm text-muted-foreground mt-1">
+                Install Voiden skills into Claude Code and Codex so AI agents understand the .void file format and can create API tests.
+                Skills are copied to <code className="px-1 py-0.5 bg-muted rounded text-xs">~/.claude/skills/</code> and <code className="px-1 py-0.5 bg-muted rounded text-xs">~/.codex/instructions.md</code>.
+              </p>
+            </div>
+            <div className="flex items-center gap-3 ml-4">
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={settings.skills?.enabled ?? false}
+                  onChange={(e) => handleSkillsToggle(e.target.checked)}
+                  disabled={skillsToggling}
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-600"></div>
+              </label>
+            </div>
           </div>
         </div>
       </section>

@@ -1,4 +1,4 @@
-import { ipcMain, ipcRenderer } from "electron";
+import { ipcRenderer } from "electron";
 import { Tab } from "../../shared/types";
 import type { Settings } from "../../main/settings";
 import { connect } from "http2";
@@ -184,6 +184,12 @@ export const cliApi = {
   install: (): Promise<{ success: boolean; message: string }> => ipcRenderer.invoke("cli:install"),
   uninstall: (): Promise<{ success: boolean; message: string }> => ipcRenderer.invoke("cli:uninstall"),
   showInstructions: (): Promise<void> => ipcRenderer.invoke("cli:showInstructions"),
+};
+
+export const skillsApi = {
+  setEnabled: (enabled: boolean): Promise<{ success: boolean; message?: string }> =>
+    ipcRenderer.invoke("skills:setEnabled", enabled),
+  getEnabled: (): Promise<boolean> => ipcRenderer.invoke("skills:getEnabled"),
 };
 
 export const variablesApi = {

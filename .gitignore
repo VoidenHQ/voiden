@@ -48,3 +48,6 @@ out
 /apps/cli/environmentInfo.json
 tokensInfo.json# Font files
 \!apps/ui/public/fonts/*.woff2
+
+# Generated at build time — do not commit
+apps/electron/skills/core/

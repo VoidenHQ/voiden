@@ -1,5 +1,5 @@
 import { useSettings, ProxyConfig } from "@/core/settings/hooks/useSettings";
-import { Check, RefreshCw, Plus, Trash2, Edit2, Palette, Type, FileText, Globe, Network, Terminal as TerminalIcon, Download, Search, Keyboard, WrapText, Timer, Columns  } from "lucide-react";
+import { Check, RefreshCw, Plus, Trash2, Edit2, Palette, Type, FileText, Globe, Network, Terminal as TerminalIcon, Download, Search, Keyboard, WrapText, Timer, Columns, Zap  } from "lucide-react";
 import { useEffect, useMemo, useState, useRef } from "react";
 import { loadThemeById, getAvailableThemes } from "@/utils/themeLoader";
 import { Kbd } from "@/core/components/ui/kbd";
@@ -128,7 +128,10 @@ export const SettingsScreen = () => {
   const updatesRef = useRef<HTMLElement>(null);
   const terminalRef = useRef<HTMLElement>(null);
   const cliRef = useRef<HTMLElement>(null);
+  const skillsRef = useRef<HTMLElement>(null);
   const keyboardRef = useRef<HTMLElement>(null);
+
+  const [skillsToggling, setSkillsToggling] = useState(false);
 
   const sections = [
     { id: "appearance", label: "Appearance", icon: <Palette className="w-4 h-4" />, ref: appearanceRef },
@@ -137,6 +140,7 @@ export const SettingsScreen = () => {
     { id: "updates", label: "Updates", icon: <Download className="w-4 h-4" />, ref: updatesRef },
     { id: "terminal", label: "Terminal", icon: <TerminalIcon className="w-4 h-4" />, ref: terminalRef },
     { id: "cli", label: "CLI", icon: <TerminalIcon className="w-4 h-4" />, ref: cliRef },
+    { id: "skills", label: "AI Skills", icon: <Zap className="w-4 h-4" />, ref: skillsRef },
     { id: "keyboard", label: "Keyboard", icon: <Keyboard className="w-4 h-4" />, ref: keyboardRef },
   ];
 
@@ -554,6 +558,16 @@ export const SettingsScreen = () => {
 
   const handleShowCliInstructions = async () => {
     await window.electron?.cli?.showInstructions();
+  };
+
+  const handleSkillsToggle = async (enabled: boolean) => {
+    setSkillsToggling(true);
+    try {
+      await window.electron?.skills?.setEnabled(enabled);
+      await save({ skills: { enabled } });
+    } finally {
+      setSkillsToggling(false);
+    }
   };
 
   const handleEarlyAccessToggle = async (enable: boolean) => {
@@ -1159,6 +1173,40 @@ export const SettingsScreen = () => {
                       <code className="block text-comment mb-1">voiden file.void</code>
                       <code className="block text-comment mb-1">voiden /path/to/project</code>
                       <code className="block text-comment">voiden --help</code>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </section>
+
+          {/* AI Skills */}
+          <section ref={skillsRef} data-section="skills">
+            <SectionHeader
+              icon={<Zap className="w-5 h-5" />}
+              title="AI Skills"
+              description="Install Voiden skills into AI coding agents so they understand the .void file format"
+            />
+            <div className="border-b border-[--panel-border] mb-6"></div>
+            <div>
+              {matchesSearch("AI skills claude codex voiden skill enable") && (
+                <div className="space-y-4">
+                  <div className="py-4 hover:bg-panel/30 transition-all px-2 rounded-md">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-start gap-3 flex-1">
+                        <div className="mt-0.5" style={{ color: 'var(--icon-primary)' }}><Zap className="w-4 h-4" /></div>
+                        <div className="flex-1">
+                          <div className="font-medium text-text mb-0.5">Enable Voiden Skills</div>
+                          <div className="text-xs text-comment leading-relaxed">
+                            Installs a skill into Claude Code (<code className="px-1 py-0.5 bg-panel rounded text-xs">~/.claude/skills/</code>) and Codex (<code className="px-1 py-0.5 bg-panel rounded text-xs">~/.codex/instructions.md</code>) so AI agents can create and edit <code className="px-1 py-0.5 bg-panel rounded text-xs">.void</code> files. Skills update automatically when extensions are enabled or disabled.
+                          </div>
+                        </div>
+                      </div>
+                      <Toggle
+                        checked={settings.skills?.enabled ?? false}
+                        onChange={handleSkillsToggle}
+                        disabled={skillsToggling}
+                      />
                     </div>
                   </div>
                 </div>

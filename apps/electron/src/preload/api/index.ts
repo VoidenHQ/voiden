@@ -24,6 +24,7 @@ import {
   userSettingsApi,
   fontsApi,
   cliApi,
+  skillsApi,
   variablesApi,
   mainWindow
 } from "./misc";
@@ -53,6 +54,7 @@ export const electronApi = {
   userSettings: userSettingsApi,
   fonts: fontsApi,
   cli: cliApi,
+  skills: skillsApi,
   themes: themesApi,
   autosave: autosaveApi,
   mainwindow:mainWindow

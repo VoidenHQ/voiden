@@ -12,6 +12,14 @@ import os from "os";
 import path from "path";
 import { updateFileWatcher } from "./fileWatcher";
 import { windowManager } from "./windowManager";
+import { getSettings } from "./settings";
+import { recomposeAndInstall } from "./skillsInstaller";
+
+function maybeRecomposeSkills(state: AppState): void {
+  if (getSettings().skills?.enabled) {
+    recomposeAndInstall(state).catch(() => {});
+  }
+}
 
 // Declare global state variables.
 let appState: AppState;
@@ -841,6 +849,7 @@ export const ipcStateHandlers = () => {
     }
     await extensionManager.installCommunityExtension(extension);
     await saveState(appState);
+    maybeRecomposeSkills(appState);
     return { success: true };
   });
 
@@ -856,6 +865,7 @@ export const ipcStateHandlers = () => {
     }
     const ext = await extensionManager.installFromZip(result.filePaths[0]);
     await saveState(appState);
+    maybeRecomposeSkills(appState);
     return { success: true, extension: ext };
   });
 
@@ -878,6 +888,7 @@ export const ipcStateHandlers = () => {
     // Now uninstall the extension via the extension manager.
     await extensionManager.uninstallCommunityExtension(extensionId);
     await saveState(appState);
+    maybeRecomposeSkills(appState);
     return { success: true };
   });
 
@@ -923,6 +934,7 @@ export const ipcStateHandlers = () => {
 
     await extensionManager.setExtensionEnabled(extensionId, enabled);
     await saveState(appState);
+    maybeRecomposeSkills(appState);
     return { extensionId, enabled };
   });
 
@@ -1026,6 +1038,7 @@ export const ipcStateHandlers = () => {
     // Otherwise, download and replace (update) the extension using the extension manager.
     const updatedExtension = await extensionManager.installCommunityExtension(remoteExt);
     await saveState(appState);
+    maybeRecomposeSkills(appState);
     return { success: true, updatedExtension };
   });
 

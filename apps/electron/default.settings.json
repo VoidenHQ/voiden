@@ -32,5 +32,8 @@
   },
   "cli": {
     "installed": false
+  },
+  "skills": {
+    "enabled": false
   }
 }

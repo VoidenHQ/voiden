@@ -20,9 +20,11 @@ import { registerSearchIpcHandler } from "./main/ipc/search";
 import { registerContextMenuIpcHandlers } from "./main/ipc/contextMenus";
 import { registerThemeIpcHandlers } from "./main/ipc/themes";
 import { registerCliIpcHandlers } from "./main/ipc/cli";
+import { registerSkillsIpcHandlers } from "./main/ipc/skills";
 import { registerPythonScriptIpcHandler } from "./main/ipc/pythonScript";
 import { registerNodeScriptIpcHandler } from "./main/ipc/nodeScript";
 import { loadMainProcessExtensions, unloadMainProcessExtensions } from "./main/extensionLoader";
+import { recomposeAndInstall } from "./main/skillsInstaller";
 
 // Import side-effect modules
 import "./main/terminal";
@@ -154,6 +156,7 @@ app.on("ready", async () => {
   registerContextMenuIpcHandlers();
   registerThemeIpcHandlers();
   registerCliIpcHandlers();
+  registerSkillsIpcHandlers();
   registerPythonScriptIpcHandler();
   registerNodeScriptIpcHandler();
   ipcStateHandlers();
@@ -181,6 +184,10 @@ app.on("ready", async () => {
     const appState = getAppState();
     if (appState?.extensions) {
       await loadMainProcessExtensions(appState.extensions);
+    }
+    // Recompose skills now that state (extensions list) is available
+    if (settings.skills?.enabled && appState) {
+      recomposeAndInstall(appState).catch(() => {});
     }
   } catch (err) {
     console.error("[main] Failed to load main-process extensions:", err);

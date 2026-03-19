@@ -45,6 +45,9 @@ export type Settings = {
   cli: {
     installed: boolean; // Whether CLI is currently installed in PATH
   };
+  skills: {
+    enabled: boolean; // Whether bundled skills are installed to AI coding agents
+  };
 };
 
 const userFile = path.join(app.getPath("userData"), "settings.json");

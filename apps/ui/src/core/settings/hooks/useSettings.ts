@@ -220,6 +220,9 @@ export type UserSettings = {
   updates: {
     channel: "stable" | "early-access";
   };
+  skills?: {
+    enabled: boolean;
+  };
 };
 
 function useDebounced(fn: (...a: any[]) => void, ms: number) {
@@ -298,6 +301,7 @@ export function useSettings() {
       proxy: { ...currentSettings.proxy, ...patch.proxy },
       terminal: { ...currentSettings.terminal, ...patch.terminal },
       updates: { ...currentSettings.updates, ...patch.updates },
+      skills: { ...currentSettings.skills, ...patch.skills },
     };
     const validatedSettings = validateSettings(mergedSettings as UserSettings);
 

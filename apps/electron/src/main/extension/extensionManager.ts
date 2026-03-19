@@ -125,7 +125,7 @@ export class ExtensionManager {
     if (!extension.repo) {
       throw new Error("repo not defined");
     }
-    const { manifest, main } = await installer.getExtensionFiles(extension.repo, extension.version);
+    const { manifest, main, skill } = await installer.getExtensionFiles(extension.repo, extension.version);
     const prepared = installer.prepareExtensionMain(main);
     const installPath = path.join(communityDir, extension.id);
     await fs.mkdir(installPath, { recursive: true });
@@ -136,6 +136,9 @@ export class ExtensionManager {
         fs.writeFile(path.join(installPath, filename), source, "utf8"),
       ),
     );
+    if (skill) {
+      await fs.writeFile(path.join(installPath, "skill.md"), skill, "utf8");
+    }
 
     // Parse the downloaded manifest to extract rich metadata
     let manifestData: any = {};
@@ -258,6 +261,12 @@ export class ExtensionManager {
         fs.writeFile(path.join(installPath, filename), source, "utf8"),
       ),
     );
+
+    // Extract skill.md if present — optional, best-effort
+    const skillEntry = zip.getEntry(prefix + "skill.md");
+    if (skillEntry) {
+      await fs.writeFile(path.join(installPath, "skill.md"), skillEntry.getData().toString("utf8"), "utf8");
+    }
 
     // Build ExtensionData
     const extension: ExtensionData = {
