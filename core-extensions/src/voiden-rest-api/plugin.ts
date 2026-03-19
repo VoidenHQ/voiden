@@ -7,6 +7,7 @@
 
 import { PluginContext } from '@voiden/sdk/ui';
 import { VoidenRestApiExtension } from './extension';
+import { restApiHistoryAdapter } from './historyAdapter';
 import { createResponseStatusNode } from './nodes/ResponseStatusNode';
 import { createResponseHeadersNode } from './nodes/ResponseHeadersNode';
 import { createRequestHeadersNode } from './nodes/RequestHeadersNode';
@@ -384,20 +385,7 @@ const voidenRestApiPlugin = (context: PluginContext) => {
       // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
       // Import paste utilities
-      const { convertCurlToRequest } = await import('./index');
-      const {
-        convertToMethodNode,
-        convertToURLNode,
-        convertToHeadersTableNode,
-        convertToQueryTableNode,
-        convertToJsonNode,
-        convertToXMLNode,
-        convertToYmlNode,
-        convertToMultipartTableNode,
-        findAndReplaceOrAddNode,
-        insertParagraphAfterRequestBlocks,
-        updateEditorContent,
-      } = await import('./lib/converter');
+      const { convertCurlToRequest, pasteCurl } = await import('./index');
 
       // Register block owners (read from manifest)
       const blockTypes = manifest.capabilities.blocks.owns;
@@ -461,7 +449,7 @@ const voidenRestApiPlugin = (context: PluginContext) => {
 
           handle: (text, _html, _view) => {
             try {
-              // Parse cURL command
+              // Parse cURL command (sync check)
               const requests = convertCurlToRequest(text) as any[];
               if (!requests || requests.length === 0) {
                 return false;
@@ -482,98 +470,9 @@ const voidenRestApiPlugin = (context: PluginContext) => {
                 }
               }
 
-              // Populate editor with cURL request
-              updateEditorContent(editor, (editorJsonContent) => {
-                const requestBlocks = ["headers-table", "query-table", "url-table", "multipart-table", "cookies-table", "json_body", "xml_body", "yml_body"];
-
-                // Step 1: Clean up existing request nodes
-                editorJsonContent = editorJsonContent.filter((node: any) => {
-                  if (node.type === "method" || node.type === "url") return false;
-                  if (node.type && requestBlocks.includes(node.type)) return false;
-                  return true;
-                });
-
-                // Step 2: Create method and URL nodes
-                const newEndpointContent = [
-                  convertToMethodNode(request.method),
-                  convertToURLNode(request.url)
-                ];
-
-                // Find existing request node
-                const requestIndex = editorJsonContent.findIndex((node: any) =>
-                  node.type === "request" && !node.attrs?.importedFrom
-                );
-
-                if (requestIndex > -1) {
-                  // Update existing
-                  editorJsonContent[requestIndex] = {
-                    ...editorJsonContent[requestIndex],
-                    content: newEndpointContent,
-                  };
-                } else {
-                  // Create new
-                  editorJsonContent.push({
-                    type: "request",
-                    content: newEndpointContent,
-                  });
-                }
-
-                // Step 3: Add headers
-                if (request.headers?.length) {
-                  editorJsonContent = findAndReplaceOrAddNode(
-                    editorJsonContent,
-                    "headers-table",
-                    convertToHeadersTableNode(request.headers.map((h: any) => [h.name, h.value]))
-                  );
-                }
-
-                // Step 4: Add query parameters
-                if (request.parameters?.length) {
-                  editorJsonContent = findAndReplaceOrAddNode(
-                    editorJsonContent,
-                    "query-table",
-                    convertToQueryTableNode(request.parameters.map((p: any) => [p.name, p.value || ""]))
-                  );
-                }
-
-                // Step 5: Add request body
-                if (request.body) {
-                  if (request.body.mimeType === "multipart/form-data" && request.body.params) {
-                    const tableData = request.body.params.map((param: any) => {
-                      const name = param.name;
-                      const value = param.fileName ? `@${param.fileName.replace(/^"|"$/g, "")}` : param.value || "";
-                      return [name, value.replace(/^"|"$/g, "")];
-                    });
-                    editorJsonContent = findAndReplaceOrAddNode(
-                      editorJsonContent,
-                      "multipart-table",
-                      convertToMultipartTableNode(tableData)
-                    );
-                  } else if (["application/xml", "text/xml"].includes(request.body.mimeType || "") && request.body.text) {
-                    editorJsonContent = findAndReplaceOrAddNode(
-                      editorJsonContent,
-                      "xml_body",
-                      convertToXMLNode(request.body.text, request.body.mimeType || "application/xml")
-                    );
-                  } else if (["application/x-yaml", "text/yaml", "text/x-yaml", "application/yaml"].includes(request.body.mimeType || "") && request.body.text) {
-                    editorJsonContent = findAndReplaceOrAddNode(
-                      editorJsonContent,
-                      "yml_body",
-                      convertToYmlNode(request.body.text, request.body.mimeType || "application/x-yaml")
-                    );
-                  } else if (["application/json", "application/hal+json", "text/plain"].includes(request.body.mimeType || "") && request.body.text) {
-                    const contentType = request.body.mimeType && ["application/json", "application/hal+json"].includes(request.body.mimeType) ? "json" : "text";
-                    editorJsonContent = findAndReplaceOrAddNode(
-                      editorJsonContent,
-                      "json_body",
-                      convertToJsonNode(request.body.text, contentType)
-                    );
-                  }
-                }
-
-                // Step 6: Add paragraph after request blocks
-                return insertParagraphAfterRequestBlocks(editorJsonContent);
-              });
+              // Delegate to pasteCurl for full async handling
+              // (includes file path resolution and fileLink nodes for multipart)
+              (async () => { await pasteCurl(editor, request); })();
 
               return true;
             } catch (error) {
@@ -585,6 +484,19 @@ const voidenRestApiPlugin = (context: PluginContext) => {
       });
 
 
+
+      // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      // CURL IMPORTER: handle curl paste/replay in the editor (async, with file resolution)
+      // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      if ((context as any).paste?.registerCurlImporter) {
+        (context as any).paste.registerCurlImporter(async (curlString: string, editor: any) => {
+          const { handleCurl, pasteCurl } = await import('./nodes/curlPaste');
+          const request = handleCurl(curlString);
+          if (!request) return false;
+          await pasteCurl(editor, request);
+          return true;
+        });
+      }
 
       // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
       // EXPOSE HELPERS FOR OTHER PLUGINS
@@ -649,6 +561,9 @@ const voidenRestApiPlugin = (context: PluginContext) => {
       if (typeof extension.onLoad !== 'function') {
         throw new Error('Extension missing required onLoad method');
       }
+
+      // Register history adapter so core delegates entry building to this plugin
+      (context as any).registerHistoryAdapter?.(restApiHistoryAdapter);
 
       // Call extension's onLoad (this registers slash commands)
       await extension.onLoad();

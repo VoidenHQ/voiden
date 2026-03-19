@@ -14,6 +14,9 @@ import { ResponseViewer } from "./ResponseViewer";
 import { useMemo, useEffect, useCallback, useState, useRef } from "react";
 import { Shield } from "lucide-react";
 import { useGetPanelTabs } from "@/core/layout/hooks";
+import { parseMarkdown } from "@/core/editors/voiden/markdownConverter";
+import { getSchema } from "@tiptap/core";
+import { voidenExtensions } from "@/core/editors/voiden/extensions";
 
 const MAX_CACHED_RESPONSE_VIEWERS = 8;
 
@@ -28,6 +31,7 @@ export function ResponsePanelContainer() {
     isLoading,
     responses,
     setActiveTabId,
+    hydrateResponse,
     getActiveResponseNodeForTab,
     setActiveResponseNodeForTab,
     getResponsePanelScrollForTab,
@@ -43,6 +47,7 @@ export function ResponsePanelContainer() {
   const nodeChangeCallbacksRef = useRef<Record<string, (nodeType: ResponseNodeType) => void>>({});
   const panelScrollCallbacksRef = useRef<Record<string, (scrollTop: number) => void>>({});
   const nodeScrollCallbacksRef = useRef<Record<string, (nodeKey: string, scrollTop: number) => void>>({});
+  const hydratedFromFileTabIdsRef = useRef<Set<string>>(new Set());
   const getNodeChangeCallback = useCallback(
     (tabId: string) => {
       if (!nodeChangeCallbacksRef.current[tabId]) {
@@ -78,6 +83,40 @@ export function ResponsePanelContainer() {
   useEffect(() => {
     if (activeTabId) setActiveTabId(activeTabId);
   }, [activeTabId, setActiveTabId]);
+
+  // Hydrate response panel from the tab content once on first open/load.
+  // Guarded per-tab so switching tabs does not re-fetch/re-parse repeatedly.
+  useEffect(() => {
+    if (!activeTabId || !activeTab || activeTab.type !== "document") return;
+    if (responses[activeTabId]?.responseDoc) return;
+    if (hydratedFromFileTabIdsRef.current.has(activeTabId)) return;
+
+    hydratedFromFileTabIdsRef.current.add(activeTabId);
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const tabContent = await window.electron?.tab?.getContent(activeTab as any);
+        if (cancelled || tabContent?.type !== "document") return;
+        const markdown = tabContent?.content;
+        if (typeof markdown !== "string" || !markdown.trim()) return;
+
+        const schema = getSchema(voidenExtensions);
+        const parsed = parseMarkdown(markdown, schema) as any;
+        const nodes = Array.isArray(parsed?.content) ? parsed.content : [];
+        const responseDoc = nodes.find((node: any) => node?.type === "response-doc") ?? null;
+        if (!responseDoc) return;
+
+        hydrateResponse(activeTabId, responseDoc, null);
+      } catch {
+        // Best-effort hydration; ignore parse/read errors.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTabId, activeTab, responses, hydrateResponse]);
 
   // When the active tab receives a response, add it to the keep-alive cache (LRU, max 8)
   useEffect(() => {
@@ -137,6 +176,24 @@ export function ResponsePanelContainer() {
   };
 
   const isWssOrGrpc = statusInfo && (statusInfo.protocol === "wss" || statusInfo.protocol === "grpc");
+
+  // Track live WSS connection state for the top bar status tag
+  const [wsConnectedIds, setWsConnectedIds] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    const electron = (window as any).electron;
+    const listen = electron?.request?.listenSecure ?? electron?.request?.listen;
+    if (!listen) return;
+    const offOpen = listen('ws-open', (_e: any, d: any) => {
+      if (d?.wsId) setWsConnectedIds((s) => { const n = new Set(s); n.add(d.wsId); return n; });
+    });
+    const offClose = listen('ws-close', (_e: any, d: any) => {
+      if (d?.wsId) setWsConnectedIds((s) => { const n = new Set(s); n.delete(d.wsId); return n; });
+    });
+    const offError = listen('ws-error', (_e: any, d: any) => {
+      if (d?.wsId && d?.code !== 'CLEANUP_WARNING') setWsConnectedIds((s) => { const n = new Set(s); n.delete(d.wsId); return n; });
+    });
+    return () => { offOpen?.(); offClose?.(); offError?.(); };
+  }, []);
   const isSuccess =
     statusInfo && typeof statusInfo.statusCode === "number" && statusInfo.statusCode >= 200 && statusInfo.statusCode < 300;
   const isError =
@@ -164,6 +221,19 @@ export function ResponsePanelContainer() {
               <div className="size-2 rounded-full bg-red-500" />
               <span className="text-red-500 font-semibold">Request Failed</span>
             </>
+          )}
+
+          {/* WSS connection status tag */}
+          {showContent && statusInfo && (statusInfo.protocol === "wss" || statusInfo.protocol === "ws") && statusInfo.wsId && (
+            <div className="flex items-center space-x-2 flex-shrink-0">
+              <div className={`size-2 rounded-full ${wsConnectedIds.has(statusInfo.wsId) ? 'bg-green-500' : 'bg-border'}`} />
+              <span className="font-bold font-mono text-sm">
+                {wsConnectedIds.has(statusInfo.wsId) ? 'Connected' : 'Disconnected'}
+              </span>
+              {statusInfo.url && (
+                <span className="text-comment text-xs truncate max-w-[200px]">{statusInfo.url}</span>
+              )}
+            </div>
           )}
 
           {/* Success / content status */}

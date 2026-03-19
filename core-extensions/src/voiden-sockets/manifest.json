@@ -2,7 +2,7 @@
   "id": "voiden-sockets-grpcs",
   "name": "Sockets & gRPC APIs",
   "description": "Voiden Sockets provide comprehensive support for WebSocket (WSS) and gRPC communication with unary, server streaming, client streaming, and bidirectional streaming patterns",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": "Voiden Team",
   "enabled": true,
   "priority": 20,
@@ -78,6 +78,10 @@
         "description": "Dedicated response panel for monitoring WebSocket and gRPC communication between Voiden and server"
       }
     },
+    "history": {
+      "registersCurlBuilder": true,
+      "description": "Registers socket-aware command builders for history entries: websocat for WS/WSS, grpcurl for GRPC/GRPCS."
+    },
     "fileHandlers": {
       "protoFiles": {
         "extensions": [
@@ -102,6 +106,7 @@
     "Connection state management",
     "Message history and logging",
     "Dedicated response panel for socket communication",
-    "Support for multiple concurrent connections"
+    "Support for multiple concurrent connections",
+    "History API integration: websocat/grpcurl command builder for global history export"
   ]
 }

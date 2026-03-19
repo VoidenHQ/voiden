@@ -1,17 +1,20 @@
 import React, { useEffect } from "react";
-import { Files, ArrowDownUp, Blocks, Search, GitBranch, icons } from "lucide-react";
+import { Files, ArrowDownUp, Blocks, Search, GitBranch, History, icons, Loader2 } from "lucide-react";
 import { cn } from "@/core/lib/utils";
 import { useGetSidebarTabs, useActivateSidebarTab } from "@/core/layout/hooks";
 import { usePluginStore } from "@/plugins";
 import { useSearchStore } from "@/core/stores/searchStore";
 import { Kbd } from "@/core/components/ui/kbd";
 import { Tip } from "@/core/components/ui/Tip";
+import { useResponseStore } from "@/core/request-engine/stores/responseStore";
 
 const sidebarTabIconMap = {
   fileExplorer: <Files size={14} />,
   responsePanel: <ArrowDownUp size={14} />,
   extensionBrowser: <Blocks size={14} />,
   gitSourceControl: <GitBranch size={14} />,
+  history: <History size={14} />,
+  globalHistory: <History size={14} />,
 };
 
 const sidebarTabLabelMap: Record<string, string> = {
@@ -19,6 +22,8 @@ const sidebarTabLabelMap: Record<string, string> = {
   responsePanel: "Response Panel",
   extensionBrowser: "Extensions",
   gitSourceControl: "Source Control",
+  history: "History",
+  globalHistory: "Global History",
 };
 
 // Helper to safely render lucide icons
@@ -42,6 +47,7 @@ export const SidePanelTabs = ({ side }: { side: "left" | "right" }) => {
   const { data: sidebarTabs } = useGetSidebarTabs(side);
   const pluginTabs = usePluginStore((state) => state.sidebar[side]);
   const activateTab = useActivateSidebarTab();
+  const isRequestLoading = useResponseStore((s) => s.isLoading);
 
   const storeIsSearching = useSearchStore((state) => state.isSearching);
   const setStoreIsSearching = useSearchStore((state) => state.setIsSearching);
@@ -103,9 +109,14 @@ export const SidePanelTabs = ({ side }: { side: "left" | "right" }) => {
                   sidebarTabs.activeTabId === tab.id && !storeIsSearching && "bg-active",
                 )}
               >
+                <span className="relative flex items-center justify-center">
                 {tab.type === "custom" && extensionTab
                   ? renderLucideIcon(extensionTab.icon, 14)
                   : sidebarTabIconMap[tab.type as keyof typeof sidebarTabIconMap]}
+                {tab.type === "responsePanel" && isRequestLoading && (
+                  <Loader2 size={8} className="animate-spin text-accent absolute -top-1.5 -right-1.5" />
+                )}
+              </span>
               </button>
             </Tip>
             {idx === 0 && side === "left" && (

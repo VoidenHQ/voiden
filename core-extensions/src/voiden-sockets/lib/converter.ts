@@ -240,7 +240,11 @@ const parseGrpcurlCommand = (command: string): {
   queryParams: TwoDimensionalArray;
   pathParams: TwoDimensionalArray;
   protoPath?: string;
+  packageName?: string;
+  service?: string;
+  method?: string;
   usesReflection: boolean;
+  methodText: string;
 } => {
   const metadata: TwoDimensionalArray = [];
   const queryParams: TwoDimensionalArray = [];
@@ -257,6 +261,7 @@ const parseGrpcurlCommand = (command: string): {
   // Determine if it's secure connection (default is secure unless -plaintext or -insecure)
   const isInsecure = command.includes("-plaintext") || command.includes("-insecure");
   const protocol = isInsecure ? "grpc" : "grpcs";
+  const methodText = isInsecure ? "GRPC" : "GRPCS";
 
   // Extract metadata (-H)
   const metadataRegex = /-H\s+["']([^"']+)["']/g;
@@ -268,10 +273,21 @@ const parseGrpcurlCommand = (command: string): {
     metadata.push([key.trim(), value]);
   }
 
-  // Extract proto file
-  const protoMatch = command.match(/-proto\s+["']?([^\s"']+)["']?/);
-  if (protoMatch) {
-    protoPath = protoMatch[1];
+  // Extract -import-path dir and -proto file, then combine into full path
+  const importPathMatch = command.match(/-import-path\s+["']([^"']+)["']|-import-path\s+(\S+)/);
+  const importDir = importPathMatch ? (importPathMatch[1] || importPathMatch[2]) : null;
+
+  const protoMatch = command.match(/-proto\s+["']([^"']+)["']|-proto\s+(\S+)/);
+  const protoFile = protoMatch ? (protoMatch[1] || protoMatch[2]) : null;
+
+  if (protoFile) {
+    if (importDir) {
+      // Combine import dir + proto filename into absolute path
+      const sep = importDir.endsWith('/') ? '' : '/';
+      protoPath = `${importDir}${sep}${protoFile}`;
+    } else {
+      protoPath = protoFile;
+    }
   }
 
   // Extract host:port (can be in various positions)
@@ -282,7 +298,25 @@ const parseGrpcurlCommand = (command: string): {
     url = `${protocol}://${hostPort}`;
   }
 
-  return { url, metadata, queryParams, pathParams, protoPath, usesReflection };
+  const rpcMatch = command.match(/([A-Za-z0-9_.]+)\/([A-Za-z0-9_]+)\s*$/);
+  const fullService = rpcMatch?.[1] || '';
+  const method = rpcMatch?.[2] || '';
+  const serviceParts = fullService ? fullService.split('.') : [];
+  const service = serviceParts.length > 0 ? serviceParts[serviceParts.length - 1] : '';
+  const packageName = serviceParts.length > 1 ? serviceParts.slice(0, -1).join('.') : '';
+
+  return {
+    url,
+    metadata,
+    queryParams,
+    pathParams,
+    protoPath,
+    packageName,
+    service,
+    method,
+    usesReflection,
+    methodText,
+  };
 };
 
 /**
@@ -371,6 +405,9 @@ export const convertWebsocatToSocketRequest = (websocatCommand: string): JSONCon
  */
 export const convertGrpcurlToSocketRequest = (grpcurlCommand: string): JSONContent[] => {
   const parsed = parseGrpcurlCommand(grpcurlCommand);
+  const protoFileName = parsed.protoPath
+    ? parsed.protoPath.split(/[\\/]/).pop() || parsed.protoPath
+    : null;
 
   const nodes: JSONContent[] = [
     {
@@ -379,12 +416,12 @@ export const convertGrpcurlToSocketRequest = (grpcurlCommand: string): JSONConte
         {
           type: "smethod",
           attrs: {
-            method: "gRPC",
+            method: parsed.methodText,
           },
           content: [
             {
               type: "text",
-              text: "gRPC",
+              text: parsed.methodText,
             },
           ],
         },
@@ -400,11 +437,15 @@ export const convertGrpcurlToSocketRequest = (grpcurlCommand: string): JSONConte
         {
           type: "proto",
           attrs: {
-            protoPath: parsed.protoPath || "",
-            service: "",
-            method: "",
-            streamType: "unary",
-            useReflection: parsed.usesReflection,
+            fileName: protoFileName,
+            // Store the full path (absolute from -import-path/-proto combination).
+            // ProtoSelectorNode's auto-load effect will relativize it if inside project.
+            filePath: parsed.protoPath || null,
+            packageName: parsed.packageName || null,
+            services: [],
+            selectedService: parsed.service || null,
+            selectedMethod: parsed.method || null,
+            callType: null,
           },
         },
       ],

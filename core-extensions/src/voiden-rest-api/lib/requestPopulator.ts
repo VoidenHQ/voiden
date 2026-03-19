@@ -59,8 +59,23 @@ function extractTableData(
                     keyValuePair.key = textContent || "";
                   } else if (cellIndex === 1) {
                     if (type === "multipart-table") {
-                      keyValuePair.value = cellNode.attrs?.file || "";
-                      keyValuePair.type = "file";
+                      // Prefer legacy cellNode.attrs.file, then look for a fileLink inline node
+                      const legacyFile = cellNode.attrs?.file || "";
+                      if (legacyFile) {
+                        keyValuePair.value = legacyFile;
+                        keyValuePair.type = "file";
+                      } else {
+                        const paragraphContent = cellNode.content?.[0]?.content;
+                        const fileLinkNode = paragraphContent?.find((n: any) => n.type === "fileLink");
+                        if (fileLinkNode?.attrs?.filePath) {
+                          keyValuePair.value = fileLinkNode.attrs.filePath;
+                          keyValuePair.type = "file";
+                        } else {
+                          // Plain text value
+                          keyValuePair.value = textContent || "";
+                          keyValuePair.type = "text";
+                        }
+                      }
                     } else {
                       keyValuePair.value = textContent || "";
                     }
@@ -280,24 +295,35 @@ export function getRequestFromEditor(editor: Editor) {
   // Check for JSON body
   const jsonBodyNode = json.content.find((node: JSONContent) => node.type === 'json_body');
   if (jsonBodyNode?.attrs?.body) {
-    // Strip comments from JSONC before sending the request
     const rawBody = jsonBodyNode.attrs.body;
-    body = stripJsonComments(rawBody);
-    contentType = 'application/json';
+    const storedType = jsonBodyNode.attrs.contentType;
+    if (storedType === 'html') {
+      body = rawBody;
+      contentType = 'text/html';
+    } else if (storedType === 'text') {
+      body = rawBody;
+      contentType = 'text/plain';
+    } else {
+      // Default: strip JSONC comments and send as JSON
+      body = stripJsonComments(rawBody);
+      contentType = 'application/json';
+    }
   }
 
   // Check for XML body
   const xmlBodyNode = json.content.find((node: JSONContent) => node.type === 'xml_body');
   if (xmlBodyNode?.attrs?.body) {
     body = xmlBodyNode.attrs.body;
-    contentType = 'application/xml';
+    const xmlMimeTypes = ['application/xml', 'text/xml', 'application/xhtml+xml'];
+    contentType = xmlMimeTypes.includes(xmlBodyNode.attrs.contentType) ? xmlBodyNode.attrs.contentType : 'application/xml';
   }
 
   // Check for YAML body
   const ymlBodyNode = json.content.find((node: JSONContent) => node.type === 'yml_body');
   if (ymlBodyNode?.attrs?.body) {
     body = ymlBodyNode.attrs.body;
-    contentType = 'application/x-yaml';
+    const yamlMimeTypes = ['application/x-yaml', 'application/yaml', 'text/yaml', 'text/x-yaml'];
+    contentType = yamlMimeTypes.includes(ymlBodyNode.attrs.contentType) ? ymlBodyNode.attrs.contentType : 'application/x-yaml';
   }
 
   // Check for multipart form data

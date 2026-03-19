@@ -29,6 +29,7 @@ import { voidenExtensions } from "@/core/editors/voiden/extensions";
 import { prosemirrorToMarkdown } from "@/core/file-system/hooks";
 import { useEditorEnhancementStore } from "@/plugins";
 import { usePanelStore } from "@/core/stores/panelStore";
+import { getQueryClient } from "@/main";
 import { Kbd } from "@/core/components/ui/kbd";
 import { Tip } from "@/core/components/ui/Tip";
 import { useSettings } from "@/core/settings/hooks/useSettings";
@@ -38,11 +39,18 @@ const PANEL_STATES_KEY = "panelStates";
 interface PanelState {
   tabId: string;
   rightPanelOpen: boolean;
+  activeSidebarTabId?: string;
 }
 
-const savePanelStateForTab = (tabId: string) => {
+export const savePanelStateForTab = (tabId: string) => {
   const { rightPanelOpen } = usePanelStore.getState();
-  const newState: PanelState = { tabId, rightPanelOpen };
+  // Capture which right sidebar tab is currently active
+  let activeSidebarTabId: string | undefined;
+  try {
+    const rightData = getQueryClient().getQueryData<{ tabs?: any[]; activeTabId?: string }>(['sidebar:tabs', 'right']);
+    activeSidebarTabId = rightData?.activeTabId ?? undefined;
+  } catch { /* best-effort */ }
+  const newState: PanelState = { tabId, rightPanelOpen, activeSidebarTabId };
 
   const storedString = localStorage.getItem(PANEL_STATES_KEY);
   const panelStates: PanelState[] = storedString ? JSON.parse(storedString) : [];

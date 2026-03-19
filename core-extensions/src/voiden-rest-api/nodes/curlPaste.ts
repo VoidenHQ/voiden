@@ -28,8 +28,8 @@ import {
   convertToJsonNode,
   convertToXMLNode,
   convertToYmlNode,
+  convertToUrlTableNode,
   convertToMethodNode,
-  convertToMultipartTableNode,
   convertToQueryTableNode,
   convertToURLNode,
   findAndReplaceOrAddNode,
@@ -56,10 +56,12 @@ const prettifyJSONC = (json: string) => {
   }
 };
 
-const parseMarkdown = (markdown: string, schema: any) => {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const parseMarkdown = (_markdown: string, _schema: any) => {
   // Stub - TODO: Implement proper markdown parsing via SDK
-  return { type: 'doc', content: [] };
+  return { type: 'doc', content: [] as any[] };
 };
+
 
 // ============================================================================
 // Constants
@@ -180,7 +182,86 @@ function insertParagraphNodes(view: EditorView, lines: string[]): void {
  * @param editor - The TipTap editor instance
  * @param request - The parsed ImportRequest from the cURL command
  */
-export const pasteCurl = (editor: Editor, request: ImportRequest) => {
+const isAbsolutePath = (p: string) =>
+  p.startsWith('/') || /^[A-Za-z]:[\\/]/.test(p);
+
+export const pasteCurl = async (editor: Editor, request: ImportRequest) => {
+  // Pre-resolve multipart file paths to absolute before the sync editor update.
+  let multipartRows: any[] | null = null;
+  if (request.body?.mimeType === 'multipart/form-data' && request.body.params) {
+    let activeProject: string | undefined;
+    try {
+      // @ts-ignore
+      const { getQueryClient } = await import(/* @vite-ignore */ '@/main');
+      const qc = getQueryClient();
+      const projects = (qc.getQueryData(["projects"]) as any);
+      activeProject = projects?.activeProject;
+    } catch { /* ignore */ }
+
+    const makeCell = (content: any[]) => ({
+      type: 'tableCell',
+      attrs: { colspan: 1, rowspan: 1, colwidth: null },
+      content: [{ type: 'paragraph', content }],
+    });
+
+    multipartRows = await Promise.all(
+      request.body.params.map(async (param: any) => {
+        const keyCell = makeCell(param.name ? [{ type: 'text', text: param.name }] : []);
+
+        // File path — from @path notation or a value that looks like a project-relative path
+        const rawFile = param.fileName
+          ? param.fileName.replace(/^"|"$/g, '').replace(/^@/, '')
+          : null;
+
+        // Treat param.value as a file path if it starts with / or \ and isn't a URL
+        const rawPathFromValue = !rawFile && param.value
+          ? (() => {
+              const v = String(param.value).trim();
+              return (v.startsWith('/') || v.startsWith('\\')) && !v.includes('://') ? v : null;
+            })()
+          : null;
+
+        const filePath = rawFile ?? rawPathFromValue;
+
+        let resolvedPath = filePath;
+        let isExternalFile = false;
+
+        if (rawFile) {
+          if (!isAbsolutePath(rawFile) && activeProject) {
+            // Relative @path → try to resolve to absolute
+            try {
+              const joined = await (window as any).electron?.utils?.pathJoin?.(activeProject, rawFile);
+              if (joined) {
+                const result = await (window as any).electron?.files?.hash?.(joined);
+                if (result?.exists) { resolvedPath = joined; isExternalFile = true; }
+              }
+            } catch { /* best-effort */ }
+          } else {
+            // Looks absolute — confirm it actually exists on the filesystem
+            try {
+              const result = await (window as any).electron?.files?.hash?.(rawFile);
+              isExternalFile = !!result?.exists;
+            } catch { /* best-effort */ }
+          }
+        }
+        // rawPathFromValue: always project-relative → isExternalFile stays false
+
+        const valCell = resolvedPath
+          ? makeCell([{
+              type: 'fileLink',
+              attrs: {
+                filePath: resolvedPath,
+                filename: resolvedPath.split(/[\\/]/).pop() ?? resolvedPath,
+                isExternal: isExternalFile,
+              },
+            }])
+          : makeCell(param.value ? [{ type: 'text', text: param.value }] : []);
+
+        return { type: 'tableRow', attrs: { disabled: false }, content: [keyCell, valCell] };
+      }),
+    );
+  }
+
   updateEditorContent(editor, (editorJsonContent) => {
     const requestBlocks = ["headers-table", "query-table", "url-table", "multipart-table", "cookies-table", "json_body", "xml_body", "yml_body"];
 
@@ -234,70 +315,120 @@ export const pasteCurl = (editor: Editor, request: ImportRequest) => {
 
     // Step 5: Add request body based on content type
     if (request.body) {
+      const mimeType = request.body.mimeType || "";
+
       // Handle URL-encoded form data
-      if (request.body.mimeType === "application/x-www-form-urlencoded" && request.body.params) {
-        // TODO: Fix - convertToUrlTableNode doesn't exist, needs proper implementation
-        // editorJsonContent = findAndReplaceOrAddNode(
-        //   editorJsonContent,
-        //   "url-table",
-        //   convertToUrlTableNode(request.body.params.map((param) => [param.name, param.value || ""])),
-        // );
+      if (mimeType === "application/x-www-form-urlencoded" && request.body.params) {
+        editorJsonContent = findAndReplaceOrAddNode(
+          editorJsonContent,
+          "url-table",
+          convertToUrlTableNode(request.body.params.map((param) => [param.name, param.value || ""])),
+        );
       }
       // Handle multipart form data
-      else if (request.body.mimeType === "multipart/form-data" && request.body.params) {
-        const formatFileName = (fileName: string) => {
-          return `@${fileName.replace(/^"|"$/g, "")}`;
+      else if (mimeType === "multipart/form-data" && (multipartRows || request.body.params)) {
+        const rows = multipartRows ?? [];
+        const multipartNode = {
+          type: "multipart-table",
+          content: [{ type: "table", content: rows }],
         };
-
-        const tableData = request.body.params.map((param) => {
-          const name = param.name;
-          const value = param.fileName ? formatFileName(param.fileName) : param.value || "";
-          const valueWithoutQuotes = value.replace(/^"|"$/g, "");
-          return [name, valueWithoutQuotes];
-        });
-
-        editorJsonContent = findAndReplaceOrAddNode(editorJsonContent, "multipart-table", convertToMultipartTableNode(tableData));
+        editorJsonContent = findAndReplaceOrAddNode(editorJsonContent, "multipart-table", multipartNode);
       }
       // Handle YAML body
-      else if (["application/x-yaml", "text/yaml", "text/x-yaml", "application/yaml"].includes(request.body.mimeType || "") && request.body.text) {
-        const bodyText = request.body.text;
-
+      else if (["application/x-yaml", "text/yaml", "text/x-yaml", "application/yaml"].includes(mimeType) && request.body.text) {
         editorJsonContent = findAndReplaceOrAddNode(
           editorJsonContent,
           "yml_body",
-          convertToYmlNode(bodyText, request.body.mimeType || "application/x-yaml")
+          convertToYmlNode(request.body.text, mimeType || "application/x-yaml"),
         );
       }
       // Handle XML body
-      else if (["application/xml", "text/xml"].includes(request.body.mimeType || "") && request.body.text) {
-        const bodyText = request.body.text;
-
+      else if (["application/xml", "text/xml", "application/xhtml+xml"].includes(mimeType) && request.body.text) {
         editorJsonContent = findAndReplaceOrAddNode(
           editorJsonContent,
           "xml_body",
-          convertToXMLNode(bodyText, request.body.mimeType || "application/xml")
+          convertToXMLNode(request.body.text, mimeType || "application/xml"),
         );
       }
-      // Handle JSON/text body
-      else if (["application/hal+json", "application/json", "text/plain"].includes(request.body.mimeType || "") && request.body.text) {
-        const contentType = request.body.mimeType && ["application/json", "application/hal+json"].includes(request.body.mimeType) ? "json" : "text";
-
-        // Prettify JSON payload if applicable
-        const rawJson = request.body.text;
-        let bodyText = rawJson;
-        if (contentType === "json") {
-          try {
-            bodyText = prettifyJSONC(rawJson);
-          } catch (e) {
-           // silently fail
-          }
-        }
+      // Handle HTML body
+      else if (mimeType === "text/html" && request.body.text) {
+        editorJsonContent = findAndReplaceOrAddNode(
+          editorJsonContent,
+          "json_body",
+          convertToJsonNode(request.body.text, "html"),
+        );
+      }
+      // Handle JSON body (including JSON variants and hal+json)
+      else if (["application/json", "application/hal+json", "application/ld+json", "application/problem+json"].includes(mimeType) && request.body.text) {
+        let bodyText = request.body.text;
+        try { bodyText = prettifyJSONC(request.body.text); } catch { /* silently fail */ }
 
         editorJsonContent = findAndReplaceOrAddNode(
           editorJsonContent,
           "json_body",
-          convertToJsonNode(bodyText, contentType)
+          convertToJsonNode(bodyText, "json"),
         );
+      }
+      // Handle plain text body
+      else if (mimeType === "text/plain" && request.body.text) {
+        editorJsonContent = findAndReplaceOrAddNode(
+          editorJsonContent,
+          "json_body",
+          convertToJsonNode(request.body.text, "text"),
+        );
+      }
+      // Fallback: unknown or missing content type but body text is present — auto-detect
+      else if (request.body.text) {
+        const trimmed = request.body.text.trim();
+
+        // Looks like XML/HTML (starts with a tag)
+        if (trimmed.startsWith("<")) {
+          editorJsonContent = findAndReplaceOrAddNode(
+            editorJsonContent,
+            "xml_body",
+            convertToXMLNode(request.body.text, "application/xml"),
+          );
+        }
+        // Looks like YAML (key: value lines, no leading { or [)
+        else if (!trimmed.startsWith("{") && !trimmed.startsWith("[") && !trimmed.startsWith("<") && /^[a-zA-Z_][\w-]*\s*:/m.test(trimmed)) {
+          editorJsonContent = findAndReplaceOrAddNode(
+            editorJsonContent,
+            "yml_body",
+            convertToYmlNode(request.body.text, "application/x-yaml"),
+          );
+        }
+        // Looks like URL-encoded form data (key=value pairs, no JSON/XML indicators)
+        else if (!trimmed.startsWith("{") && !trimmed.startsWith("[") && !trimmed.startsWith("<") && /^[^=\s]+=/.test(trimmed)) {
+          const params = trimmed.split("&").map((pair) => {
+            const eqIdx = pair.indexOf("=");
+            if (eqIdx === -1) return [decodeURIComponent(pair.trim()), ""];
+            return [
+              decodeURIComponent(pair.slice(0, eqIdx).trim()),
+              decodeURIComponent(pair.slice(eqIdx + 1).trim()),
+            ];
+          });
+          editorJsonContent = findAndReplaceOrAddNode(
+            editorJsonContent,
+            "url-table",
+            convertToUrlTableNode(params),
+          );
+        }
+        // Try JSON, fall back to plain text
+        else {
+          let bodyText = request.body.text;
+          let detectedType = "text";
+          try {
+            JSON.parse(trimmed);
+            bodyText = prettifyJSONC(request.body.text);
+            detectedType = "json";
+          } catch { /* not JSON */ }
+
+          editorJsonContent = findAndReplaceOrAddNode(
+            editorJsonContent,
+            "json_body",
+            convertToJsonNode(bodyText, detectedType),
+          );
+        }
       }
     }
 

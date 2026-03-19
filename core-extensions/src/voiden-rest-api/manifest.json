@@ -2,7 +2,7 @@
   "id": "voiden-rest-api",
   "name": "Voiden REST API",
   "description": "HTTP/REST API testing toolkit with extensible request pipeline, custom blocks for headers/body, environment variables, response visualization, and support for all HTTP methods including multipart file uploads",
-  "version": "1.2.0",
+  "version": "1.4.0",
   "author": "Voiden Team",
   "enabled": true,
   "priority": 10,
@@ -57,6 +57,11 @@
       "description": "Registers handlers for building requests and processing responses"
     },
 
+    "history": {
+      "registersCurlBuilder": true,
+      "description": "Registers a REST-aware cURL builder for history entries. Other plugins can do the same via context.history.registerCurlBuilder()."
+    },
+
     "slashCommands": {
       "groups": [
         {
@@ -81,13 +86,14 @@
     "HTTP method selection (GET, POST, PUT, DELETE, PATCH, etc.)",
     "URL building with path parameters and query strings",
     "Headers management with autocomplete",
-    "Multiple body types: JSON, XML, form-data, URL-encoded, multipart",
+    "Multiple body types: JSON, XML, YAML, HTML, form-data, URL-encoded, multipart",
     "File uploads via multipart/form-data",
     "Environment variable substitution",
     "cURL import via paste",
     "Response visualization with status, headers, and body",
     "Collapsible response sections",
     "Syntax highlighting for JSON and XML responses",
-    "Request/response pipeline integration"
+    "Request/response pipeline integration",
+    "History API integration: custom cURL builder for global history export"
   ]
 }

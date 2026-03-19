@@ -1,27 +1,26 @@
 /**
  * Inline ghost-text suggestions for the `voiden` scripting API.
  *
- * Self-limiting: only triggers when user types `voiden.` (or `voiden.`) so it won't
+ * Triggers on `voiden.` for JS, Python, and Shell (all three share the same
+ * dot-notation API). Shell also exposes `voiden_*` function aliases and
+ * `$VOIDEN_*` env vars — those are handled by separate trigger patterns below.
+ *
+ * Self-limiting: only activates on those exact prefixes so it won't
  * interfere with JSON body editors or other CodeMirror instances.
  */
 
 import { keymap, EditorView, Decoration, DecorationSet, WidgetType } from '@codemirror/view';
 import { Extension, RangeSetBuilder, StateField, EditorState, Prec } from '@codemirror/state';
 
+// ─── voiden. completions (JS / Python / Shell) ───────────────────────────────
+
 interface VdCompletion {
-  /** Dot-separated path (e.g. "request.url") */
+  /** Dot-separated path after "voiden." (e.g. "request.url") */
   path: string;
-  /** CodeMirror completion type (property, function, method, keyword) */
   type: string;
-  /** Short type/return info shown to the right */
   detail: string;
-  /** Longer description shown in the info popup */
   info: string;
-  /** Text to apply when selected (overrides label if set) */
-  apply?: string;
-  /** Boost priority (higher = shown first) */
   boost?: number;
-  /** Only available in post-script (has voiden.response) */
   postOnly?: boolean;
 }
 
@@ -31,20 +30,20 @@ const VD_COMPLETIONS: VdCompletion[] = [
   { path: 'response',  type: 'keyword',  detail: 'object',   info: 'Response data (status, statusText, headers, body, time, size)', boost: 99, postOnly: true },
   { path: 'env',       type: 'keyword',  detail: 'object',   info: 'Environment access (get)', boost: 98 },
   { path: 'variables', type: 'keyword',  detail: 'object',   info: 'Runtime variable access (get, set)', boost: 97 },
-  { path: 'log',       type: 'function', detail: '(message | level, ...args)', info: 'Log output. Examples: voiden.log("hello"), voiden.log("warn", "rate limited")', apply: 'log(levelOrMessage, ...args)', boost: 96 },
-  { path: 'assert',    type: 'function', detail: '(actual, operator, expectedValue, message?)', info: 'Assertion API. Example: voiden.assert(response.status, "==", 200, "Status OK")', apply: 'assert(actual, operator, expectedValue, message)', boost: 91 },
-  { path: 'cancel',    type: 'function', detail: '()',        info: 'Cancel the request (pre-script only)', apply: 'cancel()', boost: 90 },
+  { path: 'log',       type: 'function', detail: 'levelOrMessage, ...args', info: 'Log output. Examples: voiden.log("hello"), voiden.log("warn", "rate limited")', boost: 96 },
+  { path: 'assert',    type: 'function', detail: 'actual, operator, expectedValue, message?', info: 'Assertion API. Example: voiden.assert(response.status, "==", 200, "Status OK")', boost: 91 },
+  { path: 'cancel',    type: 'function', detail: '()',        info: 'Cancel the request (pre-script only)', boost: 90 },
 
   // ── voiden.request.* ──────────────────────────────────────
   { path: 'request.url',         type: 'property', detail: 'string',              info: 'Request URL — read/write' },
   { path: 'request.method',      type: 'property', detail: 'string',              info: 'HTTP method (GET, POST, etc.) — read/write' },
-  { path: 'request.headers',     type: 'property', detail: 'map | {key,value} | {key,value}[]', info: 'Request headers — supports map, single {key,value}, or array of {key,value} (push supported)' },
-  { path: 'request.headers.push', type: 'method', detail: '(item: {key, value, enabled?})', info: 'Append a header entry. Example: voiden.request.headers.push({ key: "X-Trace", value: "abc" })', apply: 'request.headers.push({ key: "", value: "" })' },
-  { path: 'request.body',        type: 'property', detail: 'any',                 info: 'Request body (string or parsed object) — read/write' },
-  { path: 'request.queryParams', type: 'property', detail: 'map | {key,value} | {key,value}[]', info: 'Query params — supports map, single {key,value}, or array of {key,value}' },
-  { path: 'request.queryParams.push', type: 'method', detail: '(item: {key, value, enabled?})', info: 'Append a query param. Example: voiden.request.queryParams.push({ key: "page", value: "1" })', apply: 'request.queryParams.push({ key: "", value: "" })' },
-  { path: 'request.pathParams',  type: 'property', detail: 'map | {key,value} | {key,value}[]', info: 'Path params — supports map, single {key,value}, or array of {key,value}' },
-  { path: 'request.pathParams.push', type: 'method', detail: '(item: {key, value, enabled?})', info: 'Append a path param. Example: voiden.request.pathParams.push({ key: "id", value: "123" })', apply: 'request.pathParams.push({ key: "", value: "" })' },
+  { path: 'request.headers',     type: 'property', detail: 'map | {key,value}[]', info: 'Request headers — read/write. Shell: voiden.request.headers() getter, export VOIDEN_REQUEST_HEADERS setter' },
+  { path: 'request.headers.push', type: 'method',  detail: '{key, value, enabled?}', info: 'Append a header. Example: voiden.request.headers.push({ key: "X-Trace", value: "abc" })' },
+  { path: 'request.body',        type: 'property', detail: 'any',                 info: 'Request body — read/write' },
+  { path: 'request.queryParams', type: 'property', detail: 'map | {key,value}[]', info: 'Query params — read/write' },
+  { path: 'request.queryParams.push', type: 'method', detail: '{key, value, enabled?}', info: 'Append a query param. Example: voiden.request.queryParams.push({ key: "page", value: "1" })' },
+  { path: 'request.pathParams',  type: 'property', detail: 'map | {key,value}[]', info: 'Path params — read/write' },
+  { path: 'request.pathParams.push', type: 'method', detail: '{key, value, enabled?}', info: 'Append a path param. Example: voiden.request.pathParams.push({ key: "id", value: "123" })' },
 
   // ── voiden.response.* ─────────────────────────────────────
   { path: 'response.status',     type: 'property', detail: 'number', info: 'HTTP status code (e.g. 200, 404)', postOnly: true },
@@ -55,69 +54,96 @@ const VD_COMPLETIONS: VdCompletion[] = [
   { path: 'response.size',       type: 'property', detail: 'number', info: 'Response size in bytes', postOnly: true },
 
   // ── voiden.env.* ─────────────────────────────────────────
-  { path: 'env.get', type: 'method', detail: '(key: string) → Promise<any>', info: 'Read value from active environment. Usage: await voiden.env.get("API_KEY")', apply: 'env.get(key)', boost: 89 },
+  { path: 'env.get', type: 'method', detail: 'key: string → any', info: 'Read value from active environment. Usage: voiden.env.get("API_KEY")', boost: 89 },
 
   // ── voiden.variables.* ────────────────────────────────────
-  { path: 'variables.get', type: 'method', detail: '(key: string) → Promise<any>', info: 'Get a runtime variable from .voiden/.process.env.json. Usage: await voiden.variables.get("token")', apply: 'variables.get(key)', boost: 88 },
-  { path: 'variables.set', type: 'method', detail: '(key: string, value: any) → Promise<void>', info: 'Set a runtime variable. Usage: await voiden.variables.set("token", response.body.token)', apply: 'variables.set(key, value)', boost: 87 },
+  { path: 'variables.get', type: 'method', detail: 'key: string → any', info: 'Get a runtime variable. Usage: voiden.variables.get("token")', boost: 88 },
+  { path: 'variables.set', type: 'method', detail: 'key: string, value: any', info: 'Set a runtime variable. Usage: voiden.variables.set("token", value)', boost: 87 },
 ];
+
+// ─── Shell-only completions ($VOIDEN_ env vars) ──────────────────────────────
+
+interface VdShellEnvCompletion {
+  name: string;   // suffix after $VOIDEN_, e.g. "REQUEST_URL"
+  detail: string;
+  info: string;
+}
+
+const VD_SHELL_ENV_COMPLETIONS: VdShellEnvCompletion[] = [
+  { name: 'REQUEST_URL',          detail: 'string', info: 'Request URL (read/write via: export VOIDEN_REQUEST_URL="...")' },
+  { name: 'REQUEST_METHOD',       detail: 'string', info: 'HTTP method (read/write via: export VOIDEN_REQUEST_METHOD="...")' },
+  { name: 'REQUEST_BODY',         detail: 'string', info: 'Request body (read/write via: export VOIDEN_REQUEST_BODY="...")' },
+  { name: 'REQUEST_HEADERS',      detail: 'JSON',   info: 'Request headers as JSON array (read/write via export)' },
+  { name: 'REQUEST_QUERY_PARAMS', detail: 'JSON',   info: 'Query params as JSON array (read/write via export)' },
+  { name: 'REQUEST_PATH_PARAMS',  detail: 'JSON',   info: 'Path params as JSON array (read/write via export)' },
+  { name: 'RESPONSE_STATUS',      detail: 'number', info: 'HTTP status code (read-only)' },
+  { name: 'RESPONSE_STATUS_TEXT', detail: 'string', info: 'HTTP status text (read-only)' },
+  { name: 'RESPONSE_BODY',        detail: 'string', info: 'Response body (read-only)' },
+  { name: 'RESPONSE_HEADERS',     detail: 'JSON',   info: 'Response headers as JSON (read-only)' },
+  { name: 'RESPONSE_TIME',        detail: 'number', info: 'Response time in ms (read-only)' },
+  { name: 'RESPONSE_SIZE',        detail: 'number', info: 'Response size in bytes (read-only)' },
+];
+
+// ─── Suggestion computation ──────────────────────────────────────────────────
 
 /**
  * Computes inline suggestion data from the current cursor position.
+ * Handles:
+ *   - voiden.  → dot-notation API (JS, Python, Shell)
+ *   - $VOIDEN_ → shell env var API
  */
 function getVdInlineSuggestion(state: EditorState): { from: number; text: string } | null {
   const selection = state.selection.main;
-  if (!selection.empty) {
-    return null;
-  }
+  if (!selection.empty) return null;
 
   const pos = selection.head;
   const nextChar = state.sliceDoc(pos, pos + 1);
-  // Don't show inline hint when cursor is in the middle of an identifier/path.
-  if (/[a-zA-Z.]/.test(nextChar)) {
-    return null;
-  }
-
   const beforeCursor = state.sliceDoc(Math.max(0, pos - 120), pos);
-  const match = beforeCursor.match(/\bvoiden\.([a-zA-Z.]*)$/);
 
-  if (!match) {
-    return null;
+  // ── voiden. (JS / Python / Shell) ────────────────────────
+  // Don't fire when cursor is in the middle of a path identifier.
+  if (!/[a-zA-Z.]/.test(nextChar)) {
+    const dotMatch = beforeCursor.match(/\bvoiden\.([a-zA-Z.]*)$/);
+    if (dotMatch) {
+      const partialPath = dotMatch[1];
+      const partialLower = partialPath.toLowerCase();
+
+      const candidates = VD_COMPLETIONS
+        .filter((c) => c.path.toLowerCase().startsWith(partialLower))
+        .sort((a, b) => {
+          const boostDiff = (b.boost ?? 0) - (a.boost ?? 0);
+          if (boostDiff !== 0) return boostDiff;
+          return a.path.length - b.path.length;
+        });
+
+      if (candidates.length > 0) {
+        const remaining = candidates[0].path.slice(partialPath.length);
+        if (remaining) return { from: pos, text: remaining };
+      }
+    }
   }
 
-  const partialPath = match[1];
-  const partialLower = partialPath.toLowerCase();
+  // ── $VOIDEN_ (shell env vars) ─────────────────────────────
+  // Don't fire in the middle of an uppercase identifier.
+  if (!/[A-Z_]/.test(nextChar)) {
+    const envMatch = beforeCursor.match(/\$VOIDEN_([A-Z_]*)$/);
+    if (envMatch) {
+      const partial = envMatch[1];
+      const candidates = VD_SHELL_ENV_COMPLETIONS
+        .filter((c) => c.name.startsWith(partial))
+        .sort((a, b) => a.name.length - b.name.length);
 
-  const candidates = VD_COMPLETIONS
-    .filter((c) => c.path.toLowerCase().startsWith(partialLower))
-    .sort((a, b) => {
-      const boostDiff = (b.boost ?? 0) - (a.boost ?? 0);
-      if (boostDiff !== 0) return boostDiff;
-      return a.path.length - b.path.length;
-    });
-
-  if (candidates.length === 0) {
-    return null;
+      if (candidates.length > 0) {
+        const remaining = candidates[0].name.slice(partial.length);
+        if (remaining) return { from: pos, text: remaining };
+      }
+    }
   }
 
-  const best = candidates[0];
-  const applyText = best.apply ?? best.path;
-  const applyLower = applyText.toLowerCase();
-
-  if (!applyLower.startsWith(partialLower)) {
-    return null;
-  }
-
-  const remaining = applyText.slice(partialPath.length);
-  if (!remaining) {
-    return null;
-  }
-
-  return {
-    from: pos,
-    text: remaining,
-  };
+  return null;
 }
+
+// ─── Widget ──────────────────────────────────────────────────────────────────
 
 class InlineSuggestionWidget extends WidgetType {
   constructor(private readonly text: string) {
@@ -131,6 +157,8 @@ class InlineSuggestionWidget extends WidgetType {
     return span;
   }
 }
+
+// ─── Extension ───────────────────────────────────────────────────────────────
 
 /**
  * Creates inline suggestion extension for vd API.

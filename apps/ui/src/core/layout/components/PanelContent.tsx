@@ -16,6 +16,7 @@ import { Settings, Menu, Play } from "lucide-react";
 import { Kbd } from "@/core/components/ui/kbd";
 import { ErrorBoundary } from "@/core/components/ErrorBoundary";
 import { DiffViewer } from "@/core/git/components/DiffViewer";
+import { ConflictEditorTab } from "@/core/git/components/ConflictEditorTab";
 import { EnvironmentEditor } from "@/core/environment/components/EnvironmentEditor";
 import { useNewTerminalTab } from "@/core/terminal/hooks/useTerminal";
 import { usePanelStore } from "@/core/stores/panelStore";
@@ -590,6 +591,10 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
 
   if (tabContent.type === "diff") {
     return <DiffViewer tab={tabContent} />;
+  }
+
+  if (tabContent.type === "conflict") {
+    return <ConflictEditorTab tab={tabContent} />;
   }
 
   if (tabContent.type === "custom") {

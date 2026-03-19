@@ -11,6 +11,8 @@ export interface WSSResponse {
   requestMeta?: {
     url: string;
     headers: { key: string; value: string }[];
+    /** Absolute path of the .void file that initiated this session — for history tagging */
+    sourceFilePath?: string | null;
     proxy?: {
       name: string;
       host: string;
@@ -29,6 +31,12 @@ export interface GrpcResponse {
     url: string;
     method:string,
     headers: { key: string; value: string }[];
+    /** Absolute path of the .proto file used for this gRPC session */
+    protoFilePath?: string | null;
+    /** Parsed proto services — forwarded to history for void file reconstruction */
+    protoServices?: any[] | null;
+    /** Absolute path of the .void file that initiated this session — for history tagging */
+    sourceFilePath?: string | null;
     proxy?: {
       name: string;
       host: string;
@@ -50,8 +58,10 @@ export function convertResponseToVoidenDocWithMessageNode(response: WSSResponse)
     {
        type: "messages-node",
        attrs: {
-        url:response.requestMeta?.url || '',
+        url: response.requestMeta?.url || '',
         wsId: response.wsId || '',
+        headers: JSON.stringify(response.requestMeta?.headers ?? []),
+        sourceFilePath: response.requestMeta?.sourceFilePath ?? null,
        },
     }
   );
@@ -80,12 +90,18 @@ export function convertResponseToVoidenDocWithGRPCMessageNode(response: GrpcResp
     {
        type: "grpc-messages-node",
        attrs: {
-        url:response.requestMeta?.url || '',
-        package:response.requestMeta?.package,
+        url: response.requestMeta?.url || '',
+        package: response.requestMeta?.package,
         grpcId: response.grpcId || '',
-        callType:response.requestMeta?.callType,
-        service:response.requestMeta?.service,
-        method:response.requestMeta?.method,
+        callType: response.requestMeta?.callType,
+        service: response.requestMeta?.service,
+        method: response.requestMeta?.method,
+        headers: JSON.stringify(response.requestMeta?.headers ?? []),
+        protoFilePath: response.requestMeta?.protoFilePath ?? null,
+        protoServices: response.requestMeta?.protoServices
+          ? JSON.stringify(response.requestMeta.protoServices)
+          : null,
+        sourceFilePath: response.requestMeta?.sourceFilePath ?? null,
        },
     }
   );

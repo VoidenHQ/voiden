@@ -32,5 +32,8 @@
   },
   "cli": {
     "installed": false
+  },
+  "projects": {
+    "default_directory": ""
   }
 }

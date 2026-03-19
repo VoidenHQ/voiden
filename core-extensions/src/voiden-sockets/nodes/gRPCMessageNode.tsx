@@ -21,6 +21,11 @@ import {
     ArrowRight, ArrowDown, ArrowUp, ArrowLeftRight,
     Copy, Download, Check, Clock
 } from "lucide-react";
+import { saveSessionToHistory } from '../lib/historyHelper';
+
+// Module-level deduplication: prevents multiple component instances (e.g. during
+// React remount or keep-alive cache churn) from saving the same session twice.
+const savedGrpcSessions = new Set<string>(); // grpcIds whose session has been saved this lifecycle
 
 export interface GrpcMessagesAttrs {
     grpcId?: string | null;
@@ -28,6 +33,16 @@ export interface GrpcMessagesAttrs {
     service?: string | null;
     method?: string | null;
     target?: string | null;
+    url?: string | null;
+    package?: string | null;
+    /** JSON-serialised Array<{ key: string; value: string }> — connection metadata headers */
+    headers?: string | null;
+    /** Absolute path of the .proto file used for this session — stored in history for void export */
+    protoFilePath?: string | null;
+    /** Absolute path of the source .void file — used for history tagging */
+    sourceFilePath?: string | null;
+    /** JSON-serialised ProtoService[] — stored so history can restore the full services list */
+    protoServices?: string | null;
 }
 
 type GrpcMessageItem =
@@ -85,6 +100,18 @@ export const createGrpcMessagesNode = (NodeViewWrapper: any, context: PluginCont
         const connectCalledRef = React.useRef<boolean>(false);
         const ipcListenersSetupRef = React.useRef<boolean>(false);
 
+        // Refs for use inside IPC callbacks (avoid stale closure)
+        const messagesRef = React.useRef<GrpcMessageItem[]>([]);
+        React.useEffect(() => { messagesRef.current = messages; }, [messages]);
+        const sessionStartRef = React.useRef<number | null>(null);
+        const savedRef = React.useRef<boolean>(false);
+        const isReplayRef = React.useRef<boolean>(false);
+        const lastErrorRef = React.useRef<string | null>(null);
+
+        const parsedHeaders: Array<{ key: string; value: string }> = React.useMemo(() => {
+            try { return JSON.parse(attrs.headers || '[]'); } catch { return []; }
+        }, [attrs.headers]);
+
         const handleLangChange = (value: 'text' | 'json') => {
             setMessageFormat(value);
             setRequestInput(value === 'text' ? '' : '{}');
@@ -104,7 +131,14 @@ export const createGrpcMessagesNode = (NodeViewWrapper: any, context: PluginCont
             firstLoad.current = true;
 
             try {
-                await (window as any).electron.request.connectGrpc(grpcId);
+                const result = await (window as any).electron.request.connectGrpc(grpcId);
+                if (result?.wasClosed) {
+                    savedRef.current = true;
+                    isReplayRef.current = true;
+                    connectCalledRef.current = false;
+                    setConnected(false);
+                    return;
+                }
                 setConnected(true);
             } catch (error) {
                 console.error('Failed to connect to gRPC:', error);
@@ -149,6 +183,13 @@ export const createGrpcMessagesNode = (NodeViewWrapper: any, context: PluginCont
                     setMethod(d.method);
                     // Reset stream ended flag when connection opens
                     setStreamEnded(false);
+                    if (!sessionStartRef.current) sessionStartRef.current = Date.now();
+                    if (isReplayRef.current) {
+                        isReplayRef.current = false;
+                    } else {
+                        savedRef.current = false;
+                    }
+                    lastErrorRef.current = null;
                     setMessages((prev) => [
                         ...prev,
                         {
@@ -202,17 +243,17 @@ export const createGrpcMessagesNode = (NodeViewWrapper: any, context: PluginCont
                     if (callType === 'unary') {
                         setUnaryError(true);
                     }
-                    setMessages((prev) => [
-                        ...prev,
-                        {
-                            kind: "stream-error",
-                            ts: Date.now(),
-                            grpcId: d.grpcId,
-                            error: d.error || "gRPC error",
-                            code: d.code,
-                            details: d.details
-                        }
-                    ]);
+                    const errItem: GrpcMessageItem = {
+                        kind: "stream-error",
+                        ts: Date.now(),
+                        grpcId: d.grpcId,
+                        error: d.error || "gRPC error",
+                        code: d.code,
+                        details: d.details,
+                    };
+                    setMessages((prev) => [...prev, errItem]);
+                    // Track error — save will happen on the terminal close/end/cancelled event
+                    lastErrorRef.current = d.error || 'gRPC error';
                 }
             });
 
@@ -220,10 +261,32 @@ export const createGrpcMessagesNode = (NodeViewWrapper: any, context: PluginCont
                 if (!grpcId || d.grpcId === grpcId) {
                     setConnected(false);
                     setStreamEnded(true);
-                    setMessages((prev) => [
-                        ...prev,
-                        { kind: "stream-end", ts: Date.now(), grpcId: d.grpcId, reason: d.reason }
-                    ]);
+                    const endItem: GrpcMessageItem = { kind: "stream-end", ts: Date.now(), grpcId: d.grpcId, reason: d.reason };
+                    setMessages((prev) => [...prev, endItem]);
+
+                    const endGrpcId = d.grpcId as string;
+                    if (!savedRef.current && !savedGrpcSessions.has(endGrpcId)) {
+                        savedRef.current = true;
+                        savedGrpcSessions.add(endGrpcId);
+                        const endError = lastErrorRef.current;
+                        lastErrorRef.current = null;
+                        saveSessionToHistory(context, {
+                            method: attrs.url?.startsWith('grpcs://') ? 'GRPCS' : 'GRPC',
+                            url: attrs.target || attrs.url || '',
+                            headers: parsedHeaders,
+                            messages: [...messagesRef.current, endItem],
+                            error: endError ?? undefined,
+                            sessionStart: sessionStartRef.current ?? undefined,
+                            sessionEnd: Date.now(),
+                            sourceFilePath: attrs.sourceFilePath || null,
+                            grpcService: attrs.service || null,
+                            grpcMethod: attrs.method || null,
+                            grpcCallType: attrs.callType || null,
+                            grpcPackage: attrs.package || null,
+                            protoFilePath: attrs.protoFilePath || null,
+                            protoServices: (() => { try { const s = attrs.protoServices; return s ? (typeof s === 'string' ? JSON.parse(s) : s) : null; } catch { return null; } })(),
+                        });
+                    }
                 }
             });
 
@@ -231,21 +294,64 @@ export const createGrpcMessagesNode = (NodeViewWrapper: any, context: PluginCont
                 if (!grpcId || d.grpcId === grpcId) {
                     setConnected(false);
                     setStreamEnded(true);
-                    setMessages((prev) => [
-                        ...prev,
-                        { kind: "stream-cancelled", ts: Date.now(), grpcId: d.grpcId }
-                    ]);
+                    const cancelItem: GrpcMessageItem = { kind: "stream-cancelled", ts: Date.now(), grpcId: d.grpcId };
+                    setMessages((prev) => [...prev, cancelItem]);
+
+                    const cancelGrpcId = d.grpcId as string;
+                    if (!savedRef.current && !savedGrpcSessions.has(cancelGrpcId)) {
+                        savedRef.current = true;
+                        savedGrpcSessions.add(cancelGrpcId);
+                        lastErrorRef.current = null;
+                        saveSessionToHistory(context, {
+                            method: attrs.url?.startsWith('grpcs://') ? 'GRPCS' : 'GRPC',
+                            url: attrs.target || attrs.url || '',
+                            headers: parsedHeaders,
+                            messages: [...messagesRef.current, cancelItem],
+                            error: 'Cancelled',
+                            sessionStart: sessionStartRef.current ?? undefined,
+                            sessionEnd: Date.now(),
+                            sourceFilePath: attrs.sourceFilePath || null,
+                            grpcService: attrs.service || null,
+                            grpcMethod: attrs.method || null,
+                            grpcCallType: attrs.callType || null,
+                            grpcPackage: attrs.package || null,
+                            protoFilePath: attrs.protoFilePath || null,
+                            protoServices: (() => { try { const s = attrs.protoServices; return s ? (typeof s === 'string' ? JSON.parse(s) : s) : null; } catch { return null; } })(),
+                        });
+                    }
                 }
             });
-            
+
             const offClosed = listen("grpc-stream-closed", (_e: any, d: any) => {
                 if (!grpcId || d.grpcId === grpcId) {
                     setConnected(false);
                     setStreamEnded(true);
-                    setMessages((prev) => [
-                        ...prev,
-                        { kind: "stream-closed", ts: Date.now(), grpcId: d.grpcId }
-                    ]);
+                    const closedItem: GrpcMessageItem = { kind: "stream-closed", ts: Date.now(), grpcId: d.grpcId };
+                    setMessages((prev) => [...prev, closedItem]);
+
+                    const closedGrpcId = d.grpcId as string;
+                    if (!savedRef.current && !savedGrpcSessions.has(closedGrpcId)) {
+                        savedRef.current = true;
+                        savedGrpcSessions.add(closedGrpcId);
+                        const closedError = lastErrorRef.current;
+                        lastErrorRef.current = null;
+                        saveSessionToHistory(context, {
+                            method: attrs.url?.startsWith('grpcs://') ? 'GRPCS' : 'GRPC',
+                            url: attrs.target || attrs.url || '',
+                            headers: parsedHeaders,
+                            messages: [...messagesRef.current, closedItem],
+                            error: closedError ?? undefined,
+                            sessionStart: sessionStartRef.current ?? undefined,
+                            sessionEnd: Date.now(),
+                            sourceFilePath: attrs.sourceFilePath || null,
+                            grpcService: attrs.service || null,
+                            grpcMethod: attrs.method || null,
+                            grpcCallType: attrs.callType || null,
+                            grpcPackage: attrs.package || null,
+                            protoFilePath: attrs.protoFilePath || null,
+                            protoServices: (() => { try { const s = attrs.protoServices; return s ? (typeof s === 'string' ? JSON.parse(s) : s) : null; } catch { return null; } })(),
+                        });
+                    }
                 }
             });
 
@@ -547,18 +653,7 @@ export const createGrpcMessagesNode = (NodeViewWrapper: any, context: PluginCont
 
             switch (msg.kind) {
                 case "stream-open":
-                    return (
-                        <div key={idx} className={`${lineBase} flex items-center  text-green-400 border-l-2 border-green-400`}>
-                            <div className="flex-1">
-                                <div className="font-mono font-semibold">CONNECTED</div>
-                                <div className="text-xs text-comment">
-                                    {time}
-                                    {msg.method && ` • ${msg.method}`}
-                                    {msg.callType && ` • ${msg.callType.replace('_', ' ')}`}
-                                </div>
-                            </div>
-                        </div>
-                    );
+                    return null;
 
                 case "stream-data":
                     const isRequest = msg.type === 'request';
@@ -898,6 +993,13 @@ export const createGrpcMessagesNode = (NodeViewWrapper: any, context: PluginCont
                 service: { default: null },
                 method: { default: null },
                 target: { default: null },
+                url: { default: null },
+                package: { default: null },
+                headers: { default: null },
+                protoFilePath: { default: null },
+                sourceFilePath: { default: null },
+                /** JSON-serialised ProtoService[] — stored so history can restore the full services list */
+                protoServices: { default: null },
             };
         },
 

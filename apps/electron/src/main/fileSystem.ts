@@ -7,6 +7,8 @@ import { aggregateGitStatus } from "./git";
 import eventBus from "./eventBus";
 import { windowManager } from "./windowManager";
 import { getActiveProject } from "./state";
+import { getSettings } from "./settings";
+import { ensureVoidenProjectMetadata } from "./projectUtils";
 
 // Files and Directory Operations
 const sortNodes = (nodes: TreeNode[]): TreeNode[] => {
@@ -20,7 +22,10 @@ const sortNodes = (nodes: TreeNode[]): TreeNode[] => {
   });
 };
 
-export const buildFileTree = async (dir: string, gitStatusMap?: Map<string, any>): Promise<TreeNode> => {
+export const buildFileTree = async (
+  dir: string,
+  gitStatusMap?: Map<string, any>,
+): Promise<TreeNode> => {
   const items = fs.readdirSync(dir, { withFileTypes: true });
   const nodes = await Promise.all(
     items
@@ -28,7 +33,13 @@ export const buildFileTree = async (dir: string, gitStatusMap?: Map<string, any>
         // Allow all non-dot files.
         if (!item.name.startsWith(".")) return true;
         // For dot files, allow .gitignore and any .env file (like .env, .env.dev, .env.prod, etc).
-        if (item.isFile() && (item.name === ".gitignore" || item.name === ".env" || item.name.startsWith(".env") || item.name.endsWith(".env"))) {
+        if (
+          item.isFile() &&
+          (item.name === ".gitignore" ||
+            item.name === ".env" ||
+            item.name.startsWith(".env") ||
+            item.name.endsWith(".env"))
+        ) {
           return true;
         }
         // Otherwise, filter it out.
@@ -40,7 +51,9 @@ export const buildFileTree = async (dir: string, gitStatusMap?: Map<string, any>
           // Recursively build the subtree.
           const subtree = await buildFileTree(fullPath, gitStatusMap);
           // Aggregate Git status from children.
-          const aggregatedGitStatus = aggregateGitStatus(subtree.children || []);
+          const aggregatedGitStatus = aggregateGitStatus(
+            subtree.children || [],
+          );
           return {
             name: item.name,
             path: fullPath,
@@ -54,7 +67,9 @@ export const buildFileTree = async (dir: string, gitStatusMap?: Map<string, any>
           name: item.name,
           path: fullPath,
           type: "file" as const,
-          ...(gitStatusMap?.has(fullPath) ? { git: gitStatusMap.get(fullPath) } : {}),
+          ...(gitStatusMap?.has(fullPath)
+            ? { git: gitStatusMap.get(fullPath) }
+            : {}),
         };
       }),
   );
@@ -67,7 +82,10 @@ export const buildFileTree = async (dir: string, gitStatusMap?: Map<string, any>
   };
 };
 
-export async function createFile(filePath: string, fileName: string): Promise<{ path: string; name: string }> {
+export async function createFile(
+  filePath: string,
+  fileName: string,
+): Promise<{ path: string; name: string }> {
   // Allow callers to pass nested/new paths by ensuring parent folders exist.
   await fs.promises.mkdir(filePath, { recursive: true });
 
@@ -87,7 +105,10 @@ export async function createFile(filePath: string, fileName: string): Promise<{ 
   return { path: fullPath, name: finalName };
 }
 
-export async function createVoidFile(filePath: string, fileName: string): Promise<{ path: string; name: string }> {
+export async function createVoidFile(
+  filePath: string,
+  fileName: string,
+): Promise<{ path: string; name: string }> {
   // Allow callers to pass nested/new paths by ensuring parent folders exist.
   await fs.promises.mkdir(filePath, { recursive: true });
 
@@ -130,7 +151,10 @@ export async function deleteFile(filePath: string) {
   return false;
 }
 
-export async function createDirectory(parentPath: string, dirName: string = "untitled") {
+export async function createDirectory(
+  parentPath: string,
+  dirName: string = "untitled",
+) {
   // Ensure parent path exists for nested directory creation flows.
   await fs.promises.mkdir(parentPath, { recursive: true });
 
@@ -149,38 +173,36 @@ export async function createDirectory(parentPath: string, dirName: string = "unt
   return finalName;
 }
 
-export async function getDirectoryExist(parentPath: string, dirName: string = "untitled") {
+export async function getDirectoryExist(
+  parentPath: string,
+  dirName: string = "untitled",
+) {
   return fs.existsSync(path.join(parentPath, dirName));
 }
 
-export async function getFileExist(parentPath: string, fileName: string = "untitled") {
+export async function getFileExist(
+  parentPath: string,
+  fileName: string = "untitled",
+) {
   return fs.existsSync(path.join(parentPath, fileName));
 }
 
 export async function createProjectDirectory(dirName: string = "untitled") {
+  const projectsDirectory = getSettings().projects.default_directory;
   let finalName = dirName;
   let counter = 1;
 
-  if (!fs.existsSync(path.join(app.getPath("home"), "Voiden"))) {
-    await fs.promises.mkdir(path.join(app.getPath("home"), "Voiden"));
-  }
+  await fs.promises.mkdir(projectsDirectory, { recursive: true });
+
   // Check if directory exists and generate new name if needed
-  while (fs.existsSync(path.join(app.getPath("home"), "Voiden", finalName))) {
+  while (fs.existsSync(path.join(projectsDirectory, finalName))) {
     finalName = `${dirName}-${counter}`;
     counter++;
   }
 
   // Create the directory
-  const fullPath = path.join(app.getPath("home"), "Voiden", finalName);
-  await fs.promises.mkdir(fullPath);
-
-  //Create the .voiden directory if not present
-  const voidenPath = path.join(app.getPath("home"), "Voiden", finalName, ".voiden");
-  await fs.promises.mkdir(voidenPath, { recursive: true });
-
-  // Create simple .voiden file
-  const filePath = path.join(app.getPath("home"), "Voiden", finalName, ".voiden/.voiden-projects");
-  await fs.promises.writeFile(filePath, JSON.stringify({ project: dirName }));
+  const fullPath = path.join(projectsDirectory, finalName);
+  await ensureVoidenProjectMetadata(fullPath, finalName);
 
   return fullPath;
 }
@@ -227,8 +249,10 @@ export async function renameFileOrDirectory(oldPath: string, newName: string) {
     const oldResolved = path.resolve(oldPath);
     const newResolved = path.resolve(newPath);
 
-    const samePathCaseInsensitive = oldResolved.toLowerCase() === newResolved.toLowerCase();
-    const isSamePathButDifferentCase = samePathCaseInsensitive && oldResolved !== newResolved;
+    const samePathCaseInsensitive =
+      oldResolved.toLowerCase() === newResolved.toLowerCase();
+    const isSamePathButDifferentCase =
+      samePathCaseInsensitive && oldResolved !== newResolved;
 
     if (!samePathCaseInsensitive && fs.existsSync(newPath)) {
       return {
@@ -253,11 +277,13 @@ export async function renameFileOrDirectory(oldPath: string, newName: string) {
 }
 
 export async function findVoidenProjects() {
-  const searchPath = path.join(app.getPath("home"), "Voiden");
+  const searchPath = getSettings().projects.default_directory;
   const result: string[] = [];
 
   try {
-    const entries = await fs.promises.readdir(searchPath, { withFileTypes: true });
+    const entries = await fs.promises.readdir(searchPath, {
+      withFileTypes: true,
+    });
 
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
@@ -281,7 +307,11 @@ export async function findVoidenProjects() {
   return result;
 }
 
-export async function dropFiles(targetPath: string, fileName: string, fileData: Uint8Array) {
+export async function dropFiles(
+  targetPath: string,
+  fileName: string,
+  fileData: Uint8Array,
+) {
   try {
     const fullPath = path.join(targetPath, fileName);
     await fs.promises.writeFile(fullPath, Buffer.from(fileData));
@@ -316,21 +346,33 @@ export async function dropFolder(targetPath: string, sourcePath: string) {
   }
 }
 
-export type MoveConflict = { dragId: string; targetPath: string; fileName: string };
-export type MoveResult = { success: boolean; moved: string[]; conflicts: MoveConflict[]; error?: string };
+export type MoveConflict = {
+  dragId: string;
+  targetPath: string;
+  fileName: string;
+};
+export type MoveResult = {
+  success: boolean;
+  moved: string[];
+  conflicts: MoveConflict[];
+  error?: string;
+};
 
 async function collectVoidFiles(
   oldBasePath: string,
   newBasePath: string,
-  out: Array<{ oldPath: string; newPath: string }>
+  out: Array<{ oldPath: string; newPath: string }>,
 ) {
   const stat = await fs.promises.stat(oldBasePath);
   if (stat.isFile()) {
-    if (oldBasePath.endsWith(".void")) out.push({ oldPath: oldBasePath, newPath: newBasePath });
+    if (oldBasePath.endsWith(".void"))
+      out.push({ oldPath: oldBasePath, newPath: newBasePath });
     return;
   }
   if (!stat.isDirectory()) return;
-  const entries = await fs.promises.readdir(oldBasePath, { withFileTypes: true });
+  const entries = await fs.promises.readdir(oldBasePath, {
+    withFileTypes: true,
+  });
   for (const entry of entries) {
     const oldEntry = path.join(oldBasePath, entry.name);
     const newEntry = path.join(newBasePath, entry.name);
@@ -342,7 +384,10 @@ async function collectVoidFiles(
   }
 }
 
-export async function moveFiles(dragIds: string[], parentId: string): Promise<MoveResult> {
+export async function moveFiles(
+  dragIds: string[],
+  parentId: string,
+): Promise<MoveResult> {
   const moved: string[] = [];
   const conflicts: MoveConflict[] = [];
   const movedVoidFiles: Array<{ oldPath: string; newPath: string }> = [];
@@ -369,14 +414,19 @@ export async function moveFiles(dragIds: string[], parentId: string): Promise<Mo
   }
 }
 
-export async function moveFilesForce(conflicts: MoveConflict[]): Promise<{ success: boolean; error?: string }> {
+export async function moveFilesForce(
+  conflicts: MoveConflict[],
+): Promise<{ success: boolean; error?: string }> {
   const movedVoidFiles: Array<{ oldPath: string; newPath: string }> = [];
 
   try {
     for (const { dragId, targetPath } of conflicts) {
       const targetStat = await fs.promises.stat(targetPath).catch(() => null);
       if (targetStat?.isDirectory()) {
-        return { success: false, error: `Cannot replace folder "${path.basename(targetPath)}"` };
+        return {
+          success: false,
+          error: `Cannot replace folder "${path.basename(targetPath)}"`,
+        };
       }
       if (targetStat?.isFile()) {
         await fs.promises.unlink(targetPath);
@@ -392,19 +442,29 @@ export async function moveFilesForce(conflicts: MoveConflict[]): Promise<{ succe
   }
 }
 
-async function maybeUpdateLinkedBlockReferencesAfterMove(movedVoidFiles: Array<{ oldPath: string; newPath: string }>) {
+async function maybeUpdateLinkedBlockReferencesAfterMove(
+  movedVoidFiles: Array<{ oldPath: string; newPath: string }>,
+) {
   if (movedVoidFiles.length === 0) return;
 
   const activeProject = await getActiveProject();
   if (!activeProject) return;
 
-  const normalizeRel = (projectRoot: string, absolutePath: string) => path.relative(projectRoot, absolutePath).replace(/\\/g, "/");
-  const normalizeRefPath = (value: string) => value.replace(/\\/g, "/").replace(/^\.\//, "").replace(/^\/+/, "");
-  const isUuid = (value: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+  const normalizeRel = (projectRoot: string, absolutePath: string) =>
+    path.relative(projectRoot, absolutePath).replace(/\\/g, "/");
+  const normalizeRefPath = (value: string) =>
+    value.replace(/\\/g, "/").replace(/^\.\//, "").replace(/^\/+/, "");
+  const isUuid = (value: string) =>
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      value,
+    );
 
   const movedByOldRel = new Map<string, string>();
   for (const moved of movedVoidFiles) {
-    movedByOldRel.set(normalizeRel(activeProject, moved.oldPath), normalizeRel(activeProject, moved.newPath));
+    movedByOldRel.set(
+      normalizeRel(activeProject, moved.oldPath),
+      normalizeRel(activeProject, moved.newPath),
+    );
   }
   if (movedByOldRel.size === 0) return;
 
@@ -422,7 +482,8 @@ async function maybeUpdateLinkedBlockReferencesAfterMove(movedVoidFiles: Array<{
   };
   await collectAllVoidFiles(activeProject);
 
-  const originalFileLineRegex = /^(\s*originalFile:\s*)(['"]?)([^'"\r\n]+)\2(\s*)$/gm;
+  const originalFileLineRegex =
+    /^(\s*originalFile:\s*)(['"]?)([^'"\r\n]+)\2(\s*)$/gm;
   const filePathLineRegex = /^(\s*filePath:\s*)(['"]?)([^'"\r\n]+)\2(\s*)$/gm;
   const voidFenceRegex = /```void\s*\r?\n([\s\S]*?)```/g;
   const fileUpdates = new Map<string, string>();
@@ -430,7 +491,11 @@ async function maybeUpdateLinkedBlockReferencesAfterMove(movedVoidFiles: Array<{
 
   /** Rewrite a path value if it matches a moved file, invoking onMatch on update. */
   function rewritePathLine(
-    lineText: string, prefix: string, quote: string, refValue: string, suffix: string,
+    lineText: string,
+    prefix: string,
+    quote: string,
+    refValue: string,
+    suffix: string,
     onMatch: () => void,
   ): string {
     const normalizedRef = normalizeRefPath(refValue.trim());
@@ -453,27 +518,36 @@ async function maybeUpdateLinkedBlockReferencesAfterMove(movedVoidFiles: Array<{
     const source = await fs.promises.readFile(voidFilePath, "utf8");
     let fileReferenceCount = 0;
 
-    const updatedSource = source.replace(voidFenceRegex, (fenceText, body: string) => {
-      // linkedBlock: update originalFile
-      if (/^\s*type:\s*linkedBlock\s*$/m.test(body)) {
-        const uidMatch = body.match(/^\s*blockUid:\s*([^\r\n]+)\s*$/m);
-        if (!uidMatch || !isUuid(uidMatch[1].trim())) return fenceText;
-        const updatedBody = body.replace(originalFileLineRegex, (l, p, q, v, s) =>
-          rewritePathLine(l, p, q, v, s, () => { fileReferenceCount += 1; }),
-        );
-        return fenceText.replace(body, updatedBody);
-      }
+    const updatedSource = source.replace(
+      voidFenceRegex,
+      (fenceText, body: string) => {
+        // linkedBlock: update originalFile
+        if (/^\s*type:\s*linkedBlock\s*$/m.test(body)) {
+          const uidMatch = body.match(/^\s*blockUid:\s*([^\r\n]+)\s*$/m);
+          if (!uidMatch || !isUuid(uidMatch[1].trim())) return fenceText;
+          const updatedBody = body.replace(
+            originalFileLineRegex,
+            (l, p, q, v, s) =>
+              rewritePathLine(l, p, q, v, s, () => {
+                fileReferenceCount += 1;
+              }),
+          );
+          return fenceText.replace(body, updatedBody);
+        }
 
-      // fileLink: update filePath
-      if (/^\s*type:\s*fileLink\s*$/m.test(body)) {
-        const updatedBody = body.replace(filePathLineRegex, (l, p, q, v, s) =>
-          rewritePathLine(l, p, q, v, s, () => { fileReferenceCount += 1; }),
-        );
-        return fenceText.replace(body, updatedBody);
-      }
+        // fileLink: update filePath
+        if (/^\s*type:\s*fileLink\s*$/m.test(body)) {
+          const updatedBody = body.replace(filePathLineRegex, (l, p, q, v, s) =>
+            rewritePathLine(l, p, q, v, s, () => {
+              fileReferenceCount += 1;
+            }),
+          );
+          return fenceText.replace(body, updatedBody);
+        }
 
-      return fenceText;
-    });
+        return fenceText;
+      },
+    );
 
     if (fileReferenceCount > 0 && updatedSource !== source) {
       totalReferences += fileReferenceCount;
@@ -493,7 +567,6 @@ async function maybeUpdateLinkedBlockReferencesAfterMove(movedVoidFiles: Array<{
     message: "A .void file was moved.",
     detail: `References in other file(s) still point to the old path. Found ${totalReferences} reference(s) in ${fileUpdates.size} file(s). Update them to the new location?`,
   });
-
 
   if (response !== 1) return;
 
@@ -522,12 +595,18 @@ export const getRecentPaths = async () => {
 export const addRecentPath = async (projectPath: string) => {
   const recentPath = path.join(app.getPath("userData"), "recent-paths.json");
   const recent = await getRecentPaths();
-  const newRecent = [projectPath, ...recent.filter((p: string) => p !== projectPath)].slice(0, 5);
+  const newRecent = [
+    projectPath,
+    ...recent.filter((p: string) => p !== projectPath),
+  ].slice(0, 5);
   await fs.promises.writeFile(recentPath, JSON.stringify(newRecent));
 };
 
 // New function for duplicating a file
-export async function duplicateFile(originalPath: string, newName: string): Promise<{ path: string; name: string }> {
+export async function duplicateFile(
+  originalPath: string,
+  newName: string,
+): Promise<{ path: string; name: string }> {
   const dirPath = path.dirname(originalPath);
   let finalName = newName;
   let counter = 1;

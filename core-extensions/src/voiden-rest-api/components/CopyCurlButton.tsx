@@ -47,12 +47,15 @@ export const CopyCurlButton: React.FC<CopyCurlButtonProps> = ({ tab, context }) 
             }
 
             // Generate cURL command
-            const curlCommand = await generateCurlFromJson(jsonContent);
+            const rawCurlCommand = await generateCurlFromJson(jsonContent);
 
-            if (!curlCommand) {
+            if (!rawCurlCommand) {
                 console.warn('Failed to generate cURL command');
                 return;
             }
+
+            // Resolve {{VAR}} and {{process.xxx}} placeholders
+            const curlCommand = await (window as any).electron?.env?.replaceVariables(rawCurlCommand) ?? rawCurlCommand;
 
             // Copy to clipboard
             if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
