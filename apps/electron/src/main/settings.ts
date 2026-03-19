@@ -18,6 +18,7 @@ export type Settings = {
     theme?: string;
     font_size: number;
     font_family: string;
+    ui_font_size: number;
     cursor_type: "text" | "default" | "pointer";
     code_wrap: boolean;
   };

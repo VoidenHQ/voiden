@@ -31,7 +31,8 @@ export const UrlNode = Node.create({
     return [
       "url",
       mergeAttributes(HTMLAttributes, {
-        class: "border border-stone-700/80 p-1 font-mono w-full block mb-4",
+        class: "border rounded-md p-2 px-3 font-mono w-full block mb-3 text-sm transition-colors",
+        style: "border-color: var(--ui-line);",
       }),
       0,
     ];

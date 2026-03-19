@@ -13,6 +13,7 @@ import { createCustomSearchPanel, customSearchPanelStyles } from "./lib/extensio
 import {
   javascript
 } from "@codemirror/lang-javascript";
+import { json } from "@codemirror/lang-json";
 import { html } from "@codemirror/lang-html";
 import { css } from "@codemirror/lang-css";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
@@ -51,27 +52,27 @@ function debounce<T extends (...args: any[]) => any>(
 }
 
 export const config = {
-  // UI colors (dark stone-based)
+  // UI colors - theme-aware
   background: "var(--editor-bg)",
   foreground: "var(--editor-fg)",
   caret: "var(--editor-fg)",
-  selection: "rgba(255, 140, 0, 0.3)",
+  selection: "var(--selection)",
   lineHighlight: "transparent",
 
-  // Syntax highlighting colors - using vibrant colors against dark bg
-  keyword: "var(--syntax-keyword)", // blue-400
-  variable: "var(--editor-fg)", // purple-400
-  function: "var(--editor-fg)", // red-400
-  string: "var(--syntax-string)", // green-400
-  constant: "var(--syntax-constant)", // orange-400
-  type: "var(--syntax-entity)", // purple-400
-  class: "var(--syntax-entity)", // red-400
-  number: "var(--syntax-constant)", // orange-400
-  comment: "var(--syntax-comment)", // stone-500
-  heading: "var(--editor-fg)", // red-400
-  invalid: "#f87171", // red-400
-  regexp: "var(--syntax-regexp)", // blue-400
-  tag: "var(--syntax-tag)", // blue-400
+  // Syntax highlighting colors - all theme-aware via CSS variables
+  keyword: "var(--syntax-keyword)",
+  variable: "var(--syntax-entity)",
+  function: "var(--syntax-func)",
+  string: "var(--syntax-string)",
+  constant: "var(--syntax-constant)",
+  type: "var(--syntax-entity)",
+  class: "var(--syntax-markup)",
+  number: "var(--syntax-constant)",
+  comment: "var(--syntax-comment)",
+  heading: "var(--syntax-tag)",
+  invalid: "var(--error, #f87171)",
+  regexp: "var(--syntax-regexp)",
+  tag: "var(--syntax-tag)",
 };
 
 const defaultSettingsQuietlight: CreateThemeOptions["settings"] = {
@@ -181,7 +182,7 @@ const searchPanelTheme = EditorView.theme({
     flex: "1 1 auto",
     height: "36px",
     outline: "none",
-    fontFamily: "var(--font-family-base)",
+    fontFamily: "var(--font-family-ui)",
     transition: "border-color 0.15s ease",
     verticalAlign: "middle",
     backgroundImage: "none !important",
@@ -203,7 +204,7 @@ const searchPanelTheme = EditorView.theme({
     fontSize: "12px",
     cursor: "pointer",
     transition: "all 0.15s ease",
-    fontFamily: "var(--font-family-base)",
+    fontFamily: "var(--font-family-ui)",
     height: "36px",
     lineHeight: "1",
     whiteSpace: "nowrap",
@@ -298,7 +299,7 @@ const getLanguageExtension = (filename: string) => {
     case "tsx":
       return javascript({ jsx: true, typescript: true });
     case "json":
-      return javascript();
+      return json();
     case "html":
     case "htm":
       return html();

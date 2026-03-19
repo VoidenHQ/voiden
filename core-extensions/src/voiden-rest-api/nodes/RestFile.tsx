@@ -12,17 +12,18 @@ export const createRestFileNode = (NodeViewWrapper: any, RequestBlockHeader: any
     const importedFrom = node.attrs.importedFrom;
 
     return (
-      <NodeViewWrapper className="not-prose">
-        <RequestBlockHeader
-          title="HTTP-BINARY-FILE"
-          withBorder={true}
-          editor={editor}
-          importedDocumentId={importedFrom}
-          openFile={openFile}
-        />
+      <NodeViewWrapper className="not-prose my-3">
+        <div className="rounded-md border overflow-hidden" style={{ borderColor: 'var(--ui-line)' }}>
+          <RequestBlockHeader
+            title="HTTP-BINARY-FILE"
+            editor={editor}
+            importedDocumentId={importedFrom}
+            openFile={openFile}
+          />
 
-        {/* Content area */}
-        <NodeViewContent className="border-x border-light p-1 border-b" />
+          {/* Content area */}
+          <NodeViewContent className="p-2 px-3" />
+        </div>
       </NodeViewWrapper>
     );
   };

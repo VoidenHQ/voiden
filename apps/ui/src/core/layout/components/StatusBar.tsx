@@ -49,6 +49,7 @@ export const StatusBar = ({
   const rightItems = statusBarItems.filter((item) => item.position === 'right');
   const [isCheckingUpdates, setIsCheckingUpdates] = useState(false);
   const [isCompareDialogOpen, setIsCompareDialogOpen] = useState(false);
+  const [memStats, setMemStats] = useState<{ heap: number; processes: { type: string; mb: number; cpu: number }[] } | null>(null);
   const [updateProgress, setUpdateProgress] = useState<{ percent?: number; bytesPerSecond?: number; transferred?: number; total?: number; status: string } | null>(null);
   const isMac = navigator?.userAgent?.toLowerCase().includes("mac") ?? false;
 
@@ -82,6 +83,27 @@ export const StatusBar = ({
     };
   }, []);
 
+
+  // Memory stats: JS heap (renderer) + all Electron process metrics (main, GPU, etc.)
+  useEffect(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const perf = performance as any;
+    const update = async () => {
+      const heap = perf.memory ? perf.memory.usedJSHeapSize / 1024 / 1024 : 0;
+      const raw: { type: string; memory: number; cpu: number }[] = await window.electron?.ipc?.invoke("app:metrics") ?? [];
+      // Merge duplicate types (e.g. multiple Tab processes), convert KB → MB, sum CPU
+      const merged: Record<string, { mb: number; cpu: number }> = {};
+      for (const p of raw) {
+        const cur = merged[p.type] ?? { mb: 0, cpu: 0 };
+        merged[p.type] = { mb: cur.mb + p.memory / 1024, cpu: cur.cpu + p.cpu };
+      }
+      const processes = Object.entries(merged).map(([type, v]) => ({ type, ...v }));
+      setMemStats({ heap, processes });
+    };
+    update();
+    const id = setInterval(update, 2000);
+    return () => clearInterval(id);
+  }, []);
 
   // Keyboard shortcut for compare branches: ⌥⌘D (Mac) or Alt+Ctrl+D (Windows/Linux)
   useEffect(() => {
@@ -172,6 +194,51 @@ export const StatusBar = ({
               </button>
             </Tip>
           ))}
+
+          {/* Memory / CPU */}
+          {memStats && (() => {
+            const totalMB = memStats.processes.reduce((s, p) => s + p.mb, 0);
+            const totalCPU = memStats.processes.reduce((s, p) => s + p.cpu, 0);
+            return (
+              <Tip label={
+                <div className="space-y-1 min-w-[240px]">
+                  <div className="flex justify-between gap-4 font-medium">
+                    <span>JS heap (actual app usage)</span>
+                    <span>{memStats.heap.toFixed(1)} MB</span>
+                  </div>
+                  <div className="border-t border-border pt-1 mt-1 space-y-1">
+                    <div className="text-comment text-xs mb-1">Per-process breakdown — shared Chromium code counted once per process</div>
+                    <div className="flex justify-between gap-4 text-comment text-xs font-medium">
+                      <span>Process</span>
+                      <span className="flex gap-4"><span>RAM</span><span>CPU</span></span>
+                    </div>
+                    {memStats.processes.map(p => (
+                      <div key={p.type} className="flex justify-between gap-4 text-comment">
+                        <span>{p.type}</span>
+                        <span className="flex gap-4">
+                          <span>{p.mb.toFixed(1)} MB</span>
+                          <span>{p.cpu.toFixed(1)}%</span>
+                        </span>
+                      </div>
+                    ))}
+                    <div className="flex justify-between gap-4 pt-1 border-t border-border">
+                      <span>Total</span>
+                      <span className="flex gap-4">
+                        <span>{totalMB.toFixed(1)} MB</span>
+                        <span>{totalCPU.toFixed(1)}%</span>
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              } align="end">
+                <div className="h-full px-2 flex items-center gap-1.5 text-comment select-none cursor-default">
+                  <span className="font-mono text-xs">{memStats.heap.toFixed(0)}M</span>
+                  <span className="font-mono text-xs opacity-50">·</span>
+                  <span className="font-mono text-xs">{totalCPU.toFixed(0)}%</span>
+                </div>
+              </Tip>
+            );
+          })()}
 
           {/* App Version / Update Progress */}
           {updateProgress && (updateProgress.status === "downloading" || updateProgress.status === "installing" || updateProgress.status === "checking" || updateProgress.status === "ready") ? (

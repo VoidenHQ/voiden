@@ -1,10 +1,12 @@
 {
   "appearance": {
     "theme": "voiden",
-    "font_size": 15,
+    "font_size": 14,
     "font_family": "Inconsolata",
+    "ui_font_size": 13,
     "cursor_type": "text",
-    "code_wrap": true
+    "code_wrap": true,
+    "content_width": 860
   },
   "editor": {
     "auto_save": false,

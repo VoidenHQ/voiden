@@ -7,18 +7,18 @@
 
     "_section_base": "=== BASE COLORS (7) ===",
     "--bg-primary": "#282a36",
-    "--bg-secondary": "#21222c",
+    "--bg-secondary": "#22232e",
     "--fg-primary": "#f8f8f2",
     "--fg-secondary": "#6272a4",
-    "--border": "#191a21",
-    "--selection": "#44475a",
-    "--hover": "#00000026",
+    "--border": "#252731",
+    "--selection": "#44475a80",
+    "--hover": "#44475a40",
 
     "_section_semantic": "=== SEMANTIC COLORS (13) ===",
     "--success": "#50fa7b",
-    "--success-bg": "rgba(80, 250, 123, 0.2)",
+    "--success-bg": "rgba(80, 250, 123, 0.15)",
     "--error": "#ff5555",
-    "--error-bg": "rgba(255, 85, 85, 0.2)",
+    "--error-bg": "rgba(255, 85, 85, 0.15)",
     "--warning": "#f1fa8c",
     "--info": "#8be9fd",
     "--accent": "#bd93f9",
@@ -27,7 +27,7 @@
     "--accent-alt-rgb": "255 121 198",
     "--http-head": "#bd93f9",
     "--http-options": "#6272a4",
-    "--table-cell-selection": "rgba(189, 147, 249, 0.35)",
+    "--table-cell-selection": "rgba(189, 147, 249, 0.25)",
 
     "_section_syntax": "=== SYNTAX HIGHLIGHTING (11) ===",
     "--syntax-tag": "#ff79c6",
@@ -61,13 +61,13 @@
     "--ansi-bright-white": "#ffffff",
 
     "_section_variables": "=== VARIABLE HIGHLIGHTING (6) ===",
-    "--variable-valid-bg": "rgba(80, 250, 123, 0.2)",
+    "--variable-valid-bg": "rgba(80, 250, 123, 0.15)",
     "--variable-valid-fg": "#69ff94",
-    "--variable-invalid-bg": "rgba(255, 85, 85, 0.2)",
+    "--variable-invalid-bg": "rgba(255, 85, 85, 0.15)",
     "--variable-invalid-fg": "#ff8888",
-    "--variable-faker-bg": "rgba(139, 233, 253, 0.2)",
+    "--variable-faker-bg": "rgba(139, 233, 253, 0.15)",
     "--variable-faker-fg": "#a3f0ff",
     "--faker": "#a3f0ff",
-    "--faker-bg": "rgba(139, 233, 253, 0.2)"
+    "--faker-bg": "rgba(139, 233, 253, 0.15)"
   }
 }

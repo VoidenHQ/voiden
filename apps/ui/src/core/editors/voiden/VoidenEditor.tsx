@@ -211,62 +211,55 @@ export const useVoidenExtensionsAndSchema = () => {
 };
 
 export const proseClasses = [
-  // Base styles
-  "space-y-4",
+  // Base styles - generous spacing between blocks (Obsidian/Notion style)
+  "space-y-3",
 
-  // Headings - using centralized typography from styles.css
-  "prose-h1:text-4xl prose-h1:font-semibold prose-h1:tracking-tight prose-h1:mt-0 prose-h1:mb-1",
-  "prose-h2:text-3xl prose-h2:font-semibold prose-h2:tracking-tight prose-h2:mt-0 prose-h2:mb-1",
-  "prose-h3:text-2xl prose-h3:font-semibold prose-h3:tracking-tight prose-h3:mt-0 prose-h3:mb-1",
-  "prose-h4:text-xl prose-h4:font-semibold prose-h4:tracking-tight prose-h4:mt-0 prose-h4:mb-1",
+  // Headings - bold, clear hierarchy with tight tracking
+  "prose-h1:font-bold prose-h1:tracking-tight",
+  "prose-h2:font-bold prose-h2:tracking-tight",
+  "prose-h3:font-semibold prose-h3:tracking-tight",
+  "prose-h4:font-semibold prose-h4:tracking-tight",
 
-  // Text elements - using centralized typography
-  "prose-p:text-text text-base prose-p:mb-1",
-  "prose-strong:font-semibold",
+  // Text elements - text-base sets the editor's monospace font
+  "text-base prose-p:text-text",
+  "prose-strong:font-bold",
   "prose-em:italic",
 
-  // Lists
-  "prose-ul:text-comment prose-ul:mb-1 prose-ul:list-disc prose-ul:pl-4",
-  "prose-ol:text-comment prose-ol:mb-1 prose-ol:list-decimal prose-ol:pl-4",
-  "prose-li:my-0.5 prose-li:text-text",
+  // Lists - generous spacing for readability
+  "prose-ul:text-text prose-ul:mb-3 prose-ul:list-disc prose-ul:pl-6",
+  "prose-ol:text-text prose-ol:mb-3 prose-ol:list-decimal prose-ol:pl-6",
+  "prose-li:my-1.5 prose-li:text-text",
 
-  // Code
-  "prose-pre:bg-bg prose-pre:border prose-pre:border-border prose-pre:mb-1 prose-pre:px-1 prose-pre:py-0.5",
-  "prose-code:text-accent prose-code:font-mono",
+  // Code - mono font stays for code blocks
+  "prose-pre:bg-bg prose-pre:border prose-pre:border-border prose-pre:mb-3 prose-pre:px-4 prose-pre:py-3 prose-pre:rounded-md",
+  "prose-code:text-accent prose-code:font-mono prose-code:text-sm",
 
   // Links
   "prose-a:text-accent prose-a:no-underline hover:prose-a:text-orange-400 prose-a:cursor-pointer",
 
-  // Blockquotes
-  "prose-blockquote:border-accent/30 prose-blockquote:bg-bg prose-blockquote:mb-1 prose-blockquote:text-comment",
+  // Blockquotes - clear visual separation
+  "prose-blockquote:border-accent/30 prose-blockquote:bg-bg prose-blockquote:mb-3 prose-blockquote:text-comment",
 
-  // Tables
-  "prose-table:border-border",
-  "prose-th:text-white prose-th:font-semibold prose-th:p-2 prose-th:border prose-th:border-light prose-th:bg-bg",
-  "prose-td:text-comment prose-td:p-2 prose-td:border prose-td:border-light",
-  "[&_table]:w-full [&_table]:w-full",
+  // Tables - minimal, clean borders
+  "[&_table]:w-full",
   "[&_table]:border-collapse",
-  "[&_table]:border [&_table]:border-light", // Add border to table
-  "[&_th]:border [&_th]:border-light [&_th]:p-2 [&_th]:text-text",
-  "[&_td]:border [&_td]:border-light [&_td]:p-2 [&_td]:text-text",
-  "[&_td]:text-base",
 
-  // Horizontal rules
-  "prose-hr:border-border",
+  // Horizontal rules - clear section dividers
+  "prose-hr:border-border prose-hr:my-8",
 
   // Figures
-  "prose-figure:my-4",
+  "prose-figure:my-8",
   "prose-figcaption:text-comment prose-figcaption:text-sm",
 
   // Description lists
   "prose-dt:text-text prose-dt:font-semibold prose-dt:mb-1",
-  "prose-dd:text-comment prose-dd:ml-4 prose-dd:mb-1",
+  "prose-dd:text-comment prose-dd:ml-4 prose-dd:mb-3",
 
   // Images
-  "prose-img:rounded prose-img:border prose-img:border-border",
+  "prose-img:rounded-md prose-img:border prose-img:border-border",
 
   // Custom elements
-  "prose-kbd:bg-bg prose-kbd:text-comment prose-kbd:px-1 prose-kbd:border prose-kbd:border-border prose-kbd:rounded",
+  "prose-kbd:bg-bg prose-kbd:text-comment prose-kbd:px-1.5 prose-kbd:py-0.5 prose-kbd:border prose-kbd:border-border prose-kbd:rounded",
   "prose-mark:bg-accent/20",
 
   // Small text
@@ -1365,7 +1358,7 @@ function sanitizeDoc(node: any): any {
         </div>
       )}
 
-      <div className="mx-auto w-full px-2  bg-editor">
+      <div className="mx-auto w-full px-2 bg-editor" style={{ maxWidth: 'var(--prose-max-width, 860px)' }}>
         {isActive && <VoidenDragMenu editor={editor} />}
         <EditorContent editor={editor} />
       </div>

@@ -19,41 +19,41 @@ import { LRParser } from "@lezer/lr";
 // THEME
 
 const config = {
-  // UI colors (dark stone-based)
-  background: "#1c1917", // stone-900
-  foreground: "#fafaf9", // stone-50
-  caret: "#fafaf9", // stone-50
-  selection: "#292524", // stone-800
-  lineHighlight: "#292524", // stone-800 with some transparency
+  // UI colors - theme-aware via CSS variables
+  background: "var(--editor-bg)",
+  foreground: "var(--editor-fg)",
+  caret: "var(--editor-fg)",
+  selection: "var(--selection)",
+  lineHighlight: "var(--code-line-highlight)",
 
-  // Syntax highlighting colors - using vibrant colors against dark bg
-  keyword: "#60a5fa", // blue-400
-  variable: "#c084fc", // purple-400
-  function: "#f87171", // red-400
-  string: "#4ade80", // green-400
-  constant: "#fb923c", // orange-400
-  type: "#c084fc", // purple-400
-  class: "#f87171", // red-400
-  number: "#fb923c", // orange-400
-  comment: "#78716c", // stone-500
-  heading: "#f87171", // red-400
-  invalid: "#f87171", // red-400
-  regexp: "#60a5fa", // blue-400
-  tag: "#60a5fa", // blue-400
+  // Syntax highlighting colors - all theme-aware
+  keyword: "var(--syntax-keyword)",
+  variable: "var(--syntax-entity)",
+  function: "var(--syntax-func)",
+  string: "var(--syntax-string)",
+  constant: "var(--syntax-constant)",
+  type: "var(--syntax-entity)",
+  class: "var(--syntax-markup)",
+  number: "var(--syntax-constant)",
+  comment: "var(--syntax-comment)",
+  heading: "var(--syntax-tag)",
+  invalid: "var(--error, #f87171)",
+  regexp: "var(--syntax-regexp)",
+  tag: "var(--syntax-tag)",
 };
 
 const defaultSettingsQuietlight: CreateThemeOptions["settings"] = {
   background: config.background,
   foreground: config.foreground,
   caret: config.caret,
-  selection: "#57534e",
-  selectionMatch: "#44403c", // gray-600 - for matching selections
+  selection: config.selection,
+  selectionMatch: "var(--editor-selection)",
   gutterBackground: config.background,
-  gutterForeground: "#78716c", // stone-500 to match comment color
+  gutterForeground: "var(--editor-gutter-normal)",
   gutterBorder: "transparent",
   lineHighlight: config.lineHighlight,
   fontSize: "var(--font-size-base)",
-  fontFamily: "var(--font-family-base)",
+  fontFamily: "var(--font-family-mono, monospace)",
 };
 
 const quietlightStyle: CreateThemeOptions["styles"] = [
