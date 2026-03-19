@@ -27,6 +27,15 @@ import os from "os";
 import path from "path";
 import { updateFileWatcher } from "./fileWatcher";
 import { windowManager } from "./windowManager";
+import { getSettings } from "./settings";
+import { recomposeAndInstall } from "./skillsInstaller";
+
+function maybeRecomposeSkills(state: AppState): void {
+  const skills = getSettings().skills;
+  if (skills?.claude || skills?.codex) {
+    recomposeAndInstall(state, { claude: skills.claude ?? false, codex: skills.codex ?? false }).catch(() => {});
+  }
+}
 
 // Declare global state variables.
 let appState: AppState;
@@ -1049,6 +1058,7 @@ export const ipcStateHandlers = () => {
     }
     await extensionManager.installCommunityExtension(extension);
     await saveState(appState);
+    maybeRecomposeSkills(appState);
     return { success: true };
   });
 
@@ -1064,6 +1074,7 @@ export const ipcStateHandlers = () => {
     }
     const ext = await extensionManager.installFromZip(result.filePaths[0]);
     await saveState(appState);
+    maybeRecomposeSkills(appState);
     return { success: true, extension: ext };
   });
 
@@ -1086,6 +1097,7 @@ export const ipcStateHandlers = () => {
     // Now uninstall the extension via the extension manager.
     await extensionManager.uninstallCommunityExtension(extensionId);
     await saveState(appState);
+    maybeRecomposeSkills(appState);
     return { success: true };
   });
 
@@ -1133,11 +1145,11 @@ export const ipcStateHandlers = () => {
         }
       }
 
-      await extensionManager.setExtensionEnabled(extensionId, enabled);
-      await saveState(appState);
-      return { extensionId, enabled };
-    },
-  );
+    await extensionManager.setExtensionEnabled(extensionId, enabled);
+    await saveState(appState);
+    maybeRecomposeSkills(appState);
+    return { extensionId, enabled };
+  });
 
   ipcMain.handle(
     "state:setActiveProject",
@@ -1264,6 +1276,7 @@ export const ipcStateHandlers = () => {
     const updatedExtension =
       await extensionManager.installCommunityExtension(remoteExt);
     await saveState(appState);
+    maybeRecomposeSkills(appState);
     return { success: true, updatedExtension };
   });
 

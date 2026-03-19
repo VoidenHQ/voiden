@@ -33,6 +33,10 @@
   "cli": {
     "installed": false
   },
+  "skills": {
+    "claude": false,
+    "codex": false
+  },
   "projects": {
     "default_directory": ""
   }

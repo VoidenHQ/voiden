@@ -148,6 +148,19 @@ const config: ForgeConfig = {
   hooks: {
     // Stamp version from package.json into bin scripts before packaging
     generateAssets: async () => {
+      // Copy core extension skill.md files into skills/core/ so they are
+      // bundled as extraResource and available at runtime via process.resourcesPath
+      const coreExtSrcDir = path.join(__dirname, "../../core-extensions/src");
+      const skillsCoreDir = path.join(__dirname, "skills", "core");
+      fs.mkdirSync(skillsCoreDir, { recursive: true });
+      for (const extId of fs.readdirSync(coreExtSrcDir)) {
+        const skillSrc = path.join(coreExtSrcDir, extId, "skill.md");
+        if (fs.existsSync(skillSrc)) {
+          fs.copyFileSync(skillSrc, path.join(skillsCoreDir, `${extId}.skill.md`));
+          console.log(`Copied skill.md for ${extId}`);
+        }
+      }
+
       const binDir = path.join(__dirname, "bin");
 
       // Replace VOIDEN_VERSION="<any value>" with the current version in bash script
@@ -218,7 +231,7 @@ const config: ForgeConfig = {
     },
   },
   packagerConfig: {
-    extraResource: ["src/sample-project", "splash.html", "logo-dark.png", "background.png", "default.settings.json", "public/fonts", "themes", "bin", "src/images/icon.png"],
+    extraResource: ["src/sample-project", "splash.html", "logo-dark.png", "background.png", "default.settings.json", "public/fonts", "themes", "bin", "src/images/icon.png", "skills"],
     extendInfo: "./info.plist",
     asar: {
       // 👇 Required for node-pty: ensures both `pty.node` and `spawn-helper` are unpacked for Unix platforms

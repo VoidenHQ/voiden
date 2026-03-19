@@ -45,6 +45,10 @@ export type Settings = {
   cli: {
     installed: boolean; // Whether CLI is currently installed in PATH
   };
+  skills: {
+    claude: boolean;
+    codex: boolean;
+  };
   projects: {
     default_directory: string;
   };

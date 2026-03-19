@@ -128,7 +128,10 @@ export function prepareExtensionMain(main: string): { main: string; extraFiles: 
   };
 }
 
-export async function getExtensionFiles(repo: string, version: string): Promise<{ manifest: string; main: string }> {
+export async function getExtensionFiles(
+  repo: string,
+  version: string
+): Promise<{ manifest: string; main: string; skill?: string }> {
   const apiUrl = `https://api.github.com/repos/${repo}/releases/tags/v${version}`;
   const response = await fetch(apiUrl);
 
@@ -153,5 +156,19 @@ export async function getExtensionFiles(repo: string, version: string): Promise<
 
   const [manifest, main] = await Promise.all([manifestResponse.text(), mainResponse.text()]);
 
-  return { manifest, main };
+  // Attempt to fetch skill.md — best-effort, optional
+  let skill: string | undefined;
+  const skillAsset = assets.find((asset) => asset.name === "skill.md");
+  if (skillAsset) {
+    try {
+      const skillResponse = await fetch(skillAsset.browser_download_url);
+      if (skillResponse.ok) {
+        skill = await skillResponse.text();
+      }
+    } catch {
+      // skill.md is optional — continue without it
+    }
+  }
+
+  return { manifest, main, skill };
 }

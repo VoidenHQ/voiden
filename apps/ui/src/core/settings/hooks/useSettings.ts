@@ -258,6 +258,10 @@ export type UserSettings = {
   updates: {
     channel: "stable" | "early-access";
   };
+  skills?: {
+    claude: boolean;
+    codex: boolean;
+  };
   cli: {
     installed: boolean;
   };
@@ -322,6 +326,15 @@ export function useSettings() {
   }, [settings?.appearance?.content_width]);
 
   useEffect(() => {
+    if (settings?.appearance?.content_width) {
+      document.documentElement.style.setProperty(
+        "--prose-max-width",
+        `${settings.appearance.content_width}px`
+      );
+    }
+  }, [settings?.appearance?.content_width]);
+
+  useEffect(() => {
     let cancelled = false;
     window.electron?.userSettings.get().then((s) => {
       if (!cancelled) {
@@ -346,6 +359,7 @@ export function useSettings() {
       proxy: { ...currentSettings.proxy, ...patch.proxy },
       terminal: { ...currentSettings.terminal, ...patch.terminal },
       updates: { ...currentSettings.updates, ...patch.updates },
+      skills: { ...currentSettings.skills, ...patch.skills },
       cli: { ...currentSettings.cli, ...patch.cli },
       projects: { ...currentSettings.projects, ...patch.projects },
       history: { ...currentSettings.history, ...patch.history },

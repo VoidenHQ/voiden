@@ -1,5 +1,5 @@
 import { useSettings, ProxyConfig } from "@/core/settings/hooks/useSettings";
-import { Check, RefreshCw, Plus, Trash2, Edit2, Palette, Type, FileText, Globe, Network, Terminal as TerminalIcon, Download, Search, Keyboard, WrapText, Timer, Columns, History, ChevronUp, ChevronDown, FolderOpen  } from "lucide-react";
+import { Check, RefreshCw, Plus, Trash2, Edit2, Palette, Type, FileText, Globe, Network, Terminal as TerminalIcon, Download, Search, Keyboard, WrapText, Timer, Columns, Zap, History, ChevronUp, ChevronDown, FolderOpen  } from "lucide-react";
 import { useEffect, useMemo, useState, useRef } from "react";
 import { loadThemeById, getAvailableThemes } from "@/utils/themeLoader";
 import { Kbd } from "@/core/components/ui/kbd";
@@ -131,9 +131,13 @@ export const SettingsScreen = () => {
   const updatesRef = useRef<HTMLElement>(null);
   const terminalRef = useRef<HTMLElement>(null);
   const cliRef = useRef<HTMLElement>(null);
+  const skillsRef = useRef<HTMLElement>(null);
   const keyboardRef = useRef<HTMLElement>(null);
   const historyRef = useRef<HTMLElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
+
+  const [claudeSkillToggling, setClaudeSkillToggling] = useState(false);
+  const [codexSkillToggling, setCodexSkillToggling] = useState(false);
 
   const sections = useMemo(() => [
     { id: "projects", label: "Projects", icon: <FolderOpen className="w-4 h-4" />, ref: projectsRef },
@@ -143,6 +147,7 @@ export const SettingsScreen = () => {
     { id: "updates", label: "Updates", icon: <Download className="w-4 h-4" />, ref: updatesRef },
     { id: "terminal", label: "Terminal", icon: <TerminalIcon className="w-4 h-4" />, ref: terminalRef },
     { id: "cli", label: "CLI", icon: <TerminalIcon className="w-4 h-4" />, ref: cliRef },
+    { id: "skills", label: "AI Skills", icon: <Zap className="w-4 h-4" />, ref: skillsRef },
     { id: "history", label: "History", icon: <History className="w-4 h-4" />, ref: historyRef },
     { id: "keyboard", label: "Keyboard", icon: <Keyboard className="w-4 h-4" />, ref: keyboardRef },
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -562,6 +567,26 @@ export const SettingsScreen = () => {
 
   const handleShowCliInstructions = async () => {
     await window.electron?.cli?.showInstructions();
+  };
+
+  const handleClaudeSkillToggle = async (enabled: boolean) => {
+    setClaudeSkillToggling(true);
+    try {
+      await window.electron?.skills?.setClaude(enabled);
+      await save({ skills: { ...settings.skills, claude: enabled } as any });
+    } finally {
+      setClaudeSkillToggling(false);
+    }
+  };
+
+  const handleCodexSkillToggle = async (enabled: boolean) => {
+    setCodexSkillToggling(true);
+    try {
+      await window.electron?.skills?.setCodex(enabled);
+      await save({ skills: { ...settings.skills, codex: enabled } as any });
+    } finally {
+      setCodexSkillToggling(false);
+    }
   };
 
   const handleEarlyAccessToggle = async (enable: boolean) => {
@@ -1211,7 +1236,59 @@ export const SettingsScreen = () => {
             </div>
           </section>
 
- <section ref={historyRef} data-section="history">
+          {/* AI Skills */}
+          <section ref={skillsRef} data-section="skills">
+            <SectionHeader
+              icon={<Zap className="w-5 h-5" />}
+              title="AI Skills"
+              description="Install Voiden skills into AI coding agents so they understand the .void file format"
+            />
+            <div className="border-b border-[--panel-border] mb-6"></div>
+            <div className="space-y-2">
+              {matchesSearch("AI skills claude codex voiden skill enable") && (
+                <>
+                  <div className="py-4 hover:bg-panel/30 transition-all px-2 rounded-md">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-start gap-3 flex-1">
+                        <div className="mt-0.5" style={{ color: 'var(--icon-primary)' }}><Zap className="w-4 h-4" /></div>
+                        <div className="flex-1">
+                          <div className="font-medium text-text mb-0.5">Claude Code</div>
+                          <div className="text-xs text-comment leading-relaxed">
+                            Install skill to <code className="px-1 py-0.5 bg-panel rounded text-xs">~/.claude/skills/voiden/</code> so Claude agents understand the <code className="px-1 py-0.5 bg-panel rounded text-xs">.void</code> file format.
+                          </div>
+                        </div>
+                      </div>
+                      <Toggle
+                        checked={settings.skills?.claude ?? false}
+                        onChange={handleClaudeSkillToggle}
+                        disabled={claudeSkillToggling}
+                      />
+                    </div>
+                  </div>
+                  <div className="py-4 hover:bg-panel/30 transition-all px-2 rounded-md">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-start gap-3 flex-1">
+                        <div className="mt-0.5" style={{ color: 'var(--icon-primary)' }}><Zap className="w-4 h-4" /></div>
+                        <div className="flex-1">
+                          <div className="font-medium text-text mb-0.5">Codex</div>
+                          <div className="text-xs text-comment leading-relaxed">
+                            Install skill to <code className="px-1 py-0.5 bg-panel rounded text-xs">~/.codex/skills/voiden/</code> so Codex agents understand the <code className="px-1 py-0.5 bg-panel rounded text-xs">.void</code> file format.
+                          </div>
+                        </div>
+                      </div>
+                      <Toggle
+                        checked={settings.skills?.codex ?? false}
+                        onChange={handleCodexSkillToggle}
+                        disabled={codexSkillToggling}
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          </section>
+
+          <section ref={historyRef} data-section="history">
             <SectionHeader
               icon={<History className="w-5 h-5" />}
               title="Request History"
