@@ -37,21 +37,21 @@ export const createMethodNode = (useSendRestRequest: any) => {
 
     return (
       <NodeViewWrapper>
-        <div className="flex justify-between">
+        <div className="flex items-center gap-2">
           <NodeViewContent
-            className={`m-0 font-mono my-0 font-semibold  ${
+            className={`m-0 font-mono my-0 font-semibold flex-1 ${
               METHOD_COLORS[method?.toUpperCase() as "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD" | "OPTIONS"]
             }`}
           />
-          <div
-            className="border-x border-stone-700/80 border-t p-1 hover:bg-stone-700 cursor-pointer text-green-500"
+          <button
+            className="flex items-center justify-center w-7 h-7 rounded-md border hover:bg-hover text-status-success transition-colors"
             onClick={() => {
               refetch();
             }}
-            style={{ cursor: 'pointer', userSelect: 'none' }}
+            style={{ borderColor: 'var(--ui-line)', cursor: 'pointer', userSelect: 'none' }}
           >
-            <Play size={14} />
-          </div>
+            <Play size={12} />
+          </button>
         </div>
       </NodeViewWrapper>
     );
@@ -106,7 +106,7 @@ export const createMethodNode = (useSendRestRequest: any) => {
       ? [
           "method",
           mergeAttributes(HTMLAttributes, {
-            class: `m-0 font-mono my-0 font-semibold  ${
+            class: `m-0 font-mono my-0 font-semibold ${
               METHOD_COLORS[node.textContent?.toUpperCase() as "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD" | "OPTIONS"]
             }`,
           }),

@@ -1,11 +1,12 @@
 import { useSettings, ProxyConfig } from "@/core/settings/hooks/useSettings";
-import { Check, RefreshCw, Plus, Trash2, Edit2, Palette, Type, FileText, Globe, Network, Terminal as TerminalIcon, Download, Search, Keyboard, WrapText, Timer  } from "lucide-react";
+import { Check, RefreshCw, Plus, Trash2, Edit2, Palette, Type, FileText, Globe, Network, Terminal as TerminalIcon, Download, Search, Keyboard, WrapText, Timer, Columns  } from "lucide-react";
 import { useEffect, useMemo, useState, useRef } from "react";
 import { loadThemeById, getAvailableThemes } from "@/utils/themeLoader";
 import { Kbd } from "@/core/components/ui/kbd";
 
 // Validation constants (should match useSettings.ts)
 const VALID_FONT_FAMILIES = [
+  "System Default",
   "Inconsolata",
   "Geist Mono",
   "JetBrains Mono",
@@ -14,8 +15,12 @@ const VALID_FONT_FAMILIES = [
 
 const FONT_SIZE_MIN = 10;
 const FONT_SIZE_MAX = 20;
+const UI_FONT_SIZE_MIN = 10;
+const UI_FONT_SIZE_MAX = 16;
 const AUTO_SAVE_DELAY_MIN = 0;
 const AUTO_SAVE_DELAY_MAX = 300;
+const CONTENT_WIDTH_MIN = 600;
+const CONTENT_WIDTH_MAX = 1400;
 
 type RowProps = {
   title: string;
@@ -677,11 +682,11 @@ export const SettingsScreen = () => {
                   <span style={{ color: 'var(--icon-error)' }}>Error syncing themes: {themeSyncError}</span>
                 </div>
               )}
-              {matchesSearch("Font size Base editor font size in pixels") && (
+              {matchesSearch("Editor Font size Code editor font size in pixels") && (
                 <Row
                   icon={<Type className="w-4 h-4" />}
-                  title="Font size"
-                  description="Base editor font size in pixels."
+                  title="Editor Font size"
+                  description="Code editor font size in pixels."
                   control={
                   <select
                     className="px-3 py-1.5 rounded-md bg-editor text-text border border-[--panel-border] focus:outline-none focus:ring-2 focus:ring-[var(--icon-primary)] min-w-[180px]"
@@ -694,6 +699,31 @@ export const SettingsScreen = () => {
                     }}
                   >
                     {Array.from({ length: FONT_SIZE_MAX - FONT_SIZE_MIN + 1 }, (_, i) => FONT_SIZE_MIN + i).map((size) => (
+                      <option key={size} value={size}>
+                        {size}px
+                      </option>
+                    ))}
+                  </select>
+                }
+                />
+              )}
+              {matchesSearch("UI Font size Interface font size for panels sidebar and labels") && (
+                <Row
+                  icon={<Type className="w-4 h-4" />}
+                  title="UI Font size"
+                  description="Interface font size for panels, sidebar, and labels."
+                  control={
+                  <select
+                    className="px-3 py-1.5 rounded-md bg-editor text-text border border-[--panel-border] focus:outline-none focus:ring-2 focus:ring-[var(--icon-primary)] min-w-[180px]"
+                    value={settings.appearance.ui_font_size ?? 13}
+                    onChange={(e) => {
+                      const value = Number(e.target.value);
+                      if (value >= UI_FONT_SIZE_MIN && value <= UI_FONT_SIZE_MAX) {
+                        save({ appearance: { ui_font_size: value } });
+                      }
+                    }}
+                  >
+                    {Array.from({ length: UI_FONT_SIZE_MAX - UI_FONT_SIZE_MIN + 1 }, (_, i) => UI_FONT_SIZE_MIN + i).map((size) => (
                       <option key={size} value={size}>
                         {size}px
                       </option>
@@ -720,7 +750,7 @@ export const SettingsScreen = () => {
                     }}
                   >
                     {commonFonts.map((font) => (
-                      <option key={font} value={font} style={{ fontFamily: `"${font}", monospace` }}>
+                      <option key={font} value={font} style={font !== "System Default" ? { fontFamily: `"${font}", monospace` } : undefined}>
                         {font}
                       </option>
                     ))}
@@ -740,6 +770,31 @@ export const SettingsScreen = () => {
                     onChange={(v) => save({ appearance: { code_wrap: v } })}
                   />
                 }
+                />
+              )}
+              {matchesSearch("Content Width Maximum width for document content area") && (
+                <Row
+                  icon={<Columns className="w-4 h-4" />}
+                  title="Content Width"
+                  description="Maximum width for document content area in pixels."
+                  control={
+                    <select
+                      className="px-3 py-1.5 rounded-md bg-editor text-text border border-[--panel-border] focus:outline-none focus:ring-2 focus:ring-[var(--icon-primary)] min-w-[180px]"
+                      value={settings.appearance.content_width ?? 860}
+                      onChange={(e) => {
+                        const value = Number(e.target.value);
+                        if (value >= CONTENT_WIDTH_MIN && value <= CONTENT_WIDTH_MAX) {
+                          save({ appearance: { content_width: value } });
+                        }
+                      }}
+                    >
+                      {[600, 700, 760, 820, 860, 920, 1000, 1100, 1200, 1400].map((size) => (
+                        <option key={size} value={size}>
+                          {size}px{size === 860 ? " (default)" : ""}
+                        </option>
+                      ))}
+                    </select>
+                  }
                 />
               )}
             </div>

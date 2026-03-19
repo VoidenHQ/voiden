@@ -1,8 +1,5 @@
 import { Editor } from "@tiptap/react";
 
-import { Cuboid } from "lucide-react";
-import { cn } from "@/core/lib/utils";
-
 export const RequestBlockHeader = ({
   title,
   withBorder,
@@ -18,16 +15,20 @@ export const RequestBlockHeader = ({
 }) => {
   return (
     <div
-      className={cn("h-7 px-1 flex items-center space-x-1 w-full border-light", withBorder ? "border-t border-x " : "border-b")}
-      style={{ backgroundColor: 'var(--block-header-bg)' }}
+      className="h-8 px-3 flex items-center w-full border-b"
+      style={{ backgroundColor: 'var(--block-header-bg)', borderColor: 'var(--ui-line)' }}
       contentEditable={false}
     >
-      <div className="flex items-center space-x-1 flex-1 text-[var(--syntax-tag)]">
-        <Cuboid size={14} className="" />
-        <span className="font-medium font-mono text-sm">{title}</span>
+      <div className="flex items-center gap-2 flex-1">
+        <span
+          className="text-[11px] font-semibold tracking-wide uppercase"
+          style={{ color: 'var(--syntax-tag)' }}
+        >
+          {title}
+        </span>
       </div>
 
-      <div>{actions}</div>
+      <div className="flex items-center gap-1">{actions}</div>
     </div>
   );
 };

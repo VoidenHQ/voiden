@@ -44,26 +44,27 @@ const createNodeView =
     return (
       <NodeViewWrapper
         spellCheck="false"
-        className="my-2"
+        className="my-3"
       >
-        <RequestBlockHeader
-          withBorder
-          title={title}
-          editor={editor}
-          importedDocumentId={node.attrs.importedFrom}
-          openFile={openFile}
-          helpContent={helpContent}
-        />
-        <div
-          className="w-full max-w-full"
-          contentEditable={editor.isEditable && isEditable}
-          suppressContentEditableWarning
-          style={{
-            pointerEvents: !isEditable ? "none" : "unset",
-            userSelect: isEditable ? "text" : "none",
-          }}
-        >
-          <NodeViewContent />
+        <div className="rounded-md border overflow-hidden" style={{ borderColor: 'var(--ui-line)' }}>
+          <RequestBlockHeader
+            title={title}
+            editor={editor}
+            importedDocumentId={node.attrs.importedFrom}
+            openFile={openFile}
+            helpContent={helpContent}
+          />
+          <div
+            className="w-full max-w-full"
+            contentEditable={editor.isEditable && isEditable}
+            suppressContentEditableWarning
+            style={{
+              pointerEvents: !isEditable ? "none" : "unset",
+              userSelect: isEditable ? "text" : "none",
+            }}
+          >
+            <NodeViewContent />
+          </div>
         </div>
       </NodeViewWrapper>
     );

@@ -27,19 +27,20 @@ const createNodeView =
   (title: string, RequestBlockHeader: any, openFile?: (relativePath: string) => Promise<void>) =>
   ({ editor, node }: NodeViewProps) => {
     return (
-      <NodeViewWrapper spellCheck="false" className="my-2">
-        <RequestBlockHeader
-          withBorder
-          title={title}
-          editor={editor}
-          helpContent={<SimpleAssertionsHelp />}
-        />
-        <div
-          className="w-full max-w-full assertions-table-container"
-          contentEditable={editor.isEditable}
-          suppressContentEditableWarning
-        >
-          <NodeViewContent />
+      <NodeViewWrapper spellCheck="false" className="my-3">
+        <div className="rounded-md border overflow-hidden" style={{ borderColor: 'var(--ui-line)' }}>
+          <RequestBlockHeader
+            title={title}
+            editor={editor}
+            helpContent={<SimpleAssertionsHelp />}
+          />
+          <div
+            className="w-full max-w-full assertions-table-container"
+            contentEditable={editor.isEditable}
+            suppressContentEditableWarning
+          >
+            <NodeViewContent />
+          </div>
         </div>
       </NodeViewWrapper>
     );

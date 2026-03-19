@@ -83,12 +83,18 @@ export const AppLayout = () => {
     window.electron?.getVersion().then(setVersion);
   }, []);
 
-  // Apply font size setting
+  // Apply font size settings
   useEffect(() => {
     if (settings?.appearance?.font_size) {
       document.documentElement.style.setProperty("--font-size-base", `${settings.appearance.font_size}px`);
     }
   }, [settings?.appearance?.font_size]);
+
+  useEffect(() => {
+    if (settings?.appearance?.ui_font_size) {
+      document.documentElement.style.setProperty("--font-size-ui", `${settings.appearance.ui_font_size}px`);
+    }
+  }, [settings?.appearance?.ui_font_size]);
 
   
 

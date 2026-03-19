@@ -107,4 +107,13 @@ export function registerAppIpcHandlers() {
   ipcMain.handle("menu:quit",async () => {
     app.quit();
   });
+
+  // App-wide process metrics (memory + CPU per process type)
+  ipcMain.handle("app:metrics", () => {
+    return app.getAppMetrics().map((m) => ({
+      type: m.type,
+      memory: m.memory.workingSetSize, // KB
+      cpu: m.cpu.percentCPUUsage,
+    }));
+  });
 }

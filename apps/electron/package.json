@@ -62,7 +62,7 @@
     "mime-types": "^2.1.35",
     "node-pty": "^1.0.0",
     "remove-markdown": "^0.6.2",
-    "simple-git": "^3.27.0",
+    "simple-git": "^3.32.3",
     "sudo-prompt": "^9.2.1"
   },
   "comments": {
