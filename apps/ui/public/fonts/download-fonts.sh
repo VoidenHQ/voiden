@@ -20,7 +20,7 @@ cd "$SCRIPT_DIR"
 
 # Geist
 echo "📥 Downloading Geist..."
-curl -L -o geist-variable.woff2 "https://github.com/vercel/geist-font/raw/main/packages/next/dist/fonts/geist/Geist-Variable.woff2"
+curl -L -o geist-variable.woff2 "https://raw.githubusercontent.com/vercel/geist-font/main/fonts/Geist/webfonts/Geist%5Bwght%5D.woff2"
 echo "✅ Geist downloaded"
 
 # Geist Mono
