@@ -12,6 +12,7 @@ import {
 } from "@/core/editors/voiden/search/unifiedSearch";
 import { unifiedSearchHighlight } from "@/core/editors/voiden/search/cmHighlightEffect";
 import { findCmViewAtPos, findAllCmViews } from "@/core/editors/voiden/search/cmViewLookup";
+import { SectionIndicatorExtension } from "./extensions/sectionIndicator";
 // Plugin to highlight all findTerm matches, with special highlight for current match
 const findHighlightPluginKey = new PluginKey("findHighlight");
 const findHighlightPlugin = new Plugin({
@@ -697,7 +698,7 @@ function sanitizeDoc(node: any): any {
       },
       onCreate: handleEditorCreate,
       onUpdate: handleEditorUpdate,
-      extensions: [...finalExtensions, FindHighlightExtension],
+      extensions: [...finalExtensions, FindHighlightExtension, SectionIndicatorExtension],
       immediatelyRender: true,
       shouldRerenderOnTransaction: false,
     },

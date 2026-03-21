@@ -19,6 +19,7 @@ import { getSchema } from "@tiptap/core";
 import { voidenExtensions } from "@/core/editors/voiden/extensions";
 import { Input } from "@/core/components/ui/input";
 import { escapeRegExp } from "@/core/editors/voiden/search/unifiedSearch";
+import { SECTION_COLORS } from "@/core/editors/voiden/extensions/sectionIndicator";
 import { unifiedSearchHighlight } from "@/core/editors/voiden/search/cmHighlightEffect";
 import type { EditorView as CMEditorView } from "@codemirror/view";
 
@@ -384,7 +385,16 @@ export function ResponsePanelContainer() {
   }, [showResponseFind, closeResponseFind]);
 
   return (
-    <div ref={containerRef} className="h-full bg-bg flex flex-col response-panel-root" tabIndex={-1}>
+    <div
+      ref={containerRef}
+      className="h-full bg-bg flex flex-col response-panel-root"
+      tabIndex={-1}
+      style={
+        statusInfo?.sectionIndex !== undefined
+          ? { borderLeft: `3px solid ${SECTION_COLORS[statusInfo.sectionIndex % SECTION_COLORS.length]}` }
+          : undefined
+      }
+    >
       {/* Sticky top bar */}
       <div className="flex items-center justify-between h-10 border-b border-border px-3 flex-shrink-0 bg-bg">
         <div className="flex items-center space-x-3 font-mono text-sm min-w-0 flex-1">

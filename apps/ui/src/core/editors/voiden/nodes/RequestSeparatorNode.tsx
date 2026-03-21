@@ -7,11 +7,40 @@
 
 import { Node, mergeAttributes } from "@tiptap/core";
 import { ReactNodeViewRenderer, NodeViewWrapper } from "@tiptap/react";
+import { useRef, useState, useEffect } from "react";
 
 const RequestSeparatorView = () => {
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const [sectionColor, setSectionColor] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Read the section color from the decoration's data attribute on the parent wrapper
+    const el = wrapperRef.current;
+    if (!el) return;
+    const parentNode = el.closest("[data-section-color]") as HTMLElement | null;
+    if (parentNode) {
+      setSectionColor(parentNode.getAttribute("data-section-color"));
+    }
+
+    // Watch for changes via MutationObserver (decoration updates)
+    const observer = new MutationObserver(() => {
+      const parent = el.closest("[data-section-color]") as HTMLElement | null;
+      setSectionColor(parent?.getAttribute("data-section-color") ?? null);
+    });
+    const target = el.parentElement?.parentElement;
+    if (target) {
+      observer.observe(target, { attributes: true, attributeFilter: ["data-section-color"] });
+    }
+    return () => observer.disconnect();
+  }, []);
+
+  const lineColor = sectionColor ?? "color-mix(in srgb, var(--accent) 40%, transparent)";
+  const textColor = sectionColor ?? "color-mix(in srgb, var(--accent) 60%, transparent)";
+
   return (
     <NodeViewWrapper>
       <div
+        ref={wrapperRef}
         contentEditable={false}
         data-type="request-separator"
         style={{
@@ -26,7 +55,7 @@ const RequestSeparatorView = () => {
           style={{
             flex: 1,
             height: "1px",
-            borderTop: "2px dashed color-mix(in srgb, var(--accent) 40%, transparent)",
+            borderTop: `2px dashed ${lineColor}`,
           }}
         />
         <span
@@ -35,7 +64,7 @@ const RequestSeparatorView = () => {
             fontWeight: 700,
             letterSpacing: "1.5px",
             textTransform: "uppercase",
-            color: "color-mix(in srgb, var(--accent) 60%, transparent)",
+            color: textColor,
             whiteSpace: "nowrap",
           }}
         >
@@ -45,7 +74,7 @@ const RequestSeparatorView = () => {
           style={{
             flex: 1,
             height: "1px",
-            borderTop: "2px dashed color-mix(in srgb, var(--accent) 40%, transparent)",
+            borderTop: `2px dashed ${lineColor}`,
           }}
         />
       </div>
