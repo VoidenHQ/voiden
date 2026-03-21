@@ -185,6 +185,130 @@ function insertParagraphNodes(view: EditorView, lines: string[]): void {
 const isAbsolutePath = (p: string) =>
   p.startsWith('/') || /^[A-Za-z]:[\\/]/.test(p);
 
+/**
+ * Show a themed dialog with Cancel / Replace / Append options for curl paste.
+ * `sectionLabel` describes which section the cursor is in (for the replace option).
+ */
+export function showCurlPasteDialog(sectionLabel?: string): Promise<"cancel" | "replace" | "append"> {
+  return new Promise((resolve) => {
+    const overlay = document.createElement("div");
+    overlay.style.cssText = `
+      position: fixed; inset: 0; z-index: 99999;
+      display: flex; align-items: center; justify-content: center;
+      background: rgba(0,0,0,0.5); backdrop-filter: blur(2px);
+    `;
+
+    const sectionDesc = sectionLabel && sectionLabel !== "New Request"
+      ? `"${sectionLabel}"`
+      : "the current request block";
+
+    const dialog = document.createElement("div");
+    dialog.style.cssText = `
+      background: var(--ui-panel-bg, #1e1e2e); color: var(--editor-fg, #cdd6f4);
+      border: 1px solid var(--ui-line, #45475a); border-radius: 8px;
+      padding: 20px 24px; max-width: 460px; width: 90%;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.4); font-family: inherit;
+    `;
+
+    dialog.innerHTML = `
+      <div style="font-size: 14px; font-weight: 600; margin-bottom: 8px;">Paste curl command</div>
+      <div style="font-size: 13px; opacity: 0.7; margin-bottom: 16px; line-height: 1.5;">
+        This document already has request blocks.<br>
+        You can replace the blocks in ${sectionDesc} or add this as a new request section.
+      </div>
+      <div style="display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap;">
+        <button data-action="cancel" style="
+          padding: 6px 14px; border-radius: 5px; font-size: 12px; cursor: pointer;
+          background: transparent; color: inherit; opacity: 0.6;
+          border: 1px solid var(--ui-line, #45475a);
+        ">Cancel</button>
+        <button data-action="replace" style="
+          padding: 6px 14px; border-radius: 5px; font-size: 12px; cursor: pointer;
+          background: var(--ui-line, #45475a); color: inherit;
+          border: 1px solid var(--ui-line, #45475a);
+        ">Replace blocks</button>
+        <button data-action="append" style="
+          padding: 6px 14px; border-radius: 5px; font-size: 12px; cursor: pointer;
+          background: var(--ui-selection-normal, #74c7ec); color: inherit;
+          border: 1px solid var(--ui-selection-normal, #74c7ec); font-weight: 600;
+          filter: brightness(1.1);
+        ">Add as new request</button>
+      </div>
+    `;
+
+    const cleanup = (action: "cancel" | "replace" | "append") => {
+      overlay.remove();
+      resolve(action);
+    };
+
+    dialog.querySelectorAll("button").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        cleanup(btn.getAttribute("data-action") as "cancel" | "replace" | "append");
+      });
+    });
+
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) cleanup("cancel");
+    });
+
+    overlay.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") cleanup("cancel");
+    });
+
+    overlay.appendChild(dialog);
+    document.body.appendChild(overlay);
+    const appendBtn = dialog.querySelector('[data-action="append"]') as HTMLElement;
+    appendBtn?.focus();
+  });
+}
+
+/**
+ * Append a parsed curl request as a new section at the end of the document.
+ * Inserts a request-separator followed by the request blocks.
+ */
+export async function appendCurlAsNewSection(editor: Editor, request: ImportRequest) {
+  const endPos = editor.state.doc.content.size;
+
+  // Build the request blocks as JSON
+  const blocks: any[] = [
+    { type: "request-separator", attrs: { colorIndex: Math.floor(Math.random() * 10), label: "New Request" } },
+  ];
+
+  // Request node with method + url
+  blocks.push({
+    type: "request",
+    content: [convertToMethodNode(request.method), convertToURLNode(request.url)],
+  });
+
+  // Headers
+  if (request.headers?.length) {
+    blocks.push(convertToHeadersTableNode(request.headers.map((h) => [h.name, h.value])));
+  }
+
+  // Query parameters
+  if (request.parameters?.length) {
+    blocks.push(convertToQueryTableNode(request.parameters.map((p) => [p.name, p.value || ""])));
+  }
+
+  // Body
+  if (request.body) {
+    const ct = request.body.mimeType || "";
+    if (ct.includes("json") && request.body.text) {
+      blocks.push(convertToJsonNode(request.body.text, ct));
+    } else if (ct.includes("xml") && request.body.text) {
+      blocks.push(convertToXMLNode(request.body.text, ct));
+    } else if ((ct.includes("yaml") || ct.includes("yml")) && request.body.text) {
+      blocks.push(convertToYmlNode(request.body.text, ct));
+    } else if (ct === "application/x-www-form-urlencoded" && request.body.params) {
+      blocks.push(convertToUrlTableNode(request.body.params.map((p) => [p.name, p.value || ""])));
+    }
+  }
+
+  blocks.push({ type: "paragraph" });
+
+  editor.chain().focus("end").insertContentAt(endPos, blocks).run();
+}
+
 export const pasteCurl = async (editor: Editor, request: ImportRequest) => {
   // Pre-resolve multipart file paths to absolute before the sync editor update.
   let multipartRows: any[] | null = null;
@@ -558,15 +682,31 @@ export const CurlPaste = () =>
               const request = handleCurl(processedText);
               if (request) {
 
-                // Confirm replacement if editor is not empty
                 if (!editor.isEmpty) {
-                  const proceed = window.confirm("Pasting this curl request will replace the current content. Do you want to proceed?");
-                  if (!proceed) {
-                    return true; // Handled but cancelled
-                  }
+                  // Determine which section the cursor is in for the dialog description
+                  const cursorPos = editor.state.selection.$from.pos;
+                  let currentSectionLabel: string | undefined;
+                  let lastSepLabel: string | undefined;
+                  editor.state.doc.forEach((child: any, offset: number) => {
+                    if (child.type.name === "request-separator") {
+                      if (offset < cursorPos) {
+                        lastSepLabel = child.attrs?.label || undefined;
+                      }
+                    }
+                  });
+                  currentSectionLabel = lastSepLabel;
+
+                  showCurlPasteDialog(currentSectionLabel).then((choice) => {
+                    if (choice === "replace") {
+                      pasteCurl(editor, request);
+                    } else if (choice === "append") {
+                      appendCurlAsNewSection(editor, request);
+                    }
+                  });
+                } else {
+                  pasteCurl(editor, request);
                 }
 
-                pasteCurl(editor, request);
                 return true;
               }
 

@@ -397,6 +397,7 @@ const voidenRestApiPlugin = (context: PluginContext) => {
 
       // Import paste utilities
       const { convertCurlToRequest, pasteCurl } = await import('./index');
+      const { showCurlPasteDialog, appendCurlAsNewSection } = await import('./nodes/curlPaste');
 
       // Register block owners (read from manifest)
       const blockTypes = manifest.capabilities.blocks.owns;
@@ -473,17 +474,26 @@ const voidenRestApiPlugin = (context: PluginContext) => {
                 return false;
               }
 
-              // Confirm replacement if editor is not empty
               if (!editor.isEmpty) {
-                const proceed = window.confirm('Pasting this cURL request will replace the current content. Do you want to proceed?');
-                if (!proceed) {
-                  return true; // Handled but cancelled
-                }
-              }
+                // Determine current section label for dialog
+                const cursorPos = editor.state.selection.$from.pos;
+                let sectionLabel: string | undefined;
+                editor.state.doc.forEach((child: any, offset: number) => {
+                  if (child.type.name === "request-separator" && offset < cursorPos) {
+                    sectionLabel = child.attrs?.label || undefined;
+                  }
+                });
 
-              // Delegate to pasteCurl for full async handling
-              // (includes file path resolution and fileLink nodes for multipart)
-              (async () => { await pasteCurl(editor, request); })();
+                showCurlPasteDialog(sectionLabel).then(async (choice) => {
+                  if (choice === "replace") {
+                    await pasteCurl(editor, request);
+                  } else if (choice === "append") {
+                    await appendCurlAsNewSection(editor, request);
+                  }
+                });
+              } else {
+                (async () => { await pasteCurl(editor, request); })();
+              }
 
               return true;
             } catch (error) {
