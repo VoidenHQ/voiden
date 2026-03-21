@@ -11,6 +11,8 @@
 
 import { Extension } from "@tiptap/core";
 import { Plugin, PluginKey } from "prosemirror-state";
+import { Decoration, DecorationSet } from "prosemirror-view";
+import { useResponseStore } from "@/core/request-engine/stores/responseStore";
 import type { EditorView } from "prosemirror-view";
 
 const sectionIndicatorKey = new PluginKey("sectionIndicator");
@@ -235,10 +237,187 @@ const sectionIndicatorPlugin = new Plugin({
   },
 });
 
+/**
+ * Global store for first section labels, keyed by editor DOM element.
+ * Since the first section has no separator node to store its label,
+ * we persist it here and expose it for the response panel.
+ */
+const firstSectionLabels = new WeakMap<HTMLElement, string>();
+
+/** Get the first section's label for an editor */
+export function getFirstSectionLabel(editorDom: HTMLElement | null): string {
+  if (!editorDom) return "Request 1";
+  return firstSectionLabels.get(editorDom) || "Request 1";
+}
+
+/** Set the first section's label for an editor */
+export function setFirstSectionLabel(editorDom: HTMLElement | null, label: string) {
+  if (!editorDom) return;
+  firstSectionLabels.set(editorDom, label);
+}
+
+/**
+ * Plugin that adds a visual first-section header at the top of the document
+ * when there are multiple sections. Uses widget decoration.
+ * Double-click the label to rename it.
+ */
+const firstSectionHeaderKey = new PluginKey("firstSectionHeader");
+
+function buildFirstSectionDecoration(doc: any, editorDom: HTMLElement | null, editorView: EditorView | null): DecorationSet {
+  let hasSeparators = false;
+  // Also check if the first node IS a separator (then no need for the virtual header)
+  let firstNodeIsSeparator = false;
+  let firstChild = true;
+  doc.forEach((node: any) => {
+    if (node.type.name === "request-separator") {
+      hasSeparators = true;
+      if (firstChild) firstNodeIsSeparator = true;
+    }
+    firstChild = false;
+  });
+
+  if (!hasSeparators || firstNodeIsSeparator) return DecorationSet.empty;
+
+  const color = getSectionLineColor(0);
+  const label = getFirstSectionLabel(editorDom);
+
+  const widget = Decoration.widget(0, () => {
+    const wrapper = document.createElement("div");
+    wrapper.contentEditable = "false";
+    wrapper.style.cssText = `
+      display: flex; align-items: center; gap: 12px;
+      margin: 0 0 12px 0; user-select: none;
+    `;
+
+    const line1 = document.createElement("div");
+    line1.style.cssText = `flex: 1; height: 1px; border-top: 2px dashed ${color};`;
+
+    const labelSpan = document.createElement("span");
+    labelSpan.textContent = label;
+    labelSpan.title = "Double-click to rename";
+    labelSpan.style.cssText = `
+      font-size: 10px; font-weight: 700; letter-spacing: 1.5px;
+      text-transform: uppercase; color: ${color}; white-space: nowrap;
+      cursor: text; padding: 2px 4px; border-radius: 3px;
+    `;
+
+    const line2 = document.createElement("div");
+    line2.style.cssText = `flex: 1; height: 1px; border-top: 2px dashed ${color};`;
+
+    // Double-click to edit
+    labelSpan.addEventListener("dblclick", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      const input = document.createElement("input");
+      input.type = "text";
+      input.value = label === "Request 1" ? "" : label;
+      input.placeholder = "Request 1";
+      input.style.cssText = `
+        font-size: 10px; font-weight: 700; letter-spacing: 1.5px;
+        text-transform: uppercase; color: ${color}; white-space: nowrap;
+        background: var(--editor-bg, transparent);
+        border: 1px solid ${color}; border-radius: 3px;
+        padding: 2px 8px; outline: none; text-align: center;
+        min-width: 80px; max-width: 200px; font-family: inherit;
+      `;
+
+      let committed = false;
+      const commit = () => {
+        if (committed) return;
+        committed = true;
+        const newLabel = input.value.trim() || "Request 1";
+
+        // If label was actually changed from default, insert a real separator
+        // node at position 0 so it gets persisted to the .void file.
+        // Also shift response store entries since inserting a separator at pos 0
+        // pushes all sections up by 1.
+        if (newLabel !== "Request 1" && editorView) {
+          const sepType = editorView.state.schema.nodes["request-separator"];
+          if (sepType) {
+            const tr = editorView.state.tr.insert(0, sepType.create({
+              colorIndex: 0,
+              label: newLabel,
+            }));
+            editorView.dispatch(tr);
+
+            // Shift response store entries: section N becomes section N+1
+            // because inserting a separator at 0 creates a new empty section 0
+            try {
+              const store = useResponseStore.getState();
+              const tabId = store.activeTabId;
+              if (tabId && store.responses[tabId]) {
+                const oldSections = store.responses[tabId];
+                const newSections: Record<number, any> = {};
+                for (const [key, value] of Object.entries(oldSections)) {
+                  newSections[Number(key) + 1] = value;
+                }
+                useResponseStore.setState((state: any) => ({
+                  responses: { ...state.responses, [tabId]: newSections },
+                }));
+              }
+            } catch { /* ignore */ }
+
+            return;
+          }
+        }
+
+        // Fallback: just update the visual
+        setFirstSectionLabel(editorDom, newLabel);
+        labelSpan.textContent = newLabel;
+        if (input.parentNode) input.replaceWith(labelSpan);
+      };
+
+      input.addEventListener("blur", commit);
+      input.addEventListener("keydown", (ke) => {
+        ke.stopPropagation();
+        if (ke.key === "Enter") { ke.preventDefault(); commit(); }
+        if (ke.key === "Escape") { committed = true; if (input.parentNode) input.replaceWith(labelSpan); }
+      });
+
+      labelSpan.replaceWith(input);
+      input.focus();
+    });
+
+    wrapper.append(line1, labelSpan, line2);
+    return wrapper;
+  }, { side: -1, key: "first-section-header" });
+
+  return DecorationSet.create(doc, [widget]);
+}
+
+function createFirstSectionHeaderPlugin() {
+  let currentView: EditorView | null = null;
+
+  return new Plugin({
+    key: firstSectionHeaderKey,
+    view(view) {
+      currentView = view;
+      return {};
+    },
+    state: {
+      init(_, state) {
+        return DecorationSet.empty;
+      },
+      apply(tr, old, _oldState, newState) {
+        if (tr.docChanged || old === DecorationSet.empty) {
+          return buildFirstSectionDecoration(newState.doc, currentView?.dom ?? null, currentView);
+        }
+        return old;
+      },
+    },
+    props: {
+      decorations(state) {
+        return this.getState(state);
+      },
+    },
+  });
+}
+
 export const SectionIndicatorExtension = Extension.create({
   name: "sectionIndicator",
   addProseMirrorPlugins() {
-    return [sectionIndicatorPlugin];
+    return [sectionIndicatorPlugin, createFirstSectionHeaderPlugin()];
   },
 
   onTransaction({ editor, transaction }) {

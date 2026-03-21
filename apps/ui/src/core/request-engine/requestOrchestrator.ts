@@ -9,6 +9,7 @@ import { Editor } from "@tiptap/core";
 import { sendRequestHybrid } from "./sendRequestHybrid";
 import type { RequestBuildHandler, ResponseProcessHandler, ResponseSection } from "@voiden/sdk/ui";
 import { requestLogger } from "@/core/lib/logger";
+import { getFirstSectionLabel } from "@/core/editors/voiden/extensions/sectionIndicator";
 
 interface RequestOrchestrator {
   /** Registered request build handlers from plugins */
@@ -165,6 +166,12 @@ class RequestOrchestratorImpl implements RequestOrchestrator {
       response.__sectionColorIndex = resolvedColorIndex ?? 0;
       if (resolvedSectionLabel) {
         response.__sectionLabel = resolvedSectionLabel;
+      } else if (resolvedSectionIndex === 0) {
+        // First section has no separator — get label from the editor's store
+        const label = getFirstSectionLabel(editor.view?.dom ?? null);
+        if (label && label !== "Request 1") {
+          response.__sectionLabel = label;
+        }
       }
     }
 

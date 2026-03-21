@@ -12,7 +12,7 @@ import type { ResponseNodeType } from "../stores/responseStore";
 import { SendRequestButton } from "./SendRequestButton";
 import { ResponseViewer } from "./ResponseViewer";
 import { useMemo, useEffect, useCallback, useState, useRef } from "react";
-import { Shield, Search, LocateFixed, ArrowUpIcon, ArrowDownIcon, X, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown } from "lucide-react";
+import { Search, ArrowUpIcon, ArrowDownIcon, X, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown } from "lucide-react";
 import { useGetPanelTabs } from "@/core/layout/hooks";
 import { parseMarkdown } from "@/core/editors/voiden/markdownConverter";
 import { getSchema } from "@tiptap/core";
@@ -494,104 +494,32 @@ export function ResponsePanelContainer() {
       {/* Sticky top bar */}
       <div className="flex items-center justify-between h-10 border-b border-border px-3 flex-shrink-0 bg-bg">
         <div className="flex items-center space-x-3 font-mono text-sm min-w-0 flex-1">
-          {/* Loading / empty */}
-          {(isLoading || showEmpty) && (
-            <span className="text-comment">Response</span>
+          <span className="text-comment">Response</span>
+
+          {/* Loading indicator */}
+          {isLoading && (
+            <span className="text-comment text-xs">Loading...</span>
           )}
 
           {/* Error */}
           {showError && (
             <>
               <div className="size-2 rounded-full bg-red-500" />
-              <span className="text-red-500 font-semibold">Request Failed</span>
+              <span className="text-red-500 font-semibold text-xs">Failed</span>
             </>
           )}
 
-          {/* WSS connection status tag */}
+          {/* WSS connection status */}
           {showContent && statusInfo && (statusInfo.protocol === "wss" || statusInfo.protocol === "ws") && statusInfo.wsId && (
             <div className="flex items-center space-x-2 flex-shrink-0">
               <div className={`size-2 rounded-full ${wsConnectedIds.has(statusInfo.wsId) ? 'bg-green-500' : 'bg-border'}`} />
-              <span className="font-bold font-mono text-sm">
+              <span className="font-bold font-mono text-xs">
                 {wsConnectedIds.has(statusInfo.wsId) ? 'Connected' : 'Disconnected'}
               </span>
-              {statusInfo.url && (
-                <span className="text-comment text-xs truncate max-w-[200px]">{statusInfo.url}</span>
-              )}
             </div>
           )}
-
-          {/* Success / content status */}
-          {showContent &&
-            statusInfo &&
-            statusInfo.protocol !== "wss" &&
-            statusInfo.protocol !== "grpc" &&
-            statusInfo.protocol !== "graphql-subscription" && (
-              <>
-                <div className="flex items-center space-x-2 flex-shrink-0">
-                  <div
-                    className={`size-2 rounded-full ${
-                      isSuccess ? "bg-green-500" : isError ? "bg-red-500" : "bg-yellow-500"
-                    }`}
-                  />
-                  <span className="font-bold">
-                    {statusInfo.statusCode} {statusInfo.statusMessage}
-                  </span>
-                </div>
-
-                {statusInfo.sectionLabel && statusInfo.sectionLabel !== "New Request" && (
-                  <span
-                    className="text-xs font-semibold uppercase flex-shrink-0"
-                    style={{
-                      color: statusInfo.sectionColorIndex !== undefined
-                        ? getSectionBorderColor(statusInfo.sectionColorIndex)
-                        : "var(--comment)",
-                      letterSpacing: "0.5px",
-                    }}
-                  >
-                    {statusInfo.sectionLabel}
-                  </span>
-                )}
-
-                {!responseDoc.wsId && (
-                  <span className="text-comment flex-shrink-0">{formatTime(statusInfo.elapsedTime)}</span>
-                )}
-
-                {statusInfo.requestMeta?.proxy && (
-                  <div
-                    className="flex items-center space-x-1 flex-shrink-0"
-                    style={{ color: "var(--icon-primary)" }}
-                    title={`Via proxy: ${statusInfo.requestMeta.proxy.name} (${statusInfo.requestMeta.proxy.host}:${statusInfo.requestMeta.proxy.port})`}
-                  >
-                    <Shield className="size-3.5" />
-                    <span className="text-xs">Proxy</span>
-                  </div>
-                )}
-
-                {statusInfo.url && (
-                  <div className="min-w-0 flex-1 overflow-x-auto">
-                    <span className="text-comment text-xs whitespace-nowrap">{statusInfo.url}</span>
-                  </div>
-                )}
-              </>
-            )}
         </div>
         <div className="flex items-center gap-1">
-          {showContent && statusInfo?.sectionIndex !== undefined && (
-            <button
-              className="p-1.5 text-comment hover:text-text transition-colors rounded"
-              title="Scroll to request"
-              onClick={() => {
-                console.log('[ResponsePanel] scroll button clicked, sectionIndex:', statusInfo.sectionIndex);
-                window.dispatchEvent(
-                  new CustomEvent("voiden:scroll-to-section", {
-                    detail: { sectionIndex: statusInfo.sectionIndex },
-                  })
-                );
-              }}
-            >
-              <LocateFixed size={14} />
-            </button>
-          )}
           {showContent && sectionResponses.length > 1 && activeTabId && (
             <>
               <button
@@ -610,21 +538,11 @@ export function ResponsePanelContainer() {
               </button>
             </>
           )}
-          {showContent && (
-            <button
-              className="p-1.5 text-comment hover:text-text transition-colors rounded"
-              title="Find (⌘F)"
-              onClick={() => {
-                setShowResponseFind(true);
-                setTimeout(() => responseFindInputRef.current?.focus(), 50);
-              }}
-            >
-              <Search size={14} />
-            </button>
-          )}
-          {isVoidFile && <SendRequestButton />}
         </div>
       </div>
+
+      {/* Hidden — mounts SendRequestButton for Cmd+Enter hotkey registration */}
+      {isVoidFile && <div className="hidden"><SendRequestButton /></div>}
 
       {/* Find bar */}
       {showResponseFind && (
@@ -785,19 +703,77 @@ export function ResponsePanelContainer() {
                 className="h-full"
                 style={{ display: tabIsActive ? "block" : "none" }}
               >
-                {sections.length === 1 ? (
-                  // Single response — render without section header (backward compat look)
-                  <ResponseViewer
-                    content={sections[0].response.responseDoc}
-                    preferredActiveNode={getActiveResponseNodeForTab(tabId)}
-                    onActiveNodeChange={getNodeChangeCallback(tabId)}
-                    panelScrollTop={getResponsePanelScrollForTab(tabId)}
-                    onPanelScrollChange={getPanelScrollCallback(tabId)}
-                    nodeScrollPositions={getResponseNodeScrollsForTab(tabId)}
-                    onNodeScrollChange={getNodeScrollCallback(tabId)}
-                    isActive={tabIsActive}
-                  />
-                ) : (
+                {sections.length === 1 ? (() => {
+                  const singleDoc = sections[0].response.responseDoc;
+                  const singleStatus = singleDoc?.attrs?.statusCode;
+                  const singleStatusMsg = singleDoc?.attrs?.statusMessage;
+                  const singleLabel = singleDoc?.attrs?.sectionLabel;
+                  const singleColorIndex = singleDoc?.attrs?.sectionColorIndex ?? 0;
+                  const singleUrl = singleDoc?.attrs?.url;
+                  const singleElapsed = singleDoc?.attrs?.elapsedTime;
+                  const singleBorderColor = getSectionBorderColor(singleColorIndex);
+
+                  return (
+                  // Single response
+                  <div className="h-full flex flex-col">
+                    {/* Section header with status + search */}
+                    <div
+                      className="flex items-center gap-2 px-3 py-1.5 border-b border-border bg-bg flex-shrink-0"
+                      style={{ borderLeft: `3px solid ${singleBorderColor}` }}
+                    >
+                      <div
+                        className="size-2 rounded-full flex-shrink-0"
+                        style={{
+                          backgroundColor: singleStatus >= 200 && singleStatus < 300
+                            ? "var(--success, #4ade80)"
+                            : singleStatus >= 400
+                            ? "var(--error, #f87171)"
+                            : "var(--warning, #facc15)",
+                        }}
+                      />
+                      <span className="font-mono text-xs font-bold">
+                        {singleStatus} {singleStatusMsg}
+                      </span>
+                      <span
+                        className="text-xs font-semibold uppercase"
+                        style={{ color: singleBorderColor, letterSpacing: "0.5px" }}
+                      >
+                        {singleLabel || "Request 1"}
+                      </span>
+                      {singleElapsed !== undefined && (
+                        <span className="text-comment text-xs flex-shrink-0">
+                          {singleElapsed < 1000 ? `${Math.round(singleElapsed)}ms` : `${(singleElapsed / 1000).toFixed(2)}s`}
+                        </span>
+                      )}
+                      <span className="text-comment text-xs truncate flex-1">
+                        {singleUrl}
+                      </span>
+                      <button
+                        className="p-1 text-comment hover:text-text transition-colors rounded flex-shrink-0"
+                        title="Find (⌘F)"
+                        onClick={() => {
+                          setShowResponseFind(true);
+                          setTimeout(() => responseFindInputRef.current?.focus(), 50);
+                        }}
+                      >
+                        <Search size={14} />
+                      </button>
+                    </div>
+                    <div className="flex-1 overflow-hidden">
+                      <ResponseViewer
+                        content={sections[0].response.responseDoc}
+                        preferredActiveNode={getActiveResponseNodeForTab(tabId)}
+                        onActiveNodeChange={getNodeChangeCallback(tabId)}
+                        panelScrollTop={getResponsePanelScrollForTab(tabId)}
+                        onPanelScrollChange={getPanelScrollCallback(tabId)}
+                        nodeScrollPositions={getResponseNodeScrollsForTab(tabId)}
+                        onNodeScrollChange={getNodeScrollCallback(tabId)}
+                        isActive={tabIsActive}
+                      />
+                    </div>
+                  </div>
+                  );
+                })() : (
                   // Multiple responses — stacked with section headers
                   <div className="flex flex-col">
                     {sections.map(({ sectionIndex, response }) => {
@@ -838,17 +814,30 @@ export function ResponsePanelContainer() {
                             <span className="font-mono text-xs font-bold">
                               {status} {statusMsg}
                             </span>
-                            {label && label !== "New Request" && (
-                              <span
-                                className="text-xs font-semibold uppercase"
-                                style={{ color: borderColor, letterSpacing: "0.5px" }}
-                              >
-                                {label}
-                              </span>
-                            )}
-                            <span className="text-comment text-xs truncate">
+                            <span
+                              className="text-xs font-semibold uppercase"
+                              style={{ color: borderColor, letterSpacing: "0.5px" }}
+                            >
+                              {label || "Request"}
+                            </span>
+                            <span className="text-comment text-xs truncate flex-1">
                               {doc?.attrs?.url}
                             </span>
+                            <button
+                              className="p-1 text-comment hover:text-text transition-colors rounded flex-shrink-0"
+                              title="Find in this response"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                // Expand the section first if collapsed
+                                if (isCollapsed) {
+                                  toggleSectionCollapse(tabId, sectionIndex);
+                                }
+                                setShowResponseFind(true);
+                                setTimeout(() => responseFindInputRef.current?.focus(), 50);
+                              }}
+                            >
+                              <Search size={12} />
+                            </button>
                           </div>
                           {/* Response content — hidden when collapsed */}
                           {!isCollapsed && (
