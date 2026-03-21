@@ -1166,7 +1166,9 @@ function sanitizeDoc(node: any): any {
     if (!editor || !isActive) return;
 
     const handleScrollToSection = (e: Event) => {
-      const { sectionIndex } = (e as CustomEvent).detail;
+      const detail = (e as CustomEvent).detail;
+      console.log('[VoidenEditor] scroll-to-section event received:', detail);
+      const { sectionIndex } = detail;
       if (typeof sectionIndex !== "number") return;
 
       // Always scroll to the TOP of the section:
@@ -1189,17 +1191,12 @@ function sanitizeDoc(node: any): any {
       }
 
       if (targetPos > 0) {
-        // Scroll the separator into view without stealing editor focus/cursor
-        try {
-          const domInfo = editor.view.domAtPos(Math.min(targetPos, editor.state.doc.content.size));
-          const el = domInfo.node instanceof HTMLElement ? domInfo.node : domInfo.node.parentElement;
-          el?.scrollIntoView({ behavior: "smooth", block: "start" });
-        } catch {
-          // Fallback: use selection-based scroll
-          const $pos = editor.state.doc.resolve(Math.min(targetPos, editor.state.doc.content.size));
-          const selection = TextSelection.near($pos);
-          editor.view.dispatch(editor.state.tr.setSelection(selection).scrollIntoView());
-        }
+        const pos = Math.min(targetPos, editor.state.doc.content.size);
+        // Set cursor near the target and scroll into view — also gives focus to the editor
+        const $pos = editor.state.doc.resolve(pos);
+        const selection = TextSelection.near($pos);
+        editor.view.dispatch(editor.state.tr.setSelection(selection).scrollIntoView());
+        editor.view.focus();
         e.stopImmediatePropagation();
       }
     };

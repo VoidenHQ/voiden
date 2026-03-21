@@ -208,15 +208,25 @@ export function ResponsePanelContainer() {
 
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Find the first visible CodeMirror editor in the response panel
-  // (skips editors inside display:none keep-alive cached tabs)
+  // Find the CodeMirror editor that should receive the search panel.
+  // Prefers the currently focused CM editor, falls back to first visible.
   const findVisibleCmView = () => {
     const el = containerRef.current;
     if (!el) return null;
+
+    // Check if focus is already inside a CM editor
+    const active = document.activeElement;
+    if (active) {
+      const activeCm = active.closest('.cm-editor') as HTMLElement & { cmView?: any } | null;
+      if (activeCm && el.contains(activeCm) && activeCm.cmView) {
+        return activeCm.cmView;
+      }
+    }
+
+    // Fall back to first visible CM editor
     const cmEditors = el.querySelectorAll('.cm-editor');
     for (const cmEl of cmEditors) {
       const htmlEl = cmEl as HTMLElement & { cmView?: any };
-      // Skip editors that are hidden (inside display:none keep-alive containers)
       if (htmlEl.offsetParent === null) continue;
       const view = htmlEl.cmView;
       if (view && typeof view.focus === 'function') return view;
@@ -325,6 +335,7 @@ export function ResponsePanelContainer() {
               className="p-1.5 text-comment hover:text-text transition-colors rounded"
               title="Scroll to request"
               onClick={() => {
+                console.log('[ResponsePanel] scroll button clicked, sectionIndex:', statusInfo.sectionIndex);
                 window.dispatchEvent(
                   new CustomEvent("voiden:scroll-to-section", {
                     detail: { sectionIndex: statusInfo.sectionIndex },
