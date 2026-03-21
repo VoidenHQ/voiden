@@ -1169,32 +1169,37 @@ function sanitizeDoc(node: any): any {
       const { sectionIndex } = (e as CustomEvent).detail;
       if (typeof sectionIndex !== "number") return;
 
-      // Find the nth separator (or doc start for section 0)
-      let currentSection = 0;
+      // Always scroll to the TOP of the section:
+      // Section 0 → doc start, Section N → the Nth separator node
       let targetPos = 0;
 
       if (sectionIndex === 0) {
         targetPos = 1;
       } else {
+        let currentSection = 0;
         editor.state.doc.forEach((child, offset) => {
           if (child.type.name === "request-separator") {
             currentSection++;
             if (currentSection === sectionIndex) {
-              targetPos = offset + 1 + child.nodeSize;
+              // Position AT the separator (top of section)
+              targetPos = offset + 1;
             }
           }
         });
       }
 
       if (targetPos > 0) {
-        const pos = Math.min(targetPos, editor.state.doc.content.size);
-        // Find nearest valid text selection position
-        const $pos = editor.state.doc.resolve(pos);
-        const selection = TextSelection.near($pos);
-        editor.view.dispatch(
-          editor.state.tr.setSelection(selection).scrollIntoView()
-        );
-        editor.view.focus();
+        // Scroll the separator into view without stealing editor focus/cursor
+        try {
+          const domInfo = editor.view.domAtPos(Math.min(targetPos, editor.state.doc.content.size));
+          const el = domInfo.node instanceof HTMLElement ? domInfo.node : domInfo.node.parentElement;
+          el?.scrollIntoView({ behavior: "smooth", block: "start" });
+        } catch {
+          // Fallback: use selection-based scroll
+          const $pos = editor.state.doc.resolve(Math.min(targetPos, editor.state.doc.content.size));
+          const selection = TextSelection.near($pos);
+          editor.view.dispatch(editor.state.tr.setSelection(selection).scrollIntoView());
+        }
         e.stopImmediatePropagation();
       }
     };

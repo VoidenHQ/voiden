@@ -248,7 +248,7 @@ export function ResponsePanelContainer() {
   }, []);
 
   return (
-    <div ref={containerRef} className="h-full bg-bg flex flex-col" tabIndex={-1}>
+    <div ref={containerRef} className="h-full bg-bg flex flex-col response-panel-root" tabIndex={-1}>
       {/* Sticky top bar */}
       <div className="flex items-center justify-between h-10 border-b border-border px-3 flex-shrink-0 bg-bg">
         <div className="flex items-center space-x-3 font-mono text-sm min-w-0 flex-1">

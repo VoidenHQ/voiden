@@ -65,14 +65,42 @@ export const  useSendRestRequest = (editor: Editor) => {
           }
         };
 
-        // Determine which section to execute based on cursor position
-        const cursorPos = editor.state.selection.$from.pos;
-        console.log('[useSendRequest] cursorPos:', cursorPos);
+        // Determine which section to execute.
+        // ProseMirror's selection doesn't update when clicking inside node views
+        // (CodeMirror editors, linked blocks), so we also check the DOM's active
+        // element to find the correct section.
+        let sectionIndex: number | undefined;
+        const activeEl = document.activeElement;
+        const proseDom = editor.view.dom;
+        if (activeEl && proseDom.contains(activeEl)) {
+          // Walk up from activeElement to find its position among top-level children
+          let topLevelNode: Element | null = activeEl;
+          while (topLevelNode && topLevelNode.parentElement !== proseDom) {
+            topLevelNode = topLevelNode.parentElement;
+          }
+          if (topLevelNode) {
+            // Count separator nodes before this element
+            // TipTap node views have data-node-view-wrapper, and the inner div has data-type
+            let idx = 0;
+            let sibling = proseDom.firstElementChild;
+            while (sibling && sibling !== topLevelNode) {
+              const isSeparator =
+                sibling.getAttribute('data-type') === 'request-separator' ||
+                sibling.querySelector?.('[data-type="request-separator"]') !== null;
+              if (isSeparator) idx++;
+              sibling = sibling.nextElementSibling;
+            }
+            sectionIndex = idx;
+          }
+        }
+        // Fallback to ProseMirror selection
+        const cursorPos = sectionIndex !== undefined ? undefined : editor.state.selection.$from.pos;
+        console.log('[useSendRequest] sectionIndex:', sectionIndex, 'cursorPos:', cursorPos);
         const response = await requestOrchestrator.executeRequest(
           editor,
           activeEnv,
           abortControllerRef.current.signal,
-          { sectionPos: cursorPos }
+          sectionIndex !== undefined ? { sectionIndex } : { sectionPos: cursorPos }
         );
 
         // sendRequestHybrid returns error responses instead of throwing.

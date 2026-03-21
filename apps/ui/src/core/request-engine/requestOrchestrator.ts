@@ -39,6 +39,8 @@ interface RequestOrchestrator {
 export interface RequestExecuteOptions {
   /** ProseMirror position of the request section to execute (for multi-request docs) */
   sectionPos?: number;
+  /** Direct section index (0-based), used when DOM-based detection is available */
+  sectionIndex?: number;
 }
 
 class RequestOrchestratorImpl implements RequestOrchestrator {
@@ -79,18 +81,21 @@ class RequestOrchestratorImpl implements RequestOrchestrator {
     let handlerEditor: Editor = editor;
     const sectionPos = options?.sectionPos;
     let resolvedSectionIndex: number | undefined;
-    if (sectionPos !== undefined) {
+    const hasSectionInfo = options?.sectionIndex !== undefined || sectionPos !== undefined;
+    if (hasSectionInfo) {
       const originalGetJSON = editor.getJSON.bind(editor);
       handlerEditor = Object.create(editor);
 
-      // Compute sectionIndex once (reused by getJSON proxy and attached to response)
-      let sectionIndex = 0;
-      editor.state.doc.forEach((child, offset) => {
-        const nodeEnd = offset + 1 + child.nodeSize;
-        if (child.type.name === "request-separator" && sectionPos >= nodeEnd) {
-          sectionIndex++;
-        }
-      });
+      // Use direct sectionIndex if provided (DOM-based), otherwise compute from position
+      let sectionIndex = options?.sectionIndex ?? 0;
+      if (options?.sectionIndex === undefined && sectionPos !== undefined) {
+        editor.state.doc.forEach((child, offset) => {
+          const nodeEnd = offset + 1 + child.nodeSize;
+          if (child.type.name === "request-separator" && sectionPos >= nodeEnd) {
+            sectionIndex++;
+          }
+        });
+      }
       resolvedSectionIndex = sectionIndex;
 
       handlerEditor.getJSON = () => {
@@ -106,6 +111,12 @@ class RequestOrchestratorImpl implements RequestOrchestrator {
             sections[sections.length - 1].push(node);
           }
         }
+
+        console.log('[orchestrator] sectionPos:', sectionPos,
+          'sectionIndex:', sectionIndex,
+          'totalSections:', sections.length,
+          'allTypes:', fullJson.content.map((n: any) => n.type),
+          'scopedTypes:', (sections[sectionIndex] || []).map((n: any) => n.type));
 
         return { type: "doc", content: sections[sectionIndex] || [] };
       };

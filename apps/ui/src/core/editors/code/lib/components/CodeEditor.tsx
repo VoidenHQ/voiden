@@ -155,7 +155,7 @@ export const CodeEditor = ({
   lang = "json",
   readOnly = false,
   onChange,
-  autofocus = true,
+  autofocus = false,
   showReplace = true,
   validateFn,
 }: CodeEditorProps) => {
