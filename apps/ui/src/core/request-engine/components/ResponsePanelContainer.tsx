@@ -469,11 +469,6 @@ export function ResponsePanelContainer() {
       ref={containerRef}
       className="h-full bg-bg flex flex-col response-panel-root"
       tabIndex={-1}
-      style={
-        statusInfo?.sectionColorIndex !== undefined
-          ? { borderLeft: `3px solid ${getSectionBorderColor(statusInfo.sectionColorIndex)}` }
-          : undefined
-      }
     >
       {/* Sticky top bar */}
       <div className="flex items-center justify-between h-10 border-b border-border px-3 flex-shrink-0 bg-bg">

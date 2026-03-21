@@ -2,6 +2,15 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ─── Section indicator overlay lines ────────────────────────────────────── */
+.section-indicator-overlay {
+  position: absolute;
+  left: -4px;
+  width: 3px;
+  pointer-events: none;
+  z-index: 1;
+}
+
 /* ─── Date / time inputs — global theme styling ──────────────────────────── */
 
 input[type="date"],

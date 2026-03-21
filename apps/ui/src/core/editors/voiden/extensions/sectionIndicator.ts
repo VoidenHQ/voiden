@@ -1,26 +1,22 @@
 /**
  * Section Indicator Extension
  *
- * Adds a colored left border to each top-level node in the ProseMirror document,
- * cycling colors per request section (delimited by request-separator nodes).
+ * Draws continuous colored lines on the left side of the editor to visually
+ * group nodes by request section. Uses DOM overlay divs (not node decorations)
+ * to avoid interfering with ProseMirror's node rendering.
+ *
  * Colors are stored on each separator's `colorIndex` attribute and persisted
- * in the .void file. Adjacent sections always get distinct colors.
+ * in the .void file.
  */
 
 import { Extension } from "@tiptap/core";
 import { Plugin, PluginKey } from "prosemirror-state";
-import { Decoration, DecorationSet } from "prosemirror-view";
+import type { EditorView } from "prosemirror-view";
 
 const sectionIndicatorKey = new PluginKey("sectionIndicator");
 
 /**
- * 10 curated colors that are:
- * - Visually distinct from each other (especially adjacent pairs)
- * - Soft enough for dark backgrounds, visible enough on light backgrounds
- * - Ordered so that consecutive colors have maximum contrast
- *
- * The ordering follows a "maximally spaced" pattern across the hue wheel:
- * blue → orange → teal → rose → lime → purple → amber → cyan → red → green
+ * 10 curated colors ordered for maximum adjacent contrast.
  */
 export const SECTION_COLORS = [
   "#6BA3D6",  // 0  blue
@@ -35,11 +31,6 @@ export const SECTION_COLORS = [
   "#6BBF92",  // 9  green
 ];
 
-/**
- * Pick a color index for a new separator that avoids its neighbors.
- * `prevColorIndex` is the color of the section before, or -1 if first separator.
- * `nextColorIndex` is the color of the section after, or -1 if last separator.
- */
 export function pickDistinctColorIndex(
   prevColorIndex: number,
   nextColorIndex: number
@@ -48,25 +39,20 @@ export function pickDistinctColorIndex(
   if (prevColorIndex >= 0) avoid.add(prevColorIndex);
   if (nextColorIndex >= 0) avoid.add(nextColorIndex);
 
-  // Pick a random index that avoids neighbors
   const candidates = Array.from({ length: SECTION_COLORS.length }, (_, i) => i)
     .filter((i) => !avoid.has(i));
 
   if (candidates.length === 0) {
-    // All colors are taken by neighbors (shouldn't happen with 10 colors)
     return Math.floor(Math.random() * SECTION_COLORS.length);
   }
 
   return candidates[Math.floor(Math.random() * candidates.length)];
 }
 
-/** Get the display color string (with opacity for borders) */
 export function getSectionColor(colorIndex: number): string {
-  const hex = SECTION_COLORS[colorIndex % SECTION_COLORS.length];
-  return hex;
+  return SECTION_COLORS[colorIndex % SECTION_COLORS.length];
 }
 
-/** Get the border color with appropriate opacity */
 export function getSectionBorderColor(colorIndex: number): string {
   const hex = SECTION_COLORS[colorIndex % SECTION_COLORS.length];
   const r = parseInt(hex.slice(1, 3), 16);
@@ -75,7 +61,6 @@ export function getSectionBorderColor(colorIndex: number): string {
   return `rgba(${r}, ${g}, ${b}, 0.6)`;
 }
 
-/** Get a muted version for text/lines */
 export function getSectionLineColor(colorIndex: number): string {
   const hex = SECTION_COLORS[colorIndex % SECTION_COLORS.length];
   const r = parseInt(hex.slice(1, 3), 16);
@@ -84,87 +69,169 @@ export function getSectionLineColor(colorIndex: number): string {
   return `rgba(${r}, ${g}, ${b}, 0.55)`;
 }
 
-function buildDecorations(doc: any): DecorationSet {
-  const decorations: Decoration[] = [];
-  let currentColorIndex = 0; // Default for first section (before any separator)
+/**
+ * Compute section ranges from the document.
+ * Returns an array of { colorIndex, firstNodeIndex, lastNodeIndex } for each section.
+ */
+function computeSections(doc: any): Array<{
+  colorIndex: number;
+  firstChildIndex: number;
+  lastChildIndex: number;
+}> {
+  const sections: Array<{
+    colorIndex: number;
+    firstChildIndex: number;
+    lastChildIndex: number;
+  }> = [];
+
+  let currentColorIndex = 0;
+  let currentFirstChild = 0;
+  let childIndex = 0;
   let hasSeparators = false;
 
-  // First pass: collect separator color indices to determine first section color
-  const separatorColors: number[] = [];
   doc.forEach((node: any) => {
     if (node.type.name === "request-separator") {
-      separatorColors.push(
-        typeof node.attrs.colorIndex === "number" ? node.attrs.colorIndex : 0
-      );
-    }
-  });
-
-  if (separatorColors.length === 0) {
-    return DecorationSet.empty;
-  }
-
-  // First section gets a color that's distinct from the first separator's section
-  // We use index 0 by default for the first section
-  currentColorIndex = pickDistinctColorIndex(separatorColors[0], -1);
-  // But make it deterministic: always use 0 for the first section
-  currentColorIndex = 0;
-
-  let separatorIdx = 0;
-
-  doc.forEach((node: any, offset: number) => {
-    if (node.type.name === "request-separator") {
       hasSeparators = true;
-      const storedIndex = typeof node.attrs.colorIndex === "number"
+      // Close the current section (up to the node before this separator)
+      if (childIndex > currentFirstChild) {
+        sections.push({
+          colorIndex: currentColorIndex,
+          firstChildIndex: currentFirstChild,
+          lastChildIndex: childIndex - 1,
+        });
+      }
+      // The separator itself starts the new section
+      currentColorIndex = typeof node.attrs.colorIndex === "number"
         ? node.attrs.colorIndex
-        : separatorIdx; // fallback for legacy separators without colorIndex
-
-      currentColorIndex = storedIndex;
-      separatorIdx++;
-
-      const borderColor = getSectionBorderColor(currentColorIndex);
-
-      decorations.push(
-        Decoration.node(offset, offset + node.nodeSize, {
-          style: `border-left: 3px solid ${borderColor}; padding-left: 8px;`,
-          "data-section-color": getSectionLineColor(currentColorIndex),
-        })
-      );
-      return;
+        : 0;
+      currentFirstChild = childIndex; // separator is part of the new section
     }
-
-    const borderColor = getSectionBorderColor(currentColorIndex);
-
-    decorations.push(
-      Decoration.node(offset, offset + node.nodeSize, {
-        style: `border-left: 3px solid ${borderColor}; padding-left: 8px;`,
-      })
-    );
+    childIndex++;
   });
 
-  if (!hasSeparators) {
-    return DecorationSet.empty;
+  if (!hasSeparators) return [];
+
+  // Close the last section
+  if (childIndex > currentFirstChild) {
+    sections.push({
+      colorIndex: currentColorIndex,
+      firstChildIndex: currentFirstChild,
+      lastChildIndex: childIndex - 1,
+    });
   }
 
-  return DecorationSet.create(doc, decorations);
+  return sections;
+}
+
+/**
+ * Update overlay lines to match section positions.
+ */
+function updateOverlays(
+  view: EditorView,
+  container: HTMLElement,
+  overlays: HTMLElement[]
+) {
+  const doc = view.state.doc;
+  const sections = computeSections(doc);
+
+  // Ensure we have the right number of overlays
+  while (overlays.length < sections.length) {
+    const el = document.createElement("div");
+    el.className = "section-indicator-overlay";
+    container.appendChild(el);
+    overlays.push(el);
+  }
+  while (overlays.length > sections.length) {
+    const el = overlays.pop()!;
+    el.remove();
+  }
+
+  const proseDom = view.dom;
+  const proseRect = proseDom.getBoundingClientRect();
+  const containerRect = container.getBoundingClientRect();
+
+  // Get all top-level children
+  const children = Array.from(proseDom.children) as HTMLElement[];
+
+  for (let i = 0; i < sections.length; i++) {
+    const section = sections[i];
+    const overlay = overlays[i];
+
+    const firstEl = children[section.firstChildIndex];
+    const lastEl = children[section.lastChildIndex];
+
+    if (!firstEl || !lastEl) {
+      overlay.style.display = "none";
+      continue;
+    }
+
+    const firstRect = firstEl.getBoundingClientRect();
+    const lastRect = lastEl.getBoundingClientRect();
+
+    const top = firstRect.top - containerRect.top;
+    const bottom = lastRect.bottom - containerRect.top;
+
+    overlay.style.display = "block";
+    overlay.style.top = `${top}px`;
+    overlay.style.height = `${bottom - top}px`;
+    overlay.style.backgroundColor = getSectionBorderColor(section.colorIndex);
+
+    // Also set data attribute for the separator view to read
+    const separatorEl = firstEl.querySelector?.('[data-type="request-separator"]')
+      ?? (firstEl.getAttribute?.('data-type') === 'request-separator' ? firstEl : null);
+    if (separatorEl) {
+      (firstEl as HTMLElement).setAttribute("data-section-color", getSectionLineColor(section.colorIndex));
+    }
+  }
 }
 
 const sectionIndicatorPlugin = new Plugin({
   key: sectionIndicatorKey,
-  state: {
-    init(_, state) {
-      return buildDecorations(state.doc);
-    },
-    apply(tr, old, _oldState, newState) {
-      if (tr.docChanged) {
-        return buildDecorations(newState.doc);
-      }
-      return old;
-    },
-  },
-  props: {
-    decorations(state) {
-      return this.getState(state);
-    },
+  view(editorView) {
+    // Create a container for overlay lines
+    const container = document.createElement("div");
+    container.style.position = "relative";
+    container.style.pointerEvents = "none";
+    container.style.zIndex = "1";
+
+    // Insert the container as a sibling of the ProseMirror DOM,
+    // positioned to overlay it
+    const proseDom = editorView.dom;
+    const parent = proseDom.parentElement;
+    if (parent) {
+      parent.style.position = "relative";
+      parent.insertBefore(container, proseDom);
+      // Make container overlay the editor
+      container.style.position = "absolute";
+      container.style.top = "0";
+      container.style.left = "0";
+      container.style.bottom = "0";
+      container.style.width = "100%";
+    }
+
+    const overlays: HTMLElement[] = [];
+    let rafId: number | null = null;
+
+    const scheduleUpdate = () => {
+      if (rafId) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        updateOverlays(editorView, container, overlays);
+      });
+    };
+
+    // Initial render
+    scheduleUpdate();
+
+    return {
+      update(view) {
+        scheduleUpdate();
+      },
+      destroy() {
+        if (rafId) cancelAnimationFrame(rafId);
+        container.remove();
+      },
+    };
   },
 });
 
@@ -174,11 +241,6 @@ export const SectionIndicatorExtension = Extension.create({
     return [sectionIndicatorPlugin];
   },
 
-  /**
-   * Auto-assign distinct colors to separators that have duplicate or
-   * conflicting colors with their neighbors. Runs once after doc loads
-   * and after any structural changes.
-   */
   onTransaction({ editor, transaction }) {
     if (!transaction.docChanged) return;
     this.storage.pendingColorFix = true;
@@ -198,11 +260,6 @@ export const SectionIndicatorExtension = Extension.create({
   },
 });
 
-/**
- * Checks all separators and fixes any that have the same color as their
- * neighbor (the previous separator). Also assigns colors to separators
- * that still have the default colorIndex=0 when there are multiple separators.
- */
 function fixSeparatorColors(editor: any) {
   const { doc } = editor.state;
   const separators: Array<{ pos: number; colorIndex: number }> = [];
@@ -218,11 +275,8 @@ function fixSeparatorColors(editor: any) {
 
   if (separators.length === 0) return;
 
-  // Check if colors need fixing: adjacent duplicates or all same color
   let needsFix = false;
-
-  // First section is always color 0 — check if first separator conflicts
-  let prevColor = 0; // first section's implicit color
+  let prevColor = 0;
   for (const sep of separators) {
     if (sep.colorIndex === prevColor) {
       needsFix = true;
@@ -233,9 +287,8 @@ function fixSeparatorColors(editor: any) {
 
   if (!needsFix) return;
 
-  // Build new color assignments ensuring no adjacent duplicates
   const newColors: number[] = [];
-  prevColor = 0; // first section's color
+  prevColor = 0;
 
   for (let i = 0; i < separators.length; i++) {
     const nextColor = i + 1 < separators.length ? separators[i + 1].colorIndex : -1;
@@ -244,7 +297,6 @@ function fixSeparatorColors(editor: any) {
     prevColor = newColor;
   }
 
-  // Apply changes in a single transaction
   let tr = editor.state.tr;
   let changed = false;
 
@@ -262,7 +314,7 @@ function fixSeparatorColors(editor: any) {
   }
 
   if (changed) {
-    tr.setMeta("addToHistory", false); // Don't pollute undo stack
+    tr.setMeta("addToHistory", false);
     editor.view.dispatch(tr);
   }
 }
