@@ -208,19 +208,40 @@ export function ResponsePanelContainer() {
     const prevDocs = prevSectionDocsRef.current[activeTabId] || {};
     const currentKeys = Object.keys(tabSections).map(Number);
 
+    // Find which section just received a new/updated response
+    let changedKey: number | null = null;
     for (const key of currentKeys) {
       const currentDoc = tabSections[key]?.responseDoc;
       const prevDoc = prevDocs[key];
-      // If this section's doc changed (new or re-executed), expand it
       if (currentDoc && currentDoc !== prevDoc) {
-        const collapseKey = `${activeTabId}:${key}`;
-        setCollapsedSections((prev) => {
-          if (!prev.has(collapseKey)) return prev;
-          const next = new Set(prev);
-          next.delete(collapseKey);
-          return next;
-        });
+        changedKey = key;
       }
+    }
+
+    // If a section changed and there are multiple sections,
+    // collapse all others and expand only the changed one
+    if (changedKey !== null && currentKeys.length > 1) {
+      setCollapsedSections((prev) => {
+        const next = new Set(prev);
+        for (const key of currentKeys) {
+          const collapseKey = `${activeTabId}:${key}`;
+          if (key === changedKey) {
+            next.delete(collapseKey); // expand
+          } else {
+            next.add(collapseKey); // collapse
+          }
+        }
+        return next;
+      });
+    } else if (changedKey !== null) {
+      // Single section — just make sure it's expanded
+      setCollapsedSections((prev) => {
+        const collapseKey = `${activeTabId}:${changedKey}`;
+        if (!prev.has(collapseKey)) return prev;
+        const next = new Set(prev);
+        next.delete(collapseKey);
+        return next;
+      });
     }
 
     // Snapshot current docs for next comparison
