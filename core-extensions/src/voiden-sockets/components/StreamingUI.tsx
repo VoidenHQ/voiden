@@ -102,9 +102,14 @@ export function StreamMessageRow({
       <div className="ml-[17px] relative">
         <pre
           className={`whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-text
-            px-2 py-1.5 rounded bg-panel border border-border
+            px-2 py-1.5 rounded
             ${isLong ? 'cursor-pointer' : ''}
-            ${isLong && !expanded ? 'max-h-[72px] overflow-hidden' : ''}`}
+            ${isLong && !expanded ? 'overflow-hidden' : ''}`}
+          style={{
+            background: 'var(--ui-surface, var(--bg-surface, rgba(255,255,255,0.04)))',
+            border: '1px solid var(--ui-line, var(--border, rgba(255,255,255,0.06)))',
+            ...(isLong && !expanded ? { maxHeight: '72px' } : {}),
+          }}
           onClick={() => isLong && setExpanded((v) => !v)}
         >
           {text || <span className="italic text-comment">empty</span>}
