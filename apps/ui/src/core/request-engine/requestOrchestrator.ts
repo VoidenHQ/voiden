@@ -10,6 +10,7 @@ import { sendRequestHybrid } from "./sendRequestHybrid";
 import type { RequestBuildHandler, ResponseProcessHandler, ResponseSection } from "@voiden/sdk/ui";
 import { requestLogger } from "@/core/lib/logger";
 import { getFirstSectionLabel } from "@/core/editors/voiden/extensions/sectionIndicator";
+import { expandLinkedBlocksInDoc } from "@/core/editors/voiden/utils/expandLinkedBlocks";
 
 interface RequestOrchestrator {
   /** Registered request build handlers from plugins */
@@ -85,39 +86,53 @@ class RequestOrchestratorImpl implements RequestOrchestrator {
     let resolvedColorIndex: number | undefined;
     let resolvedSectionLabel: string | undefined;
     const hasSectionInfo = options?.sectionIndex !== undefined || sectionPos !== undefined;
-    if (hasSectionInfo) {
+
+    // Cache for expanded JSON so we only expand linked blocks once
+    let expandedJsonCache: any = null;
+
+    {
       const originalGetJSON = editor.getJSON.bind(editor);
       handlerEditor = Object.create(editor);
 
       // Use direct sectionIndex if provided (DOM-based), otherwise compute from position
       let sectionIndex = options?.sectionIndex ?? 0;
-      if (options?.sectionIndex === undefined && sectionPos !== undefined) {
-        editor.state.doc.forEach((child, offset) => {
-          const nodeEnd = offset + 1 + child.nodeSize;
-          if (child.type.name === "request-separator" && sectionPos >= nodeEnd) {
-            sectionIndex++;
-            resolvedColorIndex = typeof child.attrs.colorIndex === "number" ? child.attrs.colorIndex : undefined;
-            resolvedSectionLabel = child.attrs.label || undefined;
-          }
-        });
-      } else if (options?.sectionIndex !== undefined) {
-        // Look up the colorIndex for the given sectionIndex
-        let sepIdx = 0;
-        editor.state.doc.forEach((child) => {
-          if (child.type.name === "request-separator") {
-            sepIdx++;
-            if (sepIdx === sectionIndex) {
+      if (hasSectionInfo) {
+        if (options?.sectionIndex === undefined && sectionPos !== undefined) {
+          editor.state.doc.forEach((child, offset) => {
+            const nodeEnd = offset + 1 + child.nodeSize;
+            if (child.type.name === "request-separator" && sectionPos >= nodeEnd) {
+              sectionIndex++;
               resolvedColorIndex = typeof child.attrs.colorIndex === "number" ? child.attrs.colorIndex : undefined;
               resolvedSectionLabel = child.attrs.label || undefined;
             }
-          }
-        });
+          });
+        } else if (options?.sectionIndex !== undefined) {
+          // Look up the colorIndex for the given sectionIndex
+          let sepIdx = 0;
+          editor.state.doc.forEach((child) => {
+            if (child.type.name === "request-separator") {
+              sepIdx++;
+              if (sepIdx === sectionIndex) {
+                resolvedColorIndex = typeof child.attrs.colorIndex === "number" ? child.attrs.colorIndex : undefined;
+                resolvedSectionLabel = child.attrs.label || undefined;
+              }
+            }
+          });
+        }
+        resolvedSectionIndex = sectionIndex;
       }
-      resolvedSectionIndex = sectionIndex;
 
       handlerEditor.getJSON = () => {
+        // If we've already expanded, return cached result
+        if (expandedJsonCache) return expandedJsonCache;
+
         const fullJson = originalGetJSON();
         if (!fullJson.content) return fullJson;
+
+        if (!hasSectionInfo) {
+          // No section scoping needed, just return the full document
+          return fullJson;
+        }
 
         // Split content at request-separator nodes
         const sections: any[][] = [[]];
@@ -137,6 +152,18 @@ class RequestOrchestratorImpl implements RequestOrchestrator {
 
         return { type: "doc", content: sections[sectionIndex] || [] };
       };
+    }
+
+    // Expand linked blocks once at the orchestrator level so plugins
+    // receive fully-resolved documents without needing direct core imports
+    try {
+      const rawJson = handlerEditor.getJSON();
+      expandedJsonCache = await expandLinkedBlocksInDoc(rawJson, { forceRefresh: true });
+      // Override getJSON to return the expanded version
+      handlerEditor.getJSON = () => expandedJsonCache;
+    } catch (error) {
+      requestLogger.error("Failed to expand linked blocks:", error);
+      // Fall through with unexpanded JSON
     }
 
     for (const handler of this.requestHandlers) {

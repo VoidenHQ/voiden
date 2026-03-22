@@ -42,6 +42,7 @@ export const createGraphQLQueryNode = (NodeViewWrapper: any, CodeEditor: any, Re
     const [selectedOperations, setSelectedOperations] = React.useState<Set<string>>(new Set());
     const [activeTab, setActiveTab] = React.useState<'query' | 'mutation' | 'subscription'>('query');
     const [showConnectionInput, setShowConnectionInput] = React.useState(false);
+    const [endpointUrl, setEndpointUrl] = React.useState(props.node.attrs.endpoint || '');
     const [connectionUrl, setConnectionUrl] = React.useState(props.node.attrs.schemaUrl || '');
     const [isConnecting, setIsConnecting] = React.useState(false);
     const [connectionError, setConnectionError] = React.useState('');
@@ -116,6 +117,15 @@ export const createGraphQLQueryNode = (NodeViewWrapper: any, CodeEditor: any, Re
         setConnectionUrl(foundUrl || 'http://');
       }
     }, [showConnectionInput]);
+
+    // Sync endpoint URL to node attributes
+    React.useEffect(() => {
+      if (props.node.attrs.endpoint !== endpointUrl) {
+        props.updateAttributes({
+          endpoint: endpointUrl || null,
+        });
+      }
+    }, [endpointUrl]);
 
     React.useEffect(() => {
       if (props.node.attrs.schemaUrl !== connectionUrl) {
@@ -317,6 +327,10 @@ export const createGraphQLQueryNode = (NodeViewWrapper: any, CodeEditor: any, Re
 
         if (parsedSchema) {
           setSchema(parsedSchema);
+          // Auto-populate endpoint URL if not already set
+          if (!endpointUrl) {
+            setEndpointUrl(connectionUrl);
+          }
           props.updateAttributes({
             schemaUrl: connectionUrl,
             schemaFileName: null,
@@ -1088,6 +1102,18 @@ export const createGraphQLQueryNode = (NodeViewWrapper: any, CodeEditor: any, Re
             editor={props.editor}
           />
 
+          {/* Endpoint URL */}
+          <div className="bg-panel border-t border-b border-border px-3 py-1.5 flex items-center gap-2">
+            <span className="text-xs text-comment font-medium uppercase tracking-wide shrink-0">POST</span>
+            <input
+              type="text"
+              value={endpointUrl}
+              onChange={(e) => setEndpointUrl(e.target.value)}
+              placeholder="https://api.example.com/graphql"
+              className="flex-1 px-2 py-1 bg-editor border border-border rounded text-sm text-text placeholder-comment focus:outline-none focus:border-accent transition-colors font-mono"
+            />
+          </div>
+
           {/* Schema file selector */}
           {!props.node.attrs.schemaFileName && !props.node.attrs.schemaUrl && !showConnectionInput ? (
             <div className="bg-panel border-t border-b border-border px-3 py-2">
@@ -1623,6 +1649,9 @@ export const createGraphQLQueryNode = (NodeViewWrapper: any, CodeEditor: any, Re
         },
         operationType: {
           default: "", // auto-detect from body: query | mutation | subscription
+        },
+        endpoint: {
+          default: null, // GraphQL endpoint URL for request execution
         },
         schemaFileName: {
           default: null,

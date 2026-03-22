@@ -1,15 +1,13 @@
 {
   "id": "voiden-graphql",
   "name": "Voiden GraphQL",
-  "description": "GraphQL client with schema importer for building queries through a dedicated UI or editing manually. Supports queries, mutations, subscriptions with variables. Leverages voiden-rest-api for request execution",
+  "description": "GraphQL client with schema importer for building queries through a dedicated UI or editing manually. Supports queries, mutations, subscriptions with variables. Builds its own requests with auto-generated headers and POST method",
   "version": "1.0.0",
   "author": "Voiden Team",
   "enabled": true,
   "priority": 15,
-  "dependencies": {
-    "voiden-rest-api": "^1.0.0"
-  },
-  "readme": "GraphQL extension with schema file importer and visual query builder UI. Select operations and fields from your schema or write queries manually. Supports queries, mutations, and subscriptions with variables. Depends on voiden-rest-api for request execution.",
+  "dependencies": {},
+  "readme": "GraphQL extension with schema file importer and visual query builder UI. Select operations and fields from your schema or write queries manually. Supports queries, mutations, and subscriptions with variables. Independently builds and processes requests.",
   "capabilities": {
     "blocks": {
       "owns": [
@@ -44,7 +42,7 @@
     "Separate query and variables blocks",
     "Operation type support (query/mutation/subscription)",
     "Variable editor with JSON validation",
-    "Depends on voiden-rest-api for URL handling and request execution",
+    "Standalone request building with auto-generated Content-Type and POST method",
     "Schema viewer with tabs for Query/Mutation/Subscription operations",
     "Auto-generation of queries from UI selections"
   ]

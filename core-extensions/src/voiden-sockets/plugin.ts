@@ -252,17 +252,17 @@ export default function createSocketPlugin(context: PluginContext) {
       // Register request building handler for socket requests
       context.onBuildRequest(async (request, editor) => {
         try {
+          // Get the JSON from the editor (linked blocks are already expanded by the orchestrator)
+          const editorJson = editor.getJSON();
+
+          // Skip GraphQL documents — the GraphQL plugin handles its own request building
+          if (editorJson.content?.some((n: any) => n.type === 'gqlquery')) {
+            return request;
+          }
+
           // Dynamic import of getRequest function from app
           // @ts-ignore - Path resolved at runtime in app context
           const { getRequest } = await import(/* @vite-ignore */ '@/core/request-engine/getRequestFromJson');
-
-          // Get the JSON from the editor
-          let editorJson = editor.getJSON();
-
-          // Expand any linked blocks so plugins can access their content
-          // @ts-ignore - Path resolved at runtime in app context
-          const { expandLinkedBlocksInDoc } = await import(/* @vite-ignore */ '@/core/editors/voiden/utils/expandLinkedBlocks');
-          editorJson = await expandLinkedBlocksInDoc(editorJson, { forceRefresh: true });
 
           // Capture proto services for injection into the response doc
           try {

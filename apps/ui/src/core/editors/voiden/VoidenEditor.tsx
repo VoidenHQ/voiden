@@ -657,7 +657,25 @@ function sanitizeDoc(node: any): any {
         if (!unsaved && savedScrollTop === 0) {
           requestAnimationFrame(() => {
             if (!editor.isDestroyed) {
-              editor.commands.setTextSelection(1);
+              // Find the first valid text position (skip atom nodes like separators)
+              try {
+                const $pos = editor.state.doc.resolve(1);
+                if ($pos.parent.isTextblock) {
+                  editor.commands.setTextSelection(1);
+                } else {
+                  // Find first textblock in the document
+                  let found = false;
+                  editor.state.doc.descendants((node, pos) => {
+                    if (!found && node.isTextblock) {
+                      editor.commands.setTextSelection(pos + 1);
+                      found = true;
+                      return false;
+                    }
+                  });
+                }
+              } catch {
+                // Silently ignore — cursor will be placed by autofocus
+              }
             }
           });
         }

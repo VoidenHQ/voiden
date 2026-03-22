@@ -300,28 +300,17 @@ const voidenRestApiPlugin = (context: PluginContext) => {
       context.onBuildRequest(async (request, editor) => {
 
         try {
-          // Dynamic import of getRequest function and environment hooks from app
+          // Get the JSON from the editor (linked blocks are already expanded by the orchestrator)
+          const editorJson = editor.getJSON();
+
+          // Skip GraphQL documents — the GraphQL plugin handles its own request building
+          if (editorJson.content?.some((n: any) => n.type === 'gqlquery')) {
+            return request;
+          }
+
+          // Dynamic import of getRequest function from app
           // @ts-ignore - Path resolved at runtime in app context
           const { getRequest } = await import(/* @vite-ignore */ '@/core/request-engine/getRequestFromJson');
-
-          // @ts-ignore - Path resolved at runtime in app context
-          const { useEnvironments } = await import(/* @vite-ignore */ '@/core/environment/hooks');
-
-          // Get active environment from app's environment system
-          // Access the query client to get current environment data
-          // @ts-ignore - Path resolved at runtime in app context
-          const { getQueryClient } = await import(/* @vite-ignore */ '@/main');
-          const queryClient = getQueryClient();
-          const envData = queryClient.getQueryData(['environments']) as any;
-          const activeEnv = envData?.activeEnv ? envData.data[envData.activeEnv] : undefined;
-
-          // Get the JSON from the editor
-          let editorJson = editor.getJSON();
-
-          // Expand any linked blocks so plugins can access their content
-          // @ts-ignore - Path resolved at runtime in app context
-          const { expandLinkedBlocksInDoc } = await import(/* @vite-ignore */ '@/core/editors/voiden/utils/expandLinkedBlocks');
-          editorJson = await expandLinkedBlocksInDoc(editorJson, { forceRefresh: true });
 
           // Build request WITHOUT environment variables
           // Environment variables will be replaced securely in Electron (Stage 3)
@@ -338,14 +327,11 @@ const voidenRestApiPlugin = (context: PluginContext) => {
       context.onProcessResponse(async (response) => {
         const perfStart = performance.now();
 
-        // Only handle REST protocol or GraphQL query/mutation responses
-        // Let other protocols (GraphQL subscriptions, gRPC, WebSocket) be handled by their respective plugins
+        // Only handle REST protocol responses
+        // GraphQL, gRPC, WebSocket are handled by their respective plugins
         const isRest = response.protocol && (response.protocol === 'rest' || response.protocol === 'http' || response.protocol === 'https');
-        const isGraphQLQueryOrMutation = response.protocol === 'graphql' &&
-          response.operationType &&
-          (response.operationType === 'query' || response.operationType === 'mutation');
 
-        if (!isRest && !isGraphQLQueryOrMutation) {
+        if (!isRest) {
           return;
         }
 

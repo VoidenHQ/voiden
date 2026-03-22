@@ -1,7 +1,10 @@
 import { METHOD_COLORS } from "../constants";
 import { Editor, Node, NodeViewProps, mergeAttributes } from "@tiptap/core";
 import { NodeViewContent, NodeViewWrapper, ReactNodeViewRenderer } from "@tiptap/react";
-import { Play } from "lucide-react";
+import { Play, Copy, Check } from "lucide-react";
+import { useState } from "react";
+import { generateCurlFromJson } from "../lib/curlGenerator";
+import { extractSectionDocByIndex } from "../lib/sectionUtils";
 
 // function to prevent enter key from creating a new line when in method node
 const preventEnter = (editor: Editor) => {
@@ -28,12 +31,40 @@ export const createMethodNode = (useSendRestRequest: any) => {
   const MethodNodeView = (props: NodeViewProps) => {
     const { node, editor, getPos } = props;
     const { refetchFromElement } = useSendRestRequest(editor);
+    const [copied, setCopied] = useState(false);
 
     const method = node.attrs.method;
 
     if (!node.attrs.visible) {
       return <NodeViewWrapper></NodeViewWrapper>;
     }
+
+    const handleCopyCurl = async () => {
+      try {
+        // Find which section this method node is in
+        const pos = typeof getPos === 'function' ? getPos() : 0;
+        let sectionIndex = 0;
+        editor.state.doc.forEach((child: any, offset: number) => {
+          if (child.type.name === "request-separator" && offset < pos) {
+            sectionIndex++;
+          }
+        });
+
+        // Get the scoped doc for this section
+        const fullJson = editor.getJSON();
+        const scopedDoc = extractSectionDocByIndex(fullJson, sectionIndex);
+        const curlCommand = await generateCurlFromJson(scopedDoc);
+
+        if (curlCommand) {
+          const resolved = await (window as any).electron?.env?.replaceVariables(curlCommand) ?? curlCommand;
+          await navigator.clipboard.writeText(resolved);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 2000);
+        }
+      } catch (err) {
+        console.error("Error copying cURL:", err);
+      }
+    };
 
     return (
       <NodeViewWrapper>
@@ -44,11 +75,16 @@ export const createMethodNode = (useSendRestRequest: any) => {
             }`}
           />
           <button
+            className="flex items-center justify-center w-7 h-7 rounded-md border hover:bg-hover text-comment hover:text-text transition-colors"
+            onClick={handleCopyCurl}
+            title="Copy as cURL"
+            style={{ borderColor: 'var(--ui-line)', cursor: 'pointer', userSelect: 'none' }}
+          >
+            {copied ? <Check size={12} className="text-status-success" /> : <Copy size={12} />}
+          </button>
+          <button
             className="flex items-center justify-center w-7 h-7 rounded-md border hover:bg-hover text-status-success transition-colors"
             onClick={(e) => {
-              // Set cursor in the main editor using DOM position of the clicked button.
-              // This is critical for imported blocks where getPos() returns a position
-              // in the linked block's internal doc, not the main document.
               refetchFromElement(e.currentTarget as HTMLElement);
             }}
             style={{ borderColor: 'var(--ui-line)', cursor: 'pointer', userSelect: 'none' }}

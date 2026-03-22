@@ -73,52 +73,55 @@ export function getSectionLineColor(colorIndex: number): string {
 
 /**
  * Compute section ranges from the document.
- * Returns an array of { colorIndex, firstNodeIndex, lastNodeIndex } for each section.
+ * Returns an array of { colorIndex, firstPos, lastPos } for each section,
+ * using document offsets so we can reliably find DOM elements via the view.
  */
 function computeSections(doc: any): Array<{
   colorIndex: number;
-  firstChildIndex: number;
-  lastChildIndex: number;
+  firstPos: number;
+  lastPos: number;
 }> {
   const sections: Array<{
     colorIndex: number;
-    firstChildIndex: number;
-    lastChildIndex: number;
+    firstPos: number;
+    lastPos: number;
   }> = [];
 
   let currentColorIndex = 0;
-  let currentFirstChild = 0;
-  let childIndex = 0;
+  let currentFirstPos = 0;
   let hasSeparators = false;
+  // Track the start position of each top-level node
+  const nodePositions: number[] = [];
 
-  doc.forEach((node: any) => {
+  doc.forEach((node: any, offset: number) => {
+    nodePositions.push(offset);
     if (node.type.name === "request-separator") {
       hasSeparators = true;
       // Close the current section (up to the node before this separator)
-      if (childIndex > currentFirstChild) {
+      if (nodePositions.length > 1 && offset > currentFirstPos) {
         sections.push({
           colorIndex: currentColorIndex,
-          firstChildIndex: currentFirstChild,
-          lastChildIndex: childIndex - 1,
+          firstPos: currentFirstPos,
+          lastPos: nodePositions[nodePositions.length - 2],
         });
       }
       // The separator itself starts the new section
       currentColorIndex = typeof node.attrs.colorIndex === "number"
         ? node.attrs.colorIndex
         : 0;
-      currentFirstChild = childIndex; // separator is part of the new section
+      currentFirstPos = offset;
     }
-    childIndex++;
   });
 
   if (!hasSeparators) return [];
 
   // Close the last section
-  if (childIndex > currentFirstChild) {
+  const lastPos = nodePositions[nodePositions.length - 1];
+  if (lastPos !== undefined && lastPos >= currentFirstPos) {
     sections.push({
       colorIndex: currentColorIndex,
-      firstChildIndex: currentFirstChild,
-      lastChildIndex: childIndex - 1,
+      firstPos: currentFirstPos,
+      lastPos,
     });
   }
 
@@ -127,6 +130,8 @@ function computeSections(doc: any): Array<{
 
 /**
  * Update overlay lines to match section positions.
+ * Uses ProseMirror's view.nodeDOM() to reliably find DOM elements,
+ * avoiding index mismatches caused by widget decorations.
  */
 function updateOverlays(
   view: EditorView,
@@ -148,19 +153,15 @@ function updateOverlays(
     el.remove();
   }
 
-  const proseDom = view.dom;
-  const proseRect = proseDom.getBoundingClientRect();
   const containerRect = container.getBoundingClientRect();
-
-  // Get all top-level children
-  const children = Array.from(proseDom.children) as HTMLElement[];
 
   for (let i = 0; i < sections.length; i++) {
     const section = sections[i];
     const overlay = overlays[i];
 
-    const firstEl = children[section.firstChildIndex];
-    const lastEl = children[section.lastChildIndex];
+    // Use view.nodeDOM() to find the correct DOM elements by document position
+    const firstEl = view.nodeDOM(section.firstPos) as HTMLElement | null;
+    const lastEl = view.nodeDOM(section.lastPos) as HTMLElement | null;
 
     if (!firstEl || !lastEl) {
       overlay.style.display = "none";
