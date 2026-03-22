@@ -8796,7 +8796,7 @@ __metadata:
     "@types/react": "npm:^18.2.15"
     "@types/react-dom": "npm:^18.2.7"
     "@types/shell-quote": "npm:^1.7.1"
-    "@voiden/sdk": "npm:^1.0.8"
+    "@voiden/sdk": "npm:^1.0.9"
     js-yaml: "npm:^4.1.0"
     lodash: "npm:^4.17.21"
     react: "npm:^18.2.0"
@@ -8832,6 +8832,21 @@ __metadata:
     react: ^18.2.0
     react-dom: ^18.2.0
   checksum: 10c0/327e9fb5f4ffcb95a60cca0358605da80d6cd1664f0ff188e1009d429050285ebd4d59d188ef77fb531079ea8a43ae79c384e5d7985d860cd7b5b5457e1c4440
+  languageName: node
+  linkType: hard
+
+"@voiden/sdk@npm:^1.0.9":
+  version: 1.0.9
+  resolution: "@voiden/sdk@npm:1.0.9"
+  dependencies:
+    jsonc-parser: "npm:^3.2.0"
+  peerDependencies:
+    "@tiptap/core": ^2.8.0
+    "@tiptap/pm": ^2.8.0
+    "@tiptap/react": ^2.8.0
+    react: ^18.2.0
+    react-dom: ^18.2.0
+  checksum: 10c0/a6c94b81349ccf97f125569bbb988d2f673daf3d5af365ac402e38fdb721a036a82dd5730ab50da1b9fef78f1f6ddea2101db2ca985536aa2164c0894a1bbac3
   languageName: node
   linkType: hard
 

@@ -82,6 +82,9 @@ const VariableList = forwardRef<VariableListHandle, VariableListProps>(
                         onClick={() => selectItem(index)}
                     >
                         <div className="font-mono">{item.label}</div>
+                        {item.description && (
+                            <div className="text-comment text-[11px] ml-auto pl-4 truncate">{item.description}</div>
+                        )}
                     </button>
                 ))}
             </div>

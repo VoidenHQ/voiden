@@ -18,6 +18,7 @@ const handleTableDelete = (editor: Editor) => {
         node.type.name === "url-table" ||
         node.type.name === "path-table" ||
         node.type.name === "cookies-table" ||
+        node.type.name === "options-table" ||
         node.type.name === "assertions-table"
       );
     });

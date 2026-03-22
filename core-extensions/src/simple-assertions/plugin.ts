@@ -114,6 +114,40 @@ export default function createSimpleAssertionsPlugin(context: PluginContext) {
         },
       });
 
+      // Register table cell autocomplete suggestions for assertions
+      context.registerTableSuggestions('assertions-table', {
+        // Col 0 = Description (no suggestions)
+        1: [ // Col 1 = Field
+          { label: 'status', description: 'HTTP status code' },
+          { label: 'statusText', description: 'HTTP status text' },
+          { label: 'body', description: 'Response body' },
+          { label: 'header.', description: 'Response header (e.g. header.Content-Type)' },
+          { label: 'responseTime', description: 'Response time in ms' },
+          { label: 'body.', description: 'JSON path (e.g. body.data[0].id)' },
+        ],
+        2: [ // Col 2 = Operator
+          { label: 'equals', description: 'Strict equality' },
+          { label: 'not-equals', description: 'Not equal' },
+          { label: 'contains', description: 'String contains' },
+          { label: 'not-contains', description: 'String does not contain' },
+          { label: 'starts-with', description: 'String starts with' },
+          { label: 'ends-with', description: 'String ends with' },
+          { label: 'matches', description: 'Regex match' },
+          { label: 'exists', description: 'Value is defined' },
+          { label: 'not-exists', description: 'Value is null/undefined' },
+          { label: 'greater-than', description: 'Numeric >' },
+          { label: 'less-than', description: 'Numeric <' },
+          { label: 'greater-equal', description: 'Numeric >=' },
+          { label: 'less-equal', description: 'Numeric <=' },
+          { label: 'is-empty', description: 'Value is empty' },
+          { label: 'not-empty', description: 'Value is not empty' },
+          { label: 'is-truthy', description: 'Value is truthy' },
+          { label: 'is-falsy', description: 'Value is falsy' },
+          { label: 'type-is', description: 'Type check (typeof)' },
+        ],
+        // Col 3 = Expected Value (no suggestions)
+      });
+
       // Add slash command for inserting assertion table
       context.addVoidenSlashGroup({
         name: "simple-assertions",

@@ -27,7 +27,7 @@ export const getNodeType = (editor: Editor) => {
     const isImportedBlock = node?.attrs.importedFrom;
     const type: string = node?.type.name;
     if (isImportedBlock) return `${type}--imported`;
-    if (["headers-table", "query-table", "url-table", "multipart-table", "cookies-table"].includes(type)) return type;
+    if (["headers-table", "query-table", "url-table", "multipart-table", "cookies-table", "options-table", "assertions-table"].includes(type)) return type;
     return "table";
   }
 
@@ -66,7 +66,7 @@ export const getAllowedSuggestionPopup = (suggestionType: string) => (props: { e
 
   // Get the node type at the current selection
   const node = props.state.selection.$from.parent;
-  const isCustomNode = ["method", "url", "headers-table", "query-table", "url-table", "cookies-table", "table"].includes(nodeType);
+  const isCustomNode = ["method", "url", "headers-table", "query-table", "url-table", "cookies-table", "options-table", "assertions-table", "table"].includes(nodeType);
   // Check if the node type is 'paragraph'
   const isAccessibleInParagraph = !isCustomNode && node.type.name === "paragraph";
 

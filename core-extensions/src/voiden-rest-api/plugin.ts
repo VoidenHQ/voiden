@@ -254,6 +254,48 @@ const voidenRestApiPlugin = (context: PluginContext) => {
       });
 
 
+      // Register table cell autocomplete suggestions
+      context.registerTableSuggestions('headers-table', {
+        0: [
+          { label: 'Accept' },
+          { label: 'Accept-Encoding' },
+          { label: 'Accept-Language' },
+          { label: 'Authorization' },
+          { label: 'Cache-Control' },
+          { label: 'Content-Type' },
+          { label: 'Cookie' },
+          { label: 'Host' },
+          { label: 'Origin' },
+          { label: 'Referer' },
+          { label: 'User-Agent' },
+          { label: 'X-Requested-With' },
+        ],
+        1: [
+          { label: 'application/json' },
+          { label: 'application/xml' },
+          { label: 'application/x-www-form-urlencoded' },
+          { label: 'multipart/form-data' },
+          { label: 'text/plain' },
+          { label: 'text/html' },
+          { label: 'text/xml' },
+          { label: 'application/javascript' },
+          { label: 'application/pdf' },
+          { label: 'application/octet-stream' },
+          { label: 'image/jpeg' },
+          { label: 'image/png' },
+        ],
+      });
+
+      context.registerTableSuggestions('options-table', {
+        0: [
+          { label: 'follow_redirects', description: 'Follow HTTP redirects (true/false)' },
+        ],
+        1: [
+          { label: 'true' },
+          { label: 'false' },
+        ],
+      });
+
       // Register Copy cURL action
       context.registerEditorAction({
         id: "copy-curl-button",
