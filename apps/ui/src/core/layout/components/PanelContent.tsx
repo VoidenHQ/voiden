@@ -12,7 +12,9 @@ import logo from "@/assets/logo-dark.png";
 import ChangeLogScreen from "@/core/screens/ChangeLogScreen";
 import { useCodeEditorStore } from "@/core/editors/code/CodeEditorStore";
 import { useEditorStore } from "@/core/editors/voiden/VoidenEditor";
-import { Settings, Menu, Play } from "lucide-react";
+import { Settings, Menu, Play, PlayCircle } from "lucide-react";
+import { useSendRequest } from "@/core/request-engine";
+import { useVoidenEditorStore } from "@/core/editors/voiden/VoidenEditor";
 import { Kbd } from "@/core/components/ui/kbd";
 import { ErrorBoundary } from "@/core/components/ErrorBoundary";
 import { DiffViewer } from "@/core/git/components/DiffViewer";
@@ -70,6 +72,35 @@ const RunScriptButton = ({ source }: { source: string }) => {
         <Play size={14} className="text-comment hover:text-fg" />
       </button>
     </Tip>
+  );
+};
+
+// "Run All" button — only visible when document has multiple request sections
+const RunAllButton = () => {
+  const editor = useVoidenEditorStore((state) => state.editor);
+  // @ts-ignore
+  const { runAll, isFetching, cancelRequest } = useSendRequest(editor);
+
+  if (!editor) return null;
+
+  // Check if document has multiple sections
+  let hasMultipleSections = false;
+  editor.state.doc.forEach((child: any) => {
+    if (child.type.name === "request-separator") hasMultipleSections = true;
+  });
+
+  if (!hasMultipleSections) return null;
+
+  return (
+    <button
+      onClick={() => isFetching ? cancelRequest() : runAll()}
+      className="flex items-center gap-1 px-2 py-1 rounded hover:bg-active transition-colors text-xs"
+      title="Run all requests (⌘⇧↵)"
+      style={{ color: 'var(--icon-success)' }}
+    >
+      <PlayCircle size={14} />
+      <span className="font-medium">Run All</span>
+    </button>
   );
 };
 
@@ -447,7 +478,10 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
               <RunScriptButton source={activeDocTabContent.source} />
             )}
             {activeDocTabContent?.title.endsWith(".void") ? (
-              <ActionMenu actionsToDisplay={actionsToDisplay} tab={activeDocTabContent} />
+              <>
+                <RunAllButton />
+                <ActionMenu actionsToDisplay={actionsToDisplay} tab={activeDocTabContent} />
+              </>
             ) : (
               actionsToDisplay.map((action) => {
                 const ActionComponent = action.component;

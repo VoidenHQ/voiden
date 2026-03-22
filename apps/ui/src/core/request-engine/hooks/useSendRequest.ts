@@ -156,8 +156,74 @@ export const  useSendRestRequest = (_editor: Editor) => {
     enabled: false, // Manual trigger only
   });
 
+  // Run all request sections sequentially
+  const runAllRef = useRef(false);
+  const runAll = async () => {
+    if (!editor || runAllRef.current) return;
+    runAllRef.current = true;
+
+    const wasPanelOpen = usePanelStore.getState().rightPanelOpen;
+    openRightPanel();
+    if (!wasPanelOpen) {
+      try {
+        const tabs = await (window as any).electron?.sidebar?.getTabs?.("right");
+        const firstTab = (tabs?.tabs as any[] | undefined)?.[0];
+        if (firstTab) {
+          await (window as any).electron?.sidebar?.activateTab?.("right", firstTab.id);
+          queryClient.invalidateQueries({ queryKey: ["sidebar:tabs", "right"] });
+        }
+      } catch { /* best-effort */ }
+    }
+
+    // Count total sections and determine starting index.
+    // If the doc starts with a separator, section 0 is empty — skip it.
+    let sectionCount = 1;
+    let firstNodeIsSeparator = false;
+    let firstChild = true;
+    editor.state.doc.forEach((child: any) => {
+      if (firstChild && child.type.name === "request-separator") firstNodeIsSeparator = true;
+      firstChild = false;
+      if (child.type.name === "request-separator") sectionCount++;
+    });
+    const startSection = firstNodeIsSeparator ? 1 : 0;
+
+    useResponseStore.getState().setLoading(true, activeDocument?.id);
+    abortControllerRef.current = new AbortController();
+
+    try {
+      for (let sectionIdx = startSection; sectionIdx < sectionCount; sectionIdx++) {
+        if (abortControllerRef.current?.signal.aborted) break;
+        // Re-set currentRequestTabId before each section so the response handler
+        // can find the correct tab (it gets cleared after each response)
+        useResponseStore.getState().setCurrentRequestTabId(activeDocument?.id ?? null);
+        try {
+          await requestOrchestrator.executeRequest(
+            editor,
+            activeEnv,
+            abortControllerRef.current.signal,
+            { sectionIndex: sectionIdx }
+          );
+        } catch (err) {
+          // Continue to next section on individual failure (unless aborted)
+          if (err instanceof Error && err.name === "AbortError") break;
+          console.warn(`[runAll] Section ${sectionIdx} failed:`, err);
+        }
+      }
+      queryClient.invalidateQueries({ queryKey: ["void-variable-keys"] });
+      queryClient.invalidateQueries({ queryKey: ["void-variable-data"] });
+    } catch (error) {
+      if (!(error instanceof Error && error.name === "AbortError")) {
+        const friendlyMessage = mapErrorToMessage(error);
+        useResponseStore.getState().setError(activeDocument?.id || null, friendlyMessage);
+      }
+    } finally {
+      runAllRef.current = false;
+    }
+  };
+
   return {
     ...context,
+    runAll,
     cancelRequest: () => {
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
