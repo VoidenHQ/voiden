@@ -121,7 +121,8 @@ const GROUPS: Group[] = [
         action: (editor) => {
           const { from, to } = editor.state.selection;
 
-          // Find adjacent separator colors to pick a distinct color
+          // Check if this is the first separator being added
+          let hasSeparators = false;
           let prevColorIndex = -1;
           let nextColorIndex = -1;
           const cursorPos = from;
@@ -129,6 +130,7 @@ const GROUPS: Group[] = [
 
           editor.state.doc.forEach((child: any, offset: number) => {
             if (child.type.name === "request-separator") {
+              hasSeparators = true;
               const ci = typeof child.attrs.colorIndex === "number" ? child.attrs.colorIndex : 0;
               if (offset < cursorPos) {
                 prevColorIndex = ci;
@@ -141,10 +143,35 @@ const GROUPS: Group[] = [
 
           const colorIndex = pickDistinctColorIndex(prevColorIndex, nextColorIndex);
 
-          editor.chain().focus().deleteRange({ from, to }).insertContent([
-            { type: "request-separator", attrs: { colorIndex } },
-            { type: "paragraph" },
-          ]).run();
+          if (!hasSeparators) {
+            // First separator being added — also add one for the existing first section
+            const firstSectionColorIndex = pickDistinctColorIndex(-1, colorIndex);
+            editor.chain().focus()
+              .command(({ dispatch, tr, state }) => {
+                if (dispatch) {
+                  // Insert separator for the first section at position 0
+                  const firstSep = state.schema.nodes['request-separator'].create({
+                    colorIndex: firstSectionColorIndex,
+                    label: 'Request 1',
+                  });
+                  tr.insert(0, firstSep);
+                }
+                return true;
+              })
+              // Now delete the selected range and insert the new separator
+              // Positions shifted by the inserted first separator's size
+              .deleteRange({ from: from + 2, to: to + 2 })
+              .insertContent([
+                { type: "request-separator", attrs: { colorIndex } },
+                { type: "paragraph" },
+              ])
+              .run();
+          } else {
+            editor.chain().focus().deleteRange({ from, to }).insertContent([
+              { type: "request-separator", attrs: { colorIndex } },
+              { type: "paragraph" },
+            ]).run();
+          }
         },
       },
       {
