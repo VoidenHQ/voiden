@@ -145,6 +145,22 @@ export const restApiSlashGroup: SlashCommandGroup = {
       },
     },
     {
+      name: "options-table",
+      label: "Options",
+      slash: "/options",
+      aliases: [],
+      singleton: true,
+      compareKeys: ["options-table"],
+      description: "Insert a request options table",
+      action: (editor) => {
+        const range = {
+          from: editor.state.selection.$from.pos,
+          to: editor.state.selection.$to.pos,
+        };
+        insertRequestTableNode(editor, range, "options-table");
+      },
+    },
+    {
       name: "json",
       label: "JSON",
       aliases: [],

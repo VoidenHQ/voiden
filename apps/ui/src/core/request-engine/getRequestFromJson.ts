@@ -236,6 +236,7 @@ export const REQUEST_NODES = [
   "url-table",
   "multipart-table",
   "cookies-table",
+  "options-table",
   "json_body",
   "xml_body",
   "yml_body",
@@ -256,7 +257,7 @@ export const findNode = (editor: Doc, nodeName: string) => {
 export const findNodes = (editor: Doc, nodeName: string) => {
   return editor.content.filter((node) => node.type === nodeName);
 };
-const getTable = (type: "headers-table" | "query-table" | "url-table" | "multipart-table" | "path-table" | "cookies-table" | "file" | "runtime-variables", editor: Doc, environment?: Record<string, string>) => {
+const getTable = (type: "headers-table" | "query-table" | "url-table" | "multipart-table" | "path-table" | "cookies-table" | "options-table" | "file" | "runtime-variables", editor: Doc, environment?: Record<string, string>) => {
   type KeyValueType = {
     key: string;
     value: string;
@@ -1090,6 +1091,15 @@ export const getRequest = async (
       } : null,
     };
   } else {
+    // Extract per-request options from options-table
+    const optionsTable = getTable("options-table", editor, environment);
+    const options: Record<string, string> = {};
+    for (const opt of optionsTable) {
+      if (opt.enabled) {
+        options[opt.key] = opt.value;
+      }
+    }
+
     output = {
       ...request,
       protocolType: 'rest',
@@ -1103,6 +1113,7 @@ export const getRequest = async (
       prescript: preRequestCodeBlock,
       postscript: postRequestCodeBlock,
       auth: auth || request.auth,
+      options,
     } as Request;
   }
 

@@ -227,7 +227,9 @@ async function convertToRestApiRequestState(data: Request): Promise<RestApiReque
     binary: data.binary,
     authProfile: undefined, // TODO: Auth profile reference
     preRequestResult: data.preRequestResult,
-    metadata: {},
+    metadata: {
+      ...(data.options?.follow_redirects === 'false' ? { follow_redirects: false } : {}),
+    },
   };
 
   return result;

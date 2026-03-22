@@ -471,3 +471,29 @@ export const HttpXmlBodyHelp = () => (
     </section>
   </div>
 );
+
+export const RequestOptionsHelp = () => (
+  <div className="space-y-4">
+    <section>
+      <h3 className="font-semibold mb-2 text-text">Request Options</h3>
+      <p className="text-sm text-comment mb-3">
+        Per-request options that override global settings. Use key-value pairs to configure
+        how this specific request is sent.
+      </p>
+    </section>
+
+    <section>
+      <h4 className="font-semibold mb-2 text-text">Available Options</h4>
+      <ul className="list-disc list-inside space-y-1 text-sm text-comment">
+        <li><code className="bg-accent/10 px-1 rounded text-text">follow_redirects</code> - Follow HTTP redirects automatically. Set to <code className="bg-accent/10 px-1 rounded text-text">false</code> to inspect 3xx redirect responses directly.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h4 className="font-semibold mb-2 text-text">Example</h4>
+      <pre className="bg-accent/10 p-2 rounded text-xs overflow-x-auto text-text">
+{`follow_redirects: false`}
+      </pre>
+    </section>
+  </div>
+);

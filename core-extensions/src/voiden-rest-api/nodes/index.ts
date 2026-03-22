@@ -17,5 +17,6 @@ export {
   createMultipartTableNodeView,
   createPathParamsTableNodeView,
   createCookiesTableNodeView,
+  createOptionsTableNodeView,
 } from './Table';
 export * from './curlPaste';

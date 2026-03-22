@@ -808,10 +808,16 @@ export function registerRequestIpcHandler() {
       }
 
       // 6. Build fetch options
+      // Determine redirect mode: per-request metadata overrides global setting
+      const followRedirects = requestState.metadata?.follow_redirects !== undefined
+        ? requestState.metadata.follow_redirects
+        : settings?.requests?.follow_redirects ?? true;
+
       const fetchOptions: RequestInit = {
         method: requestState.method || "GET",
         headers,
         signal,
+        redirect: followRedirects ? "follow" : "manual",
       };
 
       // 6. Handle binary file upload (for restFile nodes)

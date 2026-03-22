@@ -1017,6 +1017,18 @@ export const SettingsScreen = () => {
                   }
                 />
               )}
+              {matchesSearch("Follow Redirects redirect 302 301 automatic") && (
+                <Row
+                  title="Follow redirects"
+                  description="Automatically follow HTTP redirects (3xx). Disable to inspect redirect responses directly."
+                  control={
+                    <Toggle
+                      checked={settings.requests.follow_redirects}
+                      onChange={(v) => save({ requests: { follow_redirects: v } })}
+                    />
+                  }
+                />
+              )}
               {matchesSearch("Request Timeout timeout limit seconds minutes") && (
                 <Row
                   title="Request timeout"

@@ -31,7 +31,7 @@ export const getNodeType = (editor: Editor) => {
     const isImportedBlock = node?.attrs.importedFrom;
     const type: string = node?.type.name;
     if (isImportedBlock) return `${type}--imported`;
-    if (["headers-table", "query-table", "url-table", "multipart-table", "path-table", "cookies-table"].includes(type)) return type;
+    if (["headers-table", "query-table", "url-table", "multipart-table", "path-table", "cookies-table", "options-table"].includes(type)) return type;
     return "table";
   }
 

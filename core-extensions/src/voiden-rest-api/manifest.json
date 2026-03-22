@@ -19,6 +19,7 @@
         "url-table",
         "multipart-table",
         "cookies-table",
+        "options-table",
         "json_body",
         "xml_body",
         "yml_body",

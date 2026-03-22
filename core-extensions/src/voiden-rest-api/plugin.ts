@@ -151,7 +151,8 @@ const voidenRestApiPlugin = (context: PluginContext) => {
         createPathParamsTableNodeView,
         createURLTableNodeView,
         createMultipartTableNodeView,
-        createCookiesTableNodeView
+        createCookiesTableNodeView,
+        createOptionsTableNodeView
       } = await import('./nodes/index');
       const { createRestFileNode } = await import('./nodes/RestFile');
 
@@ -172,6 +173,7 @@ const voidenRestApiPlugin = (context: PluginContext) => {
       const URLTableNodeView = createURLTableNodeView(RequestBlockHeader, context.project.openFile);
       const MultipartTableNodeView = createMultipartTableNodeView(RequestBlockHeader, context.project.openFile);
       const CookiesTableNodeView = createCookiesTableNodeView(RequestBlockHeader, context.project.openFile);
+      const OptionsTableNodeView = createOptionsTableNodeView(RequestBlockHeader, context.project.openFile);
 
       // Register Tiptap nodes for HTTP requests
       context.registerVoidenExtension(RequestNode);
@@ -183,6 +185,7 @@ const voidenRestApiPlugin = (context: PluginContext) => {
       context.registerVoidenExtension(URLTableNodeView);
       context.registerVoidenExtension(MultipartTableNodeView);
       context.registerVoidenExtension(CookiesTableNodeView);
+      context.registerVoidenExtension(OptionsTableNodeView);
       context.registerVoidenExtension(JsonNode);
       context.registerVoidenExtension(XMLNode);
       context.registerVoidenExtension(YmlNode);
@@ -216,6 +219,7 @@ const voidenRestApiPlugin = (context: PluginContext) => {
         'url-table',
         'multipart-table',
         'cookies-table',
+        'options-table',
         'json_body',
         'xml_body',
         'yml_body',
@@ -237,6 +241,7 @@ const voidenRestApiPlugin = (context: PluginContext) => {
         'query-table': 'Query Params',
         'rest-query': 'Query Params',
         'cookies-table': 'Cookies',
+        'options-table': 'Options',
         'path-table': 'Path Params',
         'rest-params': 'Path Params',
         'rest-file': 'File Upload',

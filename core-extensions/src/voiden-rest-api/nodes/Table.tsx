@@ -9,6 +9,7 @@ import {
   HttpMultipartFormHelp,
   HttpPathParamsHelp,
   HttpCookiesHelp,
+  RequestOptionsHelp,
 } from "../help";
 
 export function isCellSelection(value: unknown): value is CellSelection {
@@ -206,6 +207,27 @@ export const createCookiesTableNodeView = (RequestBlockHeader: any, openFile?: (
     },
     addNodeView() {
       return ReactNodeViewRenderer(createNodeView("HTTP-COOKIES", RequestBlockHeader, openFile, <HttpCookiesHelp />));
+    },
+  });
+
+export const createOptionsTableNodeView = (RequestBlockHeader: any, openFile?: (relativePath: string) => Promise<void>) =>
+  TableWrapperNode.extend({
+    name: "options-table",
+    addAttributes() {
+      return {
+        importedFrom: {
+          default: "",
+        },
+      };
+    },
+    parseHTML() {
+      return [{ tag: "options-table" }];
+    },
+    renderHTML({ HTMLAttributes }) {
+      return ["options-table", mergeAttributes(HTMLAttributes), 0];
+    },
+    addNodeView() {
+      return ReactNodeViewRenderer(createNodeView("REQUEST-OPTIONS", RequestBlockHeader, openFile, <RequestOptionsHelp />));
     },
   });
 
