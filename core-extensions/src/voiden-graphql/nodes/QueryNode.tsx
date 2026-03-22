@@ -7,7 +7,7 @@
 import React from "react";
 import { mergeAttributes, Node } from "@tiptap/core";
 import { ReactNodeViewRenderer } from "@tiptap/react";
-import { Eye, Pen, ExternalLink, FileDown, Link, Loader2, X, CircleX } from "lucide-react";
+import { Eye, Pen, ExternalLink, FileDown, Link, Loader2, X, CircleX, Play } from "lucide-react";
 import { Buffer } from "buffer";
 import {
   GraphQLField,
@@ -22,7 +22,7 @@ import {
 import { extractOperations, parseQuerySelections } from "../utils/query-parser";
 import { generateQuery } from "../utils/query-generator";
 
-export const createGraphQLQueryNode = (NodeViewWrapper: any, CodeEditor: any, RequestBlockHeader: any) => {
+export const createGraphQLQueryNode = (NodeViewWrapper: any, CodeEditor: any, RequestBlockHeader: any, useSendRestRequest?: any) => {
   const getDefaultTemplate = (type: string) => {
     switch (type) {
       case 'mutation':
@@ -35,6 +35,7 @@ export const createGraphQLQueryNode = (NodeViewWrapper: any, CodeEditor: any, Re
   };
 
   const GraphQLQueryComponent = (props: any) => {
+    const sendRequest = useSendRestRequest ? useSendRestRequest(props.editor) : null;
     const fileInputRef = React.useRef<HTMLInputElement>(null);
     const [mode, setMode] = React.useState<'editor' | 'viewer'>('editor');
     const [schema, setSchema] = React.useState<ParsedSchema | null>(null);
@@ -1114,6 +1115,18 @@ export const createGraphQLQueryNode = (NodeViewWrapper: any, CodeEditor: any, Re
               placeholder="https://api.example.com/graphql"
               className={`flex-1 px-2 py-1 bg-editor border border-border rounded text-sm text-text placeholder-comment focus:outline-none transition-colors font-mono ${isEditable ? 'focus:border-accent' : 'cursor-default'}`}
             />
+            {sendRequest && (
+              <button
+                className="flex items-center justify-center w-7 h-7 rounded-md border hover:bg-hover text-status-success transition-colors shrink-0"
+                onClick={(e) => {
+                  sendRequest.refetchFromElement(e.currentTarget as HTMLElement);
+                }}
+                style={{ borderColor: 'var(--ui-line)', cursor: 'pointer', userSelect: 'none' }}
+                title="Send request"
+              >
+                <Play size={12} />
+              </button>
+            )}
           </div>
 
           {/* Schema file selector — only show controls when editable */}

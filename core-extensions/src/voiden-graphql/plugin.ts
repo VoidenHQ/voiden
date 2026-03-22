@@ -26,8 +26,9 @@ export default function createGraphQLPlugin(context: PluginContext) {
 
   return {
     onload: async () => {
-      // Get context components
+      // Get context components and hooks
       const { NodeViewWrapper, CodeEditor, RequestBlockHeader } = context.ui.components;
+      const { useSendRestRequest } = context.ui.hooks;
 
       // Import node factories dynamically
       const {
@@ -37,7 +38,7 @@ export default function createGraphQLPlugin(context: PluginContext) {
       } = await import('./nodes');
 
       // Create nodes with context components
-      const GraphQLQueryNode = createGraphQLQueryNode(NodeViewWrapper, CodeEditor, RequestBlockHeader);
+      const GraphQLQueryNode = createGraphQLQueryNode(NodeViewWrapper, CodeEditor, RequestBlockHeader, useSendRestRequest);
       const GraphQLVariablesNode = createGraphQLVariablesNode(NodeViewWrapper, CodeEditor, RequestBlockHeader);
       const GraphQLSubscriptionEventsNode = createGraphQLSubscriptionEventsNode(NodeViewWrapper, context, CodeEditor);
 

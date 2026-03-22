@@ -255,6 +255,140 @@ export const useActions = (editor: Editor) => {
     }, 0);
   }, [editor, currentNodePos, safeFocusEditor]);
 
+  // ── Section-level operations (for request-separator nodes) ──
+
+  /** Get the range of nodes belonging to the section starting at this separator */
+  const getSectionRange = useCallback(() => {
+    if (!currentNode || currentNode.type.name !== 'request-separator') return null;
+
+    const doc = editor.state.doc;
+    const sectionStart = currentNodePos;
+    let sectionEnd = doc.content.size;
+
+    // Find the next separator to determine section end
+    let pos = currentNodePos + currentNode.nodeSize;
+    doc.nodesBetween(pos, doc.content.size, (node, nodePos) => {
+      if (node.type.name === 'request-separator' && nodePos > currentNodePos) {
+        sectionEnd = nodePos;
+        return false; // stop
+      }
+      return false; // only check top-level nodes
+    });
+
+    return { from: sectionStart, to: sectionEnd };
+  }, [editor, currentNode, currentNodePos]);
+
+  /** Get all nodes in the current section as JSON */
+  const getSectionNodes = useCallback(() => {
+    const range = getSectionRange();
+    if (!range) return [];
+
+    const doc = editor.state.doc;
+    const nodes: any[] = [];
+    doc.nodesBetween(range.from, range.to, (node, pos) => {
+      if (pos >= range.from && pos < range.to) {
+        nodes.push(node.toJSON());
+      }
+      return false; // don't descend
+    });
+
+    return nodes;
+  }, [editor, getSectionRange]);
+
+  const copySectionBlock = useCallback(() => {
+    const nodes = getSectionNodes();
+    if (nodes.length === 0) return;
+    // Skip the separator itself, copy only the content blocks
+    const contentNodes = nodes.filter(n => n.type !== 'request-separator');
+    navigator.clipboard.writeText(`sectionblock://${JSON.stringify(contentNodes)}`);
+
+    setTimeout(() => {
+      safeFocusEditor(currentNodePos + 1);
+    }, 0);
+  }, [getSectionNodes, currentNodePos, safeFocusEditor]);
+
+  const cutSectionBlock = useCallback(() => {
+    const nodes = getSectionNodes();
+    if (nodes.length === 0) return;
+    const contentNodes = nodes.filter(n => n.type !== 'request-separator');
+    navigator.clipboard.writeText(`sectionblock://${JSON.stringify(contentNodes)}`);
+
+    const range = getSectionRange();
+    if (range) {
+      editor.chain()
+        .command(({ dispatch, tr }) => {
+          if (dispatch) {
+            tr.delete(range.from, range.to);
+            return dispatch(tr);
+          }
+          return true;
+        })
+        .run();
+
+      setTimeout(() => {
+        safeFocusEditor(Math.min(range.from, editor.state.doc.content.size));
+      }, 0);
+    }
+  }, [editor, getSectionNodes, getSectionRange, safeFocusEditor]);
+
+  const deleteSectionBlock = useCallback(() => {
+    const range = getSectionRange();
+    if (!range) return;
+
+    editor.chain()
+      .command(({ dispatch, tr }) => {
+        if (dispatch) {
+          tr.delete(range.from, range.to);
+          return dispatch(tr);
+        }
+        return true;
+      })
+      .run();
+
+    setTimeout(() => {
+      safeFocusEditor(Math.min(range.from, editor.state.doc.content.size));
+    }, 0);
+  }, [editor, getSectionRange, safeFocusEditor]);
+
+  const linkSectionBlock = useCallback(() => {
+    const nodes = getSectionNodes();
+    if (nodes.length === 0) return;
+
+    const originalFile = activeDocument?.source;
+    if (!originalFile) return;
+
+    const projects = queryClient.getQueryData<{
+      projects: { path: string; name: string }[];
+      activeProject: string;
+    }>(["projects"]);
+    const activeProject = projects?.activeProject;
+
+    let relativeFilePath = originalFile;
+    if (activeProject && originalFile.startsWith(activeProject)) {
+      relativeFilePath = originalFile.replace(activeProject, "");
+      if (relativeFilePath.startsWith("/")) {
+        relativeFilePath = relativeFilePath.slice(1);
+      }
+    }
+
+    // Create linked blocks for each content node in the section (skip separator)
+    const contentNodes = nodes.filter(n => n.type !== 'request-separator');
+    const linkedBlocks = contentNodes
+      .filter(n => n.attrs?.uid)
+      .map(n => ({
+        type: "linkedBlock",
+        attrs: {
+          blockUid: n.attrs.uid,
+          originalFile: relativeFilePath,
+          type: n.type || "",
+        },
+      }));
+
+    if (linkedBlocks.length > 0) {
+      navigator.clipboard.writeText(`linkblock://${JSON.stringify(linkedBlocks)}`);
+    }
+  }, [getSectionNodes, activeDocument, queryClient]);
+
   return {
     currentNode,
     currentNodePos,
@@ -267,6 +401,10 @@ export const useActions = (editor: Editor) => {
     copyNode,
     cutNode,
     linkNode,
+    copySectionBlock,
+    cutSectionBlock,
+    deleteSectionBlock,
+    linkSectionBlock,
   };
 };
 
@@ -285,10 +423,15 @@ interface DragPopoverContentProps {
   copyDisabled: boolean;
   showLinkBlock: boolean;
   onKeyDown: (e: React.KeyboardEvent) => void;
+  isSectionSeparator?: boolean;
+  copySectionBlock?: () => void;
+  cutSectionBlock?: () => void;
+  deleteSectionBlock?: () => void;
+  linkSectionBlock?: () => void;
 }
 
 const DragPopoverContent: React.FC<DragPopoverContentProps> = React.memo(
-  ({ duplicateNode, handleAddBlockAbove, handleAddBlockBelow, deleteNode, duplicateShortcut, deleteShortcut, copyNode, cutNode, linkNode, copyDisabled, showLinkBlock, onKeyDown }: DragPopoverContentProps) => {
+  ({ duplicateNode, handleAddBlockAbove, handleAddBlockBelow, deleteNode, duplicateShortcut, deleteShortcut, copyNode, cutNode, linkNode, copyDisabled, showLinkBlock, onKeyDown, isSectionSeparator, copySectionBlock, cutSectionBlock, deleteSectionBlock, linkSectionBlock }: DragPopoverContentProps) => {
     const isMac = navigator.userAgent.includes("Mac");
     const modKey = isMac ? "⌘" : "Ctrl";
     const contentRef = useRef<HTMLDivElement>(null);
@@ -312,18 +455,28 @@ const DragPopoverContent: React.FC<DragPopoverContentProps> = React.memo(
           onKeyDown={onKeyDown}
           onCloseAutoFocus={(e) => e.preventDefault()}
         >
-          <>
-            <DragMenuItem onClick={handleAddBlockAbove} label="Add Block Above" shortcut={<span className="inline-block mr-1"><Kbd keys="⌘⇧↑" size="sm"></Kbd></span>} />
-            <DragMenuItem onClick={handleAddBlockBelow} label="Add Block Below" shortcut={<span className="inline-block mr-1"><Kbd keys="⌘⇧↓" size="sm"></Kbd></span>} />
-            <div className="h-px bg-border my-1" />
-            <DragMenuItem onClick={copyNode} label="Copy Block" shortcut={<span className="inline-block mr-1"><Kbd keys="⌘C" size="sm"></Kbd></span>} disabled={copyDisabled} />
-            <DragMenuItem onClick={cutNode} label="Cut Block" shortcut={<span className="inline-block mr-1"><Kbd keys="⌘X" size="sm"></Kbd></span>} disabled={copyDisabled} />
-            {showLinkBlock && (
-              <DragMenuItem onClick={linkNode} label="Link Block" shortcut={<span className="inline-block mr-1"><Kbd keys="⌘L" size="sm"></Kbd></span>} disabled={copyDisabled} />
-            )}
-            <div className="h-px bg-border my-1" />
-            <DragMenuItem onClick={deleteNode} label="Delete" shortcut={<span className="inline-block mr-1"><Kbd keys="⌫" size="sm"></Kbd></span>} />
-          </>
+          {isSectionSeparator ? (
+            <>
+              <DragMenuItem onClick={copySectionBlock!} label="Copy Request" shortcut={<span className="inline-block mr-1"><Kbd keys="⌘C" size="sm"></Kbd></span>} />
+              <DragMenuItem onClick={cutSectionBlock!} label="Cut Request" shortcut={<span className="inline-block mr-1"><Kbd keys="⌘X" size="sm"></Kbd></span>} />
+              <DragMenuItem onClick={linkSectionBlock!} label="Link Request" shortcut={<span className="inline-block mr-1"><Kbd keys="⌘L" size="sm"></Kbd></span>} />
+              <div className="h-px bg-border my-1" />
+              <DragMenuItem onClick={deleteSectionBlock!} label="Delete Request" shortcut={<span className="inline-block mr-1"><Kbd keys="⌫" size="sm"></Kbd></span>} />
+            </>
+          ) : (
+            <>
+              <DragMenuItem onClick={handleAddBlockAbove} label="Add Block Above" shortcut={<span className="inline-block mr-1"><Kbd keys="⌘⇧↑" size="sm"></Kbd></span>} />
+              <DragMenuItem onClick={handleAddBlockBelow} label="Add Block Below" shortcut={<span className="inline-block mr-1"><Kbd keys="⌘⇧↓" size="sm"></Kbd></span>} />
+              <div className="h-px bg-border my-1" />
+              <DragMenuItem onClick={copyNode} label="Copy Block" shortcut={<span className="inline-block mr-1"><Kbd keys="⌘C" size="sm"></Kbd></span>} disabled={copyDisabled} />
+              <DragMenuItem onClick={cutNode} label="Cut Block" shortcut={<span className="inline-block mr-1"><Kbd keys="⌘X" size="sm"></Kbd></span>} disabled={copyDisabled} />
+              {showLinkBlock && (
+                <DragMenuItem onClick={linkNode} label="Link Block" shortcut={<span className="inline-block mr-1"><Kbd keys="⌘L" size="sm"></Kbd></span>} disabled={copyDisabled} />
+              )}
+              <div className="h-px bg-border my-1" />
+              <DragMenuItem onClick={deleteNode} label="Delete" shortcut={<span className="inline-block mr-1"><Kbd keys="⌫" size="sm"></Kbd></span>} />
+            </>
+          )}
         </PopoverContent>
       </PopoverPortal>
     );
@@ -356,6 +509,10 @@ export const VoidenDragMenu = React.memo(({ editor }: { editor: Editor }) => {
     copyNode,
     cutNode,
     linkNode,
+    copySectionBlock,
+    cutSectionBlock,
+    deleteSectionBlock,
+    linkSectionBlock,
   } = useActions(editor);
 
   const handleOpenChange = useCallback(
@@ -725,6 +882,11 @@ export const VoidenDragMenu = React.memo(({ editor }: { editor: Editor }) => {
             copyDisabled={copyDisabled}
             showLinkBlock={hasUid}
             onKeyDown={handleMenuKeyDown}
+            isSectionSeparator={currentNode?.type.name === 'request-separator'}
+            copySectionBlock={copySectionBlock}
+            cutSectionBlock={cutSectionBlock}
+            deleteSectionBlock={deleteSectionBlock}
+            linkSectionBlock={linkSectionBlock}
           />
         </Popover>
       </div>
