@@ -281,16 +281,28 @@ function buildFirstSectionDecoration(doc: any, editorDom: HTMLElement | null, ed
   const color = getSectionLineColor(0);
   const label = getFirstSectionLabel(editorDom);
 
+  // Read alignment setting
+  let alignment = "center";
+  try {
+    const settingsRaw = (window as any).__voidenSettings;
+    if (settingsRaw?.appearance?.separator_alignment) {
+      alignment = settingsRaw.appearance.separator_alignment;
+    }
+  } catch {}
+
+  const justifyMap: Record<string, string> = { left: "flex-start", center: "center", right: "flex-end" };
+
   const widget = Decoration.widget(0, () => {
     const wrapper = document.createElement("div");
     wrapper.contentEditable = "false";
     wrapper.style.cssText = `
-      display: flex; align-items: center; gap: 12px;
+      display: flex; align-items: center; gap: 8px;
       margin: 0 0 12px 0; user-select: none;
+      justify-content: ${justifyMap[alignment] || "center"};
     `;
 
     const line1 = document.createElement("div");
-    line1.style.cssText = `flex: 1; height: 1px; border-top: 2px dashed ${color};`;
+    line1.style.cssText = `width: 24px; height: 2px; background-color: ${color}; opacity: 0.5; border-radius: 1px;`;
 
     const labelSpan = document.createElement("span");
     labelSpan.textContent = label;
@@ -302,7 +314,7 @@ function buildFirstSectionDecoration(doc: any, editorDom: HTMLElement | null, ed
     `;
 
     const line2 = document.createElement("div");
-    line2.style.cssText = `flex: 1; height: 1px; border-top: 2px dashed ${color};`;
+    line2.style.cssText = `width: 24px; height: 2px; background-color: ${color}; opacity: 0.5; border-radius: 1px;`;
 
     // Double-click to edit
     labelSpan.addEventListener("dblclick", (e) => {

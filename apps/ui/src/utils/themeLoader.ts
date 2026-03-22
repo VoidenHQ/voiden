@@ -14,7 +14,7 @@ interface Theme {
 // List of all possible theme variable names (for cleanup)
 const ALL_THEME_VARIABLES = [
   // Base colors
-  '--bg-primary', '--bg-secondary', '--fg-primary', '--fg-secondary', '--border', '--selection', '--hover',
+  '--bg-primary', '--bg-surface', '--bg-secondary', '--fg-primary', '--fg-secondary', '--border', '--selection', '--hover',
   // Old base colors (legacy)
   '--editor-bg', '--editor-fg', '--editor-selection', '--editor-findMatch', '--editor-gutter-active', '--editor-gutter-normal',
   '--ui-bg', '--ui-fg', '--ui-panel-bg', '--ui-line', '--ui-selection-normal',

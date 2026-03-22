@@ -7,6 +7,7 @@
 
     "_section_base": "=== BASE COLORS (7) ===",
     "--bg-primary": "#0d1526",
+    "--bg-surface": "#101a2d",
     "--bg-secondary": "#121c31",
     "--fg-primary": "#e8eefc",
     "--fg-secondary": "#7f8aa3",

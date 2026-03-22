@@ -4,15 +4,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 // Valid font families from SettingsScreen
 const VALID_FONT_FAMILIES = [
-  "System Default",
   "Inconsolata",
   "Geist Mono",
   "JetBrains Mono",
   "Fira Code"
 ];
-
-// System Default maps to platform monospace stack
-const SYSTEM_DEFAULT_MONO = "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace";
 
 // Validation ranges
 const FONT_SIZE_MIN = 10;
@@ -55,6 +51,12 @@ function validateSettings(settings: UserSettings): UserSettings {
       (validated.appearance.content_width < CONTENT_WIDTH_MIN ||
         validated.appearance.content_width > CONTENT_WIDTH_MAX))) {
     validated.appearance.content_width = 860; // Default fallback
+  }
+
+  // Validate separator alignment
+  if (!validated.appearance.separator_alignment ||
+    !["left", "center", "right"].includes(validated.appearance.separator_alignment)) {
+    validated.appearance.separator_alignment = "center"; // Default fallback
   }
 
   // Validate auto save delay
@@ -238,6 +240,7 @@ export type UserSettings = {
     cursor_type: "text" | "default" | "pointer";
     code_wrap: boolean;
     content_width: number; // px, max width for document content area
+    separator_alignment: "left" | "center" | "right";
   };
   editor: {
     auto_save: boolean;
@@ -300,9 +303,7 @@ export function useSettings() {
 
   useEffect(() => {
     if (settings?.appearance?.font_family) {
-      const cssFont = settings.appearance.font_family === "System Default"
-        ? SYSTEM_DEFAULT_MONO
-        : `"${settings.appearance.font_family}", monospace`;
+      const cssFont = `"${settings.appearance.font_family}", monospace`;
       document.documentElement.style.setProperty("--font-family-base", cssFont);
       document.documentElement.style.setProperty("--font-family-mono", cssFont);
     }

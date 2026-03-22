@@ -64,6 +64,7 @@ module.exports = {
         // Base UI colors
         bg: "var(--ui-bg)",
         editor: "var(--editor-bg)",
+        surface: "var(--ui-surface)",
         panel: "var(--ui-panel-bg)",
         active: "var(--ui-selection-normal)",
         hover: "var(--ui-hover)",

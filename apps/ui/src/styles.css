@@ -320,6 +320,8 @@ input[type="week"]::-webkit-datetime-edit-year-field:focus {
     --modal-bg: var(--bg-primary, #1f2430);
     --titlebar-bg: var(--bg-primary, #1f2430);
 
+    --ui-surface: var(--bg-surface, color-mix(in srgb, var(--bg-primary) 60%, var(--bg-secondary)));
+
     --ui-panel-bg: var(--bg-secondary, #1c212b);
     --modal-header-bg: var(--bg-secondary, #1c212b);
     --block-header-bg: var(--bg-secondary, #1c212b);

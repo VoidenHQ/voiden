@@ -10,6 +10,7 @@ import { Node, mergeAttributes } from "@tiptap/core";
 import { NodeViewProps, ReactNodeViewRenderer, NodeViewWrapper } from "@tiptap/react";
 import { useRef, useState, useEffect, useCallback } from "react";
 import { getSectionLineColor } from "../extensions/sectionIndicator";
+import { useSettings } from "@/core/settings/hooks/useSettings";
 
 const RequestSeparatorView = (props: NodeViewProps) => {
   const { node, updateAttributes, editor } = props;
@@ -18,6 +19,8 @@ const RequestSeparatorView = (props: NodeViewProps) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  const { settings } = useSettings();
+  const alignment = settings?.appearance?.separator_alignment ?? "center";
 
   // Read section color from decoration data attribute (set by sectionIndicator plugin)
   useEffect(() => {
@@ -66,16 +69,20 @@ const RequestSeparatorView = (props: NodeViewProps) => {
         style={{
           display: "flex",
           alignItems: "center",
-          gap: "12px",
-          margin: "24px 0",
+          justifyContent: alignment === "left" ? "flex-start" : alignment === "right" ? "flex-end" : "center",
+          gap: "8px",
+          margin: "28px 0 16px",
           userSelect: "none",
         }}
       >
+        {/* Short left dash */}
         <div
           style={{
-            flex: 1,
-            height: "1px",
-            borderTop: `2px dashed ${lineColor}`,
+            width: "24px",
+            height: "2px",
+            backgroundColor: lineColor,
+            opacity: 0.5,
+            borderRadius: "1px",
           }}
         />
         {isEditing ? (
@@ -134,11 +141,14 @@ const RequestSeparatorView = (props: NodeViewProps) => {
             {label}
           </span>
         )}
+        {/* Short right dash */}
         <div
           style={{
-            flex: 1,
-            height: "1px",
-            borderTop: `2px dashed ${lineColor}`,
+            width: "24px",
+            height: "2px",
+            backgroundColor: lineColor,
+            opacity: 0.5,
+            borderRadius: "1px",
           }}
         />
       </div>

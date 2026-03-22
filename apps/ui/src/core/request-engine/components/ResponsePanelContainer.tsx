@@ -789,12 +789,11 @@ export function ResponsePanelContainer() {
                       return (
                         <div
                           key={sectionIndex}
-                          style={{ borderLeft: `3px solid ${borderColor}` }}
                         >
                           {/* Section header — clickable to collapse/expand */}
                           <div
                             className="flex items-center gap-2 px-3 py-1.5 border-b border-border bg-bg cursor-pointer hover:bg-active transition-colors select-none"
-                            style={{ borderLeftColor: borderColor }}
+                            style={{ borderLeft: `3px solid ${borderColor}` }}
                             onClick={() => toggleSectionCollapse(tabId, sectionIndex)}
                           >
                             {isCollapsed

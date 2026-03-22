@@ -122,7 +122,14 @@ export const AppLayout = () => {
     }
   }, [settings?.appearance?.ui_font_size]);
 
-  
+  // Expose settings to window for ProseMirror plugins (which can't use React hooks)
+  useEffect(() => {
+    if (settings) {
+      (window as any).__voidenSettings = settings;
+    }
+  }, [settings]);
+
+
 
   // Apply code wrap
   useEffect(() => {
