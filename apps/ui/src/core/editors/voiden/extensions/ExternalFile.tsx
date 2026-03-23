@@ -199,11 +199,11 @@ export async function computeAbsolutePath(nodeAttrs: FileLinkItem) {
  * UI COMPONENTS
  */
 
-// A preview component for a voiden-wrapper block (read-only tiptap editor).
+// Read-only preview of a block. Uses `inert` to prevent any element inside
+// (CodeMirror, contentEditable, etc.) from ever receiving focus.
 export function BlockPreviewEditor({ block }: { block: JSONContent }) {
   const { finalExtensions } = useVoidenExtensionsAndSchema();
 
-  // Filter out seamless navigation for preview editors to prevent cursor from entering code blocks
   const previewExtensions = useMemo(
     () => finalExtensions.filter(ext => ext?.name !== 'seamlessNavigation'),
     [finalExtensions]
@@ -226,14 +226,14 @@ export function BlockPreviewEditor({ block }: { block: JSONContent }) {
   }, [editor]);
 
   return (
-    <div className="w-full" contentEditable={false} suppressContentEditableWarning>
+    <div className="w-full pointer-events-none select-none" inert="">
       <EditorContent editor={editor} />
     </div>
   );
 }
 
-const FileLinkTippyContent = forwardRef((props: FileLinkListProps, ref) => {
-  const { items, command } = props;
+const FileLinkTippyContent = forwardRef((props: FileLinkListProps & { editor?: Editor }, ref) => {
+  const { items, command, editor: parentEditor } = props;
   const [selectedFile, setSelectedFile] = useState<FileLinkItem | null>(null);
   const { data: voidenFiles } = useGetApyFiles();
   const [listSelectedIndex, setListSelectedIndex] = useState(0);
@@ -270,13 +270,15 @@ const FileLinkTippyContent = forwardRef((props: FileLinkListProps, ref) => {
 
   const flatBlockItems = useMemo((): FlatBlockItem[] => {
     const items: FlatBlockItem[] = [];
-    const hasSections = groupedSections.length > 1;
+    const singleSection = groupedSections.length === 1;
     for (const section of groupedSections) {
-      if (hasSections) {
-        items.push({ kind: "section", section, flatIndex: items.length });
-      }
+      // Always show section headers; use "Request" (no number) for single-section docs
+      const displaySection = singleSection
+        ? { ...section, label: "Request" }
+        : section;
+      items.push({ kind: "section", section: displaySection, flatIndex: items.length });
       for (const block of section.blocks) {
-        items.push({ kind: "block", block, sectionLabel: section.label, flatIndex: items.length });
+        items.push({ kind: "block", block, sectionLabel: displaySection.label, flatIndex: items.length });
       }
     }
     return items;
@@ -536,10 +538,12 @@ const FileLinkTippyContent = forwardRef((props: FileLinkListProps, ref) => {
 
   // RENDERING: Block mode with preview panel
   if (isBlockMode && selectedFile) {
-    const hasSections = groupedSections.length > 1;
-
     return (
-      <div className="w-[720px] bg-panel border border-border rounded-lg shadow-lg text-text text-sm">
+      <div
+        className="w-[720px] bg-panel border border-border rounded-lg shadow-lg text-text text-sm"
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => parentEditor?.view.focus()}
+      >
         {/* Header */}
         <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-bg">
           <File className="text-accent" size={16} />
@@ -617,7 +621,7 @@ const FileLinkTippyContent = forwardRef((props: FileLinkListProps, ref) => {
                     className={cn(
                       "cursor-pointer transition-colors border-l-2 border-transparent",
                       "hover:bg-active/50",
-                      hasSections ? "pl-6 pr-3 py-2" : "px-3 py-2.5",
+                      "pl-6 pr-3 py-2",
                       isSelected && "bg-active border-l-accent",
                       isMultiSelected && "ring-2 ring-inset ring-orange-500",
                     )}
@@ -653,8 +657,17 @@ const FileLinkTippyContent = forwardRef((props: FileLinkListProps, ref) => {
 
         {/* Footer */}
         <div className="px-3 py-2 text-xs bg-bg border-t border-border flex justify-between items-center">
-          <span className="text-comment">← back to files</span>
-          <span className="text-comment">↵ insert • Shift+↵ multi-select</span>
+          <span
+            className="text-comment hover:text-text cursor-pointer transition-colors"
+            onClick={() => {
+              setIsBlockMode(false);
+              setSelectedFile(null);
+              setListSelectedIndex(0);
+              setMultiSelectedItems([]);
+            }}
+          >
+            ← back to files
+          </span>
         </div>
       </div>
     );
@@ -662,7 +675,11 @@ const FileLinkTippyContent = forwardRef((props: FileLinkListProps, ref) => {
 
   // RENDERING: File mode (default)
   return (
-    <div className="w-[480px] bg-panel border border-border rounded-lg shadow-lg text-text text-sm">
+    <div
+      className="w-[480px] bg-panel border border-border rounded-lg shadow-lg text-text text-sm"
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={() => parentEditor?.view.focus()}
+    >
       {/* Header */}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-bg">
         <Folder className="text-accent" size={16} />
@@ -1151,6 +1168,12 @@ export const FileLink = Node.create<FileLinkOptions>({
                 interactive: true,
                 trigger: "manual",
                 placement: "auto",
+                // Prevent the tippy container from becoming a focus target —
+                // focus must stay in the TipTap editor for keyboard nav to work.
+                onCreate(instance) {
+                  instance.popper.removeAttribute("tabindex");
+                  instance.popper.style.outline = "none";
+                },
               });
             },
             onUpdate(props) {

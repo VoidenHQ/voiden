@@ -1,3 +1,10 @@
+// React 18 doesn't include `inert` in its HTML attribute types.
+declare module 'react' {
+  interface HTMLAttributes<T> {
+    inert?: '' | undefined;
+  }
+}
+
 export interface FileTree {
   name: string;
   path: string;
