@@ -187,6 +187,20 @@ export async function postProcessAssertionsHook(context: any): Promise<void> {
       return;
     }
 
+    // Substitute environment and runtime variables in assertion fields
+    // ({{variable}} patterns in field paths, expected values, and descriptions)
+    const replaceVars = (window as any).electron?.env?.replaceVariables;
+    if (replaceVars) {
+      for (const assertion of assertions) {
+        if (assertion.expectedValue && assertion.expectedValue.includes('{{')) {
+          assertion.expectedValue = await replaceVars(assertion.expectedValue);
+        }
+        if (assertion.field && assertion.field.includes('{{')) {
+          assertion.field = await replaceVars(assertion.field);
+        }
+      }
+    }
+
     // Build assertion context from response
     const assertionContext: AssertionContext = {
       response: {
