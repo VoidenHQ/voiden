@@ -2,6 +2,7 @@ import { JSONContent } from "@tiptap/core";
 import { useBlockContentStore } from "@/core/stores/blockContentStore";
 import { getQueryClient } from "@/main";
 
+
 interface ExpandOptions {
   /** When true, bypass the store cache and always re-read from disk. Use at execution time. */
   forceRefresh?: boolean;
@@ -33,7 +34,6 @@ export async function expandLinkedBlocks(
     const originalFile = json.attrs?.originalFile;
 
     if (!blockUid) {
-      // console.warn('[expandLinkedBlocks] linkedBlock missing blockUid:', json);
       return json;
     }
 
@@ -57,12 +57,14 @@ export async function expandLinkedBlocks(
         const sourcePath = activeProject ? (await window.electron?.utils.pathJoin(activeProject, originalFile)) ?? originalFile : originalFile;
         const fetchedContent = await window.electron?.voiden.getBlockContent(sourcePath);
         if (typeof fetchedContent === "string") {
-          return json;
+          // Disk returned raw markdown — fall back to store cache
+          blockContent = store.blocks[blockUid];
+        } else {
+          blockContent = fetchedContent;
         }
-        blockContent = fetchedContent;
 
         // Cache it for future use
-        if (blockContent) {
+        if (blockContent && !store.blocks[blockUid]) {
           store.setBlock(blockUid, blockContent);
         }
       }
@@ -75,17 +77,19 @@ export async function expandLinkedBlocks(
       // Recursively expand the block content first
       const expandedBlock = await expandLinkedBlocks(blockContent, depth + 1, options);
 
-      // Mark the expanded block with importedFrom attribute to track its origin
-      // This allows override logic to differentiate between imported and local blocks
-      const result = {
-        ...expandedBlock,
+      // Mark the expanded block AND all its children with importedFrom attribute.
+      // This is needed so that child nodes (e.g. json_body inside a request block)
+      // are recognized as imported by features like JSON deep merge.
+      const markImported = (node: JSONContent): JSONContent => ({
+        ...node,
         attrs: {
-          ...expandedBlock.attrs,
+          ...node.attrs,
           importedFrom: originalFile,
         },
-      };
+        content: node.content?.map(markImported),
+      });
 
-      return result;
+      return markImported(expandedBlock);
     } catch (error) {
       return json;
     }

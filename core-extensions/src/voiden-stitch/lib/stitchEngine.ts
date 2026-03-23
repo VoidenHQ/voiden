@@ -450,13 +450,13 @@ async function expandLinkedBlocksForStitch(
       // Recursively expand any nested linked blocks
       const expanded = await expandLinkedBlocksForStitch(foundBlock, currentFileSource, filesByPath, schema, parseMarkdownFn, depth + 1);
 
-      return {
-        ...expanded,
-        attrs: {
-          ...expanded.attrs,
-          importedFrom: originalFile,
-        },
-      };
+      // Mark node and all children with importedFrom so deep merge works on json_body etc.
+      const markImported = (node: any): any => ({
+        ...node,
+        attrs: { ...node.attrs, importedFrom: originalFile },
+        content: node.content?.map(markImported),
+      });
+      return markImported(expanded);
     } catch (err) {
       console.warn('[voiden-stitch] Error expanding linked block:', err);
       return json;

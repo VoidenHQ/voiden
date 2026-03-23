@@ -929,10 +929,12 @@ export const getRequest = async (
       return selectedNode.attrs?.body || "";
     }
 
-    const content = selectedNode?.type === "json_body" ? [selectedNode] : editor.content?.filter((val) => val.type === "json_body");
+    // Collect ALL json_body nodes so imported + local bodies can be deep merged
+    const content = editor.content?.filter((val: any) => val.type === "json_body");
 
     const importedBodies = content?.filter((item) => item?.attrs?.importedFrom);
     const localBodies = content?.filter((item) => !item?.attrs?.importedFrom);
+
 
     if (!content || content.length === 0) {
       return "";
