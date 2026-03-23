@@ -15,11 +15,6 @@
         "Variable isolation — each file can run with a clean variable scope or share state across the run",
         "Configurable delay between files — add a pause between sequential executions",
         "Environment selector — choose which environment to use for the stitch run",
-        "Abort/cancel support — cancel a running stitch mid-execution",
-        "Dedicated Stitch response panel — separate results panel with per-file pass/fail status, assertion counts, and timing",
-        "Section-level breakdown — each file's result shows individual request section outcomes with status codes and durations",
-        "Request/response inspection — expand any section result to view headers, body, and full response details",
-        "cURL copy — copy the request for any section as a cURL command directly from the results panel"
       ]
     }
   },
