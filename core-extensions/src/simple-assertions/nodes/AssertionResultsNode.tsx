@@ -117,20 +117,21 @@ export const createAssertionResultsNode = (NodeViewWrapper: any, useParentRespon
     };
 
     const handleCopy = () => {
-      // Create tab-separated values for easy pasting into spreadsheets
-      const header = "Status\tAssertion\tOperator\tExpected\tActual\tError";
+      const esc = (s: string) => s.replace(/\|/g, '\\|').replace(/\n/g, ' ');
+      const header = "| Status | Assertion | Operator | Expected | Actual | Error |";
+      const separator = "|--------|-----------|----------|----------|--------|-------|";
       const rows = results.map((r) => {
         const status = r.passed ? "PASS" : "FAIL";
-        const assertion = r.assertion.description || r.assertion.field;
-        const operator = r.assertion.operator;
-        const expected = r.assertion.expectedValue;
+        const assertion = esc(r.assertion.description || r.assertion.field);
+        const operator = esc(r.assertion.operator);
+        const expected = esc(r.assertion.expectedValue);
         const actual = r.actualValue !== null && r.actualValue !== undefined
-          ? (typeof r.actualValue === "object" ? JSON.stringify(r.actualValue) : String(r.actualValue))
+          ? esc(typeof r.actualValue === "object" ? JSON.stringify(r.actualValue) : String(r.actualValue))
           : "undefined";
-        const error = r.error || "";
-        return `${status}\t${assertion}\t${operator}\t${expected}\t${actual}\t${error}`;
+        const error = esc(r.error || "");
+        return `| ${status} | ${assertion} | ${operator} | ${expected} | ${actual} | ${error} |`;
       });
-      const text = [header, ...rows].join("\n");
+      const text = [header, separator, ...rows].join("\n");
       navigator.clipboard.writeText(text);
     };
 
