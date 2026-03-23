@@ -48,7 +48,7 @@
     "semver": "^7.6.0",
     "ts-node": "^10.0.0",
     "typescript": "~4.5.4",
-    "undici": "^6.19.8",
+    "undici": "^7.24.0",
     "vite": "^5.0.12"
   },
   "keywords": [],
