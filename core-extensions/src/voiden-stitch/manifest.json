@@ -21,14 +21,7 @@
       ]
     },
     "sidebar": {
-      "tabs": [
-        {
-          "id": "stitch-results",
-          "title": "Stitch Results",
-          "side": "right",
-          "icon": "ListChecks"
-        }
-      ]
+      "tabs": []
     }
   },
   "dependencies": {

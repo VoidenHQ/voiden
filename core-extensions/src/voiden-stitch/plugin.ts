@@ -77,13 +77,12 @@ export default function createVoidenStitchPlugin(context: any) {
         ],
       });
 
-      // 6. Register sidebar tab for stitch results
+      // 6. Expose StitchResultsSidebar and stitchStore for the response panel to use
       const { StitchResultsSidebar } = await import('./components/StitchResultsSidebar');
-      context.registerSidebarTab('right', {
-        id: 'stitch-results',
-        title: 'Stitch Results',
-        icon: 'ListChecks',
-        component: StitchResultsSidebar,
+      const { stitchStore } = await import('./lib/stitchStore');
+      context.exposeHelpers({
+        StitchResultsSidebar,
+        stitchStore,
       });
     },
 

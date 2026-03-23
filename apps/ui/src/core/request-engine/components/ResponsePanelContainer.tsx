@@ -53,6 +53,39 @@ function hasAnyResponse(tabSections: Record<number, any> | undefined): boolean {
   return Object.values(tabSections).some((s: any) => s?.responseDoc);
 }
 
+/** Hook to subscribe to stitch store for the active file */
+function useStitchResults(activeFilePath: string | undefined) {
+  const [hasResults, setHasResults] = useState(false);
+  const [StitchComponent, setStitchComponent] = useState<React.ComponentType<{ sourceFilePath?: string }> | null>(null);
+
+  useEffect(() => {
+    const helpers = (window as any).__voidenHelpers__?.['voiden-stitch'];
+    if (!helpers?.stitchStore) return;
+
+    const store = helpers.stitchStore;
+    const update = () => {
+      if (activeFilePath) {
+        const fileRun = store.getRun(activeFilePath);
+        setHasResults(fileRun?.status !== 'idle' && !!fileRun?.id);
+      } else {
+        setHasResults(false);
+      }
+    };
+    update();
+    const unsub = store.subscribe(update);
+    return unsub;
+  }, [activeFilePath]);
+
+  useEffect(() => {
+    const helpers = (window as any).__voidenHelpers__?.['voiden-stitch'];
+    if (helpers?.StitchResultsSidebar && !StitchComponent) {
+      setStitchComponent(() => helpers.StitchResultsSidebar);
+    }
+  });
+
+  return { hasResults, StitchComponent };
+}
+
 export function ResponsePanelContainer() {
   useNow(); // tick every 10s to update relative timestamps
 
@@ -61,6 +94,10 @@ export function ResponsePanelContainer() {
   const activeTabId = panelData?.activeTabId;
   const activeTab = panelData?.tabs?.find((tab) => tab.id === activeTabId);
   const isVoidFile = activeTab?.title?.endsWith(".void") ?? false;
+  const activeFilePath = (activeTab as any)?.source || undefined;
+
+  // Subscribe to stitch results for the active file
+  const { hasResults: hasStitchResults, StitchComponent } = useStitchResults(activeFilePath);
 
   const {
     isLoading,
@@ -692,8 +729,15 @@ export function ResponsePanelContainer() {
           </div>
         )}
 
-        {/* Empty state */}
-        {showEmpty && (
+        {/* Stitch results — shown in response panel when stitch has run for this file */}
+        {hasStitchResults && StitchComponent && (
+          <div className="absolute inset-0 overflow-y-auto bg-editor">
+            <StitchComponent sourceFilePath={activeFilePath} />
+          </div>
+        )}
+
+        {/* Empty state — only when no stitch results either */}
+        {showEmpty && !hasStitchResults && (
           <div className="absolute inset-0 flex items-center justify-center px-4">
             <div className="text-comment text-center">
               Press{" "}

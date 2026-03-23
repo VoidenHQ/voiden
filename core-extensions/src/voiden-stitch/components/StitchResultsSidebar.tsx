@@ -71,26 +71,27 @@ function useEditorFilePath(): string | null {
   return path;
 }
 
-function useStitchRun(): StitchRunState {
+function useStitchRun(overridePath?: string): StitchRunState {
   const editorPath = useEditorFilePath();
+  const effectivePath = overridePath || editorPath;
   const [run, setRun] = useState<StitchRunState>(stitchStore.getRun());
 
   useEffect(() => {
     // When editor file changes, switch to that file's results
-    if (editorPath) {
-      stitchStore.setActiveSource(editorPath);
+    if (effectivePath) {
+      stitchStore.setActiveSource(effectivePath);
     }
-  }, [editorPath]);
+  }, [effectivePath]);
 
   useEffect(() => {
     const update = () => {
-      // Show results for the current editor file, or the last active run
-      const fileRun = editorPath ? stitchStore.getRun(editorPath) : stitchStore.getRun();
+      // Show results for the effective file path, or the last active run
+      const fileRun = effectivePath ? stitchStore.getRun(effectivePath) : stitchStore.getRun();
       setRun(fileRun);
     };
     update();
     return stitchStore.subscribe(update);
-  }, [editorPath]);
+  }, [effectivePath]);
 
   return run;
 }
@@ -418,8 +419,8 @@ const FileRow = ({ file, defaultExpanded, onOpenFile }: { file: StitchFileResult
   );
 };
 
-export const StitchResultsSidebar = () => {
-  const run = useStitchRun();
+export const StitchResultsSidebar = ({ sourceFilePath }: { sourceFilePath?: string }) => {
+  const run = useStitchRun(sourceFilePath);
   const bottomRef = useRef<HTMLDivElement>(null);
   const [allExpanded, setAllExpanded] = useState(false);
   const [filterText, setFilterText] = useState('');
