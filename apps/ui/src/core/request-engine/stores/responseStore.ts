@@ -21,6 +21,9 @@ interface SectionResponse {
 
   /** Error state for this section */
   error: string | null;
+
+  /** Timestamp when the response was received */
+  timestamp: number;
 }
 
 /** Legacy single-response format (for backward compat) */
@@ -176,6 +179,7 @@ export const useResponseStore = create<ResponseStore>()(
                 responseDoc: doc,
                 responseMarkdown: markdown,
                 error: null,
+                timestamp: Date.now(),
               },
             },
           },
@@ -196,6 +200,7 @@ export const useResponseStore = create<ResponseStore>()(
                 responseDoc: doc,
                 responseMarkdown: markdown,
                 error: null,
+                timestamp: Date.now(),
               },
             },
           },

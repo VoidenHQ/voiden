@@ -11,7 +11,7 @@ import { useResponseStore } from "../stores/responseStore";
 import type { ResponseNodeType } from "../stores/responseStore";
 import { SendRequestButton } from "./SendRequestButton";
 import { ResponseViewer } from "./ResponseViewer";
-import { useMemo, useEffect, useCallback, useState, useRef } from "react";
+import { useMemo, useEffect, useCallback, useState, useRef, useSyncExternalStore } from "react";
 import { Search, ArrowUpIcon, ArrowDownIcon, X, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown } from "lucide-react";
 import { useGetPanelTabs } from "@/core/layout/hooks";
 import { parseMarkdown } from "@/core/editors/voiden/markdownConverter";
@@ -20,6 +20,28 @@ import { voidenExtensions } from "@/core/editors/voiden/extensions";
 import { Input } from "@/core/components/ui/input";
 import { escapeRegExp } from "@/core/editors/voiden/search/unifiedSearch";
 import { getSectionBorderColor } from "@/core/editors/voiden/extensions/sectionIndicator";
+
+/** Format relative time: "just now", "2m ago", "1h ago", etc. */
+function formatRelativeTime(ts: number): string {
+  const diff = Date.now() - ts;
+  if (diff < 5000) return "just now";
+  if (diff < 60_000) return `${Math.floor(diff / 1000)}s ago`;
+  if (diff < 3600_000) return `${Math.floor(diff / 60_000)}m ago`;
+  if (diff < 86400_000) return `${Math.floor(diff / 3600_000)}h ago`;
+  return `${Math.floor(diff / 86400_000)}d ago`;
+}
+
+function formatAbsoluteTime(ts: number): string {
+  return new Date(ts).toLocaleString();
+}
+
+/** Hook that ticks every 10s to keep relative timestamps updating */
+function useNow(intervalMs = 10_000) {
+  return useSyncExternalStore(
+    (cb) => { const id = setInterval(cb, intervalMs); return () => clearInterval(id); },
+    () => Math.floor(Date.now() / intervalMs),
+  );
+}
 import { unifiedSearchHighlight } from "@/core/editors/voiden/search/cmHighlightEffect";
 import type { EditorView as CMEditorView } from "@codemirror/view";
 
@@ -32,6 +54,8 @@ function hasAnyResponse(tabSections: Record<number, any> | undefined): boolean {
 }
 
 export function ResponsePanelContainer() {
+  useNow(); // tick every 10s to update relative timestamps
+
   // Get the active tab from the main panel
   const { data: panelData } = useGetPanelTabs("main");
   const activeTabId = panelData?.activeTabId;
@@ -711,6 +735,7 @@ export function ResponsePanelContainer() {
                   const singleColorIndex = singleDoc?.attrs?.sectionColorIndex ?? 0;
                   const singleUrl = singleDoc?.attrs?.url;
                   const singleElapsed = singleDoc?.attrs?.elapsedTime;
+                  const singleTimestamp = sections[0].response.timestamp;
                   const singleBorderColor = getSectionBorderColor(singleColorIndex);
 
                   return (
@@ -734,20 +759,28 @@ export function ResponsePanelContainer() {
                       <span className="font-mono text-xs font-bold">
                         {singleStatus} {singleStatusMsg}
                       </span>
+                      {singleElapsed != null && (
+                        <span className="text-comment text-xs font-mono flex-shrink-0">
+                          {singleElapsed < 1000 ? `${Math.round(singleElapsed)}ms` : `${(singleElapsed / 1000).toFixed(1)}s`}
+                        </span>
+                      )}
                       <span
-                        className="text-xs font-semibold uppercase"
+                        className="text-xs font-semibold uppercase flex-shrink-0"
                         style={{ color: singleBorderColor, letterSpacing: "0.5px" }}
                       >
                         {singleLabel || "Request 1"}
                       </span>
-                      {singleElapsed !== undefined && (
-                        <span className="text-comment text-xs flex-shrink-0">
-                          {singleElapsed < 1000 ? `${Math.round(singleElapsed)}ms` : `${(singleElapsed / 1000).toFixed(2)}s`}
-                        </span>
-                      )}
                       <span className="text-comment text-xs truncate flex-1">
                         {singleUrl}
                       </span>
+                      {singleTimestamp && (
+                        <span
+                          className="text-comment text-[10px] flex-shrink-0 opacity-60"
+                          title={formatAbsoluteTime(singleTimestamp)}
+                        >
+                          {formatRelativeTime(singleTimestamp)}
+                        </span>
+                      )}
                       <button
                         className="p-1 text-comment hover:text-text transition-colors rounded flex-shrink-0"
                         title="Find (⌘F)"
@@ -782,6 +815,8 @@ export function ResponsePanelContainer() {
                       const label = doc?.attrs?.sectionLabel;
                       const status = doc?.attrs?.statusCode;
                       const statusMsg = doc?.attrs?.statusMessage;
+                      const elapsed = doc?.attrs?.elapsedTime;
+                      const timestamp = response.timestamp;
                       const borderColor = getSectionBorderColor(colorIndex);
 
                       const isCollapsed = collapsedSections.has(`${tabId}:${sectionIndex}`);
@@ -813,8 +848,13 @@ export function ResponsePanelContainer() {
                             <span className="font-mono text-xs font-bold">
                               {status} {statusMsg}
                             </span>
+                            {elapsed != null && (
+                              <span className="text-comment text-xs font-mono flex-shrink-0">
+                                {elapsed < 1000 ? `${Math.round(elapsed)}ms` : `${(elapsed / 1000).toFixed(1)}s`}
+                              </span>
+                            )}
                             <span
-                              className="text-xs font-semibold uppercase"
+                              className="text-xs font-semibold uppercase flex-shrink-0"
                               style={{ color: borderColor, letterSpacing: "0.5px" }}
                             >
                               {label || "Request"}
@@ -822,6 +862,14 @@ export function ResponsePanelContainer() {
                             <span className="text-comment text-xs truncate flex-1">
                               {doc?.attrs?.url}
                             </span>
+                            {timestamp && (
+                              <span
+                                className="text-comment text-[10px] flex-shrink-0 opacity-60"
+                                title={formatAbsoluteTime(timestamp)}
+                              >
+                                {formatRelativeTime(timestamp)}
+                              </span>
+                            )}
                             <button
                               className="p-1 text-comment hover:text-text transition-colors rounded flex-shrink-0"
                               title="Find in this response"
