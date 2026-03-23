@@ -211,6 +211,15 @@ const paragraphSerializer = (state: MarkdownSerializerState, node: Node) => {
   }
 };
 
+// Inline serializer for fileLink nodes – writes a compact token that survives
+// markdown round-tripping as plain text (no HTML that remarkParse would split).
+const fileLinkSerializer = (state: MarkdownSerializerState, node: Node) => {
+  const filePath = node.attrs.filePath || "";
+  const filename = node.attrs.filename || "";
+  const isExternal = node.attrs.isExternal ? "true" : "false";
+  state.write(`{{fileLink|${filePath}|${filename}|${isExternal}}}`);
+};
+
 const buildNodeSerializers = (schema: any) => {
   const serializers: { [node: string]: any } = {};
   Object.keys(schema.nodes).forEach((nodeName) => {
@@ -218,6 +227,8 @@ const buildNodeSerializers = (schema: any) => {
       serializers[nodeName] = codeBlockSerializer;
     } else if (nodeName === "paragraph") {
       serializers[nodeName] = paragraphSerializer;
+    } else if (nodeName === "fileLink") {
+      serializers[nodeName] = fileLinkSerializer;
     } else {
       const mappedName = nodeNameMap[nodeName] || nodeName;
       if (defaultMarkdownSerializer.nodes[mappedName]) {
@@ -526,6 +537,43 @@ function applyMarkRecursively(node: JSONContent, markType: string, schema?: any,
     .filter(Boolean); // Remove any null children
 }
 
+// Regex to match inline fileLink tokens: {{fileLink|filePath|filename|isExternal}}
+const FILELINK_INLINE_RE = /\{\{fileLink\|([^|]*)\|([^|]*)\|(true|false)\}\}/g;
+
+// Expand fileLink tokens within text nodes into interleaved text + fileLink nodes.
+function expandFileLinkTokens(children: any[]): any[] {
+  const result: any[] = [];
+  for (const child of children) {
+    if (child.type !== "text" || !child.value?.includes("{{fileLink|")) {
+      result.push(child);
+      continue;
+    }
+    // Split text around fileLink tokens
+    let lastIndex = 0;
+    const text = child.value as string;
+    FILELINK_INLINE_RE.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = FILELINK_INLINE_RE.exec(text)) !== null) {
+      if (m.index > lastIndex) {
+        result.push({ type: "text", value: text.slice(lastIndex, m.index) });
+      }
+      result.push({
+        type: "fileLink",
+        attrs: {
+          filePath: m[1],
+          filename: m[2],
+          isExternal: m[3] === "true",
+        },
+      });
+      lastIndex = m.index + m[0].length;
+    }
+    if (lastIndex < text.length) {
+      result.push({ type: "text", value: text.slice(lastIndex) });
+    }
+  }
+  return result;
+}
+
 // update mdast converter: when converting table cells, always use tableCell
 const convertMdastNode = (node: any, schema?: any, definitions?: Record<string, { url: string; title?: string }>): JSONContent => {
   switch (node.type) {
@@ -576,11 +624,18 @@ const convertMdastNode = (node: any, schema?: any, definitions?: Record<string, 
         content: cellContent,
       };
     }
-    case "paragraph":
+    case "paragraph": {
+      // Expand inline {{fileLink|...}} tokens in text nodes before converting
+      const paragraphChildren = expandFileLinkTokens(node.children || []);
       return {
         type: "paragraph",
-        content: node.children.flatMap((child: any) => convertMdastNode(child, schema, definitions)).filter(Boolean),
+        content: paragraphChildren.flatMap((child: any) => {
+          // Already-expanded fileLink nodes pass through directly
+          if (child.type === "fileLink") return child;
+          return convertMdastNode(child, schema, definitions);
+        }).filter(Boolean),
       };
+    }
     case "listItem":
       return {
         type: "listItem",
@@ -657,6 +712,13 @@ const convertMdastNode = (node: any, schema?: any, definitions?: Record<string, 
         };
       }
       return null;
+    }
+    case "html": {
+      // Inline HTML that wasn't pre-processed (e.g. non-fileLink spans) — treat as raw text
+      return {
+        type: "text",
+        text: node.value || "",
+      };
     }
     case "inlineCode":
       return {

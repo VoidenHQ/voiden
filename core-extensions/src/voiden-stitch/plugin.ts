@@ -17,11 +17,16 @@ export default function createVoidenStitchPlugin(context: any) {
       // @ts-ignore - Vite dynamic import
       const { useActiveEnvironment, useEnvironments } = await import(/* @vite-ignore */ '@/core/environment/hooks') as any;
 
-      // Open the stitch results sidebar tab
-      const openResultsTab = () => {
+      // Open the response panel (stitch results now render inside it)
+      const openResultsTab = async () => {
         try {
           context.ui.openRightPanel();
-          context.ui.openRightSidebarTab('stitch-results');
+          // Switch to the first (response) tab
+          const tabs = await (window as any).electron?.sidebar?.getTabs?.("right");
+          const firstTab = (tabs?.tabs as any[])?.[0];
+          if (firstTab) {
+            await (window as any).electron?.sidebar?.activateTab?.("right", firstTab.id);
+          }
         } catch { /* best effort */ }
       };
 
