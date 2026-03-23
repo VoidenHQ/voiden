@@ -111,7 +111,8 @@ export async function runStitch(
 
   // 3. Start run in store
   stitchStore.startRun(
-    matchedFiles.map((f: any) => ({ filePath: f.source, fileName: f.relativePath }))
+    matchedFiles.map((f: any) => ({ filePath: f.source, fileName: f.relativePath })),
+    currentFilePath,
   );
   ctx.openResultsTab();
 

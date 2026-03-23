@@ -1,31 +1,40 @@
 /**
  * Reactive store for stitch run state.
- * Same pub/sub pattern as voiden-scripting's logStore.
+ * Stores results per source file path (like responseStore stores per tab).
  */
 
 import {
   StitchRunState,
   StitchFileResult,
-  StitchSummary,
   createEmptyRun,
   computeSummary,
 } from './types';
 
 type Listener = () => void;
 
-let currentRun: StitchRunState = createEmptyRun();
+/** All stitch runs keyed by source file path */
+let runs: Record<string, StitchRunState> = {};
+/** Currently active source file path (last run or last viewed) */
+let activeSourcePath: string = '';
+
 const listeners = new Set<Listener>();
 
 function notify() {
   listeners.forEach((fn) => fn());
 }
 
+function getActiveRun(): StitchRunState {
+  return runs[activeSourcePath] || createEmptyRun();
+}
+
 export const stitchStore = {
-  /** Start a new stitch run with the given file list. */
-  startRun(filePaths: { filePath: string; fileName: string }[]) {
-    currentRun = {
+  /** Start a new stitch run for the given source file. */
+  startRun(filePaths: { filePath: string; fileName: string }[], sourceFilePath: string) {
+    activeSourcePath = sourceFilePath;
+    runs[sourceFilePath] = {
       ...createEmptyRun(),
       id: `stitch-${Date.now()}`,
+      sourceFilePath,
       status: 'running',
       startedAt: Date.now(),
       files: filePaths.map((f) => ({
@@ -52,11 +61,12 @@ export const stitchStore = {
 
   /** Mark a file as currently running. */
   setFileRunning(index: number) {
-    if (index < 0 || index >= currentRun.files.length) return;
-    currentRun = {
-      ...currentRun,
+    const run = runs[activeSourcePath];
+    if (!run || index < 0 || index >= run.files.length) return;
+    runs[activeSourcePath] = {
+      ...run,
       currentFileIndex: index,
-      files: currentRun.files.map((f, i) =>
+      files: run.files.map((f, i) =>
         i === index ? { ...f, status: 'running' as const } : f
       ),
     };
@@ -65,12 +75,13 @@ export const stitchStore = {
 
   /** Update a file's result after execution. */
   updateFileResult(index: number, result: Partial<StitchFileResult>) {
-    if (index < 0 || index >= currentRun.files.length) return;
-    const updatedFiles = currentRun.files.map((f, i) =>
+    const run = runs[activeSourcePath];
+    if (!run || index < 0 || index >= run.files.length) return;
+    const updatedFiles = run.files.map((f, i) =>
       i === index ? { ...f, ...result } : f
     );
-    currentRun = {
-      ...currentRun,
+    runs[activeSourcePath] = {
+      ...run,
       files: updatedFiles,
       summary: computeSummary(updatedFiles),
     };
@@ -79,30 +90,34 @@ export const stitchStore = {
 
   /** Complete the run. */
   completeRun() {
+    const run = runs[activeSourcePath];
+    if (!run) return;
     const now = Date.now();
-    currentRun = {
-      ...currentRun,
+    runs[activeSourcePath] = {
+      ...run,
       status: 'completed',
       completedAt: now,
-      duration: currentRun.startedAt ? now - currentRun.startedAt : 0,
-      summary: computeSummary(currentRun.files),
+      duration: run.startedAt ? now - run.startedAt : 0,
+      summary: computeSummary(run.files),
     };
     notify();
   },
 
   /** Cancel the run and mark remaining files as skipped. */
   cancelRun() {
+    const run = runs[activeSourcePath];
+    if (!run) return;
     const now = Date.now();
-    const updatedFiles = currentRun.files.map((f) =>
+    const updatedFiles = run.files.map((f) =>
       f.status === 'pending' || f.status === 'running'
         ? { ...f, status: 'skipped' as const }
         : f
     );
-    currentRun = {
-      ...currentRun,
+    runs[activeSourcePath] = {
+      ...run,
       status: 'cancelled',
       completedAt: now,
-      duration: currentRun.startedAt ? now - currentRun.startedAt : 0,
+      duration: run.startedAt ? now - run.startedAt : 0,
       files: updatedFiles,
       summary: computeSummary(updatedFiles),
     };
@@ -111,25 +126,55 @@ export const stitchStore = {
 
   /** Mark run as errored. */
   errorRun(error: string) {
+    const run = runs[activeSourcePath];
+    if (!run) return;
     const now = Date.now();
-    currentRun = {
-      ...currentRun,
+    runs[activeSourcePath] = {
+      ...run,
       status: 'error',
       completedAt: now,
-      duration: currentRun.startedAt ? now - currentRun.startedAt : 0,
-      summary: computeSummary(currentRun.files),
+      duration: run.startedAt ? now - run.startedAt : 0,
+      summary: computeSummary(run.files),
     };
     notify();
   },
 
-  /** Get current run state (snapshot). */
-  getRun(): StitchRunState {
-    return currentRun;
+  /** Get run for a specific source file. */
+  getRun(sourceFilePath?: string): StitchRunState {
+    if (sourceFilePath) {
+      return runs[sourceFilePath] || createEmptyRun();
+    }
+    return getActiveRun();
   },
 
-  /** Clear results back to idle. */
+  /** Get all runs. */
+  getAllRuns(): Record<string, StitchRunState> {
+    return runs;
+  },
+
+  /** Get the active source path. */
+  getActiveSourcePath(): string {
+    return activeSourcePath;
+  },
+
+  /** Set active source path (when user switches tabs). */
+  setActiveSource(path: string) {
+    if (activeSourcePath !== path && runs[path]) {
+      activeSourcePath = path;
+      notify();
+    }
+  },
+
+  /** Clear results for the active source. */
   clear() {
-    currentRun = createEmptyRun();
+    delete runs[activeSourcePath];
+    notify();
+  },
+
+  /** Clear all results. */
+  clearAll() {
+    runs = {};
+    activeSourcePath = '';
     notify();
   },
 

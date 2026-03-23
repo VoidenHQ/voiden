@@ -45,11 +45,53 @@ function toCurl(req: NonNullable<StitchSectionResult['requestInfo']>): string {
   return parts.join(' \\\n  ');
 }
 
-function useStitchRun(): StitchRunState {
-  const [run, setRun] = useState<StitchRunState>(stitchStore.getRun());
+/** Get the active editor file path reactively */
+function useEditorFilePath(): string | null {
+  const [path, setPath] = useState<string | null>(null);
+  const storeRef = useRef<any>(null);
+
   useEffect(() => {
-    return stitchStore.subscribe(() => setRun(stitchStore.getRun()));
+    let cancelled = false;
+    (async () => {
+      try {
+        // @ts-ignore - Vite dynamic import
+        const mod = await import(/* @vite-ignore */ '@/core/editors/voiden/VoidenEditor');
+        if (cancelled) return;
+        storeRef.current = mod.useVoidenEditorStore;
+        setPath(mod.useVoidenEditorStore.getState().filePath);
+        const unsub = mod.useVoidenEditorStore.subscribe((state: any) => {
+          if (!cancelled) setPath(state.filePath);
+        });
+        return () => { cancelled = true; unsub(); };
+      } catch { /* ignore */ }
+    })();
+    return () => { cancelled = true; };
   }, []);
+
+  return path;
+}
+
+function useStitchRun(): StitchRunState {
+  const editorPath = useEditorFilePath();
+  const [run, setRun] = useState<StitchRunState>(stitchStore.getRun());
+
+  useEffect(() => {
+    // When editor file changes, switch to that file's results
+    if (editorPath) {
+      stitchStore.setActiveSource(editorPath);
+    }
+  }, [editorPath]);
+
+  useEffect(() => {
+    const update = () => {
+      // Show results for the current editor file, or the last active run
+      const fileRun = editorPath ? stitchStore.getRun(editorPath) : stitchStore.getRun();
+      setRun(fileRun);
+    };
+    update();
+    return stitchStore.subscribe(update);
+  }, [editorPath]);
+
   return run;
 }
 

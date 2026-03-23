@@ -75,6 +75,8 @@ export interface StitchFileResult {
 /** Overall stitch run state */
 export interface StitchRunState {
   id: string;
+  /** The source file path that triggered this stitch run */
+  sourceFilePath: string;
   status: 'idle' | 'running' | 'completed' | 'cancelled' | 'error';
   startedAt: number | null;
   completedAt: number | null;
@@ -98,6 +100,7 @@ export interface StitchSummary {
 export function createEmptyRun(): StitchRunState {
   return {
     id: '',
+    sourceFilePath: '',
     status: 'idle',
     startedAt: null,
     completedAt: null,
