@@ -440,6 +440,7 @@ export const CodeEditor = memo(({ tabId, content, source, panelId, isActive = tr
     scrollEl.addEventListener("wheel", handleUserInteraction, { passive: true, capture: true });
     scrollEl.addEventListener("touchmove", handleUserInteraction, { passive: true, capture: true });
     scrollEl.addEventListener("keydown", handleUserInteraction, { capture: true });
+    scrollEl.addEventListener("mousedown", handleUserInteraction, { capture: true });
 
     // Apply synchronously before the first paint so there is no visible jump.
     scrollEl.style.scrollBehavior = "auto";
@@ -463,6 +464,7 @@ export const CodeEditor = memo(({ tabId, content, source, panelId, isActive = tr
       scrollEl.removeEventListener("wheel", handleUserInteraction, { capture: true });
       scrollEl.removeEventListener("touchmove", handleUserInteraction, { capture: true });
       scrollEl.removeEventListener("keydown", handleUserInteraction, { capture: true });
+      scrollEl.removeEventListener("mousedown", handleUserInteraction, { capture: true });
       if (userScrollTimeout !== null) clearTimeout(userScrollTimeout);
       cancelAnimationFrame(rafId);
       timeoutIds.forEach(clearTimeout);

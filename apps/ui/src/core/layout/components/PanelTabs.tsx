@@ -639,21 +639,8 @@ export const PanelTabs = ({ panel }: { panel: string }) => {
   return (
     <div
       ref={tabContainerRef}
-      className="flex items-center h-full flex-1 overflow-x-auto relative"
-      style={{
-        scrollbarWidth: "none", // Firefox
-        msOverflowStyle: "none", // IE and Edge
-      }}
+      className="flex items-center h-full flex-1 overflow-x-auto relative no-scrollbar"
     >
-      {/* Inline style to hide scrollbar in Webkit browsers */}
-      <style>
-        {`
-          div::-webkit-scrollbar {
-            display: none;
-          }
-        `}
-      </style>
-
       {/* Drag Overlay Preview */}
       {draggedTabId && dragPreviewPosition && (
         <div

@@ -569,7 +569,7 @@ input[type="week"]::-webkit-datetime-edit-year-field:focus {
     }
 
     ::-webkit-scrollbar-thumb {
-      background-color: rgba(255, 255, 255, 0.1);
+      background-color: color-mix(in srgb, var(--fg-secondary) 30%, transparent);
       border-radius: 3px;
     }
   }
@@ -904,14 +904,13 @@ input[type="checkbox"]:disabled {
 }
 
 #code-editor-container::-webkit-scrollbar-thumb {
-  background-color: transparent;
+  background-color: color-mix(in srgb, var(--fg-secondary) 30%, transparent);
   border-radius: 3px;
-  transition: background-color 0.2s ease;
 }
 
-/* Show scrollbar when hovering over container */
+/* Brighter when hovering over container */
 #code-editor-container:hover::-webkit-scrollbar-thumb {
-  background-color: rgba(255, 255, 255, 0.2);
+  background-color: color-mix(in srgb, var(--fg-secondary) 50%, transparent);
 }
 
 /* Brighter when hovering directly over scrollbar */
@@ -924,14 +923,10 @@ input[type="checkbox"]:disabled {
   background-color: var(--icon-primary);
 }
 
-/* Firefox - overlay scrollbar that auto-hides */
+/* Firefox */
 #code-editor-container {
   scrollbar-width: thin;
-  scrollbar-color: transparent transparent;
-}
-
-#code-editor-container:hover {
-  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+  scrollbar-color: color-mix(in srgb, var(--fg-secondary) 30%, transparent) transparent;
 }
 
 /* ─── Source sync indicator ─────────────────────────────────────────────── */

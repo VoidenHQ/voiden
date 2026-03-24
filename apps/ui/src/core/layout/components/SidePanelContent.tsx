@@ -7,13 +7,16 @@ import { GitSourceControl } from "@/core/git/components/GitSourceControl";
 import { HistorySidebar } from "@/core/history/components/HistorySidebar";
 import { GlobalHistorySidebar } from "@/core/history/components/GlobalHistorySidebar";
 
-const sidebarComponentMap: Record<string, React.ReactNode> = {
+const leftSidebarComponentMap: Record<string, React.ReactNode> = {
   fileExplorer: <FileSystemList />,
   extensionBrowser: <ExtensionBrowser />,
-  responsePanel: <ResponsePanelContainer />,
   gitSourceControl: <GitSourceControl />,
-  history: <HistorySidebar />,
   globalHistory: <GlobalHistorySidebar />,
+};
+
+const rightSidebarComponentMap: Record<string, React.ReactNode> = {
+  responsePanel: <ResponsePanelContainer />,
+  history: <HistorySidebar />,
 };
 
 export const SidePanelContent = ({ side }: { side: "left" | "right" }) => {
@@ -23,6 +26,8 @@ export const SidePanelContent = ({ side }: { side: "left" | "right" }) => {
   const activeTabId = sidebarTabs?.activeTabId;
   const activeTab = sidebarTabs?.tabs?.find((t: any) => t.id === activeTabId);
   const activeType = activeTab?.type;
+
+  const sidebarComponentMap = side === "left" ? leftSidebarComponentMap : rightSidebarComponentMap;
 
   return (
     <>

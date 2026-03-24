@@ -887,6 +887,7 @@ function sanitizeDoc(node: any): any {
     scrollContainer.addEventListener('wheel', handleUserInteraction, { passive: true, capture: true });
     scrollContainer.addEventListener('touchmove', handleUserInteraction, { passive: true, capture: true });
     scrollContainer.addEventListener('keydown', handleUserInteraction, { capture: true });
+    scrollContainer.addEventListener('mousedown', handleUserInteraction, { capture: true });
 
     // Apply synchronously before the first paint so there is no visible jump.
     // useLayoutEffect runs after DOM mutations (display: block) but before paint.
@@ -899,6 +900,7 @@ function sanitizeDoc(node: any): any {
       scrollContainer.removeEventListener('wheel', handleUserInteraction, { capture: true });
       scrollContainer.removeEventListener('touchmove', handleUserInteraction, { capture: true });
       scrollContainer.removeEventListener('keydown', handleUserInteraction, { capture: true });
+      scrollContainer.removeEventListener('mousedown', handleUserInteraction, { capture: true });
       if (userScrollTimeout !== null) clearTimeout(userScrollTimeout);
       setScrollPosition(tabId, currentTarget);
     };
@@ -919,6 +921,7 @@ function sanitizeDoc(node: any): any {
           scrollContainer.removeEventListener('wheel', handleUserInteraction, { capture: true });
           scrollContainer.removeEventListener('touchmove', handleUserInteraction, { capture: true });
           scrollContainer.removeEventListener('keydown', handleUserInteraction, { capture: true });
+          scrollContainer.removeEventListener('mousedown', handleUserInteraction, { capture: true });
           if (userScrollTimeout !== null) clearTimeout(userScrollTimeout);
           timeoutIds.forEach((id) => window.clearTimeout(id));
           setScrollPosition(tabId, currentTarget);
