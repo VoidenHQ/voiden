@@ -17,6 +17,7 @@ export const stateApi = {
   closePanelTabs: (panelId: string, tabs:{tabId:string,unsavedContent:string}) =>
     ipcRenderer.invoke("state:closePanelTabs", panelId,tabs),
   renameFile: (oldPath: string, newName: string) => ipcRenderer.invoke("state:renameFile", oldPath, newName),
+  getOnboarding: () => ipcRenderer.invoke("state:getOnboarding"),
   updateOnboarding: (onboarding: boolean) => ipcRenderer.invoke("state:updateOnboarding", onboarding),
   duplicatePanelTab: (panelId: string, tabId: string) => ipcRenderer.invoke("state:duplicatePanelTab", panelId, tabId),
   reloadPanelTab: (panelId: string, tabId: string) => ipcRenderer.invoke("state:reloadPanelTab", panelId, tabId),

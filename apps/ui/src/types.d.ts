@@ -304,6 +304,7 @@ declare global {
           oldPath: string,
           newName: string,
         ) => Promise<{ success: boolean; error?: string }>;
+        getOnboarding: () => Promise<boolean>;
         updateOnboarding: (onboarding: boolean) => Promise<any>;
         duplicatePanelTab: (
           panelId: string,

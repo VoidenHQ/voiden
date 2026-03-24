@@ -19,6 +19,8 @@ import {
   loadAutosaveFile,
   deleteAutosaveFile,
   cleanupAutosaveFiles,
+  saveOnboardingState,
+  loadOnboardingState,
 } from "./persistState";
 import { renameFileOrDirectory, findVoidenProjects } from "./fileSystem";
 import { killTerminal } from "./terminal";
@@ -1184,14 +1186,17 @@ export const ipcStateHandlers = () => {
     },
   );
 
+  ipcMain.handle("state:getOnboarding", async () => {
+    return loadOnboardingState();
+  });
+
   ipcMain.handle("state:updateOnboarding", async (event, onboarding) => {
     try {
-      const state = await getAppState();
+      await saveOnboardingState(onboarding);
+      const state = getAppState(event);
       state.onboarding = onboarding;
-      await saveState(state);
       return state;
     } catch (error) {
-      // console.error("Error updating onboarding:", error);
       throw error;
     }
   });

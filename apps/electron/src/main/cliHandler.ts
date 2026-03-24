@@ -117,19 +117,24 @@ async function openPath(inputPath: string): Promise<void> {
       const activeWindowId = windowManager.getActiveWindowId();
       if (!activeWindowId) {
         const main = await windowManager.createWindow(undefined, true);
-        main.webContents.on('did-finish-load', async () => {
-          const activeWindowId = main?.windowInfo.id || "";
-          await windowManager.setActiveDirectory(activeWindowId as string, "");
-          const tab = await addPanelTab(undefined, 'main', newTab);
-          await activateTab(undefined, 'main', tab.tabId);
-          if (windowManager.browserWindow) windowManager.browserWindow.webContents.send('file:newTab');
-          main.focus();
-        })
-      } else {
-        await windowManager.setActiveDirectory(activeWindowId as string, "");
+        // Mutate state immediately after createWindow — the window state is
+        // already initialized at this point, so the tab will be present when
+        // the renderer makes its first state:getPanelTabs call on load.
         const tab = await addPanelTab(undefined, 'main', newTab);
         await activateTab(undefined, 'main', tab.tabId);
-        if (windowManager.browserWindow) windowManager.browserWindow.webContents.send('file:newTab');
+        main.webContents.on('did-finish-load', () => {
+          main.focus();
+        });
+      } else {
+        const tab = await addPanelTab(undefined, 'main', newTab);
+        await activateTab(undefined, 'main', tab.tabId);
+        const win = windowManager.browserWindow;
+        if (win) {
+          win.webContents.send('file:newTab');
+          if (win.isMinimized()) win.restore();
+          win.show();
+          win.focus();
+        }
       }
     }
   } catch (error) {
@@ -170,8 +175,8 @@ export function getCliArguments(): string[] {
 }
 
 /**
- * Handle macOS open-file event (when double-clicking a file or using "Open With")
- * Call this after the app is ready and the initial window has been created.
+ * Handle macOS open-file event (when double-clicking a file or using "Open With").
+ * Call this once after the app is ready.
  */
 export function setupMacOSFileHandler() {
   if (process.platform !== "darwin") return;

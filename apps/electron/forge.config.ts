@@ -323,8 +323,8 @@ const config: ForgeConfig = {
     icon: "./src/images/icon.png",
     protocols: [
       {
-        name: "electron-fiddle",
-        schemes: ["electron-fiddle"],
+        name: "Voiden",
+        schemes: ["voiden"],
       },
     ],
   },
