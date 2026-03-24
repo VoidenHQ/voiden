@@ -27,22 +27,38 @@ export const  useSendRestRequest = (_editor: Editor) => {
   const abortControllerRef = useRef<AbortController | null>(null);
   const sectionIndexOverrideRef = useRef<number | undefined>(undefined);
   const queryClient = useQueryClient();
+
+  /** Open the response panel and activate the response tab. */
+  const showResponsePanel = async () => {
+    const { responsePanelPosition, setBottomActiveView, openBottomPanel, bottomPanelRef } = usePanelStore.getState();
+
+    if (responsePanelPosition === "bottom") {
+      // Bottom mode: open bottom panel, switch to sidebar view, activate response tab
+      setBottomActiveView("sidebar");
+      if (bottomPanelRef?.current?.isCollapsed()) {
+        bottomPanelRef.current.expand();
+        openBottomPanel();
+      }
+    } else {
+      // Right mode: open the right panel
+      openRightPanel();
+    }
+
+    // Activate the first (response) sidebar tab
+    try {
+      const tabs = await (window as any).electron?.sidebar?.getTabs?.("right");
+      const firstTab = (tabs?.tabs as any[] | undefined)?.[0];
+      if (firstTab) {
+        await (window as any).electron?.sidebar?.activateTab?.("right", firstTab.id);
+        queryClient.invalidateQueries({ queryKey: ["sidebar:tabs", "right"] });
+      }
+    } catch { /* best-effort */ }
+  };
+
   const context = useQuery({
     queryKey: ["request", activeDocument?.id],
     queryFn: async () => {
-      const wasPanelOpen = usePanelStore.getState().rightPanelOpen;
-      openRightPanel();
-      if (!wasPanelOpen) {
-        // Panel was freshly opened — switch to the first (response) tab
-        try {
-          const tabs = await (window as any).electron?.sidebar?.getTabs?.("right");
-          const firstTab = (tabs?.tabs as any[] | undefined)?.[0];
-          if (firstTab) {
-            await (window as any).electron?.sidebar?.activateTab?.("right", firstTab.id);
-            queryClient.invalidateQueries({ queryKey: ["sidebar:tabs", "right"] });
-          }
-        } catch { /* best-effort */ }
-      }
+      await showResponsePanel();
       if (activeDocument?.id) {
         useResponseStore.getState().setActiveResponseNodeForTab(activeDocument.id, "response-body");
       }
@@ -162,18 +178,7 @@ export const  useSendRestRequest = (_editor: Editor) => {
     if (!editor || runAllRef.current) return;
     runAllRef.current = true;
 
-    const wasPanelOpen = usePanelStore.getState().rightPanelOpen;
-    openRightPanel();
-    if (!wasPanelOpen) {
-      try {
-        const tabs = await (window as any).electron?.sidebar?.getTabs?.("right");
-        const firstTab = (tabs?.tabs as any[] | undefined)?.[0];
-        if (firstTab) {
-          await (window as any).electron?.sidebar?.activateTab?.("right", firstTab.id);
-          queryClient.invalidateQueries({ queryKey: ["sidebar:tabs", "right"] });
-        }
-      } catch { /* best-effort */ }
-    }
+    await showResponsePanel();
 
     // Count total sections and determine starting index.
     // If the doc starts with a separator, section 0 is empty — skip it.

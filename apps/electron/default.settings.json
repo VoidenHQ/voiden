@@ -6,7 +6,8 @@
     "ui_font_size": 13,
     "cursor_type": "text",
     "code_wrap": true,
-    "content_width": 860
+    "content_width": 860,
+    "response_panel_position": "right"
   },
   "editor": {
     "auto_save": false,

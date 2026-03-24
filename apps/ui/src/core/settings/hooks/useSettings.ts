@@ -59,6 +59,12 @@ function validateSettings(settings: UserSettings): UserSettings {
     validated.appearance.separator_alignment = "center"; // Default fallback
   }
 
+  // Validate response panel position
+  if (!validated.appearance.response_panel_position ||
+    !["right", "bottom"].includes(validated.appearance.response_panel_position)) {
+    validated.appearance.response_panel_position = "right"; // Default fallback
+  }
+
   // Validate auto save delay
   if (validated.editor.auto_save) {
     if (typeof validated.editor.auto_save_delay !== 'number' ||
@@ -241,6 +247,7 @@ export type UserSettings = {
     code_wrap: boolean;
     content_width: number; // px, max width for document content area
     separator_alignment: "left" | "center" | "right";
+    response_panel_position: "right" | "bottom";
   };
   editor: {
     auto_save: boolean;

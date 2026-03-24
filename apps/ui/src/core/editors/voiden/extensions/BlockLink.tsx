@@ -1,4 +1,4 @@
-import React, { useEffect, useReducer } from "react";
+import React, { useEffect, useReducer, useRef } from "react";
 import { Editor, Node, NodeViewWrapper, ReactNodeViewRenderer, mergeAttributes } from "@tiptap/react";
 import { BlockPreviewEditor, openFile } from "./ExternalFile";
 import { useBlockContentStore } from "@/core/stores/blockContentStore";
@@ -6,7 +6,8 @@ import { Tip } from "@/core/components/ui/Tip";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { parseMarkdown } from "@/core/editors/voiden/markdownConverter";
 import { useElectronEvent } from "@/core/providers";
-import { Link2, Unlink } from "lucide-react";
+import { useSendRestRequest } from "@/core/request-engine/hooks";
+import { Link2, Unlink, Play } from "lucide-react";
 
 // Helper to recursively find a block by uid.
 const findBlockByUid = (nodes: any[], blockUid: string): any | null => {
@@ -64,6 +65,8 @@ const LinkedBlockNodeView = ({ node, editor, getPos }: any) => {
   const { blockUid, originalFile, type } = node.attrs;
   const queryClient = useQueryClient();
   const removeBlock = useBlockContentStore((state) => state.removeBlock);
+  const nodeRef = useRef<HTMLDivElement>(null);
+  const { refetchFromElement } = useSendRestRequest(editor);
 
   // Force a re-render of this node view whenever the query state changes.
   const [, forceUpdate] = useReducer((x) => x + 1, 0);
@@ -153,9 +156,16 @@ const LinkedBlockNodeView = ({ node, editor, getPos }: any) => {
     );
   }
 
+  const handlePlay = (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (nodeRef.current) {
+      refetchFromElement(nodeRef.current);
+    }
+  };
+
   // All linked blocks get the same header with unlink button
   return (
-    <NodeViewWrapper className="my-3">
+    <NodeViewWrapper className="my-3" ref={nodeRef}>
       <div className="rounded-md border overflow-hidden" style={{ borderColor: 'var(--ui-line)' }}>
         {/* Header bar with "IMPORTED" label and clickable filename */}
         <div className="h-8 px-3 flex items-center justify-between border-b bg-accent/5" style={{ borderColor: 'var(--ui-line)' }}>
@@ -171,14 +181,24 @@ const LinkedBlockNodeView = ({ node, editor, getPos }: any) => {
             </button>
           </div>
 
-          <Tip label="Unlink to edit locally">
-            <button
-              onClick={handleUnlink}
-              className="flex items-center justify-center w-6 h-6 rounded hover:bg-hover text-comment hover:text-text transition-colors"
-            >
-              <Unlink size={12} />
-            </button>
-          </Tip>
+          <div className="flex items-center gap-1">
+            <Tip label="Unlink to edit locally">
+              <button
+                onClick={handleUnlink}
+                className="flex items-center justify-center w-6 h-6 rounded hover:bg-hover text-comment hover:text-text transition-colors"
+              >
+                <Unlink size={12} />
+              </button>
+            </Tip>
+            <Tip label="Run request">
+              <button
+                onClick={handlePlay}
+                className="flex items-center justify-center w-6 h-6 rounded hover:bg-hover text-status-success transition-colors"
+              >
+                <Play size={12} />
+              </button>
+            </Tip>
+          </div>
         </div>
 
         {/* Block content */}

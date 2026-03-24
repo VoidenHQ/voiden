@@ -1,8 +1,9 @@
-import { PanelLeft, Terminal, Github, MessageCircle, PanelRight, GitCompareArrows, Download, icons } from "lucide-react";
+import { PanelLeft, Terminal, Github, MessageCircle, PanelRight, PanelBottom, GitCompareArrows, Download, icons } from "lucide-react";
 import { cn } from "@/core/lib/utils";
 import { GitBranchesList } from "@/core/git/components/GitBranchesList";
 import { BranchComparisonDialog } from "@/core/git/components/BranchComparisonDialog";
 import { useSettings } from "@/core/settings/hooks/useSettings";
+import { usePanelStore } from "@/core/stores/panelStore";
 import { useState, useEffect } from "react";
 import { Kbd } from "@/core/components/ui/kbd";
 import { Tip } from "@/core/components/ui/Tip";
@@ -44,6 +45,8 @@ export const StatusBar = ({
   toggleRight,
 }: StatusBarProps) => {
   const { settings } = useSettings();
+  const responsePanelPosition = usePanelStore((state) => state.responsePanelPosition);
+  const toggleResponsePanelPosition = usePanelStore((state) => state.toggleResponsePanelPosition);
   const statusBarItems = usePluginStore((state) => state.statusBarItems);
   const leftItems = statusBarItems.filter((item) => item.position === 'left');
   const rightItems = statusBarItems.filter((item) => item.position === 'right');
@@ -303,16 +306,26 @@ export const StatusBar = ({
           </Tip>
 
           {/* Bottom Panel Toggle */}
-          <Tip label={<span className="flex items-center gap-2"><span>Toggle bottom panel</span><Kbd keys={'⌘J'} size="sm" /></span>} align="end">
+          <Tip label={<span className="flex items-center gap-2"><span>Toggle terminal</span><Kbd keys={'⌘J'} size="sm" /></span>} align="end">
             <button className={cn("h-full px-2 hover:bg-active text-comment", !isBottomCollapsed && "bg-active")} onClick={toggleBottom}>
               <Terminal size={14} />
             </button>
           </Tip>
 
-          {/* Right Panel Toggle */}
-          <Tip label={<span className="flex items-center gap-2"><span>Toggle right panel</span><Kbd keys={'⌘Y'} size="sm" /></span>} align="end">
-            <button className={cn("h-full px-2 hover:bg-active text-comment", !isRightCollapsed && "bg-active")} onClick={toggleRight}>
-              <PanelRight size={14} />
+          {/* Response Panel — position switch (shows icon of the layout it will switch TO) */}
+          <Tip label={responsePanelPosition === "right"
+            ? "Move response panel to bottom"
+            : "Move response panel to right"
+          } align="end">
+            <button
+              className={cn("h-full px-2 hover:bg-active text-comment", !isRightCollapsed && "bg-active")}
+              onClick={() => {
+                toggleResponsePanelPosition();
+                // Also open the response panel if it was closed
+                if (isRightCollapsed) toggleRight();
+              }}
+            >
+              {responsePanelPosition === "right" ? <PanelBottom size={14} /> : <PanelRight size={14} />}
             </button>
           </Tip>
         </div>

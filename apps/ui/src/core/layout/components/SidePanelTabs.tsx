@@ -43,7 +43,7 @@ const renderLucideIcon = (iconName: string | undefined, size: number = 14) => {
   return <IconComponent size={size} />;
 };
 
-export const SidePanelTabs = ({ side }: { side: "left" | "right" }) => {
+export const SidePanelTabs = ({ side, wrapperClassName, onTabClick }: { side: "left" | "right"; wrapperClassName?: string; onTabClick?: () => void }) => {
   const { data: sidebarTabs } = useGetSidebarTabs(side);
   const pluginTabs = usePluginStore((state) => state.sidebar[side]);
   const activateTab = useActivateSidebarTab();
@@ -84,7 +84,7 @@ export const SidePanelTabs = ({ side }: { side: "left" | "right" }) => {
   }
 
   return (
-    <div className="h-8 border-b border-border flex items-center bg-bg">
+    <div className={wrapperClassName ?? "h-8 border-b border-border flex items-center bg-bg"}>
       {sidebarTabs.tabs.map((tab: { id: string; type: string; meta?: any }, idx: number) => {
         const extensionTab = tab.type === "custom" ? pluginTabs?.find((t) => t.id === tab.meta.customTabKey) : null;
         // Skip rendering if it's an extension tab but no matching plugin tab is found
@@ -101,6 +101,7 @@ export const SidePanelTabs = ({ side }: { side: "left" | "right" }) => {
             <Tip label={tabLabel} side="bottom">
               <button
                 onClick={() => {
+                  onTabClick?.();
                   activateTab.mutate({ sidebarId: side, tabId: tab.id });
                   setStoreIsSearching(false);
                 }}

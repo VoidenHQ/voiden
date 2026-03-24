@@ -263,10 +263,10 @@ export const useRightPanel = ({ defaultSize = 0, minSize = 30 }: UseRightPanelPr
     }
   }, [rightPanelOpen]);
 
-  // Keyboard shortcut: Cmd+Y
+  // Keyboard shortcut: Cmd+Y — toggle response panel
+  // In bottom mode: open the bottom panel and switch to sidebar (response) view
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't trigger if focus is in a CodeMirror editor
       const target = e.target as HTMLElement;
       if (target?.closest('.cm-editor, .txt-editor')) {
         return;
@@ -274,7 +274,22 @@ export const useRightPanel = ({ defaultSize = 0, minSize = 30 }: UseRightPanelPr
 
       if ((e.metaKey || e.ctrlKey) && e.key === "y") {
         e.preventDefault();
-        toggle();
+        const { responsePanelPosition, setBottomActiveView, openBottomPanel, bottomPanelRef, bottomActiveView } = usePanelStore.getState();
+        if (responsePanelPosition === "bottom") {
+          if (bottomActiveView === "sidebar" && bottomPanelRef?.current && !bottomPanelRef.current.isCollapsed()) {
+            // Already showing sidebar in open panel — collapse
+            bottomPanelRef.current.collapse();
+            usePanelStore.getState().closeBottomPanel();
+          } else {
+            setBottomActiveView("sidebar");
+            if (bottomPanelRef?.current?.isCollapsed()) {
+              bottomPanelRef.current.expand();
+              openBottomPanel();
+            }
+          }
+        } else {
+          toggle();
+        }
       }
     };
 
