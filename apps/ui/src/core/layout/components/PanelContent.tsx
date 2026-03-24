@@ -24,6 +24,30 @@ import { useNewTerminalTab } from "@/core/terminal/hooks/useTerminal";
 import { usePanelStore } from "@/core/stores/panelStore";
 import { Tip } from "@/core/components/ui/Tip";
 
+// Extensions that cannot be displayed as text — show a "not supported" message
+const BINARY_EXTENSIONS = new Set([
+  "zip", "rar", "tar", "gz", "bz2", "7z", "xz", "tgz",
+  "exe", "dll", "so", "dylib", "app", "dmg", "pkg", "deb", "rpm", "msi", "apk",
+  "png", "jpg", "jpeg", "gif", "bmp", "ico", "webp", "tiff", "tif", "psd", "heic", "avif",
+  "mp3", "mp4", "mov", "avi", "mkv", "wav", "flac", "ogg", "webm", "m4a", "m4v",
+  "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx",
+  "class", "pyc", "o", "a", "lib",
+  "woff", "woff2", "ttf", "otf", "eot",
+  "db", "sqlite", "sqlite3",
+]);
+
+function isBinaryFile(name: string): boolean {
+  const ext = name.split(".").pop()?.toLowerCase() ?? "";
+  return BINARY_EXTENSIONS.has(ext);
+}
+
+const UnsupportedFile = ({ title }: { title: string }) => (
+  <div className="flex flex-col items-center justify-center h-full gap-2 text-comment select-none">
+    <span className="text-sm font-medium">{title}</span>
+    <span className="text-xs">This file type cannot be opened in the editor.</span>
+  </div>
+);
+
 // TypeScript interface for md-preview plugin helpers
 interface MdPreviewHelpers {
   useMdViewStore: (selector: (state: any) => any) => any;
@@ -531,6 +555,8 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
                     hasSearch
                     isActive={docTab.tabId === activeDocTabContent?.tabId}
                   />
+                ) : isBinaryFile(docTab.source || docTab.title) ? (
+                  <UnsupportedFile title={docTab.title} />
                 ) : (
                   <CodeEditor
                     tabId={docTab.tabId}

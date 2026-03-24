@@ -170,26 +170,14 @@ export function getCliArguments(): string[] {
 }
 
 /**
- * Handle macOS open-file event (when double-clicking a file or using `open` command)
+ * Handle macOS open-file event (when double-clicking a file or using "Open With")
+ * Call this after the app is ready and the initial window has been created.
  */
-export function setupMacOSFileHandler(mainWindow: BrowserWindow) {
+export function setupMacOSFileHandler() {
   if (process.platform !== "darwin") return;
   app.on("open-file", async (event, filePath) => {
     event.preventDefault();
-
-    if (!mainWindow || mainWindow.isDestroyed()) {
-      // If window is not ready, queue the file to open after window creation
-      app.once("ready", async () => {
-        const newWindow = BrowserWindow.getAllWindows()[0];
-        if (newWindow) {
-          await handleCliArguments(newWindow, [filePath]);
-        }
-      });
-      return;
-    }
-
-    // Open the file in existing window
-    await handleCliArguments(mainWindow, [filePath]);
+    await handleCliArguments([filePath]);
   });
 }
 

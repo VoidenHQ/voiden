@@ -444,8 +444,8 @@ export const AppLayout = () => {
         toggleRight={toggleRight}
       />
 
-      {/* Onboarding Modal */}
-      {!appState?.onboarding && <OnboardingModal />}
+      {/* Onboarding Modal — only on a genuinely empty workspace, not when a file was opened directly */}
+      {!appState?.onboarding && (panelTabs?.tabs?.length ?? 0) === 0 && <OnboardingModal />}
 
       {/* About Modal */}
       <AboutModal isOpen={isAboutModalOpen} onClose={() => setIsAboutModalOpen(false)} />

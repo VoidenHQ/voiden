@@ -6,7 +6,6 @@ import * as fs from "fs";
 import { randomUUID } from "crypto";
 import EventBus from "./eventBus";
 import { createWindow, initializeWelcomeTabs } from "./window";
-import { setupMacOSFileHandler } from "./cliHandler";
 import { AppState } from "../shared/types";
 import { getDefaultLayout, saveState } from "./persistState";
 import { initializeState, updateWindowState } from "./state";
@@ -29,6 +28,8 @@ class WindowManager {
   activeWindowId: string | null = null;
   private activeStateDir = ''
   private initialized = false;
+  // Windows explicitly told to close (vs. just hide on macOS)
+  private forceCloseIds = new Set<string>();
 
   /** Lazily resolve paths and create directories (must not run before app.ready) */
   private ensureInitialized() {
@@ -228,7 +229,19 @@ class WindowManager {
         await initializeWelcomeTabs();
       });
 
-      setupMacOSFileHandler(win);
+      // On macOS: hide window on close unless explicitly force-closed
+      // (e.g. "Close Window" menu item). This lets the user click the dock
+      // icon to get the window back, which is standard macOS behaviour.
+      if (process.platform === "darwin") {
+        win.on("close", (event) => {
+          if (!this.forceCloseIds.has(id)) {
+            event.preventDefault();
+            win.hide();
+          } else {
+            this.forceCloseIds.delete(id);
+          }
+        });
+      }
 
       win.on("closed", () => {
         EventBus.unregisterWindow(win);
@@ -264,6 +277,8 @@ class WindowManager {
 
     const win = this.browserWindows.get(id);
     if (win && !win.isDestroyed()) {
+      // Mark as force-close so the macOS hide-on-close handler lets it through
+      this.forceCloseIds.add(id);
       win.close(); // This triggers the 'closed' event which handles cleanup
     }
   }
