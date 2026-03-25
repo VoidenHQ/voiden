@@ -39,8 +39,10 @@ export async function handleCliArguments(
     return;
   }
 
-  // Process first argument as path
-  await openPath(firstArg);
+  // Process all arguments as paths (supports multiple files)
+  for (const arg of userArgs) {
+    await openPath(arg);
+  }
 
 
 }
@@ -90,7 +92,7 @@ async function openPath(inputPath: string): Promise<void> {
         return;
       }
       if (isSystemFolder(resolvedPath)) {
-        dialog.showMessageBox(null, {
+        dialog.showMessageBox({
           type: "info",
           title: "You’re trying to open a system folder.",
           message:
@@ -102,8 +104,8 @@ async function openPath(inputPath: string): Promise<void> {
       }
       const main = await windowManager.createWindow(undefined, true);
       main.webContents.on('did-finish-load', async () => {
-        const windowId = main?.windowInfo.id;
-        await windowManager.setActiveDirectory(windowId, resolvedPath);
+        const windowId = (main as BrowserWindow & { windowInfo?: { id: string } })?.windowInfo?.id;
+        if (windowId) await windowManager.setActiveDirectory(windowId, resolvedPath);
       })
 
     } else if (stats.isFile()) {
@@ -131,9 +133,13 @@ async function openPath(inputPath: string): Promise<void> {
         const win = windowManager.browserWindow;
         if (win) {
           win.webContents.send('file:newTab');
-          if (win.isMinimized()) win.restore();
-          win.show();
-          win.focus();
+          // Only show/focus if the window is already visible — if it's still
+          // loading (splash screen up), ready-to-show will handle showing it.
+          if (win.isVisible()) {
+            if (win.isMinimized()) win.restore();
+            win.show();
+            win.focus();
+          }
         }
       }
     }
