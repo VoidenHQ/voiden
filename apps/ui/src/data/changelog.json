@@ -1,5 +1,25 @@
 [
   {
+    "version": "v1.4.1-beta.2",
+    "date": "25/03/2026",
+    "title": "Panel Layouts & Open With",
+    "description": "Beta release adding a bottom panel layout for the response viewer, OS-level \"Open with Voiden\" support, and fixes for file upload in FormData/Binary bodies and random filenames on download.",
+    "icon": "PanelBottom",
+    "iconColor": "text-sky-400",
+    "bgColor": "bg-gradient-to-br from-sky-900 to-blue-900",
+    "changes": {
+      "Added": [
+        "Bottom panel layout for response viewer — move the response panel below the editor via the panel toggle button; the right panel now spans the full editor height while the bottom panel shares space with the terminal",
+        "Open with Voiden — open .void, .json, .yaml, and other supported file types directly in Voiden via the OS \"Open with\" dialog"
+      ],
+      "Fixed": [
+        "Files could not be attached and sent in FormData or Binary request bodies",
+        "Downloads now use the filename from the server's Content-Disposition header instead of a random UUID",
+        "Inline file references mixed with other text no longer add extra spacing after switching tabs"
+      ]
+    }
+  },
+  {
     "version": "v1.4.1-beta.1",
     "date": "23/03/2026",
     "title": "Stitch — Workflow Runner",
