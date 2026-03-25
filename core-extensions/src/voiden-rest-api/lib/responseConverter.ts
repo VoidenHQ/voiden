@@ -83,6 +83,45 @@ export interface HttpResponse {
   };
 }
 
+function sanitizeDownloadFilename(filename: string): string {
+  return filename
+    .replace(/[/\\]/g, "_")
+    .replace(/[\u0000-\u001f\u007f]/g, "")
+    .trim();
+}
+
+function extractContentDispositionFilename(contentDisposition: string | undefined): string | null {
+  if (!contentDisposition) return null;
+
+  const filenameStarMatch = contentDisposition.match(/filename\*\s*=\s*([^;]+)/i);
+  if (filenameStarMatch) {
+    const rawValue = filenameStarMatch[1].trim();
+    const unquoted = rawValue.replace(/^"(.*)"$/, "$1");
+    const parts = unquoted.match(/^([^']*)'[^']*'(.*)$/);
+    const encodedValue = parts ? parts[2] : unquoted;
+
+    try {
+      const decoded = decodeURIComponent(encodedValue);
+      const sanitized = sanitizeDownloadFilename(decoded);
+      if (sanitized) return sanitized;
+    } catch {
+      const sanitized = sanitizeDownloadFilename(encodedValue);
+      if (sanitized) return sanitized;
+    }
+  }
+
+  const filenameMatch = contentDisposition.match(/filename\s*=\s*("(?:[^"\\]|\\.)*"|[^;]+)/i);
+  if (!filenameMatch) return null;
+
+  const rawValue = filenameMatch[1].trim();
+  const unquoted = rawValue.startsWith('"') && rawValue.endsWith('"')
+    ? rawValue.slice(1, -1).replace(/\\"/g, '"')
+    : rawValue;
+  const sanitized = sanitizeDownloadFilename(unquoted);
+
+  return sanitized || null;
+}
+
 /**
  * Convert HTTP response to Voiden document JSON
  *
@@ -114,17 +153,9 @@ export function convertResponseToVoidenDoc(response: HttpResponse): any {
   }
 
   // Extract filename from Content-Disposition header (e.g. attachment; filename="file.ics")
-  let downloadFilename: string | null = null;
-  const contentDisposition = headersArray.find(
-    h => h.key.toLowerCase() === 'content-disposition'
-  )?.value;
-  if (contentDisposition) {
-    // Try filename*=UTF-8''... first, then filename="..."
-    const filenameStarMatch = contentDisposition.match(/filename\*\s*=\s*(?:[^']*'')?([^;\s]+)/i);
-    const filenameMatch = contentDisposition.match(/filename\s*=\s*"?([^";\s]+)"?/i);
-    const raw = filenameStarMatch ? decodeURIComponent(filenameStarMatch[1]) : filenameMatch?.[1] ?? null;
-    if (raw) downloadFilename = raw;
-  }
+  const downloadFilename = extractContentDispositionFilename(
+    headersArray.find((h) => h.key.toLowerCase() === "content-disposition")?.value
+  );
 
   // Build the Voiden document structure
   // Store metadata in doc attrs for ResponsePanelContainer to access

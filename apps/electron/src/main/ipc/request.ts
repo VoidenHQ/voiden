@@ -1,5 +1,6 @@
 import { ipcMain, BrowserWindow, protocol } from "electron";
-import { Agent, ProxyAgent, request as undiciRequest, WebSocket, fetch, FormData, File } from "undici";
+import { Blob } from "node:buffer";
+import { Agent, ProxyAgent, request as undiciRequest, WebSocket, fetch, FormData } from "undici";
 import { getSettings } from "../settings";
 import { replaceVariablesSecure } from "../env";
 import { getActiveProject } from "../state";
@@ -289,6 +290,12 @@ function getMimeType(filePath: string): string {
     ".wav": "audio/wav",
   };
   return mimeTypes[ext] || "application/octet-stream";
+}
+
+function createMultipartBlob(bytes: ArrayBuffer | ArrayLike<number>, type?: string): Blob {
+  return new Blob([Buffer.from(bytes as ArrayLike<number>)], {
+    type: type || "application/octet-stream",
+  });
 }
 
 /**
@@ -679,17 +686,20 @@ export function registerRequestIpcHandler() {
       if (bodyHint === "FormData") {
         const formData = new FormData();
         for (const item of body) {
-          const value =
-            typeof item[1] !== "object"
-              ? item[1]
-              : new File([new Uint8Array(item[1].buffer)], item[1].name, {
-                type: item[1].type,
-              });
-          formData.append(item[0], value);
+          if (typeof item[1] !== "object") {
+            formData.append(item[0], item[1]);
+            continue;
+          }
+
+          formData.append(
+            item[0],
+            createMultipartBlob(item[1].buffer, item[1].type),
+            item[1].name,
+          );
         }
         fetchOptions.body = formData;
       } else if (bodyHint === "File") {
-        fetchOptions.body = new File([new Uint8Array(body.buffer)], body.name, { type: body.type });
+        fetchOptions.body = Buffer.from(body.buffer);
       }
 
       // Configure dispatcher (proxy or TLS agent)
@@ -834,14 +844,7 @@ export function registerRequestIpcHandler() {
           try {
             // Read file from filesystem
             const fileBuffer = await fs.readFile(filePath);
-            const fileName = path.basename(filePath);
-
-            // Create a File object from the buffer
-            const file = new File([fileBuffer], fileName, {
-              type: getMimeType(filePath),
-            });
-
-            fetchOptions.body = file as any;
+            fetchOptions.body = fileBuffer as any;
 
             // Set Content-Type if not already set
             if (!hasHeader(headers, "Content-Type")) {
@@ -851,8 +854,15 @@ export function registerRequestIpcHandler() {
             throw new Error(`Failed to read binary file: ${filePath}`);
           }
         } else {
-          // Binary is already a File object (legacy)
-          fetchOptions.body = requestState.binary as any;
+          const binaryValue = requestState.binary as any;
+
+          if (binaryValue && typeof binaryValue.arrayBuffer === "function") {
+            fetchOptions.body = Buffer.from(await binaryValue.arrayBuffer()) as any;
+          } else if (binaryValue && typeof binaryValue === "object" && "buffer" in binaryValue) {
+            fetchOptions.body = Buffer.from(binaryValue.buffer) as any;
+          } else {
+            fetchOptions.body = binaryValue;
+          }
         }
       }
       // Add body for non-GET requests
@@ -904,17 +914,16 @@ export function registerRequestIpcHandler() {
 
                 try {
                   // Read file from filesystem
+                  console.log(`Reading file for multipart upload: ${filePath}`);
                   const fileBuffer = await fs.readFile(filePath);
                   const fileName = path.basename(filePath);
-
-                  // Create a File object from the buffer
-                  const file = new File([fileBuffer], fileName, {
-                    type: getMimeType(filePath),
-                  });
-
-                  formData.append(param.key, file);
+                  formData.append(
+                    param.key,
+                    createMultipartBlob(fileBuffer, getMimeType(filePath)),
+                    fileName,
+                  );
                 } catch (error) {
-                  throw new Error(`Failed to read file: ${filePath}`);
+                  throw new Error(`Failed to read file: ${error}`);
                 }
               } else if (param.type === "text") {
                 // Handle text value

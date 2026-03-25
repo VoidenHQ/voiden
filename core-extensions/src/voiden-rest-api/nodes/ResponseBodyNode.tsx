@@ -359,9 +359,11 @@ export const createResponseBodyNode = (
           return <div className="p-4 text-comment text-sm">Failed to load PDF.</div>;
         }
 
+        const pdfViewerUrl = `${pdfUrl}${pdfUrl.includes("#") ? "&" : "#"}toolbar=0&navpanes=0&scrollbar=0`;
+
         return (
           <div className="bg-bg" style={{ height: '500px' }}>
-            <embed src={pdfUrl} type="application/pdf" className="w-full h-full" />
+            <embed src={pdfViewerUrl} type="application/pdf" className="w-full h-full" />
           </div>
         );
       }

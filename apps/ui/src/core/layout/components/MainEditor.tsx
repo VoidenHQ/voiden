@@ -242,41 +242,14 @@ export const MainEditor = ({ bottomPanelProps, rightPanelProps }: MainEditorProp
 
   return (
     <Panel defaultSize={80} minSize={5} className="min-w-96">
-      <div className="h-full flex flex-col">
-        {/* Tab bar — full width, never squeezed by the response panel */}
-        {editorToolbar}
-
-        {/* Content area: editor + response panel side-by-side */}
-        <div className="flex-1 min-h-0">
+      <PanelGroup direction="vertical" autoSaveId="persist-3">
+        <Panel defaultSize={70} minSize={20}>
           <PanelGroup direction="horizontal" autoSaveId="per">
-            {/* Editor + Terminal */}
             <Panel defaultSize={60} minSize={30}>
-              <PanelGroup direction="vertical" autoSaveId="persist-3">
-                <Panel defaultSize={70}>
-                  <div id="main-editor" className="relative h-full bg-editor">
-                    <div className="absolute inset-0">
-                      <PanelContent panelId="main" />
-                    </div>
-                  </div>
-                </Panel>
-
-                <ResizeHandle orientation="horizontal" />
-
-                {/* Terminal Panel */}
-                <Panel {...bottomPanelProps}>
-                  <div className="h-full border-t border-border">
-                    <div className="h-8 flex justify-between bg-panel">
-                      <PanelTabs panel="bottom" />
-                      <div className="flex border-l border-b border-border">
-                        <button className="px-2 hover:bg-active text-comment" onClick={() => newTerminalTab("bottom")}>
-                          <Plus size={14} />
-                        </button>
-                      </div>
-                    </div>
-                    <PanelContent panelId="bottom" />
-                  </div>
-                </Panel>
-              </PanelGroup>
+              <div className="h-full flex flex-col">
+                {editorToolbar}
+                {editorContent}
+              </div>
             </Panel>
 
             <ResizeHandle orientation="vertical" />
@@ -291,8 +264,25 @@ export const MainEditor = ({ bottomPanelProps, rightPanelProps }: MainEditorProp
               </div>
             </Panel>
           </PanelGroup>
-        </div>
-      </div>
+        </Panel>
+
+        <ResizeHandle orientation="horizontal" />
+
+        {/* Terminal Panel */}
+        <Panel {...bottomPanelProps}>
+          <div className="h-full border-t border-border">
+            <div className="h-8 flex justify-between bg-panel">
+              <PanelTabs panel="bottom" />
+              <div className="flex border-l border-b border-border">
+                <button className="px-2 hover:bg-active text-comment" onClick={() => newTerminalTab("bottom")}>
+                  <Plus size={14} />
+                </button>
+              </div>
+            </div>
+            <PanelContent panelId="bottom" />
+          </div>
+        </Panel>
+      </PanelGroup>
     </Panel>
   );
 };
