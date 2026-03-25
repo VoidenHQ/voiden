@@ -1,6 +1,6 @@
 [
   {
-    "version": "v1.4.1-beta.2",
+    "version": "v1.4.2-beta.1",
     "date": "25/03/2026",
     "title": "Panel Layouts & Open With",
     "description": "Beta release adding a bottom panel layout for the response viewer, OS-level \"Open with Voiden\" support, and fixes for file upload in FormData/Binary bodies and random filenames on download.",
