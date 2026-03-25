@@ -32,6 +32,7 @@ export const AppLayout = () => {
   const closeRightPanel = usePanelStore((state) => state.closeRightPanel);
 
   const { data: appState } = useGetAppState();
+  const [onboarding, setOnboarding] = useState<boolean | null>(null);
   const [version, setVersion] = useState<string>("");
   const [isAboutModalOpen, setIsAboutModalOpen] = useState(false);
   let { settings, onChange, setSettings } = useSettings();
@@ -107,6 +108,11 @@ export const AppLayout = () => {
   // Get app version
   useEffect(() => {
     window.electron?.getVersion().then(setVersion);
+  }, []);
+
+  // Read onboarding status directly from onboarding.json
+  useEffect(() => {
+    window.electron?.state.getOnboarding().then(setOnboarding);
   }, []);
 
   // Apply font size settings
@@ -444,8 +450,8 @@ export const AppLayout = () => {
         toggleRight={toggleRight}
       />
 
-      {/* Onboarding Modal */}
-      {!appState?.onboarding && <OnboardingModal />}
+      {/* Onboarding Modal — shown only on a fresh install (driven by onboarding.json) */}
+      {onboarding === false && <OnboardingModal />}
 
       {/* About Modal */}
       <AboutModal isOpen={isAboutModalOpen} onClose={() => setIsAboutModalOpen(false)} />

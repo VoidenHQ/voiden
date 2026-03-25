@@ -34,6 +34,16 @@ import "./main/env";
 import "./main/utils";
 import "./main/variables";
 
+// On macOS, "Open With" / double-click fires open-file before the app is ready.
+// Queue those paths here and drain them after initial windows are loaded.
+const pendingOpenFiles: string[] = [];
+if (process.platform === "darwin") {
+  app.on("open-file", (event, filePath) => {
+    event.preventDefault();
+    pendingOpenFiles.push(filePath);
+  });
+}
+
 const gotTheLock = app.requestSingleInstanceLock({ args: getCliArguments() });
 
 if (!gotTheLock) {
@@ -168,15 +178,25 @@ app.on("ready", async () => {
 
   // Create main window (after IPC handlers are ready)
   const cliArgs = getCliArguments();
-  if (cliArgs.length > 0) {
-    await handleCliArguments(cliArgs);
-    setupMacOSFileHandler(windowManager.browserWindow as BrowserWindow);
+  // On macOS, also include any open-file paths that arrived before ready
+  const allInitialArgs = [...cliArgs, ...pendingOpenFiles];
+  pendingOpenFiles.length = 0;
+
+  if (allInitialArgs.length > 0) {
+    await handleCliArguments(allInitialArgs);
     if (windowManager.getAllWindows().length === 0) {
       splashWindow?.destroy();
     }
   } else {
     await windowManager.loadAllWindows();
   }
+
+  // Set up the ongoing macOS "Open With" handler (remove the pre-ready queuing
+  // listener first so we don't accumulate duplicate listeners).
+  if (process.platform === "darwin") {
+    app.removeAllListeners("open-file");
+  }
+  setupMacOSFileHandler();
 
   // Load main-process extensions after state is initialized
   try {
@@ -205,8 +225,14 @@ app.on("window-all-closed", async () => {
 });
 
 app.on("activate", async () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
-    await windowManager.loadAllWindows()
+  const windows = BrowserWindow.getAllWindows();
+  // On macOS, windows are hidden instead of destroyed when the user clicks
+  // the red X. Re-show any hidden windows on dock-icon click.
+  const hiddenWindows = windows.filter(w => !w.isDestroyed() && !w.isVisible());
+  if (hiddenWindows.length > 0) {
+    hiddenWindows.forEach(w => { w.show(); w.focus(); });
+  } else if (windows.length === 0) {
+    await windowManager.loadAllWindows();
   }
 });
 

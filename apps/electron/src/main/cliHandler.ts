@@ -39,8 +39,10 @@ export async function handleCliArguments(
     return;
   }
 
-  // Process first argument as path
-  await openPath(firstArg);
+  // Process all arguments as paths (supports multiple files)
+  for (const arg of userArgs) {
+    await openPath(arg);
+  }
 
 
 }
@@ -90,7 +92,7 @@ async function openPath(inputPath: string): Promise<void> {
         return;
       }
       if (isSystemFolder(resolvedPath)) {
-        dialog.showMessageBox(null, {
+        dialog.showMessageBox({
           type: "info",
           title: "You’re trying to open a system folder.",
           message:
@@ -102,8 +104,8 @@ async function openPath(inputPath: string): Promise<void> {
       }
       const main = await windowManager.createWindow(undefined, true);
       main.webContents.on('did-finish-load', async () => {
-        const windowId = main?.windowInfo.id;
-        await windowManager.setActiveDirectory(windowId, resolvedPath);
+        const windowId = (main as BrowserWindow & { windowInfo?: { id: string } })?.windowInfo?.id;
+        if (windowId) await windowManager.setActiveDirectory(windowId, resolvedPath);
       })
 
     } else if (stats.isFile()) {
@@ -117,19 +119,28 @@ async function openPath(inputPath: string): Promise<void> {
       const activeWindowId = windowManager.getActiveWindowId();
       if (!activeWindowId) {
         const main = await windowManager.createWindow(undefined, true);
-        main.webContents.on('did-finish-load', async () => {
-          const activeWindowId = main?.windowInfo.id || "";
-          await windowManager.setActiveDirectory(activeWindowId as string, "");
-          const tab = await addPanelTab(undefined, 'main', newTab);
-          await activateTab(undefined, 'main', tab.tabId);
-          if (windowManager.browserWindow) windowManager.browserWindow.webContents.send('file:newTab');
-          main.focus();
-        })
-      } else {
-        await windowManager.setActiveDirectory(activeWindowId as string, "");
+        // Mutate state immediately after createWindow — the window state is
+        // already initialized at this point, so the tab will be present when
+        // the renderer makes its first state:getPanelTabs call on load.
         const tab = await addPanelTab(undefined, 'main', newTab);
         await activateTab(undefined, 'main', tab.tabId);
-        if (windowManager.browserWindow) windowManager.browserWindow.webContents.send('file:newTab');
+        main.webContents.on('did-finish-load', () => {
+          main.focus();
+        });
+      } else {
+        const tab = await addPanelTab(undefined, 'main', newTab);
+        await activateTab(undefined, 'main', tab.tabId);
+        const win = windowManager.browserWindow;
+        if (win) {
+          win.webContents.send('file:newTab');
+          // Only show/focus if the window is already visible — if it's still
+          // loading (splash screen up), ready-to-show will handle showing it.
+          if (win.isVisible()) {
+            if (win.isMinimized()) win.restore();
+            win.show();
+            win.focus();
+          }
+        }
       }
     }
   } catch (error) {
@@ -170,26 +181,14 @@ export function getCliArguments(): string[] {
 }
 
 /**
- * Handle macOS open-file event (when double-clicking a file or using `open` command)
+ * Handle macOS open-file event (when double-clicking a file or using "Open With").
+ * Call this once after the app is ready.
  */
-export function setupMacOSFileHandler(mainWindow: BrowserWindow) {
+export function setupMacOSFileHandler() {
   if (process.platform !== "darwin") return;
   app.on("open-file", async (event, filePath) => {
     event.preventDefault();
-
-    if (!mainWindow || mainWindow.isDestroyed()) {
-      // If window is not ready, queue the file to open after window creation
-      app.once("ready", async () => {
-        const newWindow = BrowserWindow.getAllWindows()[0];
-        if (newWindow) {
-          await handleCliArguments(newWindow, [filePath]);
-        }
-      });
-      return;
-    }
-
-    // Open the file in existing window
-    await handleCliArguments(mainWindow, [filePath]);
+    await handleCliArguments([filePath]);
   });
 }
 

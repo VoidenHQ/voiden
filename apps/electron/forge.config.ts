@@ -105,6 +105,34 @@ if (isMac) {
       // updater config removed: it generated a latest.yml with pre-signing hash that
       // conflicted with the postMake hook's latest.yml (computed after signing).
       // app-update.yml is now generated in packageAfterCopy for Windows.
+
+      // Register file associations via app-builder-lib so "Open with Voiden"
+      // appears in Windows Explorer for .void and common text/code files.
+      getAppBuilderConfig: async () => ({
+        fileAssociations: [
+          {
+            ext: "void",
+            name: "Voiden Document",
+            description: "Voiden Document",
+            role: "Editor",
+          },
+          {
+            ext: ["txt", "md", "markdown", "json", "yaml", "yml", "xml", "html", "htm", "css"],
+            name: "Text File",
+            role: "Editor",
+          },
+          {
+            ext: [
+              "js", "ts", "jsx", "tsx", "py", "rb", "go", "rs", "java",
+              "c", "cpp", "h", "hpp", "cs", "php", "sh", "env", "toml",
+              "ini", "cfg", "conf", "log", "csv", "sql", "graphql", "gql",
+              "proto", "tf", "swift", "kt", "dart",
+            ],
+            name: "Source Code",
+            role: "Editor",
+          },
+        ],
+      }),
     },
   });
 } else if (isLinux) {
@@ -117,7 +145,32 @@ if (isMac) {
         icon: "./src/images/icon.png",
         maintainer: "Voiden By ApyHub <info@voiden.md>", // Required for .deb
         homepage: "https://voiden.md",
-        mimeType: ["x-scheme-handler/electron-fiddle"],
+        mimeType: [
+          "x-scheme-handler/voiden",
+          "application/x-void",
+          "text/plain",
+          "text/x-source-code",
+          "application/json",
+          "application/xml",
+          "text/xml",
+          "text/html",
+          "text/css",
+          "text/javascript",
+          "text/x-python",
+          "text/x-ruby",
+          "text/x-go",
+          "text/x-rust",
+          "text/x-java",
+          "text/x-csrc",
+          "text/x-c++src",
+          "text/x-shellscript",
+          "text/markdown",
+          "text/x-yaml",
+          "application/x-yaml",
+          "application/yaml",
+          "text/csv",
+          "text/x-sql",
+        ],
       },
     }),
     new MakerRpm({
@@ -126,7 +179,33 @@ if (isMac) {
         name: 'voiden',
         productName: 'Voiden',
         icon: './src/images/icon.png',
-        homepage: 'https://voiden.md'
+        homepage: 'https://voiden.md',
+        mimeType: [
+          "x-scheme-handler/voiden",
+          "application/x-void",
+          "text/plain",
+          "text/x-source-code",
+          "application/json",
+          "application/xml",
+          "text/xml",
+          "text/html",
+          "text/css",
+          "text/javascript",
+          "text/x-python",
+          "text/x-ruby",
+          "text/x-go",
+          "text/x-rust",
+          "text/x-java",
+          "text/x-csrc",
+          "text/x-c++src",
+          "text/x-shellscript",
+          "text/markdown",
+          "text/x-yaml",
+          "application/x-yaml",
+          "application/yaml",
+          "text/csv",
+          "text/x-sql",
+        ],
       },
     }),
     {
@@ -248,8 +327,8 @@ const config: ForgeConfig = {
     icon: "./src/images/icon.png",
     protocols: [
       {
-        name: "electron-fiddle",
-        schemes: ["electron-fiddle"],
+        name: "Voiden",
+        schemes: ["voiden"],
       },
     ],
   },

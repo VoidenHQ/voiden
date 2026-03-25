@@ -78,6 +78,35 @@ const SETTINGS_FILE = path.join(
   app.getPath("userData"),
   "voiden-settings.json",
 );
+const ONBOARDING_FILE = path.join(app.getPath("userData"), "onboarding.json");
+
+/**
+ * Load onboarding status from its dedicated file.
+ * If the file doesn't exist (first launch), check whether any window-state
+ * files already exist to distinguish a fresh install from an existing user.
+ */
+export async function loadOnboardingState(): Promise<boolean> {
+  try {
+    const data = await fs.readFile(ONBOARDING_FILE, "utf8");
+    return JSON.parse(data).onboarding === true;
+  } catch {
+    // File missing — derive initial value from existing window states
+    const stateDir = path.join(app.getPath("userData"), "window-states");
+    let hasWindowState = false;
+    try {
+      const files = await fs.readdir(stateDir);
+      hasWindowState = files.some((f) => f.endsWith(".json"));
+    } catch {
+      // Directory doesn't exist yet — truly fresh install
+    }
+    await saveOnboardingState(hasWindowState);
+    return hasWindowState;
+  }
+}
+
+export async function saveOnboardingState(value: boolean): Promise<void> {
+  await fs.writeFile(ONBOARDING_FILE, JSON.stringify({ onboarding: value }), "utf8");
+}
 const AUTOSAVE_DIR = path.join(app.getPath("userData"), "autosave");
 
 // Load or initialize state
@@ -87,11 +116,8 @@ export async function loadState(skipDefault?: boolean): Promise<AppState> {
     const data = await fs.readFile(STATE_FILE, "utf8");
     const state = JSON.parse(data) as AppState;
 
-    // Existing state file = user already onboarded; mark as complete to skip the modal.
-    if (state.onboarding === undefined) {
-      state.onboarding = true;
-      await saveState(state);
-    }
+    // Onboarding is managed by a dedicated file — override whatever is in the state.
+    state.onboarding = await loadOnboardingState();
 
     // Migration: Add git source control tab if it doesn't exist
     if (
@@ -114,6 +140,7 @@ export async function loadState(skipDefault?: boolean): Promise<AppState> {
     // Create a new state for first launch or recovery
     const defaultState = await getDefaultState(skipDefault);
     defaultState.id = windowManager.activeWindowId;
+    defaultState.onboarding = await loadOnboardingState();
     await saveState(defaultState);
     return defaultState;
   }

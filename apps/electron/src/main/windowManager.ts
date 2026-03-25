@@ -6,7 +6,7 @@ import * as fs from "fs";
 import { randomUUID } from "crypto";
 import EventBus from "./eventBus";
 import { createWindow, initializeWelcomeTabs } from "./window";
-import { setupMacOSFileHandler } from "./cliHandler";
+
 import { AppState } from "../shared/types";
 import { getDefaultLayout, saveState } from "./persistState";
 import { initializeState, updateWindowState } from "./state";
@@ -227,8 +227,6 @@ class WindowManager {
       win.webContents.on("did-finish-load", async () => {
         await initializeWelcomeTabs();
       });
-
-      setupMacOSFileHandler(win);
 
       win.on("closed", () => {
         EventBus.unregisterWindow(win);

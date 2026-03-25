@@ -1,9 +1,123 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" 
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
   <dict>
     <key>NSDocumentsFolderUsageDescription</key>
     <string>This app needs access to the Documents folder to set up sample projects.</string>
+
+    <!-- Register Voiden as a handler for .void files and common text/code files -->
+    <key>CFBundleDocumentTypes</key>
+    <array>
+      <!-- .void: Voiden's native format — Voiden is the primary (owner) editor -->
+      <dict>
+        <key>CFBundleTypeName</key>
+        <string>Voiden Document</string>
+        <key>CFBundleTypeRole</key>
+        <string>Editor</string>
+        <key>LSHandlerRank</key>
+        <string>Owner</string>
+        <key>CFBundleTypeExtensions</key>
+        <array>
+          <string>void</string>
+        </array>
+        <key>LSItemContentTypes</key>
+        <array>
+          <string>md.voiden.document</string>
+        </array>
+      </dict>
+      <!-- Text and source code files — Voiden appears as an "Open With" option -->
+      <dict>
+        <key>CFBundleTypeName</key>
+        <string>Text / Source Code</string>
+        <key>CFBundleTypeRole</key>
+        <string>Editor</string>
+        <key>LSHandlerRank</key>
+        <string>Alternate</string>
+        <key>CFBundleTypeExtensions</key>
+        <array>
+          <string>txt</string>
+          <string>md</string>
+          <string>markdown</string>
+          <string>json</string>
+          <string>yaml</string>
+          <string>yml</string>
+          <string>xml</string>
+          <string>html</string>
+          <string>htm</string>
+          <string>css</string>
+          <string>js</string>
+          <string>ts</string>
+          <string>jsx</string>
+          <string>tsx</string>
+          <string>py</string>
+          <string>rb</string>
+          <string>go</string>
+          <string>rs</string>
+          <string>java</string>
+          <string>c</string>
+          <string>cpp</string>
+          <string>h</string>
+          <string>hpp</string>
+          <string>cs</string>
+          <string>php</string>
+          <string>sh</string>
+          <string>bash</string>
+          <string>zsh</string>
+          <string>fish</string>
+          <string>env</string>
+          <string>toml</string>
+          <string>ini</string>
+          <string>cfg</string>
+          <string>conf</string>
+          <string>log</string>
+          <string>csv</string>
+          <string>sql</string>
+          <string>graphql</string>
+          <string>gql</string>
+          <string>proto</string>
+          <string>tf</string>
+          <string>swift</string>
+          <string>kt</string>
+          <string>dart</string>
+          <string>r</string>
+          <string>lua</string>
+          <string>vim</string>
+          <string>dockerfile</string>
+          <string>gitignore</string>
+          <string>editorconfig</string>
+        </array>
+        <key>LSItemContentTypes</key>
+        <array>
+          <string>public.plain-text</string>
+          <string>public.source-code</string>
+          <string>public.json</string>
+          <string>public.xml</string>
+          <string>public.yaml</string>
+        </array>
+      </dict>
+    </array>
+
+    <!-- Declare the custom .void UTI so macOS recognises the file type -->
+    <key>UTExportedTypeDeclarations</key>
+    <array>
+      <dict>
+        <key>UTTypeIdentifier</key>
+        <string>md.voiden.document</string>
+        <key>UTTypeDescription</key>
+        <string>Voiden Document</string>
+        <key>UTTypeConformsTo</key>
+        <array>
+          <string>public.plain-text</string>
+        </array>
+        <key>UTTypeTagSpecification</key>
+        <dict>
+          <key>public.filename-extension</key>
+          <array>
+            <string>void</string>
+          </array>
+        </dict>
+      </dict>
+    </array>
   </dict>
 </plist>
