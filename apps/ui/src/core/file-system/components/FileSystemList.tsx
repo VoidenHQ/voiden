@@ -853,7 +853,7 @@ const removeNodeFromTreeData = (nodes: ExtendedFileTree[], nodeId: string): Exte
 };
 
 export const FileSystemList = () => {
-  const { data, isPending } = useFileTree();
+  const { data, isPending, isFetching } = useFileTree();
   const { data: appState } = useGetAppState();
   const { ref, width, height } = useResizeObserver();
   const { mutateAsync: move } = useMove();
@@ -1309,6 +1309,15 @@ export const FileSystemList = () => {
         }
       }}
     >
+      {/* Loading progress bar — shown during any background refetch (delete, clone, etc.) */}
+      {isFetching && (
+        <div className="h-0.5 w-full overflow-hidden flex-shrink-0 relative">
+          <div
+            className="absolute h-full w-1/3 bg-accent rounded-full"
+            style={{ animation: 'fileTreeProgress 1.2s ease-in-out infinite' }}
+          />
+        </div>
+      )}
       <div className="p-2 flex items-center gap-2 justify-end">
         {storeIsSearching && (
           <>

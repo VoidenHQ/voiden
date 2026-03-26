@@ -128,7 +128,7 @@ function buildGraph(commits: any[]): GraphNode[] {
 }
 
 export const GitGraph = () => {
-  const { data: log, isLoading, isFetching } = useGetGitLog(100);
+  const { data: log, isLoading } = useGetGitLog(100);
   const [expandedCommit, setExpandedCommit] = useState<string | null>(null);
 
   const graphNodes = useMemo(() => {
@@ -164,12 +164,6 @@ export const GitGraph = () => {
 
   return (
     <div className="flex-1 overflow-auto relative">
-      {/* Loading overlay while refetching (e.g. after branch switch) */}
-      {isFetching && (
-        <div className="absolute inset-0 z-10 flex items-center justify-center bg-panel/60 backdrop-blur-[1px]">
-          <Loader2 className="animate-spin text-comment" size={18} />
-        </div>
-      )}
       {graphNodes.map((node, index) => (
         <CommitRow
           key={node.commit.hash}

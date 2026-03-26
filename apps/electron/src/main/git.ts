@@ -50,6 +50,10 @@ const gitStatusCache = new Map<string, GitStatusCache>();
 const branchCache = new Map<string, BranchCache>();
 const CACHE_EXPIRATION = 5000; // 5 seconds cache expiration
 
+// In-flight deduplication for getCachedGitStatus so concurrent callers
+// (e.g. files:tree and git:getStatus firing simultaneously) share one git process.
+const pendingGitStatusFetch = new Map<string, Promise<Map<string, any>>>();
+
 // Get cached Git status or fetch new status
 export async function getCachedGitStatus(directory: string): Promise<Map<string, any>> {
   const cacheEntry = gitStatusCache.get(directory);
@@ -57,37 +61,39 @@ export async function getCachedGitStatus(directory: string): Promise<Map<string,
     return cacheEntry.status;
   }
 
-  const gitStatusMap = new Map<string, any>();
-
-  try {
-    if (fs.existsSync(path.join(directory, ".git"))) {
-      const git = simpleGit(directory);
-      const isRepo = await git.checkIsRepo();
-
-      if (isRepo) {
-        const status = await git.status();
-
-        status.files.forEach((fileStatus) => {
-          const fullPath = path.join(directory, fileStatus.path);
-          gitStatusMap.set(fullPath, fileStatus);
-        });
-
-        status.not_added.forEach((filePath) => {
-          const fullPath = path.join(directory, filePath);
-          gitStatusMap.set(fullPath, { path: filePath, index: "??", working_dir: "??" });
-        });
-
-        gitStatusCache.set(directory, {
-          timestamp: Date.now(),
-          status: gitStatusMap,
-        });
-      }
-    }
-  } catch (err) {
-    // console.error("Error retrieving git status:", err);
+  // Deduplicate: if a fetch is already in-flight for this directory, share it.
+  if (pendingGitStatusFetch.has(directory)) {
+    return pendingGitStatusFetch.get(directory)!;
   }
 
-  return gitStatusMap;
+  const p = (async () => {
+    const gitStatusMap = new Map<string, any>();
+    try {
+      // Async existence check — avoids blocking the event loop
+      const gitDir = path.join(directory, ".git");
+      const exists = await fs.promises.access(gitDir).then(() => true).catch(() => false);
+      if (exists) {
+        const git = simpleGit(directory);
+        const isRepo = await git.checkIsRepo();
+        if (isRepo) {
+          const status = await git.status();
+          status.files.forEach((fileStatus) => {
+            gitStatusMap.set(path.join(directory, fileStatus.path), fileStatus);
+          });
+          status.not_added.forEach((filePath) => {
+            gitStatusMap.set(path.join(directory, filePath), { path: filePath, index: "??", working_dir: "??" });
+          });
+          gitStatusCache.set(directory, { timestamp: Date.now(), status: gitStatusMap });
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return gitStatusMap;
+  })().finally(() => pendingGitStatusFetch.delete(directory));
+
+  pendingGitStatusFetch.set(directory, p);
+  return p;
 }
 
 // Get cached branch info or fetch new info

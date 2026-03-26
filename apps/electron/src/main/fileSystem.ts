@@ -26,53 +26,49 @@ export const buildFileTree = async (
   dir: string,
   gitStatusMap?: Map<string, any>,
 ): Promise<TreeNode> => {
-  const items = fs.readdirSync(dir, { withFileTypes: true });
-  const nodes = await Promise.all(
-    items
-      .filter((item) => {
-        // Allow all non-dot files.
-        if (!item.name.startsWith(".")) return true;
-        // For dot files, allow .gitignore and any .env file (like .env, .env.dev, .env.prod, etc).
-        if (
-          item.isFile() &&
-          (item.name === ".gitignore" ||
-            item.name === ".env" ||
-            item.name.startsWith(".env") ||
-            item.name.endsWith(".env"))
-        ) {
-          return true;
-        }
-        // Otherwise, filter it out.
-        return false;
-      })
-      .map(async (item) => {
-        const fullPath = path.join(dir, item.name);
-        if (item.isDirectory()) {
-          // Recursively build the subtree.
-          const subtree = await buildFileTree(fullPath, gitStatusMap);
-          // Aggregate Git status from children.
-          const aggregatedGitStatus = aggregateGitStatus(
-            subtree.children || [],
-          );
-          return {
-            name: item.name,
-            path: fullPath,
-            type: "folder" as const,
-            children: sortNodes(subtree.children || []),
-            aggregatedGitStatus,
-          };
-        }
-        // For file nodes, attach Git status if available.
-        return {
-          name: item.name,
-          path: fullPath,
-          type: "file" as const,
-          ...(gitStatusMap?.has(fullPath)
-            ? { git: gitStatusMap.get(fullPath) }
-            : {}),
-        };
-      }),
-  );
+  const items = await fs.promises.readdir(dir, { withFileTypes: true });
+
+  const filtered = items.filter((item) => {
+    if (!item.name.startsWith(".")) return true;
+    if (
+      item.isFile() &&
+      (item.name === ".gitignore" ||
+        item.name === ".env" ||
+        item.name.startsWith(".env") ||
+        item.name.endsWith(".env"))
+    ) {
+      return true;
+    }
+    return false;
+  });
+
+  // Process children sequentially to avoid spawning thousands of concurrent
+  // recursive calls (which caused heap OOM on large projects).
+  const nodes: TreeNode[] = [];
+  for (const item of filtered) {
+    const fullPath = path.join(dir, item.name);
+    if (item.isDirectory()) {
+      const subtree = await buildFileTree(fullPath, gitStatusMap);
+      const aggregatedGitStatus = aggregateGitStatus(subtree.children || []);
+      nodes.push({
+        name: item.name,
+        path: fullPath,
+        type: "folder" as const,
+        children: sortNodes(subtree.children || []),
+        aggregatedGitStatus,
+      });
+    } else {
+      nodes.push({
+        name: item.name,
+        path: fullPath,
+        type: "file" as const,
+        ...(gitStatusMap?.has(fullPath)
+          ? { git: gitStatusMap.get(fullPath) }
+          : {}),
+      });
+    }
+  }
+
   return {
     name: path.basename(dir),
     path: dir,

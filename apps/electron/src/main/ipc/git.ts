@@ -5,6 +5,21 @@ import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 import { invalidateGitCache } from "../git";
+import { setCloning } from "../fileWatcher";
+
+// In-flight deduplication: prevents polling intervals from stacking up
+// concurrent git processes when a call takes longer than the poll interval.
+// Keyed by project path so switching projects starts fresh.
+function dedupeCall<T>(
+  store: Map<string, Promise<T>>,
+  key: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  if (store.has(key)) return store.get(key)!;
+  const p = fn().finally(() => store.delete(key));
+  store.set(key, p);
+  return p;
+}
 
 
 function trackingToRemoteName(tracking: string | null | undefined): string | null {
@@ -65,6 +80,13 @@ function normalizeCurrentBranchName(branch: string | null | undefined): string |
   return branch;
 }
 
+// Per-handler in-flight stores (keyed by project path)
+const pendingStatus = new Map<string, Promise<any>>();
+const pendingLog = new Map<string, Promise<any>>();
+const pendingConflicts = new Map<string, Promise<any>>();
+const pendingFetch = new Map<string, Promise<any>>();
+const pendingTree = new Map<string, Promise<any>>();
+
 export function registerGitIpcHandlers() {
   // Get git repository root directory
   ipcMain.handle("git:getRepoRoot", async (event: IpcMainInvokeEvent) => {
@@ -103,26 +125,35 @@ export function registerGitIpcHandlers() {
       // Derive the repo folder name from the URL (e.g. "my-repo" from ".../my-repo.git")
       const baseName = repoUrl.replace(/\.git$/, "").split("/").pop() || "repo";
 
+      // Helper: async directory-exists check
+      const dirExists = (p: string) =>
+        fs.promises.access(p).then(() => true).catch(() => false);
+
       if (!activeProject) {
         // No active project — clone into ~/Voiden/<name>, then scaffold .voiden
         const voidenHome = path.join(os.homedir(), "Voiden");
-        if (!fs.existsSync(voidenHome)) {
-          await fs.promises.mkdir(voidenHome, { recursive: true });
-        }
+        await fs.promises.mkdir(voidenHome, { recursive: true });
 
-        // Find a unique folder name (same logic as createProjectDirectory)
+        // Find a unique folder name
         let newFolderName = baseName;
         let newCounter = 1;
-        while (fs.existsSync(path.join(voidenHome, newFolderName))) {
+        while (await dirExists(path.join(voidenHome, newFolderName))) {
           newFolderName = `${baseName}-${newCounter}`;
           newCounter++;
         }
 
         const newProjectPath = path.join(voidenHome, newFolderName);
 
-        // Clone directly (don't pre-create the directory — git clone will create it)
+        // Clone directly (git clone creates the directory).
+        // Suppress watcher events for the clone destination so the IPC channel
+        // isn't flooded with file:new events for every file being cloned.
         const gitParent = simpleGit(voidenHome);
-        await gitParent.raw(["clone", "--depth", "1", cloneUrl, newFolderName]);
+        setCloning(newProjectPath, true);
+        try {
+          await gitParent.raw(["clone", "--depth", "1", "--no-local", cloneUrl, newFolderName]);
+        } finally {
+          setCloning(newProjectPath, false);
+        }
 
         // Add .voiden scaffold after successful clone
         const voidenDir = path.join(newProjectPath, ".voiden");
@@ -138,14 +169,20 @@ export function registerGitIpcHandlers() {
       // Find a unique folder name inside the active project (repo, repo-1, repo-2, ...)
       let folderName = baseName;
       let counter = 1;
-      while (fs.existsSync(path.join(activeProject, folderName))) {
+      while (await dirExists(path.join(activeProject, folderName))) {
         folderName = `${baseName}-${counter}`;
         counter++;
       }
 
+      const clonedPath = path.join(activeProject, folderName);
       const git = simpleGit(activeProject);
-      await git.raw(["clone", "--depth", "1", cloneUrl, folderName]);
-      return { clonedPath: path.join(activeProject, folderName), clonedInPlace: false, isNewProject: false };
+      setCloning(clonedPath, true);
+      try {
+        await git.raw(["clone", "--depth", "1", "--no-local", cloneUrl, folderName]);
+      } finally {
+        setCloning(clonedPath, false);
+      }
+      return { clonedPath, clonedInPlace: false, isNewProject: false };
     } catch (error: any) {
       console.error("Error cloning repository:", error);
       const raw: string = (error?.message || String(error)).replace(/:[^@]*@/, ":***@");
@@ -190,9 +227,11 @@ export function registerGitIpcHandlers() {
   // Get working directory status (all changed files)
   ipcMain.handle("git:getStatus", async (event: IpcMainInvokeEvent) => {
     const activeProject = await getActiveProject(event);
-    if (!activeProject) {
-      return null;
-    }
+    if (!activeProject) return null;
+    try { await fs.promises.access(activeProject); } catch { return null; }
+    // Deduplicate: if a status call is already in-flight for this project,
+    // return the same promise rather than spawning more git processes.
+    return dedupeCall(pendingStatus, activeProject, async () => {
 
     try {
       const git = simpleGit(activeProject);
@@ -386,6 +425,7 @@ export function registerGitIpcHandlers() {
       console.error("Error getting git status:", error);
       return null;
     }
+    }); // end dedupeCall
   });
 
   // Stage files
@@ -556,10 +596,9 @@ export function registerGitIpcHandlers() {
   // Get commit history/log with graph information
   ipcMain.handle("git:getLog", async (event: IpcMainInvokeEvent, limit: number = 50) => {
     const activeProject = await getActiveProject(event);
-    if (!activeProject) {
-      return null;
-    }
-
+    if (!activeProject) return null;
+    try { await fs.promises.access(activeProject); } catch { return null; }
+    return dedupeCall(pendingLog, `${activeProject}:${limit}`, async () => {
     try {
       const git = simpleGit(activeProject);
       const isRepo = await git.checkIsRepo();
@@ -596,6 +635,7 @@ export function registerGitIpcHandlers() {
       console.error("Error getting git log:", error);
       return null;
     }
+    }); // end dedupeCall
   });
 
   // Get files changed in a specific commit
@@ -806,6 +846,9 @@ export function registerGitIpcHandlers() {
     const activeProject = await getActiveProject(event);
     if (!activeProject) return null;
 
+    // Guard: directory must exist before attempting git operations
+    try { await fs.promises.access(activeProject); } catch { return null; }
+    return dedupeCall(pendingFetch, activeProject, async () => {
     const git = simpleGit(activeProject);
     const isRepo = await git.checkIsRepo();
     if (!isRepo) return null;
@@ -824,6 +867,7 @@ export function registerGitIpcHandlers() {
     }
     invalidateGitCache(activeProject);
     return true;
+    }); // end dedupeCall git:fetch
   });
 
   // Stash current changes (with optional message)
@@ -976,27 +1020,30 @@ export function registerGitIpcHandlers() {
   ipcMain.handle("git:getConflicts", async (event: IpcMainInvokeEvent) => {
     const activeProject = await getActiveProject(event);
     if (!activeProject) return [];
-    const git = simpleGit(activeProject);
-    const isRepo = await git.checkIsRepo();
-    if (!isRepo) return [];
+    try { await fs.promises.access(activeProject); } catch { return []; }
+    return dedupeCall(pendingConflicts, activeProject, async () => {
+      const git = simpleGit(activeProject);
+      const isRepo = await git.checkIsRepo();
+      if (!isRepo) return [];
 
-    const status = await git.status();
-    const conflicted = status.conflicted;
+      const status = await git.status();
+      const conflicted = status.conflicted;
 
-    const conflicts = await Promise.all(
-      conflicted.map(async (file) => {
-        try {
-          const filePath = path.join(activeProject, file);
-          const content = fs.readFileSync(filePath, 'utf8');
-          const sections = parseConflictSections(content);
-          return { file, sections, hasConflict: sections.length > 0 };
-        } catch {
-          return { file, sections: [], hasConflict: false };
-        }
-      })
-    );
+      const conflicts = await Promise.all(
+        conflicted.map(async (file) => {
+          try {
+            const filePath = path.join(activeProject, file);
+            const content = await fs.promises.readFile(filePath, 'utf8');
+            const sections = parseConflictSections(content);
+            return { file, sections, hasConflict: sections.length > 0 };
+          } catch {
+            return { file, sections: [], hasConflict: false };
+          }
+        })
+      );
 
-    return conflicts;
+      return conflicts;
+    });
   });
 
   ipcMain.handle(
@@ -1011,9 +1058,9 @@ export function registerGitIpcHandlers() {
       if (!activeProject) throw new Error("No active project selected.");
 
       const filePath = path.join(activeProject, file);
-      const content = fs.readFileSync(filePath, 'utf8');
+      const content = await fs.promises.readFile(filePath, 'utf8');
       const resolved = resolveConflictContent(content, resolution, sectionIndex);
-      fs.writeFileSync(filePath, resolved, 'utf8');
+      await fs.promises.writeFile(filePath, resolved, 'utf8');
 
       // If no conflict markers remain, auto-stage the file
       if (!resolved.includes('<<<<<<<')) {
@@ -1029,7 +1076,7 @@ export function registerGitIpcHandlers() {
     const activeProject = await getActiveProject(event);
     if (!activeProject) throw new Error("No active project selected.");
     const filePath = path.join(activeProject, file);
-    return fs.readFileSync(filePath, 'utf8');
+    return fs.promises.readFile(filePath, 'utf8');
   });
 
   // Write resolved content to disk and stage the file
