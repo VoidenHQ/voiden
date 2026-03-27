@@ -234,6 +234,12 @@ export const useRightPanel = ({ defaultSize = 0, minSize = 30 }: UseRightPanelPr
   const rightPanelOpen = usePanelStore((state) => state.rightPanelOpen);
   const openRightPanel = usePanelStore((state) => state.openRightPanel);
   const closeRightPanel = usePanelStore((state) => state.closeRightPanel);
+  const setRightPanelRef = usePanelStore((state) => state.setRightPanelRef);
+
+  // Register the ref so it can be accessed imperatively (e.g. from position toggle)
+  useEffect(() => {
+    setRightPanelRef(ref);
+  }, []);
 
   const toggle = () => {
     if (ref.current) {

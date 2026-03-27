@@ -455,10 +455,11 @@ export async function setActiveProject(projectPath: string) {
 
   await saveState(appState);
 
-  // Update the file watcher:
-  // If projectPath is an empty string or null, the watcher will be closed.
-
-  await updateFileWatcher(projectPath || null);
+  // Update the file watcher using the active window ID as the key so it
+  // matches the key used by initializeState — preventing a second watcher
+  // from being created for the same directory with a different key.
+  const watcherId = windowManager.activeWindowId ?? undefined;
+  await updateFileWatcher(projectPath || "", watcherId);
 
   return { activeProject: projectPath };
 }
@@ -467,9 +468,8 @@ export async function emptyActiveProject() {
   const appState = getAppState();
   appState.activeDirectory = "";
   await saveState(appState);
-  // Update the file watcher:
-  // If projectPath is an empty string or null, the watcher will be closed.
-  await updateFileWatcher("");
+  const watcherId = windowManager.activeWindowId ?? undefined;
+  await updateFileWatcher("", watcherId);
   return { activeProject: null };
 }
 

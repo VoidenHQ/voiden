@@ -57,13 +57,18 @@ export const TableCellAutocomplete = Extension.create({
           const $from = state.doc.resolve(range.from);
           if ($from.parent.type.name !== "paragraph") return false;
 
-          // Check we're inside a table that has registered suggestions
+          // Only activate inside a table cell (not in regular paragraphs)
+          let insideTableCell = false;
           for (let d = $from.depth; d > 0; d--) {
             const node = $from.node(d);
             if (node.attrs?.importedFrom) return false;
+            if (node.type.name === "tableCell" || node.type.name === "tableHeader") {
+              insideTableCell = true;
+              break;
+            }
           }
 
-          return true;
+          return insideTableCell;
         },
 
         items: ({ query, editor }: { query: string; editor: any }) => {

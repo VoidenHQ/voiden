@@ -13,6 +13,7 @@ import { Tip } from "@/core/components/ui/Tip";
 import { usePanelStore } from "@/core/stores/panelStore";
 import { useResponsePanelPosition } from "@/core/stores/responsePanelPosition";
 import { cn } from "@/core/lib/utils";
+import { useEffect, useRef } from "react";
 
 interface MainEditorProps {
   bottomPanelProps: any;
@@ -33,6 +34,21 @@ export const MainEditor = ({ bottomPanelProps, rightPanelProps }: MainEditorProp
   const bottomPanelRef = usePanelStore((state) => state.bottomPanelRef);
   const openBottomPanel = usePanelStore((state) => state.openBottomPanel);
   const closeBottomPanel = usePanelStore((state) => state.closeBottomPanel);
+  const rightPanelRef = usePanelStore((state) => state.rightPanelRef);
+  const rightPanelOpen = usePanelStore((state) => state.rightPanelOpen);
+
+  // When switching bottom → right the horizontal PanelGroup re-mounts and
+  // restores its persisted size (which may be 0 / tiny). After the layout
+  // settles we force the right panel to a sensible default width.
+  const prevPosition = useRef(responsePanelPosition);
+  useEffect(() => {
+    if (prevPosition.current === "bottom" && responsePanelPosition === "right") {
+      if (rightPanelOpen && rightPanelRef?.current) {
+        rightPanelRef.current.resize(30);
+      }
+    }
+    prevPosition.current = responsePanelPosition;
+  }, [responsePanelPosition]);
 
   const createNewTabWithIncrement = () => {
     const files = panelData.tabs || [];

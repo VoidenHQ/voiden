@@ -281,29 +281,44 @@ export const GitSourceControl = () => {
 
   if (!status) {
     return (
-      <div className="p-4 flex flex-col gap-3">
-        <p className="text-xs text-comment text-center">No git repository found in this folder.</p>
+      <div className="p-4 flex flex-col gap-4">
+        {/* Header */}
+        <div className="flex flex-col items-center gap-1 py-2">
+          <GitFork size={28} className="text-comment mb-1" />
+          <p className="text-xs font-medium text-text">No repository found</p>
+          <p className="text-[11px] text-comment text-center leading-relaxed">
+            Initialize a new repo or clone an existing one to get started.
+          </p>
+        </div>
 
         {!showCloneForm && (
-          <button
-            className="w-full bg-button-primary hover:bg-button-primary-hover rounded transition text-text text-xs px-3 py-2"
-            onClick={() => initializeGit()}
-          >
-            Initialize Repository
-          </button>
-        )}
+          <>
+            <button
+              className="w-full bg-button-primary hover:bg-button-primary-hover rounded transition text-text text-xs px-3 py-2"
+              onClick={() => initializeGit()}
+            >
+              Initialize Repository
+            </button>
 
-        <button
-          className="w-full flex items-center justify-center gap-2 border border-border hover:bg-active/40 disabled:opacity-50 disabled:cursor-not-allowed rounded transition text-text text-xs px-3 py-2"
-          onClick={() => setShowCloneForm((v) => !v)}
-          disabled={isCloning}
-        >
-          <GitFork size={13} />
-          {showCloneForm ? "Cancel Clone" : "Clone Repository"}
-        </button>
+            <div className="flex items-center gap-2">
+              <div className="flex-1 h-px bg-border" />
+              <span className="text-[10px] text-comment">or</span>
+              <div className="flex-1 h-px bg-border" />
+            </div>
+
+            <button
+              className="w-full flex items-center justify-center gap-2 border border-border hover:bg-active/40 rounded transition text-text text-xs px-3 py-2"
+              onClick={() => setShowCloneForm(true)}
+            >
+              <GitFork size={13} />
+              Clone Repository
+            </button>
+          </>
+        )}
 
         {showCloneForm && (
           <div className="flex flex-col gap-2">
+            <p className="text-[11px] text-comment font-medium">Clone a repository</p>
             <input
               type="text"
               value={cloneUrl}
@@ -345,9 +360,17 @@ export const GitSourceControl = () => {
             </button>
             {isCloning && (
               <p className="text-[10px] text-comment text-center animate-pulse">
-                Cloning repository, this may take a moment…
+                This may take a moment…
               </p>
             )}
+            <button
+              onClick={() => { setShowCloneForm(false); setCloneUrl(""); setCloneToken(""); }}
+              disabled={isCloning}
+              className="w-full flex items-center justify-center gap-1.5 text-comment hover:text-text disabled:opacity-50 disabled:cursor-not-allowed text-xs py-1.5 transition"
+            >
+              <X size={12} />
+              Cancel
+            </button>
           </div>
         )}
       </div>

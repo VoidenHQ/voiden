@@ -855,6 +855,14 @@ const removeNodeFromTreeData = (nodes: ExtendedFileTree[], nodeId: string): Exte
 export const FileSystemList = () => {
   const { data, isPending, isFetching } = useFileTree();
   const { data: appState } = useGetAppState();
+
+  // Only show the progress bar for explicit delete operations, not every background refetch.
+  const [showDeleteProgress, setShowDeleteProgress] = useState(false);
+  useElectronEvent("file:delete", () => setShowDeleteProgress(true));
+  useElectronEvent("directory:delete", () => setShowDeleteProgress(true));
+  useEffect(() => {
+    if (!isFetching) setShowDeleteProgress(false);
+  }, [isFetching]);
   const { ref, width, height } = useResizeObserver();
   const { mutateAsync: move } = useMove();
   const { data: activeFile } = useGetActiveDocument();
@@ -1309,15 +1317,15 @@ export const FileSystemList = () => {
         }
       }}
     >
-      {/* Loading progress bar — shown during any background refetch (delete, clone, etc.) */}
-      {isFetching && (
-        <div className="h-0.5 w-full overflow-hidden flex-shrink-0 relative">
+      {/* Loading progress bar — always reserve the space to prevent layout shift */}
+      <div className="h-0.5 w-full overflow-hidden flex-shrink-0 relative">
+        {showDeleteProgress && (
           <div
             className="absolute h-full w-1/3 bg-accent rounded-full"
             style={{ animation: 'fileTreeProgress 1.2s ease-in-out infinite' }}
           />
-        </div>
-      )}
+        )}
+      </div>
       <div className="p-2 flex items-center gap-2 justify-end">
         {storeIsSearching && (
           <>
