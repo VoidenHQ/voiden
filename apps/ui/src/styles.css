@@ -2,6 +2,12 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ─── File tree loading progress bar ─────────────────────────────────────── */
+@keyframes fileTreeProgress {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(350%); }
+}
+
 /* ─── Section indicator overlay lines ────────────────────────────────────── */
 .section-indicator-overlay {
   position: absolute;

@@ -325,6 +325,9 @@ const FileDiffContent = ({ baseBranch, compareBranch, filePath, mode, isWorkingD
   const leftScrollRef = useRef<HTMLDivElement>(null);
   const rightScrollRef = useRef<HTMLDivElement>(null);
   const isScrollingRef = useRef(false);
+  const splitContainerRef = useRef<HTMLDivElement>(null);
+  const isDraggingSplitRef = useRef(false);
+  const [splitRatio, setSplitRatio] = useState(50); // percentage for left panel
 
   const handleLeftScroll = useCallback(() => {
     if (isScrollingRef.current) return;
@@ -342,6 +345,27 @@ const FileDiffContent = ({ baseBranch, compareBranch, filePath, mode, isWorkingD
       leftScrollRef.current.scrollTop = rightScrollRef.current.scrollTop;
     }
     setTimeout(() => { isScrollingRef.current = false; }, 0);
+  }, []);
+
+  const handleSplitDividerMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    isDraggingSplitRef.current = true;
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      if (!isDraggingSplitRef.current || !splitContainerRef.current) return;
+      const rect = splitContainerRef.current.getBoundingClientRect();
+      const pct = ((moveEvent.clientX - rect.left) / rect.width) * 100;
+      setSplitRatio(Math.max(20, Math.min(80, pct)));
+    };
+
+    const onMouseUp = () => {
+      isDraggingSplitRef.current = false;
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+    };
+
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
   }, []);
 
   if (baseLoading || finalCompareLoading) {
@@ -426,10 +450,10 @@ const FileDiffContent = ({ baseBranch, compareBranch, filePath, mode, isWorkingD
     }
 
     return (
-      <div className="flex-1 flex overflow-y-auto">
+      <div ref={splitContainerRef} className="flex-1 flex overflow-hidden select-none">
         {/* Left side - Base */}
-        <div className="flex-1 border-r border-border flex flex-col">
-          <div className="px-4 py-2 bg-red-500/10 border-b border-border text-xs text-comment flex items-center gap-2">
+        <div style={{ width: `${splitRatio}%` }} className="flex flex-col flex-shrink-0 min-w-0">
+          <div className="px-4 py-2 bg-red-500/10 border-b border-border text-xs text-comment flex items-center gap-2 flex-shrink-0">
             <span className="font-semibold">{baseBranch}</span>
             <span className="text-[10px]">(base)</span>
           </div>
@@ -456,9 +480,15 @@ const FileDiffContent = ({ baseBranch, compareBranch, filePath, mode, isWorkingD
           </div>
         </div>
 
+        {/* Draggable split divider */}
+        <div
+          onMouseDown={handleSplitDividerMouseDown}
+          className="w-1 cursor-col-resize hover:bg-accent/40 active:bg-accent/60 flex-shrink-0 transition-colors bg-border"
+        />
+
         {/* Right side - Compare */}
-        <div className="flex-1 flex flex-col">
-          <div className="px-4 py-2 bg-green-500/10 border-b border-border text-xs text-comment flex items-center gap-2">
+        <div className="flex-1 flex flex-col min-w-0">
+          <div className="px-4 py-2 bg-green-500/10 border-b border-border text-xs text-comment flex items-center gap-2 flex-shrink-0">
             <span className="font-semibold">{isWorkingDirectory ? "Working Directory" : compareBranch}</span>
             <span className="text-[10px]">(compare)</span>
           </div>

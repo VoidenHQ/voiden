@@ -148,7 +148,8 @@ export const useGetGitLog = (limit: number = 50) => {
     queryFn: async () => {
       return window.electron?.git.getLog(limit);
     },
-    refetchInterval: 5000, // Refresh every 5 seconds
+    refetchInterval: 10000,
+    staleTime: 8000,
   });
 };
 
@@ -169,7 +170,8 @@ export const useGetGitStatus = () => {
     queryFn: async () => {
       return window.electron?.git.getStatus();
     },
-    refetchInterval: 1000, // Refetch every second to keep it updated
+    refetchInterval: 3000,
+    staleTime: 2000,
   });
 };
 
@@ -354,7 +356,8 @@ export const useGetConflicts = () => {
   return useQuery({
     queryKey: ["git:conflicts"],
     queryFn: async () => window.electron?.git.getConflicts() ?? [],
-    refetchInterval: 2000,
+    refetchInterval: 5000,
+    staleTime: 4000,
   });
 };
 

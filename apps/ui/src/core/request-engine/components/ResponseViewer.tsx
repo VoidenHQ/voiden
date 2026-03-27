@@ -9,16 +9,19 @@
  */
 
 import { useEditor, EditorContent } from '@tiptap/react';
-import { useMemo, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useMemo, useEffect, useLayoutEffect, useRef, useState, forwardRef, useImperativeHandle } from 'react';
 import { voidenExtensions } from '@/core/editors/voiden/extensions';
 import { useEditorEnhancementStore } from '@/plugins';
 import { getSchema } from '@tiptap/core';
 import { parseMarkdown } from '@/core/editors/voiden/markdownConverter';
 import { proseClasses } from '@/core/editors/voiden/VoidenEditor';
 import UniqueID from '@/core/editors/voiden/extensions/uniqueId';
-import { ChevronsDownUp, ChevronsUpDown } from 'lucide-react';
-import { Tip } from '@/core/components/ui/Tip';
 import type { ResponseNodeType } from '../stores/responseStore';
+
+export interface ResponseViewerHandle {
+  expandAll: () => void;
+  collapseAll: () => void;
+}
 
 interface ResponseViewerProps {
   content: string | any; // Can be markdown string or doc JSON
@@ -31,7 +34,7 @@ interface ResponseViewerProps {
   isActive?: boolean;
 }
 
-export function ResponseViewer({
+export const ResponseViewer = forwardRef<ResponseViewerHandle, ResponseViewerProps>(function ResponseViewer({
   content,
   preferredActiveNode = null,
   onActiveNodeChange,
@@ -40,7 +43,7 @@ export function ResponseViewer({
   nodeScrollPositions = {},
   onNodeScrollChange,
   isActive = true,
-}: ResponseViewerProps) {
+}: ResponseViewerProps, ref) {
   const COLLAPSIBLE_RESPONSE_NODES = useMemo(
     () =>
       [
@@ -202,6 +205,11 @@ export function ResponseViewer({
     });
     editor.view.dispatch(tr);
   };
+
+  useImperativeHandle(ref, () => ({
+    expandAll: handleExpandAllResponseNodes,
+    collapseAll: handleCollapseAllResponseNodes,
+  }));
 
   // Apply preferredActiveNode via a transaction instead of through content re-init.
   // This restores the last-viewed response tab (body/headers/etc.) without triggering
@@ -460,37 +468,8 @@ export function ResponseViewer({
         }
       `}</style>
       <div className="response-viewer-content">
-        {(() => {
-          const protocol = typeof content === 'object' && content !== null ? content?.attrs?.protocol : null;
-          const isSocket = protocol === 'wss' || protocol === 'ws' || protocol === 'grpc' || protocol === 'grpcs';
-          if (isSocket) return null;
-          return (
-            <div className="flex justify-end px-2 pt-2">
-              <div className="inline-flex items-center gap-1">
-                <Tip label="Expand all" side="top" align="end">
-                  <button
-                    type="button"
-                    onClick={handleExpandAllResponseNodes}
-                    className="rounded p-1 text-comment transition-colors hover:text-accent"
-                  >
-                    <ChevronsUpDown size={14} />
-                  </button>
-                </Tip>
-                <Tip label="Collapse all" side="top" align="end">
-                  <button
-                    type="button"
-                    onClick={handleCollapseAllResponseNodes}
-                    className="rounded p-1 text-comment transition-colors hover:text-accent"
-                  >
-                    <ChevronsDownUp size={14} />
-                  </button>
-                </Tip>
-              </div>
-            </div>
-          );
-        })()}
         <EditorContent editor={editor} />
       </div>
     </div>
   );
-}
+})

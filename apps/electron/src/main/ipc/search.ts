@@ -2,7 +2,7 @@ import { ipcMain } from "electron";
 import fs from "node:fs";
 import path from "node:path";
 import fsPromises from "node:fs/promises";
-import { spawnSync } from "child_process";
+import { spawnSync, spawn } from "child_process";
 // @ts-expect-error no types
 import fg from "fast-glob";
 import { getActiveProject } from "../state";
@@ -196,11 +196,16 @@ export function registerSearchIpcHandler() {
       if (matchWholeWord) rgArgs.push("--word-regexp");
       rgArgs.push(query, ".");
 
-      const result = spawnSync(rgPath, rgArgs, { cwd: projectRoot });
-      if (result.error) throw result.error;
-      const stdout = result.stdout.toString();
-      if (result.status === 2) throw new Error(`rg exited with status ${result.status}`);
-      if (result.status === 1) return [];
+      const stdout = await new Promise<string>((resolve, reject) => {
+        const proc = spawn(rgPath, rgArgs, { cwd: projectRoot });
+        const chunks: Buffer[] = [];
+        proc.stdout.on('data', (d: Buffer) => chunks.push(d));
+        proc.on('error', reject);
+        proc.on('close', (code) => {
+          if (code === 2) return reject(new Error(`rg exited with status ${code}`));
+          resolve(Buffer.concat(chunks).toString());
+        });
+      });
 
       return stdout
         .trim()

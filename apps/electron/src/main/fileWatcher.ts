@@ -5,6 +5,22 @@ import eventBus from "./eventBus"; // your singleton event bus
 // Store multiple watchers keyed by project path or window ID
 const fileWatchers = new Map<string, chokidar.FSWatcher>();
 
+// Set of directories currently being cloned into — watcher events are
+// suppressed for these paths so the IPC channel isn't flooded during clone.
+const cloningPaths = new Set<string>();
+
+export function setCloning(dir: string, active: boolean) {
+  if (active) cloningPaths.add(dir);
+  else cloningPaths.delete(dir);
+}
+
+function isCloningActive(filePath: string): boolean {
+  for (const dir of cloningPaths) {
+    if (filePath.startsWith(dir)) return true;
+  }
+  return false;
+}
+
 // Simple debounce utility to batch rapid Git changes.
 function debounce(func: (...args: any[]) => void, wait: number) {
   let timeout: NodeJS.Timeout | null = null;
@@ -79,6 +95,12 @@ export async function updateFileWatcher(
       if (/(dist|build|\.cache|\.next|\.nuxt)/.test(filePath)) {
         return true;
       }
+      // Exclude .git internals that we don't need to watch.
+      // HEAD, index, and refs are listed as explicit paths above so they
+      // remain watched even though the bulk of .git is ignored here.
+      if (/[/\\]\.git[/\\](objects|pack|logs|lfs|rr-cache|svn)/.test(filePath)) {
+        return true;
+      }
       return false;
     },
     awaitWriteFinish: {
@@ -107,6 +129,7 @@ export async function updateFileWatcher(
       const watched = watcher.getWatched();
     })
     .on("add", (filePath: string) => {
+      if (isCloningActive(filePath)) return; // suppress during clone
       if (isGitRelated(filePath)) {
         emitGitChangedDebounced({ path: filePath });
       } else {
@@ -118,6 +141,7 @@ export async function updateFileWatcher(
       }
     })
     .on("addDir", (dirPath: string) => {
+      if (isCloningActive(dirPath)) return; // suppress during clone
       if (isGitRelated(dirPath)) {
         emitGitChangedDebounced({ path: dirPath });
       } else {

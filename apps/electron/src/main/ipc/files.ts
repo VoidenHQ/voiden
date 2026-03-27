@@ -28,15 +28,23 @@ import { FileTreeItem } from "../../types";
 import { fold } from "fp-ts/lib/Tree";
 
 export function registerFileIpcHandlers() {
+  // Deduplicate: if a tree build is already in-flight, share the result.
+  const pendingTreeBuilds = new Map<string, Promise<any>>();
+
   ipcMain.handle("files:tree", async (_event, directory: string) => {
-    const gitStatusMap = await getCachedGitStatus(directory);
-    const tree = await buildFileTree(directory, gitStatusMap);
-    return tree;
+    try { await fs.promises.access(directory); } catch { return null; }
+    if (pendingTreeBuilds.has(directory)) return pendingTreeBuilds.get(directory);
+    const p = (async () => {
+      const gitStatusMap = await getCachedGitStatus(directory);
+      return buildFileTree(directory, gitStatusMap);
+    })().finally(() => pendingTreeBuilds.delete(directory));
+    pendingTreeBuilds.set(directory, p);
+    return p;
   });
 
   ipcMain.handle("files:read", async (_event, filePath) => {
     try {
-      const content = fs.readFileSync(filePath, "utf8");
+      const content = await fs.promises.readFile(filePath, "utf8");
       return content;
     } catch (error: any) {
       if (error?.code === 'ENOENT') {
