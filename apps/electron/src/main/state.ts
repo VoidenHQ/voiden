@@ -1537,6 +1537,12 @@ export const ipcStateHandlers = () => {
       if (!added)
         throw new Error(`Failed to duplicate tab in panel ${panelId}`);
       await saveState(appState);
+      if (newSource) {
+        _event.sender.send("file:duplicate", {
+          path: newSource,
+          name: newTitle,
+        });
+      }
       return { panelId, tabId: newTab.id };
     },
   );

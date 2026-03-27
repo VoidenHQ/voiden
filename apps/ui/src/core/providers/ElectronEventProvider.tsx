@@ -55,10 +55,11 @@ export const ElectronEventProvider: React.FC<{ children: React.ReactNode }> = ({
         queryClient.invalidateQueries({ queryKey: ["env"] });
         handleEvent("file:new", data);
       },
-      "file:duplicate": (data: any) => {
+      "file:duplicate": (event: any, data: any) => {
         queryClient.invalidateQueries({ queryKey: ["files:tree"] });
-        queryClient.invalidateQueries({queryKey:['environments']});
+        queryClient.invalidateQueries({ queryKey: ["environments"] });
         queryClient.invalidateQueries({ queryKey: ["env"] });
+        handleEvent("file:duplicate", data);
       },
       "file:delete": (event: any, data: any) => {
         queryClient.invalidateQueries({ queryKey: ["files:tree"] });

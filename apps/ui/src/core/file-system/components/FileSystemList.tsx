@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useLayoutEffect, useContext } from "react";
+import React, { useState, useRef, useEffect, useLayoutEffect, useContext, useCallback } from "react";
 import * as Tooltip from "@radix-ui/react-tooltip";
 // Debounce hook
 function useDebounce<T>(value: T, delay: number): T {
@@ -863,6 +863,7 @@ export const FileSystemList = () => {
   const { mutateAsync: setActiveProject } = useSetActiveProject();
   const { mutateAsync: activateTab } = useActivateTab();
   const treeRef = useRef<TreeApi<ExtendedFileTree>>(null);
+  const pendingDuplicateRenamePathRef = useRef<string | null>(null);
 
   // Open file / toggle folder on Enter key (react-arborist fires onActivate for Enter)
   const handleActivate = async (node: NodeApi<ExtendedFileTree>) => {
@@ -982,6 +983,43 @@ export const FileSystemList = () => {
       setTreeData([data as ExtendedFileTree]);
     }
   }, [data]);
+
+  const tryStartDuplicateRename = useCallback((path: string) => {
+    const tree = treeRef.current;
+    if (!tree) return false;
+    const nodeToRename = tree.get(path);
+    if (!nodeToRename) return false;
+
+    // Ensure parent folders are open so the rename input is visible
+    let parent = nodeToRename.parent;
+    while (parent) {
+      if (parent.data.type === "folder" && !parent.isOpen) {
+        parent.open();
+      }
+      parent = parent.parent;
+    }
+
+    tree.scrollTo(path, "auto");
+    nodeToRename.edit();
+    return true;
+  }, []);
+
+  useElectronEvent<{ path: string }>("file:duplicate", (eventData) => {
+    const path = eventData?.path;
+    if (!path) return;
+
+    if (tryStartDuplicateRename(path)) return;
+    pendingDuplicateRenamePathRef.current = path;
+  });
+
+  useEffect(() => {
+    const pendingPath = pendingDuplicateRenamePathRef.current;
+    if (!pendingPath) return;
+
+    if (tryStartDuplicateRename(pendingPath)) {
+      pendingDuplicateRenamePathRef.current = null;
+    }
+  }, [treeData, tryStartDuplicateRename]);
 
   // Scroll to active file in the tree (also opens parent folders).
   // Guard with get() so that if the node isn't in the tree yet (e.g. the tree hasn't
