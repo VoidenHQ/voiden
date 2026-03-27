@@ -340,6 +340,8 @@ const VoidenEditorInner = ({
 }) => {
 
   const editorRef = useRef<HTMLDivElement | null>(null);
+  const updateTimerRef = useRef<number | null>(null);
+  const autoSaveTimerRef = useRef<number | null>(null);
   const setUnsaved = useEditorStore((state) => state.setUnsaved);
   const clearUnsaved = useEditorStore((state) => state.clearUnsaved);
   const setScrollPosition = useEditorStore((state) => state.setScrollPosition);
@@ -692,23 +694,31 @@ function sanitizeDoc(node: any): any {
 
   const handleEditorUpdate = useCallback(
     ({ editor }: { editor: Editor }) => {
-      const updatedContent = editor.getJSON();
-      const contentString = JSON.stringify(updatedContent);
+      // Debounce the expensive serialization to avoid running on every keystroke
+      if (updateTimerRef.current !== null) clearTimeout(updateTimerRef.current);
+      updateTimerRef.current = window.setTimeout(() => {
+        updateTimerRef.current = null;
+        const updatedContent = editor.getJSON();
+        const contentString = JSON.stringify(updatedContent);
 
-      // Compare against saved content to detect when edits restore the original
-      if (savedContentJSONRef.current && contentString === savedContentJSONRef.current) {
-        clearUnsaved(tabId);
-      } else {
-        setUnsaved(tabId, contentString);
-      }
-
-      // Auto-save to AppData for unsaved files (source is null)
-      if (!source) {
-        // Debounce the auto-save to avoid excessive writes
-        if (window.electron?.autosave?.save) {
-          window.electron.autosave.save(tabId, contentString).catch(console.error);
+        // Compare against saved content to detect when edits restore the original
+        if (savedContentJSONRef.current && contentString === savedContentJSONRef.current) {
+          clearUnsaved(tabId);
+        } else {
+          setUnsaved(tabId, contentString);
         }
-      }
+
+        // Auto-save to AppData for unsaved files (source is null)
+        if (!source) {
+          if (autoSaveTimerRef.current !== null) clearTimeout(autoSaveTimerRef.current);
+          autoSaveTimerRef.current = window.setTimeout(() => {
+            autoSaveTimerRef.current = null;
+            if (window.electron?.autosave?.save) {
+              window.electron.autosave.save(tabId, contentString).catch(console.error);
+            }
+          }, 1000);
+        }
+      }, 300);
     },
     [setUnsaved, clearUnsaved, tabId, source],
   );
@@ -746,6 +756,14 @@ function sanitizeDoc(node: any): any {
       }
     };
   }, [editor]);
+
+  // Clean up debounce timers on unmount
+  useEffect(() => {
+    return () => {
+      if (updateTimerRef.current !== null) clearTimeout(updateTimerRef.current);
+      if (autoSaveTimerRef.current !== null) clearTimeout(autoSaveTimerRef.current);
+    };
+  }, []);
 
   // Separate effect for environment changes - debounced to avoid conflicts during modal unmount
   const [debouncedActiveEnvKey, setDebouncedActiveEnvKey] = useState(activeEnvKey);
@@ -855,6 +873,7 @@ function sanitizeDoc(node: any): any {
     let currentTarget = getScrollPosition(tabId);
     let isUserScrolling = false;
     let userScrollTimeout: number | null = null;
+    let scrollSaveTimer: number | null = null;
 
     const setUserScrolling = () => {
       isUserScrolling = true;
@@ -874,7 +893,13 @@ function sanitizeDoc(node: any): any {
     const handleScroll = () => {
       if (isUserScrolling) {
         currentTarget = scrollContainer.scrollTop;
-        setScrollPosition(tabId, scrollContainer.scrollTop);
+        // Throttle Zustand writes to every 200ms
+        if (scrollSaveTimer === null) {
+          scrollSaveTimer = window.setTimeout(() => {
+            scrollSaveTimer = null;
+            setScrollPosition(tabId, currentTarget);
+          }, 200);
+        }
       } else {
         // Editor-internal scroll (ProseMirror, async effects) — snap back to user's target
         applySavedScroll(scrollContainer);
@@ -902,6 +927,7 @@ function sanitizeDoc(node: any): any {
       scrollContainer.removeEventListener('keydown', handleUserInteraction, { capture: true });
       scrollContainer.removeEventListener('mousedown', handleUserInteraction, { capture: true });
       if (userScrollTimeout !== null) clearTimeout(userScrollTimeout);
+      if (scrollSaveTimer !== null) clearTimeout(scrollSaveTimer);
       setScrollPosition(tabId, currentTarget);
     };
 
@@ -923,6 +949,7 @@ function sanitizeDoc(node: any): any {
           scrollContainer.removeEventListener('keydown', handleUserInteraction, { capture: true });
           scrollContainer.removeEventListener('mousedown', handleUserInteraction, { capture: true });
           if (userScrollTimeout !== null) clearTimeout(userScrollTimeout);
+          if (scrollSaveTimer !== null) clearTimeout(scrollSaveTimer);
           timeoutIds.forEach((id) => window.clearTimeout(id));
           setScrollPosition(tabId, currentTarget);
         };
@@ -1037,21 +1064,28 @@ function sanitizeDoc(node: any): any {
   }, [editor, findTerm, matchCase, matchWholeWord, useRegex]);
 
   // Reapply highlights on document edits while search is active (without resetting selection)
+  // Debounced to avoid dispatching a new transaction on every keystroke
   useEffect(() => {
     if (!editor || !findTerm) return;
+    let searchDebounceTimer: number | null = null;
     const onUpdate = () => {
-      const tr = editor.state.tr.setMeta(findHighlightPluginKey, {
-        term: findTerm,
-        matchCase,
-        matchWholeWord,
-        useRegex,
-        currentMatch,
-      });
-      editor.view.dispatch(tr);
+      if (searchDebounceTimer !== null) clearTimeout(searchDebounceTimer);
+      searchDebounceTimer = window.setTimeout(() => {
+        searchDebounceTimer = null;
+        const tr = editor.state.tr.setMeta(findHighlightPluginKey, {
+          term: findTerm,
+          matchCase,
+          matchWholeWord,
+          useRegex,
+          currentMatch,
+        });
+        editor.view.dispatch(tr);
+      }, 200);
     };
     editor.on("update", onUpdate);
     return () => {
       editor.off("update", onUpdate);
+      if (searchDebounceTimer !== null) clearTimeout(searchDebounceTimer);
     };
   }, [editor, findTerm, matchCase, matchWholeWord, useRegex, currentMatch]);
 

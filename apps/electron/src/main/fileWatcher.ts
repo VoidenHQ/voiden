@@ -84,7 +84,7 @@ export async function updateFileWatcher(
   const watcher = chokidar.watch(pathsToWatch, {
     persistent: true,
     ignoreInitial: true,
-    depth: 99,
+    depth: 10,
     followSymlinks: false,
     usePolling: false,
     interval: 100,
@@ -104,8 +104,8 @@ export async function updateFileWatcher(
       return false;
     },
     awaitWriteFinish: {
-      stabilityThreshold: 100,
-      pollInterval: 50,
+      stabilityThreshold: 300,
+      pollInterval: 100,
     },
   });
 

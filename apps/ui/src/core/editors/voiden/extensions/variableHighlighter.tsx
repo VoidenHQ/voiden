@@ -67,6 +67,9 @@ function findProcessVariables(doc: Node): DecorationSet {
 
 const pluginKey = new PluginKey("variableHighlighter");
 
+// Debounce timer for scheduling full decoration rebuilds
+let varHighlightTimer: ReturnType<typeof setTimeout> | null = null;
+
 /**
  * Variable highlighter extension.
  * @param variableData - key→value record from .voiden/.process.env.json
@@ -85,11 +88,35 @@ export const variableHighlighter = (variableData: Record<string, string> = {}) =
                             return findProcessVariables(doc);
                         },
                         apply(transaction, oldState) {
-                            if (transaction.getMeta("forceVariableHighlightUpdate") || transaction.docChanged) {
+                            // Force rebuild: always do full scan immediately
+                            if (transaction.getMeta("forceVariableHighlightUpdate")) {
                                 return findProcessVariables(transaction.doc);
+                            }
+                            // On doc change: remap positions immediately, schedule full rebuild
+                            if (transaction.docChanged) {
+                                return oldState.map(transaction.mapping, transaction.doc);
                             }
                             return oldState;
                         },
+                    },
+                    // Use view() to schedule debounced full rebuilds after typing pauses
+                    view() {
+                        return {
+                            update(view, prevState) {
+                                if (view.state.doc.eq(prevState.doc)) return;
+                                if (varHighlightTimer !== null) clearTimeout(varHighlightTimer);
+                                varHighlightTimer = setTimeout(() => {
+                                    varHighlightTimer = null;
+                                    view.dispatch(view.state.tr.setMeta("forceVariableHighlightUpdate", true));
+                                }, 150);
+                            },
+                            destroy() {
+                                if (varHighlightTimer !== null) {
+                                    clearTimeout(varHighlightTimer);
+                                    varHighlightTimer = null;
+                                }
+                            },
+                        };
                     },
                     props: {
                         decorations(state) {

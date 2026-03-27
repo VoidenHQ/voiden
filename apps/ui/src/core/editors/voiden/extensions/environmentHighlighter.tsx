@@ -72,6 +72,9 @@ function findVariable(doc: Node): DecorationSet {
 
 const pluginKey = new PluginKey("colorHighlighter");
 
+// Debounce timer for scheduling full decoration rebuilds
+let envHighlightTimer: ReturnType<typeof setTimeout> | null = null;
+
 /**
  * Environment highlighter extension.
  * @param envData - key→value record from the active environment
@@ -91,11 +94,35 @@ export const environmentHighlighter = (envData: Record<string, string> = {}) => 
               return findVariable(doc);
             },
             apply(transaction, oldState) {
-              if (transaction.getMeta("forceHighlightUpdate") || transaction.docChanged) {
+              // Force rebuild: always do full scan immediately
+              if (transaction.getMeta("forceHighlightUpdate")) {
                 return findVariable(transaction.doc);
+              }
+              // On doc change: remap positions immediately, schedule full rebuild
+              if (transaction.docChanged) {
+                return oldState.map(transaction.mapping, transaction.doc);
               }
               return oldState;
             },
+          },
+          // Use view() to schedule debounced full rebuilds after typing pauses
+          view(editorView) {
+            return {
+              update(view, prevState) {
+                if (view.state.doc.eq(prevState.doc)) return;
+                if (envHighlightTimer !== null) clearTimeout(envHighlightTimer);
+                envHighlightTimer = setTimeout(() => {
+                  envHighlightTimer = null;
+                  view.dispatch(view.state.tr.setMeta("forceHighlightUpdate", true));
+                }, 150);
+              },
+              destroy() {
+                if (envHighlightTimer !== null) {
+                  clearTimeout(envHighlightTimer);
+                  envHighlightTimer = null;
+                }
+              },
+            };
           },
           props: {
             decorations(state) {
