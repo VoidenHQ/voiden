@@ -5,26 +5,6 @@ import { ExtendedPluginContextExplicit } from '../plugin'
 
 declare global {
     interface Window {
-        //@ts-ignore
-        electron?: {
-            files?: {
-                write: (path: string, content: string) => Promise<void>;
-                createVoid: (projectPath: string, fileName: string) => Promise<{ path: string; name: string }>;
-                createDirectory: (parentPath: string, dirName: string) => Promise<string>;
-                getDirectoryExist: (parentPath: string, dirName: string) => Promise<boolean>;
-                getFileExist: (parentPath: string, fileName: string) => Promise<boolean>;
-            };
-            utils?: {
-                pathJoin: (...paths: string[]) => Promise<string>;
-            };
-            state?: {
-                get: () => Promise<{ activeProject?: string }>;
-                getProjects?: () => Promise<any>;
-            };
-            ipc?: {
-                invoke: (channel: string, ...args: any[]) => Promise<any>;
-            };
-        };
         jsyaml?: { load: (str: string) => any };
         __voidenHelpers__?: { [pluginName: string]: any };
     }

@@ -7,28 +7,6 @@ import type {
 import { isPostmanFolder, normalizePostmanUrl } from "./types";
 import { getVoidenApiHelpers } from "./useVoidenApiHelpers";
 
-// Global window type declarations for Electron API
-declare global {
-  interface Window {
-    //@ts-ignore
-    electron?: {
-      files?: {
-        write: (path: string, content: string) => Promise<void>;
-        createVoid: (projectPath: string, fileName: string) => Promise<{ path: string; name: string }>;
-        createDirectory: (parentPath: string, dirName: string) => Promise<string>;
-        getDirectoryExist: (parentPath: string, dirName: string) => Promise<boolean>;
-        getFileExist: (parentPath: string, fileName: string) => Promise<boolean>;
-        drop: (targetPath: string, fileName: string, fileData: Uint8Array) => Promise<{ success: boolean; error?: string }>
-      };
-      state?: {
-        get: () => Promise<{ activeProject?: string }>;
-      };
-      env?: {
-        extendEnvs: (comment: string, variables: [{ key: string, value: [{ key: string, value: string }] }]) => Promise<void>
-      }
-    };
-  }
-}
 
 /**
  * Sanitize folder/file names to be filesystem-safe
@@ -203,11 +181,11 @@ export const createSingleFile = async (request: PostmanRequest, currentPath: str
     content += request.request.description;
   }
   // Use createVoid to handle deduplication (adds " 1", " 2", etc. if file exists)
-  const result = await window.electron?.files?.createVoid(currentPath, fileName);
+  const result = await (window as any).electron?.files?.createVoid(currentPath, fileName);
 
   if (result?.path) {
     // Write content to the created file
-    await window.electron?.files?.write(result.path, content);
+    await (window as any).electron?.files?.write(result.path, content);
   }
 };
 
@@ -248,7 +226,7 @@ export const processItems = async (
         const folderName = sanitizeName(item.name);
 
         // createDirectory returns the actual folder name (might be "folder-1", "folder-2" if duplicates)
-        const actualFolderName = await window.electron?.files?.createDirectory(currentPath, folderName);
+        const actualFolderName = await (window as any).electron?.files?.createDirectory(currentPath, folderName);
         const folderPath = `${currentPath}/${actualFolderName}`;
 
         // Pass the same progressState object to nested calls
@@ -303,18 +281,18 @@ export const importPostmanCollection = async (
 
     // Create root collection folder
     const rootFolderName = sanitizeName(json.info.name);
-    const actualRootFolderName = await window.electron?.files?.createDirectory(activeProject, rootFolderName);
+    const actualRootFolderName = await (window as any).electron?.files?.createDirectory(activeProject, rootFolderName);
     // Create root void file for collection documentation
     if (json.info.description) {
-      const result = await window.electron?.files?.createVoid(`${activeProject}/${actualRootFolderName}`, rootFolderName);
+      const result = await (window as any).electron?.files?.createVoid(`${activeProject}/${actualRootFolderName}`, rootFolderName);
       if (result?.path) {
         // Write content to the created file
-        await window.electron?.files?.write(result.path, json.info.description);
+        await (window as any).electron?.files?.write(result.path, json.info.description);
       }
     }
     if (json && json.variable && json.variable.length > 0) {
       //@ts-ignore
-      await window.electron?.env?.extendEnvs(`${rootFolderName} collection variables`, json.variable);
+      await (window as any).electron?.env?.extendEnvs(`${rootFolderName} collection variables`, json.variable);
     }
 
     // Process items with global progress tracking

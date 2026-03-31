@@ -99,4 +99,12 @@ export const filesApi = {
     ipcRenderer.on("files:referencesUpdated", handler);
     return () => ipcRenderer.removeListener("files:referencesUpdated", handler);
   },
+  onSaveUnsavedForPaths: (callback: (requestId: string, paths: string[]) => void) => {
+    const handler = (_: unknown, requestId: string, paths: string[]) => callback(requestId, paths);
+    ipcRenderer.on("files:saveUnsavedForPaths", handler);
+    return () => ipcRenderer.removeListener("files:saveUnsavedForPaths", handler);
+  },
+  acknowledgeUnsavedSaved: (requestId: string) => {
+    ipcRenderer.send(`files:unsavedSavedAck:${requestId}`);
+  },
 };

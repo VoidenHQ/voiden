@@ -1,4 +1,5 @@
 import fs from "fs/promises";
+import fsSync from "fs";
 import {
   AppSettings,
   AppState,
@@ -880,18 +881,28 @@ export const ipcStateHandlers = () => {
       // Get the new path from the filesystem operation.
       const newPath = result.data.path;
 
+      // Check if renamed item is a directory
+      const isDirectory = fsSync.statSync(newPath).isDirectory();
+
       // Get the current application state.
       const appState = getAppState(event);
 
       // Define a helper to recursively update tabs in a layout.
+      // Handles both direct file renames and folder renames (which should update all files under the folder).
       const updateTabsInLayout = (layout: PanelElement) => {
         if (layout.type === "panel") {
           layout.tabs.forEach((tab) => {
-            // If the tab's source matches the old path,
-            // update it to the new path and update its title.
+            if (!tab.source) return;
+            
+            // For direct file/folder rename: exact match
             if (tab.source === oldPath) {
               tab.source = newPath;
               tab.title = newName;
+            }
+            // For folder rename: update all files under the folder
+            else if (isDirectory && tab.source.startsWith(oldPath + path.sep)) {
+              const relativePath = tab.source.slice(oldPath.length);
+              tab.source = newPath + relativePath;
             }
           });
         } else if (layout.type === "group") {

@@ -2,8 +2,8 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Search, File, Folder, FilePlus, Terminal, Settings, FolderPlus, HelpCircle, Sparkles } from 'lucide-react';
 import { useAddPanelTab } from '@/core/layout/hooks';
 import { cn } from '@/core/lib/utils';
-import { FileTree } from '@/types';
-import { useGetActiveDirectory, useFileTree, useGetActiveDocument } from '@/core/file-system/hooks/useFileSystem';
+import { useGetActiveDocument } from '@/core/file-system/hooks/useFileSystem';
+import { useGetAppState } from '@/core/state/hooks';
 import { useQueryClient } from '@tanstack/react-query';
 import { usePanelStore } from '@/core/stores/panelStore';
 import { useCodeEditorStore } from '@/core/editors/code/CodeEditorStore';
@@ -153,47 +153,51 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isFocused, mode,
   const [currentSuggestion, setCurrentSuggestion] = useState<string>('');
   const [isCreating, setIsCreating] = useState(false);
 
-  // Get active directory and file tree using React Query hooks
-  const { data: activeDirectory } = useGetActiveDirectory();
-  const { data: fileTree } = useFileTree();
+  // Get active directory
+  const { data: appState } = useGetAppState();
+  const activeDirectory = appState?.activeDirectory;
 
-  // Extract folders from file tree
+  // Seed files instantly from query cache (populated by usePrefetchFileList in the sidebar),
+  // then fetch a full fresh list in the background.
   useEffect(() => {
-    if (!fileTree) {
-      setFolders([]);
-      return;
-    }
+    if (!isFocused || !activeDirectory) return;
 
-    const folderPaths: string[] = []; // Don't add '.' - let users type from root
-    const extractFolders = (node: FileTree, currentRelativePath: string = '') => {
+    const applyList = (list: { name: string; path: string }[]) => {
+      const fileItems: FileItem[] = list.map((f) => {
+        const parts = f.path.split('/');
+        const directory = parts.slice(0, -1).join('/') || '/';
+        return { path: f.path, name: f.name, directory };
+      });
+      setFiles(fileItems);
 
-      if (node.type === 'folder') {
-        // Add this folder to the list if it's not the root
-        if (currentRelativePath) {
-          folderPaths.push(currentRelativePath + '/');
-        }
-
-        // Process children
-        if (node.children && Array.isArray(node.children)) {
-          node.children.forEach((child: any) => {
-            const childRelativePath = currentRelativePath
-              ? `${currentRelativePath}/${child.name}`
-              : child.name;
-            extractFolders(child, childRelativePath);
-          });
+      const folderSet = new Set<string>();
+      for (const f of list) {
+        const relative = f.path.startsWith(activeDirectory)
+          ? f.path.slice(activeDirectory.length + 1)
+          : f.path;
+        const parts = relative.split('/');
+        for (let i = 1; i < parts.length; i++) {
+          folderSet.add(parts.slice(0, i).join('/') + '/');
         }
       }
+      setFolders([...folderSet].sort());
     };
 
-    // Start extraction from the root (fileTree is the root node)
-    if (fileTree.children && Array.isArray(fileTree.children)) {
-      fileTree.children.forEach((child: any) => {
-        extractFolders(child, child.name);
-      });
+    // Show cached data immediately (up to 100) so the list isn't empty on open
+    const cached = queryClient.getQueryData<{ name: string; path: string }[]>(["files:flatList", activeDirectory]);
+    if (cached && cached.length > 0) {
+      applyList(cached.slice(0, 100));
     }
 
-    setFolders(folderPaths.sort());
-  }, [fileTree]);
+    // Fetch full list in background and replace once ready
+    let cancelled = false;
+    window.electron?.files.flatList(activeDirectory).then((list) => {
+      if (cancelled || !list) return;
+      applyList(list);
+    });
+
+    return () => { cancelled = true; };
+  }, [isFocused, activeDirectory]);
 
   // Calculate autocomplete suggestion based on current input
   useEffect(() => {
@@ -478,34 +482,6 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isFocused, mode,
     setSelectedIndex(0);
   }, [searchQuery, mode, commands]);
 
-  // Flatten file tree when it changes
-  useEffect(() => {
-    if (!fileTree) {
-      setFiles([]);
-      return;
-    }
-
-    // Flatten the file tree to get all files
-    const fileItems: FileItem[] = [];
-    const flattenTree = (node: FileTree) => {
-      // If this is a file, add it to the list
-      if (node.type === 'file') {
-        const parts = node.path.split('/');
-        const name = parts[parts.length - 1];
-        const directory = parts.slice(0, -1).join('/') || '/';
-        fileItems.push({ path: node.path, name, directory });
-      }
-      // If this node has children, recursively flatten them
-      if (node.children && Array.isArray(node.children)) {
-        node.children.forEach((child: any) => flattenTree(child));
-      }
-    };
-
-    // Start flattening from the root node
-    flattenTree(fileTree);
-    setFiles(fileItems);
-  }, [fileTree]);
-
   // Focus input when palette opens
   useEffect(() => {
     if (isFocused) {
@@ -669,7 +645,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isFocused, mode,
   };
 
   const handleCreateFolder = async () => {
-    const projectPath = activeDirectory || fileTree?.path;
+    const projectPath = activeDirectory;
     const rawInputPath = createFilePath.trim();
     if (!projectPath || !rawInputPath || isCreating) return;
 
@@ -721,7 +697,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isFocused, mode,
   };
 
   const handleCreateFile = async () => {
-    const projectPath = activeDirectory || fileTree?.path;
+    const projectPath = activeDirectory;
     const rawInputPath = createFilePath.trim();
     if (!projectPath || !rawInputPath || isCreating) return;
 

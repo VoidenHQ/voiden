@@ -25,16 +25,16 @@ import { getCachedGitStatus } from "../git";
 import { getActiveProject, findTabById, getAppState } from "../state";
 import { saveState, deleteAutosaveFile } from "../persistState";
 import { FileTreeItem } from "../../types";
+import { PanelElement } from "../../../shared/types";
 import { fold } from "fp-ts/lib/Tree";
+
+// Module-level cache so mutating handlers can clear it immediately.
+const treeResultCache = new Map<string, { result: any; at: number }>();
+const TREE_RESULT_TTL = 3000; // ms — reuse a finished build for 3 s
 
 export function registerFileIpcHandlers() {
   // Deduplicate: if a tree build is already in-flight, share the result.
   const pendingTreeBuilds = new Map<string, Promise<any>>();
-  // Cache the last completed tree result per directory with a short TTL so
-  // back-to-back invalidations (e.g. 5 file:new events at startup) return the
-  // cached result instead of triggering 5 full rebuilds.
-  const treeResultCache = new Map<string, { result: any; at: number }>();
-  const TREE_RESULT_TTL = 3000; // ms — reuse a finished build for 3 s
 
   ipcMain.handle("files:tree", async (_event, directory: string) => {
     try { await fs.promises.access(directory); } catch { return null; }
@@ -162,6 +162,7 @@ export function registerFileIpcHandlers() {
     "files:create-void",
     async (_event, projectName: string, fileName: string) => {
       const result = await createVoidFile(projectName, fileName);
+      treeResultCache.clear();
       return result;
     },
   );
@@ -170,6 +171,7 @@ export function registerFileIpcHandlers() {
     "files:create",
     async (_event, projectName: string, fileName: string) => {
       const result = await createFile(projectName, fileName);
+      treeResultCache.clear();
       return result;
     },
   );
@@ -177,7 +179,9 @@ export function registerFileIpcHandlers() {
   ipcMain.handle(
     "files:createDirectory",
     async (_event, path: string, dirName?: string) => {
-      return await createDirectory(path, dirName);
+      const result = await createDirectory(path, dirName);
+      treeResultCache.clear();
+      return result;
     },
   );
 
@@ -226,10 +230,13 @@ export function registerFileIpcHandlers() {
 
   ipcMain.handle("files:delete", async (_event, filePath: string) => {
     await deleteFile(filePath);
+    treeResultCache.clear();
   });
 
   ipcMain.handle("files:deleteDirectory", async (_event, dirPath: string) => {
-    return await deleteDirectory(dirPath);
+    const result = await deleteDirectory(dirPath);
+    treeResultCache.clear();
+    return result;
   });
 
   ipcMain.handle("files:bulkDelete", async (_event, items: FileTreeItem[]) => {
@@ -246,6 +253,7 @@ export function registerFileIpcHandlers() {
       for (const item of items) {
         await shell.trashItem(item.path);
       }
+      treeResultCache.clear();
       return true;
     }
     return false;
@@ -292,26 +300,104 @@ export function registerFileIpcHandlers() {
   ipcMain.handle(
     "files:rename",
     async (_event, oldPath: string, newName: string) => {
-      return await renameFileOrDirectory(
+      const result = await renameFileOrDirectory(
         oldPath,
         newName,
         getActiveStates,
         saveActiveStates,
       );
+      treeResultCache.clear();
+      return result;
     },
   );
 
   ipcMain.handle(
     "files:move",
-    async (_event, dragIds: string[], parentId: string) => {
-      return await moveFiles(dragIds, parentId);
+    async (event, dragIds: string[], parentId: string) => {
+      const result = await moveFiles(dragIds, parentId);
+      treeResultCache.clear();
+      
+      // Update tabs with new paths for moved files
+      if (result.success && result.pathMappings) {
+        const appState = getAppState(event);
+        
+        const updateTabsInLayout = (layout: PanelElement) => {
+          if (layout.type === "panel") {
+            layout.tabs.forEach((tab) => {
+              if (tab.source) {
+                for (const mapping of result.pathMappings!) {
+                  if (tab.source === mapping.oldPath) {
+                    tab.source = mapping.newPath;
+                    break;
+                  }
+                }
+              }
+            });
+          } else if (layout.type === "group") {
+            layout.children.forEach((child) => updateTabsInLayout(child));
+          }
+        };
+        
+        if (appState.activeDirectory) {
+          const dirState = appState.directories[appState.activeDirectory];
+          if (dirState && dirState.layout) {
+            updateTabsInLayout(dirState.layout);
+          }
+        }
+        
+        if (appState.unsaved && appState.unsaved.layout) {
+          updateTabsInLayout(appState.unsaved.layout);
+        }
+        
+        await saveState(appState);
+      }
+      
+      return result;
     },
   );
 
   ipcMain.handle(
     "files:moveForce",
-    async (_event, conflicts: MoveConflict[]) => {
-      return await moveFilesForce(conflicts);
+    async (event, conflicts: MoveConflict[]) => {
+      const result = await moveFilesForce(conflicts);
+      treeResultCache.clear();
+      
+      // Update tabs with new paths for moved files
+      if (result.success && result.pathMappings) {
+        const appState = getAppState(event);
+        
+        const updateTabsInLayout = (layout: PanelElement) => {
+          if (layout.type === "panel") {
+            layout.tabs.forEach((tab) => {
+              if (tab.source) {
+                for (const mapping of result.pathMappings!) {
+                  if (tab.source === mapping.oldPath) {
+                    tab.source = mapping.newPath;
+                    break;
+                  }
+                }
+              }
+            });
+          } else if (layout.type === "group") {
+            layout.children.forEach((child) => updateTabsInLayout(child));
+          }
+        };
+        
+        if (appState.activeDirectory) {
+          const dirState = appState.directories[appState.activeDirectory];
+          if (dirState && dirState.layout) {
+            updateTabsInLayout(dirState.layout);
+          }
+        }
+        
+        if (appState.unsaved && appState.unsaved.layout) {
+          updateTabsInLayout(appState.unsaved.layout);
+        }
+        
+        await saveState(appState);
+      }
+      
+      return result;
     },
   );
 
@@ -323,14 +409,18 @@ export function registerFileIpcHandlers() {
       fileName: string,
       fileData: Uint8Array,
     ) => {
-      return await dropFiles(targetPath, fileName, fileData);
+      const result = await dropFiles(targetPath, fileName, fileData);
+      treeResultCache.clear();
+      return result;
     },
   );
 
   ipcMain.handle(
     "files:dropFolder",
     async (_event, targetPath: string, sourcePath: string) => {
-      return await dropFolder(targetPath, sourcePath);
+      const result = await dropFolder(targetPath, sourcePath);
+      treeResultCache.clear();
+      return result;
     },
   );
 
@@ -387,7 +477,7 @@ export function registerFileIpcHandlers() {
       ".turbo", ".svelte-kit", "out", ".output", ".vercel", "__pycache__",
       ".venv", "venv", ".tox", "vendor", "Pods", ".gradle", "target",
     ]);
-    const MAX = 2000;
+    const MAX = 10000;
     const results: { name: string; path: string }[] = [];
     const queue: string[] = [rootDir];
 

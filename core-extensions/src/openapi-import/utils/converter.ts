@@ -3,19 +3,6 @@ import * as jsyaml from "js-yaml";
 
 declare global {
   interface Window {
-    electron?: {
-      files?: {
-        write: (path: string, content: string) => Promise<void>;
-        createVoid: (projectPath: string, fileName: string) => Promise<{ path: string; name: string }>;
-        createDirectory: (parentPath: string, dirName: string) => Promise<string>;
-        getDirectoryExist: (parentPath: string, dirName: string) => Promise<boolean>;
-        getFileExist: (parentPath: string, fileName: string) => Promise<boolean>;
-        read: (path: string) => Promise<string>;
-      };
-      state?: {
-        get: () => Promise<{ activeProject?: string }>;
-      };
-    };
     jsyaml?: { load: (str: string) => any };
     __voidenHelpers__?: { [pluginName: string]: any };
   }
@@ -580,14 +567,14 @@ export function sanitizeName(name: string): string {
 }
 
 export const getFolderExists = async (activeProject?: string, rootFolderName?: string) => {
-  const electronApi = window.electron;
+  const electronApi = (window as any).electron;
   const alreadExists = await electronApi!.files!.getDirectoryExist(activeProject!, sanitizeName(rootFolderName!));
 
   return alreadExists;
 };
 
 export const getFilesExists = async (activeProject?: string, rootFolderName?: string, endpoints?: EndpointNode[]) => {
-  const electronApi = window.electron;
+  const electronApi = (window as any).electron;
   const alreadExists = await electronApi!.files!.getDirectoryExist(activeProject!, sanitizeName(rootFolderName!));
   const willWriteFiles = Boolean(activeProject && electronApi?.files?.write && electronApi?.files?.createDirectory);
   if (!alreadExists || !endpoints || !willWriteFiles) {
@@ -627,7 +614,7 @@ export const generateSelected = async (
   onProgress?: (current: number, total: number) => void,
   opts?: { activeProject?: string; rootFolderName?: string; pickedOverwrite?: number },
 ) => {
-  const electronApi = window.electron;
+  const electronApi = (window as any).electron;
   const createdTagFolders = new Set<string>();
 
   // Prefer the value passed from the UI (like the Postman importer).

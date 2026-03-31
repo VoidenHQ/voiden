@@ -3,7 +3,7 @@ import React, { createContext, useContext, useEffect, useRef } from "react";
 import { EventEmitter } from "events";
 import { useQueryClient } from "@tanstack/react-query";
 
-import { globalSaveFile } from "@/core/file-system/hooks";
+import { globalSaveFile, saveTabById } from "@/core/file-system/hooks";
 import { useLoadEnv, useSetActiveEnv } from "@/core/environment/hooks";
 import { toast } from "@/core/components/ui/sonner";
 
@@ -83,7 +83,6 @@ export const ElectronEventProvider: React.FC<{ children: React.ReactNode }> = ({
         fileDeleteDebounceRef.current = setTimeout(() => {
           queryClient.invalidateQueries({ queryKey: ["files:tree"] });
           queryClient.invalidateQueries({ queryKey: ["panel:tabs"], exact: false });
-          queryClient.invalidateQueries({ queryKey: ["tab:content"], exact: false });
           queryClient.invalidateQueries({ queryKey: ["voiden-wrapper:blockContent"], exact: false });
           queryClient.invalidateQueries({ queryKey: ["env"] });
         }, 400);
@@ -158,7 +157,6 @@ export const ElectronEventProvider: React.FC<{ children: React.ReactNode }> = ({
         dirDeleteDebounceRef.current = setTimeout(() => {
           queryClient.invalidateQueries({ queryKey: ["files:tree"] });
           queryClient.invalidateQueries({ queryKey: ["panel:tabs"], exact: false });
-          queryClient.invalidateQueries({ queryKey: ["tab:content"], exact: false });
           queryClient.invalidateQueries({ queryKey: ["voiden-wrapper:blockContent"], exact: false });
           queryClient.invalidateQueries({ queryKey: ["env"] });
         }, 400);
@@ -222,7 +220,14 @@ export const ElectronEventProvider: React.FC<{ children: React.ReactNode }> = ({
       },
       "toast:info": (event: any, data: any) => {
         toast.info(data.title, { description: data.description || undefined,duration: data.duration || 4000 ,closeButton:true} );
-      }
+      },
+      "files:saveUnsavedForPaths": async (_event: any, requestId: string, paths: string[]) => {
+        const panelTabs = queryClient.getQueryData<{ tabs: { id: string; source: string | null }[]; activeTabId: string }>(["panel:tabs", "main"]);
+        const tabs = panelTabs?.tabs ?? [];
+        const matchingTabs = tabs.filter((t) => t.source && paths.includes(t.source));
+        await Promise.all(matchingTabs.map((t) => saveTabById(t.id, { silent: true })));
+        window.electron?.files.acknowledgeUnsavedSaved(requestId);
+      },
     };
 
     // Only attach listeners if not already attached (handles React Strict Mode)

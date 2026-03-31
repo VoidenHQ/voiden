@@ -187,6 +187,10 @@ declare global {
         onReferencesUpdated: (
           callback: (filePaths: string[]) => void,
         ) => () => void;
+        onSaveUnsavedForPaths: (
+          callback: (requestId: string, paths: string[]) => void,
+        ) => () => void;
+        acknowledgeUnsavedSaved: (requestId: string) => void;
       };
       searchFiles: (query: string) => Promise<SearchResult[]>;
       git: {

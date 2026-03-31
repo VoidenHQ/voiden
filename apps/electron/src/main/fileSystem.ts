@@ -1,4 +1,4 @@
-import { app, dialog, shell, BrowserWindow } from "electron";
+import { app, dialog, shell, BrowserWindow, ipcMain } from "electron";
 import path from "node:path";
 import fs from "node:fs";
 import { TreeNode, FolderNode, FileTreeItem } from "../types";
@@ -328,7 +328,7 @@ export async function renameFileOrDirectory(oldPath: string, newName: string) {
     if (isUnderActiveProject && !isRootRename) {
       if (isDirectory) {
         await collectVoidFiles(oldPath, newPath, movedVoidFiles);
-      } else if (oldPath.endsWith(".void")) {
+      } else {
         movedVoidFiles.push({ oldPath, newPath });
       }
     }
@@ -429,6 +429,7 @@ export type MoveResult = {
   moved: string[];
   conflicts: MoveConflict[];
   error?: string;
+  pathMappings?: Array<{ oldPath: string; newPath: string }>;
 };
 
 async function collectVoidFiles(
@@ -438,8 +439,7 @@ async function collectVoidFiles(
 ) {
   const stat = await fs.promises.stat(oldBasePath);
   if (stat.isFile()) {
-    if (oldBasePath.endsWith(".void"))
-      out.push({ oldPath: oldBasePath, newPath: newBasePath });
+    out.push({ oldPath: oldBasePath, newPath: newBasePath });
     return;
   }
   if (!stat.isDirectory()) return;
@@ -451,7 +451,7 @@ async function collectVoidFiles(
     const newEntry = path.join(newBasePath, entry.name);
     if (entry.isDirectory()) {
       await collectVoidFiles(oldEntry, newEntry, out);
-    } else if (entry.isFile() && entry.name.endsWith(".void")) {
+    } else if (entry.isFile()) {
       out.push({ oldPath: oldEntry, newPath: newEntry });
     }
   }
@@ -464,6 +464,7 @@ export async function moveFiles(
   const moved: string[] = [];
   const conflicts: MoveConflict[] = [];
   const movedVoidFiles: Array<{ oldPath: string; newPath: string }> = [];
+  const pathMappings: Array<{ oldPath: string; newPath: string }> = [];
 
   try {
     for (const dragId of dragIds) {
@@ -476,12 +477,13 @@ export async function moveFiles(
       }
 
       await collectVoidFiles(dragId, newPath, movedVoidFiles);
+      pathMappings.push({ oldPath: dragId, newPath });
       await fs.promises.rename(dragId, newPath);
       moved.push(dragId);
     }
 
     await maybeUpdateLinkedBlockReferencesAfterMove(movedVoidFiles);
-    return { success: true, moved, conflicts };
+    return { success: true, moved, conflicts, pathMappings };
   } catch (error) {
     return { success: false, moved, conflicts, error: error.message };
   }
@@ -489,8 +491,9 @@ export async function moveFiles(
 
 export async function moveFilesForce(
   conflicts: MoveConflict[],
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; error?: string; pathMappings?: Array<{ oldPath: string; newPath: string }> }> {
   const movedVoidFiles: Array<{ oldPath: string; newPath: string }> = [];
+  const pathMappings: Array<{ oldPath: string; newPath: string }> = [];
 
   try {
     for (const { dragId, targetPath } of conflicts) {
@@ -505,14 +508,100 @@ export async function moveFilesForce(
         await fs.promises.unlink(targetPath);
       }
       await collectVoidFiles(dragId, targetPath, movedVoidFiles);
+      pathMappings.push({ oldPath: dragId, newPath: targetPath });
       await fs.promises.rename(dragId, targetPath);
     }
 
     await maybeUpdateLinkedBlockReferencesAfterMove(movedVoidFiles);
-    return { success: true };
+    return { success: true, pathMappings };
   } catch (error) {
     return { success: false, error: error.message };
   }
+}
+
+/** Apply void-file reference path updates to a source string.
+ *  Returns the updated source and the number of references rewritten. */
+function applyVoidFileReferenceUpdates(
+  source: string,
+  movedByOldRel: Map<string, string>,
+): { updatedSource: string; count: number } {
+  const normalizeRefPath = (value: string) =>
+    value.replace(/\\/g, "/").replace(/^\.\//, "").replace(/^\/+/, "");
+  const isUuid = (value: string) =>
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+  const originalFileLineRegex = /^(\s*originalFile:\s*)(['"]?)([^'"\r\n]+)\2(\s*)$/gm;
+  const filePathLineRegex = /^(\s*filePath:\s*)(['"]?)([^'"\r\n]+)\2(\s*)$/gm;
+  const voidFenceRegex = /```void\s*\r?\n([\s\S]*?)```/g;
+
+  let count = 0;
+
+  function rewritePathLine(
+    lineText: string,
+    prefix: string,
+    quote: string,
+    refValue: string,
+    suffix: string,
+  ): string {
+    const normalizedRef = normalizeRefPath(refValue.trim());
+    const newRel = movedByOldRel.get(normalizedRef);
+    if (!newRel) return lineText;
+    const keepBackslash = refValue.includes("\\");
+    const sep = keepBackslash ? "\\" : "/";
+    const relWithSep = newRel.replace(/\//g, sep);
+    let nextRefValue = relWithSep;
+    if (refValue.startsWith("./") || refValue.startsWith(".\\")) {
+      nextRefValue = `.${sep}${relWithSep}`;
+    } else if (refValue.startsWith("/") || refValue.startsWith("\\")) {
+      nextRefValue = `${sep}${relWithSep}`;
+    }
+    count++;
+    return `${prefix}${quote}${nextRefValue}${quote}${suffix}`;
+  }
+
+  const updatedSource = source.replace(voidFenceRegex, (fenceText, body: string) => {
+    if (/^\s*type:\s*linkedBlock\s*$/m.test(body)) {
+      const uidMatch = body.match(/^\s*blockUid:\s*([^\r\n]+)\s*$/m);
+      if (!uidMatch || !isUuid(uidMatch[1].trim())) return fenceText;
+      const updatedBody = body.replace(originalFileLineRegex, (l, p, q, v, s) =>
+        rewritePathLine(l, p, q, v, s),
+      );
+      return fenceText.replace(body, updatedBody);
+    }
+    if (/^\s*type:\s*fileLink\s*$/m.test(body)) {
+      const updatedBody = body.replace(filePathLineRegex, (l, p, q, v, s) =>
+        rewritePathLine(l, p, q, v, s),
+      );
+      return fenceText.replace(body, updatedBody);
+    }
+    return fenceText;
+  });
+
+  return { updatedSource, count };
+}
+
+/** Ask all renderer windows to flush unsaved content for the given file paths to disk.
+ *  Waits up to 3 seconds for acknowledgment before proceeding. */
+function flushRendererUnsavedForPaths(paths: string[]): Promise<void> {
+  return new Promise<void>((resolve) => {
+    const windows = BrowserWindow.getAllWindows();
+    if (windows.length === 0) {
+      resolve();
+      return;
+    }
+    const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const ackChannel = `files:unsavedSavedAck:${requestId}`;
+    const timeout = setTimeout(() => {
+      ipcMain.removeAllListeners(ackChannel);
+      resolve();
+    }, 3000);
+    ipcMain.once(ackChannel, () => {
+      clearTimeout(timeout);
+      resolve();
+    });
+    for (const w of windows) {
+      w.webContents.send("files:saveUnsavedForPaths", requestId, paths);
+    }
+  });
 }
 
 async function maybeUpdateLinkedBlockReferencesAfterMove(
@@ -525,12 +614,6 @@ async function maybeUpdateLinkedBlockReferencesAfterMove(
 
   const normalizeRel = (projectRoot: string, absolutePath: string) =>
     path.relative(projectRoot, absolutePath).replace(/\\/g, "/");
-  const normalizeRefPath = (value: string) =>
-    value.replace(/\\/g, "/").replace(/^\.\//, "").replace(/^\/+/, "");
-  const isUuid = (value: string) =>
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-      value,
-    );
 
   const movedByOldRel = new Map<string, string>();
   for (const moved of movedVoidFiles) {
@@ -555,75 +638,14 @@ async function maybeUpdateLinkedBlockReferencesAfterMove(
   };
   await collectAllVoidFiles(activeProject);
 
-  const originalFileLineRegex =
-    /^(\s*originalFile:\s*)(['"]?)([^'"\r\n]+)\2(\s*)$/gm;
-  const filePathLineRegex = /^(\s*filePath:\s*)(['"]?)([^'"\r\n]+)\2(\s*)$/gm;
-  const voidFenceRegex = /```void\s*\r?\n([\s\S]*?)```/g;
   const fileUpdates = new Map<string, string>();
   let totalReferences = 0;
 
-  /** Rewrite a path value if it matches a moved file, invoking onMatch on update. */
-  function rewritePathLine(
-    lineText: string,
-    prefix: string,
-    quote: string,
-    refValue: string,
-    suffix: string,
-    onMatch: () => void,
-  ): string {
-    const normalizedRef = normalizeRefPath(refValue.trim());
-    const newRel = movedByOldRel.get(normalizedRef);
-    if (!newRel) return lineText;
-    const keepBackslash = refValue.includes("\\");
-    const sep = keepBackslash ? "\\" : "/";
-    const relWithSep = newRel.replace(/\//g, sep);
-    let nextRefValue = relWithSep;
-    if (refValue.startsWith("./") || refValue.startsWith(".\\")) {
-      nextRefValue = `.${sep}${relWithSep}`;
-    } else if (refValue.startsWith("/") || refValue.startsWith("\\")) {
-      nextRefValue = `${sep}${relWithSep}`;
-    }
-    onMatch();
-    return `${prefix}${quote}${nextRefValue}${quote}${suffix}`;
-  }
-
   for (const voidFilePath of allVoidFiles) {
     const source = await fs.promises.readFile(voidFilePath, "utf8");
-    let fileReferenceCount = 0;
-
-    const updatedSource = source.replace(
-      voidFenceRegex,
-      (fenceText, body: string) => {
-        // linkedBlock: update originalFile
-        if (/^\s*type:\s*linkedBlock\s*$/m.test(body)) {
-          const uidMatch = body.match(/^\s*blockUid:\s*([^\r\n]+)\s*$/m);
-          if (!uidMatch || !isUuid(uidMatch[1].trim())) return fenceText;
-          const updatedBody = body.replace(
-            originalFileLineRegex,
-            (l, p, q, v, s) =>
-              rewritePathLine(l, p, q, v, s, () => {
-                fileReferenceCount += 1;
-              }),
-          );
-          return fenceText.replace(body, updatedBody);
-        }
-
-        // fileLink: update filePath
-        if (/^\s*type:\s*fileLink\s*$/m.test(body)) {
-          const updatedBody = body.replace(filePathLineRegex, (l, p, q, v, s) =>
-            rewritePathLine(l, p, q, v, s, () => {
-              fileReferenceCount += 1;
-            }),
-          );
-          return fenceText.replace(body, updatedBody);
-        }
-
-        return fenceText;
-      },
-    );
-
-    if (fileReferenceCount > 0 && updatedSource !== source) {
-      totalReferences += fileReferenceCount;
+    const { updatedSource, count } = applyVoidFileReferenceUpdates(source, movedByOldRel);
+    if (count > 0 && updatedSource !== source) {
+      totalReferences += count;
       fileUpdates.set(voidFilePath, updatedSource);
     }
   }
@@ -637,11 +659,23 @@ async function maybeUpdateLinkedBlockReferencesAfterMove(
     defaultId: 1,
     cancelId: 0,
     title: "Update References?",
-    message: "A .void file was moved.",
+    message: "A file was moved or renamed.",
     detail: `References in other file(s) still point to the old path. Found ${totalReferences} reference(s) in ${fileUpdates.size} file(s). Update them to the new location?`,
   });
 
   if (response !== 1) return;
+
+  // Flush any unsaved renderer content for the files we're about to rewrite,
+  // then re-read from disk so we apply reference updates on top of the latest content.
+  await flushRendererUnsavedForPaths(Array.from(fileUpdates.keys()));
+
+  for (const [filePath] of fileUpdates) {
+    const freshSource = await fs.promises.readFile(filePath, "utf8");
+    const { updatedSource, count } = applyVoidFileReferenceUpdates(freshSource, movedByOldRel);
+    if (count > 0 && updatedSource !== freshSource) {
+      fileUpdates.set(filePath, updatedSource);
+    }
+  }
 
   for (const [filePath, content] of fileUpdates) {
     await fs.promises.writeFile(filePath, content, "utf8");
