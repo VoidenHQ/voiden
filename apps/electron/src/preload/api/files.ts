@@ -6,8 +6,8 @@ export const filesApi = {
     ipcRenderer.invoke("files:getFiles", filePaths, isExternal),
   tree: (directory: string) => ipcRenderer.invoke("files:tree", directory),
   expandDir: (dirPath: string) => ipcRenderer.invoke("files:expandDir", dirPath),
-  flatList: (rootDir: string): Promise<{ name: string; path: string }[]> =>
-    ipcRenderer.invoke("files:flatList", rootDir),
+  flatList: (rootDir: string, query?: string): Promise<{ name: string; path: string }[]> =>
+    ipcRenderer.invoke("files:flatList", rootDir, query),
   read: (path: string) => ipcRenderer.invoke("files:read", path),
   write: (path: string, content: string, tabId?: string) =>
     ipcRenderer.invoke("files:write", path, content, tabId),

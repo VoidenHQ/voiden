@@ -1,6 +1,7 @@
 import { ipcMain, dialog, shell, BrowserWindow } from "electron";
 import fs from "node:fs";
 import path from "node:path";
+import { spawn } from "node:child_process";
 import mime from "mime-types";
 import {
   buildFileTree,
@@ -471,35 +472,80 @@ export function registerFileIpcHandlers() {
   // Flat file list for the '@' file-link feature.
   // BFS walk: skips heavy dirs, caps at 2000 results to stay memory-safe.
   // Uses only `fs` and `path` — no imports from other main-process modules.
-  ipcMain.handle("files:flatList", async (_event, rootDir: string) => {
-    const SKIP = new Set([
-      "node_modules", ".git", "dist", "build", ".next", ".nuxt", ".cache",
-      ".turbo", ".svelte-kit", "out", ".output", ".vercel", "__pycache__",
-      ".venv", "venv", ".tox", "vendor", "Pods", ".gradle", "target",
-    ]);
-    const MAX = 10000;
-    const results: { name: string; path: string }[] = [];
-    const queue: string[] = [rootDir];
+  // Flat file list for the '@' file-link feature.
+  // Uses `rg --files` for near-instant listing; falls back to BFS if rg is unavailable.
+  // Accepts an optional query to filter filenames (case-insensitive) and caps at 100 results.
+  ipcMain.handle("files:flatList", async (_event, rootDir: string, query?: string) => {
+    const LIMIT = 100;
+    const normalizedQuery = (query ?? "").toLowerCase();
 
-    while (queue.length > 0 && results.length < MAX) {
-      const dir = queue.shift()!;
-      let entries: fs.Dirent[];
-      try {
-        entries = await fs.promises.readdir(dir, { withFileTypes: true });
-      } catch {
-        continue;
-      }
-      for (const entry of entries) {
-        if (entry.name.startsWith(".") && entry.name !== ".env" && !entry.name.startsWith(".env")) continue;
-        const full = path.join(dir, entry.name);
-        if (entry.isDirectory()) {
-          if (!SKIP.has(entry.name)) queue.push(full);
-        } else {
-          results.push({ name: entry.name, path: full });
-          if (results.length >= MAX) break;
+    const rgCandidates = ["/opt/homebrew/bin/rg", "/usr/local/bin/rg", "rg"];
+    const rgPath = rgCandidates.find((p) => {
+      try { return p === "rg" || fs.existsSync(p); } catch { return false; }
+    }) ?? "rg";
+
+    const results: { name: string; path: string }[] = [];
+
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const proc = spawn(rgPath, ["--files", rootDir], { stdio: ["ignore", "pipe", "ignore"] });
+        let buf = "";
+
+        proc.stdout.on("data", (chunk: Buffer) => {
+          buf += chunk.toString();
+          const lines = buf.split("\n");
+          buf = lines.pop() ?? "";
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed) continue;
+            const name = path.basename(trimmed);
+            if (!normalizedQuery || name.toLowerCase().includes(normalizedQuery)) {
+              results.push({ name, path: trimmed });
+              if (results.length >= LIMIT) { proc.kill(); return; }
+            }
+          }
+        });
+
+        proc.on("close", () => {
+          if (buf.trim()) {
+            const name = path.basename(buf.trim());
+            if (results.length < LIMIT && (!normalizedQuery || name.toLowerCase().includes(normalizedQuery))) {
+              results.push({ name, path: buf.trim() });
+            }
+          }
+          resolve();
+        });
+        proc.on("error", reject);
+      });
+    } catch {
+      // rg not available — BFS fallback
+      const SKIP = new Set([
+        "node_modules", ".git", "dist", "build", ".next", ".nuxt", ".cache",
+        ".turbo", ".svelte-kit", "out", ".output", ".vercel", "__pycache__",
+        ".venv", "venv", ".tox", "vendor", "Pods", ".gradle", "target",
+      ]);
+      const queue: string[] = [rootDir];
+      while (queue.length > 0 && results.length < LIMIT) {
+        const dir = queue.shift()!;
+        let entries: fs.Dirent[];
+        try { entries = await fs.promises.readdir(dir, { withFileTypes: true }); }
+        catch { continue; }
+        for (const entry of entries) {
+          if (entry.name.startsWith(".") && !entry.name.startsWith(".env")) continue;
+          const full = path.join(dir, entry.name);
+          if (entry.isDirectory()) {
+            if (!SKIP.has(entry.name)) queue.push(full);
+          } else {
+            if (!normalizedQuery || entry.name.toLowerCase().includes(normalizedQuery)) {
+              results.push({ name: entry.name, path: full });
+              if (results.length >= LIMIT) break;
+            }
+          }
         }
+        await new Promise<void>((r) => setImmediate(r));
       }
     }
+
     return results;
   });
 

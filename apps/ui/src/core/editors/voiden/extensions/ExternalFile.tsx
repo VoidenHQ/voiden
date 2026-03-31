@@ -240,32 +240,50 @@ const FileLinkTippyContent = forwardRef((props: FileLinkListProps & { editor?: E
   const [isBlockMode, setIsBlockMode] = useState(false);
   const [multiSelectedItems, setMultiSelectedItems] = useState<(FileLinkItem | JSONContent)[]>([]);
 
-  // Own file list query — opens popup instantly, shows loading while fetching.
+  // Accumulated file corpus — grows as server returns results for each query.
+  // Never shrinks so previously found files remain filterable client-side.
   const queryClient = useQueryClient();
   const activeDir = queryClient.getQueryData<{ activeDirectory: string }>(["app:state"])?.activeDirectory;
   const activeProject = (queryClient.getQueryData<{ activeProject: string }>(["projects"]) as any)?.activeProject || "";
-  const { data: flatList, isPending: isLoadingFiles } = useQuery({
-    queryKey: ["files:flatList", activeDir],
-    enabled: !!activeDir,
-    staleTime: Infinity,
-    gcTime: 0,
-    queryFn: async (): Promise<{ name: string; path: string }[]> => {
-      if (!activeDir) return [];
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      return (window.electron?.files as any)?.flatList?.(activeDir) ?? [];
-    },
-  });
 
-  const allFileLinks = useMemo((): FileLinkItem[] => {
-    const addNew: FileLinkItem = { filePath: "", filename: "Add new file", isNew: true };
-    if (!flatList) return [addNew];
-    const normalizedProject = activeProject.replace(/\\/g, "/");
-    const links = flatList.map((f) => {
-      const normalizedPath = f.path.replace(/\\/g, "/");
-      return { filePath: normalizedPath.replace(normalizedProject, ""), filename: f.name };
+  const [fileCorpus, setFileCorpus] = useState<FileLinkItem[]>([]);
+  const [isLoadingFiles, setIsLoadingFiles] = useState(false);
+
+  // Server fetch — keyed on debounced query; merges new results into corpus
+  const [debouncedQuery, setDebouncedQuery] = useState(props.query);
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQuery(props.query), 150);
+    return () => clearTimeout(t);
+  }, [props.query]);
+
+  useEffect(() => {
+    if (!activeDir) return;
+    let cancelled = false;
+    setIsLoadingFiles(true);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (window.electron?.files as any)?.flatList?.(activeDir, debouncedQuery || undefined).then((list: { name: string; path: string }[]) => {
+      if (cancelled || !list) return;
+      setIsLoadingFiles(false);
+      const normalizedProject = activeProject.replace(/\\/g, "/");
+      const incoming: FileLinkItem[] = list.map((f) => {
+        const normalizedPath = f.path.replace(/\\/g, "/");
+        return { filePath: normalizedPath.replace(normalizedProject, ""), filename: f.name };
+      });
+      setFileCorpus((prev) => {
+        const existing = new Set(prev.map((f) => f.filePath));
+        const added = incoming.filter((f) => !existing.has(f.filePath));
+        return added.length ? [...prev, ...added] : prev;
+      });
     });
-    return [...links, addNew];
-  }, [flatList, activeProject]);
+    return () => { cancelled = true; };
+  }, [activeDir, debouncedQuery, activeProject]);
+
+  // Instant client-side filter on corpus — no wait for server
+  const allFileLinks = useMemo((): FileLinkItem[] => {
+    const q = props.query.toLowerCase();
+    if (!q) return fileCorpus;
+    return fileCorpus.filter((f) => f.filename.toLowerCase().includes(q));
+  }, [fileCorpus, props.query]);
   
   // Use refs map to track all items
   const itemRefs = useRef<Map<number, HTMLDivElement>>(new Map());
@@ -325,19 +343,9 @@ const FileLinkTippyContent = forwardRef((props: FileLinkListProps & { editor?: E
   }, [isBlockMode, allFileLinks, selectedFile]);
 
   const filteredItems = useMemo(() => {
-    if (isBlockMode) {
-      // In block mode, show all blocks (don't filter by file query)
-      // The query was used to find the file, not to filter blocks
-
-      return currentItems;
-    } else {
-      // In file mode, filter files by query
-      return currentItems.filter((item: any) => {
-        const text = item.filename;
-        return text.toLowerCase().includes(props.query.toLowerCase());
-      });
-    }
-  }, [currentItems, props.query, isBlockMode]);
+    // allFileLinks is already client-filtered; block mode shows all blocks as-is.
+    return currentItems;
+  }, [currentItems]);
 
   const selectedBlock = useMemo(() => {
     if (isBlockMode && selectedFile && filteredItems.length > 0) {
@@ -700,6 +708,24 @@ const FileLinkTippyContent = forwardRef((props: FileLinkListProps & { editor?: E
     );
   }
 
+  // "Add new file" button — always shown at the bottom of the file list
+  const addNewItem: FileLinkItem = { filePath: "", filename: "Add new file", isNew: true };
+  const addNewButton = !isBlockMode ? (
+    <div
+      onClick={() => command(addNewItem)}
+      className={cn(
+        "px-3 py-2.5 w-full cursor-pointer transition-colors border-l-2 border-transparent border-t border-border",
+        "hover:bg-active/50",
+      )}
+    >
+      <div className="flex items-center gap-2">
+        <Plus className="text-comment flex-shrink-0" size={14} />
+        <span className="font-medium">Add new file</span>
+        {isLoadingFiles && <span className="text-xs text-comment ml-auto">loading…</span>}
+      </div>
+    </div>
+  ) : null;
+
   // RENDERING: File mode (default)
   return (
     <div
@@ -711,21 +737,15 @@ const FileLinkTippyContent = forwardRef((props: FileLinkListProps & { editor?: E
       <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-bg">
         <Folder className="text-accent" size={16} />
         <span className="font-medium text-text">Link File or Block</span>
-        {isLoadingFiles && (
-          <svg className="animate-spin h-3 w-3 ml-auto text-comment" viewBox="0 0 24 24" fill="none">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
-          </svg>
-        )}
       </div>
 
       {/* File List */}
-      <div 
+      <div
         ref={scrollContainer}
         className="max-h-[400px] overflow-y-auto"
       >
         {filteredItems.length > 0 ? (
-          filteredItems.map((item: JSONContent | FileLinkItem, index: number) => {
+          filteredItems.slice(0, 50).map((item: JSONContent | FileLinkItem, index: number) => {
             const fileItem = item as FileLinkItem;
             const isMultiSelected = multiSelectedItems.some((sel) => {
               const linkItem = sel as FileLinkItem;
@@ -756,11 +776,7 @@ const FileLinkTippyContent = forwardRef((props: FileLinkListProps & { editor?: E
               >
                 <div className="flex items-start gap-2">
                   <div className="flex-shrink-0 mt-0.5">
-                    {fileItem.filename === "Add new file" ? (
-                      <Plus className="text-comment" size={14} />
-                    ) : (
-                      <File className="text-comment" size={14} />
-                    )}
+                    <File className="text-comment" size={14} />
                   </div>
                   <div className="flex flex-col min-w-0 flex-1">
                     <span className="truncate font-medium">{fileItem.filename}</span>
@@ -791,8 +807,37 @@ const FileLinkTippyContent = forwardRef((props: FileLinkListProps & { editor?: E
             );
           })
         ) : (
-          <div className="px-3 py-2 text-comment text-xs">No files found</div>
+          !isBlockMode && (
+            isLoadingFiles ? (
+              <div className="flex flex-col gap-3 items-center justify-center py-8">
+                <svg className="animate-spin h-5 w-5 text-accent" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                </svg>
+                Loading ...
+              </div>
+            ) : (
+              <div className="px-3 py-2 text-comment text-xs">No files found</div>
+            )
+          )
         )}
+        {!isBlockMode && filteredItems.length > 50 && (
+          <div className="px-3 py-1.5 text-xs text-comment border-t border-border">
+            {filteredItems.length - 50} more — type to filter
+          </div>
+        )}
+        {/* Loading indicator for background deep search */}
+        {!isBlockMode && filteredItems.length > 0 && isLoadingFiles && (
+          <div className="flex items-center gap-2 px-3 py-2 text-xs text-comment border-t border-border">
+            <svg className="animate-spin h-3 w-3 text-accent flex-shrink-0" viewBox="0 0 24 24" fill="none">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+            </svg>
+            Searching deeper…
+          </div>
+        )}
+        {/* Add new file — always pinned at the bottom */}
+        {addNewButton}
       </div>
 
       {/* Footer */}

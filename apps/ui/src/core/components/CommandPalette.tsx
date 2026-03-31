@@ -45,8 +45,8 @@ interface Command {
 
 export const CommandPalette: React.FC<CommandPaletteProps> = ({ isFocused, mode, onFocus, onBlur, onShowHelp }) => {
   const [searchQuery, setSearchQuery] = useState('');
-  const [files, setFiles] = useState<FileItem[]>([]);
-  const [filteredFiles, setFilteredFiles] = useState<FileItem[]>([]);
+  const [allFiles, setAllFiles] = useState<FileItem[]>([]);
+  const [isLoadingFiles, setIsLoadingFiles] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [showDropdown, setShowDropdown] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -157,19 +157,36 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isFocused, mode,
   const { data: appState } = useGetAppState();
   const activeDirectory = appState?.activeDirectory;
 
-  // Seed files instantly from query cache (populated by usePrefetchFileList in the sidebar),
-  // then fetch a full fresh list in the background.
+  // Debounce search query so we don't fire an IPC call on every keystroke
+  const [debouncedQuery, setDebouncedQuery] = useState(searchQuery);
   useEffect(() => {
-    if (!isFocused || !activeDirectory) return;
+    const t = setTimeout(() => setDebouncedQuery(searchQuery), 150);
+    return () => clearTimeout(t);
+  }, [searchQuery]);
 
-    const applyList = (list: { name: string; path: string }[]) => {
-      const fileItems: FileItem[] = list.map((f) => {
-        const parts = f.path.split('/');
-        const directory = parts.slice(0, -1).join('/') || '/';
-        return { path: f.path, name: f.name, directory };
+  // Server fetch — runs on debounced query, merges new results into allFiles corpus.
+  useEffect(() => {
+    if (!isFocused || !activeDirectory || mode !== 'files') return;
+
+    let cancelled = false;
+    setIsLoadingFiles(true);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (window.electron?.files as any).flatList(activeDirectory, debouncedQuery || undefined).then((list: { name: string; path: string }[]) => {
+      if (cancelled) return;
+      setIsLoadingFiles(false);
+      if (!list) return;
+      const incoming: FileItem[] = list.map((f) => ({
+        path: f.path,
+        name: f.name,
+        directory: f.path.split('/').slice(0, -1).join('/') || '/',
+      }));
+      // Merge: add files not already in corpus so we accumulate across queries
+      setAllFiles((prev) => {
+        const existing = new Set(prev.map((f) => f.path));
+        const added = incoming.filter((f) => !existing.has(f.path));
+        return added.length ? [...prev, ...added] : prev;
       });
-      setFiles(fileItems);
-
+      // Update folder suggestions
       const folderSet = new Set<string>();
       for (const f of list) {
         const relative = f.path.startsWith(activeDirectory)
@@ -180,24 +197,20 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isFocused, mode,
           folderSet.add(parts.slice(0, i).join('/') + '/');
         }
       }
-      setFolders([...folderSet].sort());
-    };
-
-    // Show cached data immediately (up to 100) so the list isn't empty on open
-    const cached = queryClient.getQueryData<{ name: string; path: string }[]>(["files:flatList", activeDirectory]);
-    if (cached && cached.length > 0) {
-      applyList(cached.slice(0, 100));
-    }
-
-    // Fetch full list in background and replace once ready
-    let cancelled = false;
-    window.electron?.files.flatList(activeDirectory).then((list) => {
-      if (cancelled || !list) return;
-      applyList(list);
+      setFolders((prev) => [...new Set([...prev, ...[...folderSet]])].sort());
     });
 
     return () => { cancelled = true; };
-  }, [isFocused, activeDirectory]);
+  }, [isFocused, activeDirectory, debouncedQuery, mode]);
+
+  // Instant client-side filter on the accumulated corpus — no waiting for server
+  const filteredFiles = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return allFiles.slice(0, 50);
+    return allFiles
+      .filter((f) => f.name.toLowerCase().includes(q) || f.path.toLowerCase().includes(q))
+      .slice(0, 50);
+  }, [allFiles, searchQuery]);
 
   // Calculate autocomplete suggestion based on current input
   useEffect(() => {
@@ -516,29 +529,6 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isFocused, mode,
     setShowDropdown(isFocused);
   }, [isFocused]);
 
-  // Filter files based on search query
-  useEffect(() => {
-    if (mode !== 'files') return;
-
-    if (!searchQuery.trim()) {
-      // Show all files when no search query (limited to 50)
-      setFilteredFiles(files.slice(0, 50));
-      setSelectedIndex(0);
-      return;
-    }
-
-    const query = searchQuery.toLowerCase();
-    const filtered = files
-      .filter((file) => {
-        const fileName = file.name.toLowerCase();
-        const filePath = file.path.toLowerCase();
-        return fileName.includes(query) || filePath.includes(query);
-      })
-      .slice(0, 50); // Limit to 50 results
-
-    setFilteredFiles(filtered);
-    setSelectedIndex(0);
-  }, [searchQuery, files, mode]);
 
   // Handle keyboard navigation
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -964,12 +954,21 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isFocused, mode,
               )
             ) : (
               // File search mode
-              filteredFiles.length === 0 ? (
-                <div className="px-4 py-4 text-center text-comment text-sm">
-                  No files found
-                </div>
-              ) : (
-                filteredFiles.map((file, index) => (
+              <>
+                {filteredFiles.length === 0 && !isLoadingFiles && (
+                  <div className="px-4 py-4 text-center text-comment text-sm">
+                    No files found
+                  </div>
+                )}
+                {filteredFiles.length === 0 && isLoadingFiles && (
+                  <div className="flex items-center justify-center py-8">
+                    <svg className="animate-spin h-5 w-5 text-accent" viewBox="0 0 24 24" fill="none">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                    </svg>
+                  </div>
+                )}
+                {filteredFiles.map((file, index) => (
                   <button
                     key={file.path}
                     className={cn(
@@ -994,8 +993,17 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isFocused, mode,
                       </div>
                     </div>
                   </button>
-                ))
-              )
+                ))}
+                {filteredFiles.length > 0 && isLoadingFiles && (
+                  <div className="flex items-center justify-center gap-2 py-2 text-xs text-comment border-t border-border">
+                    <svg className="animate-spin h-3 w-3 text-accent" viewBox="0 0 24 24" fill="none">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                    </svg>
+                    Searching…
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>

@@ -1663,11 +1663,18 @@ export const FileSystemList = () => {
             </Tip>
           </>
         )}
-        {storeIsSearching && isSearching && <Loader size={14} className="animate-spin" />}
+        {storeIsSearching && isSearching && <Loader size={14} className="animate-spin text-accent" />}
       </div>
       {storeIsSearching ? (
         <div className="flex flex-col flex-1 overflow-y-auto p-2">
-          {isSearching && <Loader size={14} className="animate-spin self-center" />}
+          {isSearching && (
+            <div className="flex items-center justify-center py-8">
+              <svg className="animate-spin h-5 w-5 text-accent" viewBox="0 0 24 24" fill="none">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+              </svg>
+            </div>
+          )}
           {searchError && <div className="text-red-500 text-sm">Error running search: {searchError.message}</div>}
           {!isSearching && !searchError && searchResults?.length === 0 && (
             <div className="text-gray-500 text-sm">No results for "{rawQuery}"</div>
