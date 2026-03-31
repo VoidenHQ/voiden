@@ -31,6 +31,9 @@ export const stitchStore = {
   /** Start a new stitch run for the given source file. */
   startRun(filePaths: { filePath: string; fileName: string }[], sourceFilePath: string) {
     activeSourcePath = sourceFilePath;
+    // Clear any previous run results for this source file
+    delete runs[sourceFilePath];
+    
     runs[sourceFilePath] = {
       ...createEmptyRun(),
       id: `stitch-${Date.now()}`,

@@ -120,7 +120,7 @@ export function ResponsePanelContainer() {
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
   // Refs to each ResponseViewer instance, keyed by "tabId:sectionIndex"
   const viewerRefs = useRef<Map<string, ResponseViewerHandle>>(new Map());
-  const toggleSectionCollapse = useCallback((tabId: string, sectionIndex: number) => {
+  const toggleSectionCollapse = useCallback((tabId: string, sectionIndex: number | string) => {
     const key = `${tabId}:${sectionIndex}`;
     setCollapsedSections((prev) => {
       const next = new Set(prev);
@@ -282,8 +282,7 @@ export function ResponsePanelContainer() {
       }
     }
 
-    // If a section changed and there are multiple sections,
-    // collapse all others and expand only the changed one
+    // For regular sections, collapse all others and expand only the changed one
     if (changedKey !== null && currentKeys.length > 1) {
       setCollapsedSections((prev) => {
         const next = new Set(prev);
@@ -294,6 +293,10 @@ export function ResponsePanelContainer() {
           } else {
             next.add(collapseKey); // collapse
           }
+        }
+        // Also collapse stitch section when focusing on new request
+        if (hasStitchResults) {
+          next.add(`${activeTabId}:stitch`);
         }
         return next;
       });
@@ -316,10 +319,12 @@ export function ResponsePanelContainer() {
     prevSectionDocsRef.current[activeTabId] = snapshot;
   }, [activeTabId, tabSections]);
 
-  // Latest response (highest section index) for status bar display
-  const latestResponse = sectionResponses.length > 0
-    ? sectionResponses[sectionResponses.length - 1].response
-    : null;
+  // Latest response — most recently updated section
+  const latestResponse = useMemo(() => {
+    if (sectionResponses.length === 0) return null;
+    return sectionResponses[sectionResponses.length - 1].response;
+  }, [sectionResponses]);
+
   const responseDoc = latestResponse?.responseDoc ?? null;
   const error = latestResponse?.error ?? null;
 
@@ -557,28 +562,28 @@ export function ResponsePanelContainer() {
     >
       {/* Sticky top bar — only rendered when there is something to show */}
       {(isLoading || showError || (showContent && statusInfo && (statusInfo.protocol === "wss" || statusInfo.protocol === "ws") && statusInfo.wsId)) && <div className="flex items-center h-10 border-b border-border px-3 flex-shrink-0 bg-bg gap-3 font-mono text-sm">
-          {/* Loading indicator */}
-          {isLoading && (
-            <span className="text-comment text-xs">Loading...</span>
-          )}
+        {/* Loading indicator */}
+        {isLoading && (
+          <span className="text-comment text-xs">Loading...</span>
+        )}
 
-          {/* Error */}
-          {showError && (
-            <>
-              <div className="size-2 rounded-full bg-red-500" />
-              <span className="text-red-500 font-semibold text-xs">Failed</span>
-            </>
-          )}
+        {/* Error */}
+        {showError && (
+          <>
+            <div className="size-2 rounded-full bg-red-500" />
+            <span className="text-red-500 font-semibold text-xs">Failed</span>
+          </>
+        )}
 
-          {/* WSS connection status */}
-          {showContent && statusInfo && (statusInfo.protocol === "wss" || statusInfo.protocol === "ws") && statusInfo.wsId && (
-            <div className="flex items-center space-x-2 flex-shrink-0">
-              <div className={`size-2 rounded-full ${wsConnectedIds.has(statusInfo.wsId) ? 'bg-green-500' : 'bg-border'}`} />
-              <span className="font-bold font-mono text-xs">
-                {wsConnectedIds.has(statusInfo.wsId) ? 'Connected' : 'Disconnected'}
-              </span>
-            </div>
-          )}
+        {/* WSS connection status */}
+        {showContent && statusInfo && (statusInfo.protocol === "wss" || statusInfo.protocol === "ws") && statusInfo.wsId && (
+          <div className="flex items-center space-x-2 flex-shrink-0">
+            <div className={`size-2 rounded-full ${wsConnectedIds.has(statusInfo.wsId) ? 'bg-green-500' : 'bg-border'}`} />
+            <span className="font-bold font-mono text-xs">
+              {wsConnectedIds.has(statusInfo.wsId) ? 'Connected' : 'Disconnected'}
+            </span>
+          </div>
+        )}
       </div>}
 
       {/* Hidden — mounts SendRequestButton for Cmd+Enter hotkey registration */}
@@ -612,11 +617,10 @@ export function ResponsePanelContainer() {
           />
           <Tip label="Match Case" side="bottom">
             <button
-              className={`p-1 rounded text-xs font-mono w-6 h-6 flex items-center justify-center border ${
-                responseMatchCase
-                  ? "bg-accent text-white border-accent"
-                  : "bg-active text-comment border-panel-border hover:text-text hover:border-accent"
-              }`}
+              className={`p-1 rounded text-xs font-mono w-6 h-6 flex items-center justify-center border ${responseMatchCase
+                ? "bg-accent text-white border-accent"
+                : "bg-active text-comment border-panel-border hover:text-text hover:border-accent"
+                }`}
               onClick={() => setResponseMatchCase(!responseMatchCase)}
             >
               Aa
@@ -648,8 +652,8 @@ export function ResponsePanelContainer() {
             {responseFindTerm && responseMatches.length > 0
               ? `${responseCurrentMatch + 1} of ${responseMatches.length}`
               : responseFindTerm
-              ? "No results"
-              : ""}
+                ? "No results"
+                : ""}
           </span>
           <button
             onClick={closeResponseFind}
@@ -661,7 +665,7 @@ export function ResponsePanelContainer() {
       )}
 
       {/* Content area */}
-      <div className="flex-1 relative overflow-hidden">
+      <div className="flex-1 relative overflow-x-hidden">
         {/* Loading indicator */}
         {isLoading && (
           <div className="absolute inset-0 flex items-center justify-center">
@@ -709,16 +713,44 @@ export function ResponsePanelContainer() {
           </div>
         )}
 
-        {/* Stitch results — shown in response panel when stitch has run for this file */}
-        {hasStitchResults && StitchComponent && (
-          <div className="absolute inset-0 overflow-y-auto bg-editor">
-            <StitchComponent sourceFilePath={activeFilePath} />
+        {/* Stitch results as collapsible section when there are other responses */}
+        {hasStitchResults && StitchComponent && activeFilePath && (
+          <div
+            key="stitch-runner"
+            style={{ borderLeft: "3px solid var(--accent, #7c3aed)" }}
+          >
+            {/* Stitch section header — clickable to collapse/expand */}
+            <div
+              className="flex items-center gap-2 px-3 py-1.5 border-b border-border bg-bg cursor-pointer hover:bg-active transition-colors select-none"
+              onClick={() => toggleSectionCollapse(activeTabId || "", "stitch")}
+            >
+              {collapsedSections.has(`${activeTabId}:stitch`)
+                ? <ChevronRight size={14} className="text-comment flex-shrink-0" />
+                : <ChevronDown size={14} className="text-comment flex-shrink-0" />
+              }
+              <div className="size-2 rounded-full flex-shrink-0 bg-success" />
+              <span className="font-mono text-xs font-bold">
+                Stitch Runner
+              </span>
+              <span
+                className="text-xs font-semibold uppercase flex-shrink-0"
+                style={{ color: "var(--accent, #7c3aed)", letterSpacing: "0.5px" }}
+              >
+                RESULTS
+              </span>
+            </div>
+            {/* Stitch component content — hidden when collapsed */}
+            {!collapsedSections.has(`${activeTabId}:stitch`) && (
+              <div className="ml-2 bg-editor">
+                <StitchComponent sourceFilePath={activeFilePath} />
+              </div>
+            )}
           </div>
         )}
 
-        {/* Empty state — only when no stitch results either */}
+        {/* Empty state — when no response or stitch results */}
         {showEmpty && !hasStitchResults && (
-          <div className="absolute inset-0 flex items-center justify-center px-4">
+          <div className="absolute  ml-2 inset-0 flex items-center justify-center px-4">
             <div className="text-comment text-center">
               Press{" "}
               <kbd className="px-1 py-0.5 bg-active rounded text-xs">Cmd+Enter</kbd>{" "}
@@ -727,9 +759,10 @@ export function ResponsePanelContainer() {
           </div>
         )}
 
+        {/* Stitch results now appear as response panel sections (no longer overlay) */}
         {/* Stacked response viewers — one per section, scrollable */}
         <div
-          className="absolute inset-0 overflow-y-auto bg-editor"
+          className="overflow-y-auto bg-editor"
           style={{
             visibility: showContent ? "visible" : "hidden",
             pointerEvents: showContent ? "auto" : "none",
@@ -751,7 +784,7 @@ export function ResponsePanelContainer() {
                 className="h-full"
                 style={{ display: tabIsActive ? "block" : "none" }}
               >
-                {sections.length === 1 ? (() => {
+                {sections.length === 1 && !hasStitchResults ? (() => {
                   const singleDoc = sections[0].response.responseDoc;
                   const singleStatus = singleDoc?.attrs?.statusCode;
                   const singleStatusMsg = singleDoc?.attrs?.statusMessage;
@@ -763,236 +796,240 @@ export function ResponsePanelContainer() {
                   const singleBorderColor = getSectionBorderColor(singleColorIndex);
 
                   return (
-                  // Single response
-                  <div className="h-full flex flex-col">
-                    {/* Section header with status + search */}
-                    <div
-                      className="flex items-center gap-2 px-3 py-1.5 border-b border-border bg-bg flex-shrink-0"
-                      style={{ borderLeft: `3px solid ${singleBorderColor}` }}
-                    >
+                    // Single response
+                    <div className="h-full flex flex-col" style={{ borderLeft: `3px solid ${singleBorderColor}` }}>
+                      {/* Section header with status + search */}
                       <div
-                        className="size-2 rounded-full flex-shrink-0"
-                        style={{
-                          backgroundColor: singleStatus >= 200 && singleStatus < 300
-                            ? "var(--success, #4ade80)"
-                            : singleStatus >= 400
-                            ? "var(--error, #f87171)"
-                            : "var(--warning, #facc15)",
-                        }}
-                      />
-                      <span className="font-mono text-xs font-bold">
-                        {singleStatus} {singleStatusMsg}
-                      </span>
-                      {singleElapsed != null && (
-                        <span className="text-comment text-xs font-mono flex-shrink-0">
-                          {singleElapsed < 1000 ? `${Math.round(singleElapsed)}ms` : `${(singleElapsed / 1000).toFixed(1)}s`}
-                        </span>
-                      )}
-                      <span
-                        className="text-xs font-semibold uppercase flex-shrink-0"
-                        style={{ color: singleBorderColor, letterSpacing: "0.5px" }}
+                        className="flex items-center gap-2 px-3 py-1.5 border-b border-border bg-bg flex-shrink-0"
                       >
-                        {singleLabel || "Request 1"}
-                      </span>
-                      <span className="text-comment text-xs truncate flex-1">
-                        {singleUrl}
-                      </span>
-                      {singleTimestamp && (
-                        <Tip label={formatAbsoluteTime(singleTimestamp)} side="bottom">
-                          <span className="text-comment text-[10px] flex-shrink-0 opacity-60 cursor-default">
-                            {formatRelativeTime(singleTimestamp)}
-                          </span>
-                        </Tip>
-                      )}
-                      <Tip label="Find (⌘F)" side="bottom">
-                        <button
-                          className="p-1 text-comment hover:text-text transition-colors rounded flex-shrink-0"
-                          onClick={() => {
-                            setShowResponseFind(true);
-                            setTimeout(() => responseFindInputRef.current?.focus(), 50);
+                        <div
+                          className="size-2 rounded-full flex-shrink-0"
+                          style={{
+                            backgroundColor: singleStatus >= 200 && singleStatus < 300
+                              ? "var(--success, #4ade80)"
+                              : singleStatus >= 400
+                                ? "var(--error, #f87171)"
+                                : "var(--warning, #facc15)",
                           }}
+                        />
+                        <span className="font-mono text-xs font-bold">
+                          {singleStatus} {singleStatusMsg}
+                        </span>
+                        {singleElapsed != null && (
+                          <span className="text-comment text-xs font-mono flex-shrink-0">
+                            {singleElapsed < 1000 ? `${Math.round(singleElapsed)}ms` : `${(singleElapsed / 1000).toFixed(1)}s`}
+                          </span>
+                        )}
+                        <span
+                          className="text-xs font-semibold uppercase flex-shrink-0"
+                          style={{ color: singleBorderColor, letterSpacing: "0.5px" }}
                         >
-                          <Search size={14} />
-                        </button>
-                      </Tip>
-                      <Tip label="Expand all nodes" side="bottom">
-                        <button
-                          className="p-1 text-comment hover:text-text transition-colors rounded flex-shrink-0"
-                          onClick={() => viewerRefs.current.get(`${tabId}:0`)?.expandAll()}
-                        >
-                          <ChevronsUpDown size={13} />
-                        </button>
-                      </Tip>
-                      <Tip label="Collapse all nodes" side="bottom">
-                        <button
-                          className="p-1 text-comment hover:text-text transition-colors rounded flex-shrink-0"
-                          onClick={() => viewerRefs.current.get(`${tabId}:0`)?.collapseAll()}
-                        >
-                          <ChevronsDownUp size={13} />
-                        </button>
-                      </Tip>
+                          {singleLabel || "Request 1"}
+                        </span>
+                        <span className="text-comment text-xs truncate flex-1">
+                          {singleUrl}
+                        </span>
+                        {singleTimestamp && (
+                          <Tip label={formatAbsoluteTime(singleTimestamp)} side="bottom">
+                            <span className="text-comment text-[10px] flex-shrink-0 opacity-60 cursor-default">
+                              {formatRelativeTime(singleTimestamp)}
+                            </span>
+                          </Tip>
+                        )}
+                        <Tip label="Find (⌘F)" side="bottom">
+                          <button
+                            className="p-1 text-comment hover:text-text transition-colors rounded flex-shrink-0"
+                            onClick={() => {
+                              setShowResponseFind(true);
+                              setTimeout(() => responseFindInputRef.current?.focus(), 50);
+                            }}
+                          >
+                            <Search size={14} />
+                          </button>
+                        </Tip>
+                        <Tip label="Expand all nodes" side="bottom">
+                          <button
+                            className="p-1 text-comment hover:text-text transition-colors rounded flex-shrink-0"
+                            onClick={() => viewerRefs.current.get(`${tabId}:0`)?.expandAll()}
+                          >
+                            <ChevronsUpDown size={13} />
+                          </button>
+                        </Tip>
+                        <Tip label="Collapse all nodes" side="bottom">
+                          <button
+                            className="p-1 text-comment hover:text-text transition-colors rounded flex-shrink-0"
+                            onClick={() => viewerRefs.current.get(`${tabId}:0`)?.collapseAll()}
+                          >
+                            <ChevronsDownUp size={13} />
+                          </button>
+                        </Tip>
+                      </div>
+                      <div className="flex-1  ml-2 overflow-hidden" >
+                        <ResponseViewer
+                          ref={(handle) => {
+                            if (handle) viewerRefs.current.set(`${tabId}:0`, handle);
+                            else viewerRefs.current.delete(`${tabId}:0`);
+                          }}
+                          content={sections[0].response.responseDoc}
+                          preferredActiveNode={getActiveResponseNodeForTab(tabId)}
+                          onActiveNodeChange={getNodeChangeCallback(tabId)}
+                          panelScrollTop={getResponsePanelScrollForTab(tabId)}
+                          onPanelScrollChange={getPanelScrollCallback(tabId)}
+                          nodeScrollPositions={getResponseNodeScrollsForTab(tabId)}
+                          onNodeScrollChange={getNodeScrollCallback(tabId)}
+                          isActive={tabIsActive}
+                        />
+                      </div>
                     </div>
-                    <div className="flex-1 overflow-hidden">
-                      <ResponseViewer
-                        ref={(handle) => {
-                          if (handle) viewerRefs.current.set(`${tabId}:0`, handle);
-                          else viewerRefs.current.delete(`${tabId}:0`);
-                        }}
-                        content={sections[0].response.responseDoc}
-                        preferredActiveNode={getActiveResponseNodeForTab(tabId)}
-                        onActiveNodeChange={getNodeChangeCallback(tabId)}
-                        panelScrollTop={getResponsePanelScrollForTab(tabId)}
-                        onPanelScrollChange={getPanelScrollCallback(tabId)}
-                        nodeScrollPositions={getResponseNodeScrollsForTab(tabId)}
-                        onNodeScrollChange={getNodeScrollCallback(tabId)}
-                        isActive={tabIsActive}
-                      />
-                    </div>
-                  </div>
                   );
                 })() : (
                   // Multiple responses — sticky toolbar + scrollable sections
                   <div className="h-full flex flex-col">
                     {/* Sticky toolbar — search then expand/collapse all requests */}
-                    <div className="flex items-center justify-end gap-1 px-2 py-1 border-b border-border bg-bg flex-shrink-0">
-                      <Tip label="Find (⌘F)" side="bottom">
-                        <button
-                          className="p-1.5 text-comment hover:text-text transition-colors rounded"
-                          onClick={() => {
-                            setShowResponseFind(true);
-                            setTimeout(() => responseFindInputRef.current?.focus(), 50);
-                          }}
-                        >
-                          <Search size={13} />
-                        </button>
-                      </Tip>
-                      <Tip label="Expand all requests" side="bottom">
-                        <button
-                          className="p-1.5 text-comment hover:text-text transition-colors rounded"
-                          onClick={() => activeTabId && expandAllSections(activeTabId, sections.map((s) => s.sectionIndex))}
-                        >
-                          <ChevronsUpDown size={13} />
-                        </button>
-                      </Tip>
-                      <Tip label="Collapse all requests" side="bottom">
-                        <button
-                          className="p-1.5 text-comment hover:text-text transition-colors rounded"
-                          onClick={() => activeTabId && collapseAllSections(activeTabId, sections.map((s) => s.sectionIndex))}
-                        >
-                          <ChevronsDownUp size={13} />
-                        </button>
-                      </Tip>
-                    </div>
-                    <div className="flex-1 overflow-y-auto">
-                    {sections.map(({ sectionIndex, response }) => {
-                      const doc = response.responseDoc;
-                      const colorIndex = doc?.attrs?.sectionColorIndex ?? sectionIndex;
-                      const label = doc?.attrs?.sectionLabel;
-                      const status = doc?.attrs?.statusCode;
-                      const statusMsg = doc?.attrs?.statusMessage;
-                      const elapsed = doc?.attrs?.elapsedTime;
-                      const timestamp = response.timestamp;
-                      const borderColor = getSectionBorderColor(colorIndex);
-
-                      const isCollapsed = collapsedSections.has(`${tabId}:${sectionIndex}`);
-
-                      return (
-                        <div
-                          key={sectionIndex}
-                        >
-                          {/* Section header — clickable to collapse/expand */}
-                          <div
-                            className="flex items-center gap-2 px-3 py-1.5 border-b border-border bg-bg cursor-pointer hover:bg-active transition-colors select-none"
-                            style={{ borderLeft: `3px solid ${borderColor}` }}
-                            onClick={() => toggleSectionCollapse(tabId, sectionIndex)}
+                    {sections.length > 1 && (
+                      <div className="flex items-center justify-end gap-1 px-2 py-1 border-b border-border bg-bg flex-shrink-0">
+                        <Tip label="Find (⌘F)" side="bottom">
+                          <button
+                            className="p-1.5 text-comment hover:text-text transition-colors rounded"
+                            onClick={() => {
+                              setShowResponseFind(true);
+                              setTimeout(() => responseFindInputRef.current?.focus(), 50);
+                            }}
                           >
-                            {isCollapsed
-                              ? <ChevronRight size={14} className="text-comment flex-shrink-0" />
-                              : <ChevronDown size={14} className="text-comment flex-shrink-0" />
-                            }
+                            <Search size={13} />
+                          </button>
+                        </Tip>
+                        <Tip label="Expand all requests" side="bottom">
+                          <button
+                            className="p-1.5 text-comment hover:text-text transition-colors rounded"
+                            onClick={() => activeTabId && expandAllSections(activeTabId, sections.map((s) => s.sectionIndex))}
+                          >
+                            <ChevronsUpDown size={13} />
+                          </button>
+                        </Tip>
+                        <Tip label="Collapse all requests" side="bottom">
+                          <button
+                            className="p-1.5 text-comment hover:text-text transition-colors rounded"
+                            onClick={() => activeTabId && collapseAllSections(activeTabId, sections.map((s) => s.sectionIndex))}
+                          >
+                            <ChevronsDownUp size={13} />
+                          </button>
+                        </Tip>
+                      </div>
+                    )}
+                    <div className="flex-1 overflow-y-auto">
+                      {sections.map(({ sectionIndex, response }) => {
+                        const doc = response.responseDoc;
+                        const colorIndex = doc?.attrs?.sectionColorIndex ?? sectionIndex;
+                        const label = doc?.attrs?.sectionLabel;
+                        const status = doc?.attrs?.statusCode;
+                        const statusMsg = doc?.attrs?.statusMessage;
+                        const elapsed = doc?.attrs?.elapsedTime;
+                        const timestamp = response.timestamp;
+                        const borderColor = getSectionBorderColor(colorIndex);
+
+                        const isCollapsed = collapsedSections.has(`${tabId}:${sectionIndex}`);
+
+                        return (
+                          <div
+                            key={sectionIndex}
+                            style={{ borderLeft: `3px solid ${borderColor}` }}
+                          >
+                            {/* Section header — clickable to collapse/expand */}
                             <div
-                              className="size-2 rounded-full flex-shrink-0"
-                              style={{
-                                backgroundColor: status >= 200 && status < 300
-                                  ? "var(--success, #4ade80)"
-                                  : status >= 400
-                                  ? "var(--error, #f87171)"
-                                  : "var(--warning, #facc15)",
-                              }}
-                            />
-                            <span className="font-mono text-xs font-bold">
-                              {status} {statusMsg}
-                            </span>
-                            {elapsed != null && (
-                              <span className="text-comment text-xs font-mono flex-shrink-0">
-                                {elapsed < 1000 ? `${Math.round(elapsed)}ms` : `${(elapsed / 1000).toFixed(1)}s`}
-                              </span>
-                            )}
-                            <span
-                              className="text-xs font-semibold uppercase flex-shrink-0"
-                              style={{ color: borderColor, letterSpacing: "0.5px" }}
+                              className="flex items-center gap-2 px-3 py-1.5 border-b border-border bg-bg cursor-pointer hover:bg-active transition-colors select-none"
+                              onClick={() => toggleSectionCollapse(tabId, sectionIndex)}
                             >
-                              {label || "Request"}
-                            </span>
-                            <span className="text-comment text-xs truncate flex-1">
-                              {doc?.attrs?.url}
-                            </span>
-                            {timestamp && (
-                              <Tip label={formatAbsoluteTime(timestamp)} side="bottom">
-                                <span className="text-comment text-[10px] flex-shrink-0 opacity-60 cursor-default">
-                                  {formatRelativeTime(timestamp)}
-                                </span>
-                              </Tip>
-                            )}
-                            <Tip label="Find in this response" side="bottom">
-                              <button
-                                className="p-1 text-comment hover:text-text transition-colors rounded flex-shrink-0"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  // Expand the section first if collapsed
-                                  if (isCollapsed) {
-                                    toggleSectionCollapse(tabId, sectionIndex);
-                                  }
-                                  setShowResponseFind(true);
-                                  setTimeout(() => responseFindInputRef.current?.focus(), 50);
+                              {isCollapsed
+                                ? <ChevronRight size={14} className="text-comment flex-shrink-0" />
+                                : <ChevronDown size={14} className="text-comment flex-shrink-0" />
+                              }
+                              <div
+                                className="size-2 rounded-full flex-shrink-0"
+                                style={{
+                                  backgroundColor: status >= 200 && status < 300
+                                    ? "var(--success, #4ade80)"
+                                    : status >= 400
+                                      ? "var(--error, #f87171)"
+                                      : "var(--warning, #facc15)",
                                 }}
+                              />
+                              <span className="font-mono text-xs font-bold">
+                                {status} {statusMsg}
+                              </span>
+                              {elapsed != null && (
+                                <span className="text-comment text-xs font-mono flex-shrink-0">
+                                  {elapsed < 1000 ? `${Math.round(elapsed)}ms` : `${(elapsed / 1000).toFixed(1)}s`}
+                                </span>
+                              )}
+                              <span
+                                className="text-xs font-semibold uppercase flex-shrink-0"
+                                style={{ color: borderColor, letterSpacing: "0.5px" }}
                               >
-                                <Search size={12} />
-                              </button>
-                            </Tip>
-                            <Tip label="Expand all nodes" side="bottom">
-                              <button
-                                className="p-1 text-comment hover:text-text transition-colors rounded flex-shrink-0"
-                                onClick={(e) => { e.stopPropagation(); viewerRefs.current.get(`${tabId}:${sectionIndex}`)?.expandAll(); }}
-                              >
-                                <ChevronsUpDown size={12} />
-                              </button>
-                            </Tip>
-                            <Tip label="Collapse all nodes" side="bottom">
-                              <button
-                                className="p-1 text-comment hover:text-text transition-colors rounded flex-shrink-0"
-                                onClick={(e) => { e.stopPropagation(); viewerRefs.current.get(`${tabId}:${sectionIndex}`)?.collapseAll(); }}
-                              >
-                                <ChevronsDownUp size={12} />
-                              </button>
-                            </Tip>
+                                {label || "Request"}
+                              </span>
+                              <span className="text-comment text-xs truncate flex-1">
+                                {doc?.attrs?.url}
+                              </span>
+                              {timestamp && (
+                                <Tip label={formatAbsoluteTime(timestamp)} side="bottom">
+                                  <span className="text-comment text-[10px] flex-shrink-0 opacity-60 cursor-default">
+                                    {formatRelativeTime(timestamp)}
+                                  </span>
+                                </Tip>
+                              )}
+                              <Tip label="Find in this response" side="bottom">
+                                <button
+                                  className="p-1 text-comment hover:text-text transition-colors rounded flex-shrink-0"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    // Expand the section first if collapsed
+                                    if (isCollapsed) {
+                                      toggleSectionCollapse(tabId, sectionIndex);
+                                    }
+                                    setShowResponseFind(true);
+                                    setTimeout(() => responseFindInputRef.current?.focus(), 50);
+                                  }}
+                                >
+                                  <Search size={12} />
+                                </button>
+                              </Tip>
+                              <Tip label="Expand all nodes" side="bottom">
+                                <button
+                                  className="p-1 text-comment hover:text-text transition-colors rounded flex-shrink-0"
+                                  onClick={(e) => { e.stopPropagation(); viewerRefs.current.get(`${tabId}:${sectionIndex}`)?.expandAll(); }}
+                                >
+                                  <ChevronsUpDown size={12} />
+                                </button>
+                              </Tip>
+                              <Tip label="Collapse all nodes" side="bottom">
+                                <button
+                                  className="p-1 text-comment hover:text-text transition-colors rounded flex-shrink-0"
+                                  onClick={(e) => { e.stopPropagation(); viewerRefs.current.get(`${tabId}:${sectionIndex}`)?.collapseAll(); }}
+                                >
+                                  <ChevronsDownUp size={12} />
+                                </button>
+                              </Tip>
+                            </div>
+                            {/* Response content — hidden when collapsed */}
+                            {!isCollapsed && (
+                              <div className="flex-1  ml-2 overflow-hidden" >
+                                <ResponseViewer
+                                  ref={(handle) => {
+                                    if (handle) viewerRefs.current.set(`${tabId}:${sectionIndex}`, handle);
+                                    else viewerRefs.current.delete(`${tabId}:${sectionIndex}`);
+                                  }}
+                                  content={doc}
+                                  preferredActiveNode={getActiveResponseNodeForTab(tabId)}
+                                  onActiveNodeChange={getNodeChangeCallback(tabId)}
+                                  isActive={tabIsActive}
+                                />
+                              </div>
+
+                            )}
                           </div>
-                          {/* Response content — hidden when collapsed */}
-                          {!isCollapsed && (
-                            <ResponseViewer
-                              ref={(handle) => {
-                                if (handle) viewerRefs.current.set(`${tabId}:${sectionIndex}`, handle);
-                                else viewerRefs.current.delete(`${tabId}:${sectionIndex}`);
-                              }}
-                              content={doc}
-                              preferredActiveNode={getActiveResponseNodeForTab(tabId)}
-                              onActiveNodeChange={getNodeChangeCallback(tabId)}
-                              isActive={tabIsActive}
-                            />
-                          )}
-                        </div>
-                      );
-                    })}
+                        );
+                      })}
                     </div>
                   </div>
                 )}
