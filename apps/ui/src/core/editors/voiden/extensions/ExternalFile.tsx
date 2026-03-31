@@ -360,16 +360,19 @@ const FileLinkTippyContent = forwardRef((props: FileLinkListProps & { editor?: E
       // Arrow Up/Down navigation — use flatBlockItems length in block mode
       const navLength = isBlockMode ? flatBlockItems.length : filteredItems.length;
       if (event.key === "ArrowUp") {
+        if (navLength <= 0) return false;
         setListSelectedIndex((prev) => (prev - 1 + navLength) % navLength);
         return true;
       }
       if (event.key === "ArrowDown") {
+        if (navLength <= 0) return false;
         setListSelectedIndex((prev) => (prev + 1) % navLength);
         return true;
       }
 
-      // Arrow Left: Go back to file mode
-      if (event.key === "ArrowLeft" && isBlockMode) {
+      // Arrow Left: Go back to file mode (if currently in block mode suggestions)
+      if (event.key === "ArrowLeft") {
+        if (!isBlockMode) return false;
         setIsBlockMode(false);
         setSelectedFile(null);
         setListSelectedIndex(0);
@@ -379,37 +382,31 @@ const FileLinkTippyContent = forwardRef((props: FileLinkListProps & { editor?: E
       // Arrow Right or Space: Expand to block mode (if in file mode)
       if ((event.key === "ArrowRight" || event.key === " ") && !isBlockMode) {
         const currentItem = filteredItems[listSelectedIndex] as FileLinkItem;
-        if (currentItem && !currentItem.isNew && voidenFiles) {
-
-          //   currentItemPath: currentItem.filePath,
-          //   currentItemFilename: currentItem.filename,
-          //   voidenFilesCount: voidenFiles.length,
-          //   voidenFilesSample: voidenFiles[0]
-          // });
-
-          // Find the file with pmJSON data
-          // Try matching by filename since paths might be in different formats (relative vs absolute)
-          const fileWithData = voidenFiles.find((f: any) => {
-            const match = f.filename === currentItem.filename ||
-                         f.filePath === currentItem.filePath ||
-                         f.filePath.endsWith(currentItem.filePath);
-            if (match) {
-
-            }
-            return match;
-          });
-
-          if (fileWithData) {
-
-            setSelectedFile(fileWithData);
-            setIsBlockMode(true);
-            setListSelectedIndex(0);
-            return true;
-          } else {
-
-          }
+        if (!currentItem || currentItem.isNew || !voidenFiles) {
+          return false; // allow editor to handle the arrow key normally
         }
-        return true;
+
+        // Find the file with pmJSON data
+        // Try matching by filename since paths might be in different formats (relative vs absolute)
+        const fileWithData = voidenFiles.find((f: any) => {
+          const normalizedItemPath = currentItem.filePath.replace(/\\/g, "/");
+          const normalizedFilePath = f.filePath?.replace(/\\/g, "/") || "";
+
+          return (
+            f.filename === currentItem.filename ||
+            normalizedFilePath === normalizedItemPath ||
+            normalizedFilePath.endsWith(normalizedItemPath)
+          );
+        });
+
+        if (fileWithData) {
+          setSelectedFile(fileWithData);
+          setIsBlockMode(true);
+          setListSelectedIndex(0);
+          return true; // consume event since we're transitioning to block mode
+        }
+
+        return false; // file not found with blocks, let editor handle arrow key
       }
 
       // Shift+Enter: Multi-selection

@@ -89,14 +89,6 @@ export default function createVoidenStitchPlugin(context: any) {
         StitchResultsSidebar,
         stitchStore,
       });
-
-      // 7. Register right sidebar tab for Stitch Results
-      context.registerSidebarTab('right', {
-        id: 'stitch-results',
-        title: 'Stitch Results',
-        icon: 'ListChecks',
-        component: StitchResultsSidebar,
-      });
     },
 
     onunload: async () => {
