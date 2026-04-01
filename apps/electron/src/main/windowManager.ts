@@ -8,7 +8,7 @@ import EventBus from "./eventBus";
 import { createWindow, initializeWelcomeTabs } from "./window";
 
 import { AppState } from "../shared/types";
-import { getDefaultLayout, saveState } from "./persistState";
+import { getDefaultLayout, saveState, loadState } from "./persistState";
 import { initializeState, updateWindowState } from "./state";
 import { removeFileWatcher } from "./fileWatcher";
 import { setActiveDirectory } from "./ipc/directory";
@@ -194,7 +194,13 @@ class WindowManager {
     try {
       this.setActiveWindowId(id);
 
-      // Attach window info early so it's available for other operations
+      // Pre-register a null placeholder so IPC handlers that arrive during the
+      // async initializeState() see the window as "known" rather than throwing
+      // "Window state not found".  The placeholder is replaced with the real
+      // state a few lines below once initializeState() completes.
+      this.windows.set(id, null as any);
+
+      // Attach window info so IPC senders can be mapped to this window.
       (win as ExtendedBrowserWindow).windowInfo = {
         id: id
       };
@@ -224,8 +230,16 @@ class WindowManager {
         }
       }
 
+      // Notify the renderer that state + extensions are fully initialized.
+      // This triggers a re-fetch of ["extensions"] and ["app:state"] so plugins
+      // and sidebar tabs load with real data rather than the empty-array placeholder
+      // that was returned during the startup race window.
+      win.webContents.send('state:ready');
+
       win.webContents.on("did-finish-load", async () => {
         await initializeWelcomeTabs();
+        // Re-send in case the renderer reloaded after state:ready was first sent
+        win.webContents.send('state:ready');
       });
 
       win.on("closed", () => {
@@ -236,8 +250,18 @@ class WindowManager {
       this.register(win, id);
     } catch (e) {
       console.error("Failed to initialize window:", e);
-      // Clean up on failure
-      this.windows.delete(id);
+      // If state was never set (still the null placeholder from above), attempt
+      // a minimal fallback load so IPC callers get a usable state instead of
+      // "Window state not found".  Only remove the window from tracking if even
+      // the fallback fails — that is a truly unrecoverable situation.
+      if (this.windows.get(id) === null) {
+        try {
+          const fallback = await loadState(true);
+          this.windows.set(id, fallback);
+        } catch {
+          this.windows.delete(id);
+        }
+      }
       this.browserWindows.delete(id);
     }
 
@@ -407,9 +431,15 @@ class WindowManager {
       throw new Error("No window ID available");
     }
 
+    if (!this.windows.has(id)) {
+      throw new Error(`Window state not found: ${id}`);
+    }
+
     const st = this.windows.get(id);
     if (!st) {
-      throw new Error(`Window state not found: ${id}`);
+      // Null placeholder: window is registered but initializeState() is still running.
+      // Callers (React Query) will retry; the real state is set within ~500ms.
+      throw new Error(`Window state initializing: ${id}`);
     }
 
     return st;
@@ -453,14 +483,18 @@ class WindowManager {
 
     const normalizedPath = path.normalize(projectPath);
     for (const [windowId] of this.windows.entries()) {
-      const state = this.getWindowState(windowId);
+      // Skip windows that are still initializing (null placeholder)
+      const state = this.windows.get(windowId);
       if (!state?.activeDirectory) {
         continue;
       }
 
       const normalizedWindowPath = path.normalize(state.activeDirectory);
       if (normalizedWindowPath === normalizedPath) {
-        const win: BrowserWindow = this.browserWindows.get(windowId) as BrowserWindow;
+        const win = this.browserWindows.get(windowId);
+        // win may be undefined if createWindow() hasn't finished registering
+        // it in browserWindows yet (null placeholder phase). Skip this entry.
+        if (!win) continue;
         if (!win.isDestroyed()) {
           if (win.isMinimized()) {
             win.restore();

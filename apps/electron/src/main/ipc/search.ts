@@ -2,7 +2,7 @@ import { ipcMain } from "electron";
 import fs from "node:fs";
 import path from "node:path";
 import fsPromises from "node:fs/promises";
-import { spawnSync, spawn } from "child_process";
+import { spawn } from "child_process";
 // @ts-expect-error no types
 import fg from "fast-glob";
 import { getActiveProject } from "../state";
@@ -128,138 +128,205 @@ function splitTextSegmentsWithType(text: string = '') {
 }
 
 
+// Max results returned to the UI — prevents flooding the renderer with
+// thousands of matches on broad queries and keeps the IPC payload small.
+const MAX_SEARCH_RESULTS = 200;
+
+// Semaphore for the JS fallback path — caps concurrent file reads so we
+// don't spike memory by opening thousands of files simultaneously.
+class ReadSemaphore {
+  private slots: number;
+  private queue: Array<() => void> = [];
+  constructor(max: number) { this.slots = max; }
+  acquire(): Promise<void> {
+    if (this.slots > 0) { this.slots--; return Promise.resolve(); }
+    return new Promise(resolve => this.queue.push(resolve));
+  }
+  release() {
+    const next = this.queue.shift();
+    if (next) { next(); } else { this.slots++; }
+  }
+}
+
+// Track active rg processes per sender+searchId so they can be cancelled.
+const activeSearches = new Map<string, { proc?: ReturnType<typeof spawn>; cancelled: boolean }>();
+
 export function registerSearchIpcHandler() {
-  ipcMain.handle("search-files", async (_event, args: { query: string; matchCase: boolean; matchWholeWord: boolean }) => {
-    const { query, matchCase, matchWholeWord } = args;
-    const projectRoot = await getActiveProject();
+  const IMAGE_EXT = ["png", "jpg", "jpeg", "gif", "webp", "avif", "svg", "bmp", "ico", "tif", "tiff", "heic", "heif"];
+  const ARCHIVE_EXT = ["zip", "rar", "7z", "tar", "gz", "bz2", "xz", "tgz", "tbz2", "txz"];
+  const BINARY_EXT = ["exe", "msi", "dll", "bin", "iso", "img", "dmg", "so"];
+  const SKIP_EXT = [...IMAGE_EXT, ...ARCHIVE_EXT, ...BINARY_EXT, "pdf"];
 
-    const IMAGE_EXT = ["png", "jpg", "jpeg", "gif", "webp", "avif", "svg", "bmp", "ico", "tif", "tiff", "heic", "heif"];
-    const ARCHIVE_EXT = ["zip", "rar", "7z", "tar", "gz", "bz2", "xz", "tgz", "tbz2", "txz"];
-    const BINARY_EXT = ["exe", "msi", "dll", "bin", "iso", "img", "dmg", "so"];
-    const SKIP_EXT = [...IMAGE_EXT, ...ARCHIVE_EXT, ...BINARY_EXT, "pdf"];
-
-    function makeSnippet(line: string, matchStartCol: number, matchLen: number, maxLen = 160) {
-      const totalLen = line.length;
-      if (totalLen <= maxLen) {
-        return line.replace(/[\r\n\t]/g, " ");
-      }
-
-      const pad = Math.max(0, Math.floor((maxLen - matchLen) / 2));
-      let sliceStart = Math.max(0, matchStartCol - pad);
-      let sliceEnd = Math.min(totalLen, sliceStart + maxLen);
-
-      if (matchStartCol + matchLen > sliceEnd) {
-        const needed = matchStartCol + matchLen - sliceEnd;
-        sliceStart = Math.max(0, sliceStart - needed);
-        sliceEnd = Math.min(totalLen, sliceStart + maxLen);
-      }
-
-      let snippet = line.slice(sliceStart, sliceEnd).replace(/[\r\n\t]/g, " ");
-      if (sliceStart > 0) snippet = "…" + snippet;
-      if (sliceEnd < totalLen) snippet = snippet + "…";
-      return snippet;
+  function makeSnippet(line: string, matchStartCol: number, matchLen: number, maxLen = 160) {
+    const totalLen = line.length;
+    if (totalLen <= maxLen) return line.replace(/[\r\n\t]/g, " ");
+    const pad = Math.max(0, Math.floor((maxLen - matchLen) / 2));
+    let sliceStart = Math.max(0, matchStartCol - pad);
+    let sliceEnd = Math.min(totalLen, sliceStart + maxLen);
+    if (matchStartCol + matchLen > sliceEnd) {
+      const needed = matchStartCol + matchLen - sliceEnd;
+      sliceStart = Math.max(0, sliceStart - needed);
+      sliceEnd = Math.min(totalLen, sliceStart + maxLen);
     }
+    let snippet = line.slice(sliceStart, sliceEnd).replace(/[\r\n\t]/g, " ");
+    if (sliceStart > 0) snippet = "…" + snippet;
+    if (sliceEnd < totalLen) snippet = snippet + "…";
+    return snippet;
+  }
 
-    const escapedRaw = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const pattern = query.includes(" ")
-      ? matchWholeWord
-        ? `\\b${escapedRaw.replace(/\s+/g, "\\s+")}\\b`
-        : escapedRaw.replace(/\s+/g, "\\s+")
-      : matchWholeWord
-        ? `\\b${escapedRaw}\\b`
-        : escapedRaw;
-    const flags = matchCase ? "" : "i";
-    const regex = new RegExp(pattern, flags);
+  // Cancel a running search for a given sender+searchId key.
+  ipcMain.on("search-files:cancel", (event, searchId: number) => {
+    const key = `${event.sender.id}:${searchId}`;
+    const state = activeSearches.get(key);
+    if (state) {
+      state.cancelled = true;
+      state.proc?.kill();
+      activeSearches.delete(key);
+    }
+  });
 
+  // Streaming search: sends results one-by-one as they are found.
+  ipcMain.on("search-files:start", async (event, args: { query: string; matchCase: boolean; matchWholeWord: boolean; searchId: number }) => {
+    const { query, matchCase, matchWholeWord, searchId } = args;
+    const key = `${event.sender.id}:${searchId}`;
+
+    const state: { proc?: ReturnType<typeof spawn>; cancelled: boolean } = { cancelled: false };
+    activeSearches.set(key, state);
+
+    const send = (result: { path: string; line: number; preview: string }) => {
+      if (state.cancelled || event.sender.isDestroyed()) return;
+      event.sender.send("search-files:result", { searchId, result });
+    };
+
+    const done = (error?: string) => {
+      activeSearches.delete(key);
+      if (event.sender.isDestroyed()) return;
+      event.sender.send("search-files:done", { searchId, error });
+    };
+
+    let projectRoot: string | null = null;
     try {
-      if (query.includes(" ")) throw new Error("multi-word fallback");
+      projectRoot = await getActiveProject();
+    } catch {
+      done("No active project");
+      return;
+    }
+    if (!projectRoot) { done("No active project"); return; }
 
-      const rgCandidates = ["/opt/homebrew/bin/rg", "/usr/local/bin/rg"];
-      const rgPath = rgCandidates.find((p) => fs.existsSync(p)) || "rg";
-      const rgArgs = [
-        "--vimgrep",
-        "--with-filename",
-        "--line-number",
-        "--column",
-        "--hidden",
-        "--no-ignore",
-        "--text",
-        "--glob",
-        "!**/.git/**",
-      ];
+    // ── rg path ────────────────────────────────────────────────────────────────
+    const rgCandidates = ["/opt/homebrew/bin/rg", "/usr/local/bin/rg", "rg"];
+    const rgPath = rgCandidates.find((p) => p === "rg" || fs.existsSync(p)) ?? "rg";
 
-      for (const ext of SKIP_EXT) {
-        rgArgs.push("--glob", `!**/*.${ext}`);
+    const rgArgs = [
+      "--vimgrep", "--with-filename", "--line-number", "--column",
+      "--hidden", "--no-ignore", "--text", "--fixed-strings",
+      "--glob", "!**/.git/**",
+    ];
+    for (const ext of SKIP_EXT) rgArgs.push("--glob", `!**/*.${ext}`);
+    if (!matchCase) rgArgs.push("--ignore-case");
+    if (matchWholeWord) rgArgs.push("--word-regexp");
+    rgArgs.push("--", query, ".");
+
+    let count = 0;
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const proc = spawn(rgPath, rgArgs, { cwd: projectRoot! });
+        state.proc = proc;
+        let buf = "";
+
+        proc.stdout.on("data", (d: Buffer) => {
+          if (state.cancelled) return;
+          buf += d.toString();
+          const lines = buf.split("\n");
+          buf = lines.pop() ?? "";
+
+          for (const rawLine of lines) {
+            if (!rawLine.trim() || state.cancelled) continue;
+            const colonIdx1 = rawLine.indexOf(":");
+            const colonIdx2 = rawLine.indexOf(":", colonIdx1 + 1);
+            const colonIdx3 = rawLine.indexOf(":", colonIdx2 + 1);
+            if (colonIdx1 < 0 || colonIdx2 < 0 || colonIdx3 < 0) continue;
+
+            const file = rawLine.slice(0, colonIdx1);
+            const ln = Number(rawLine.slice(colonIdx1 + 1, colonIdx2));
+            const col = Number(rawLine.slice(colonIdx2 + 1, colonIdx3));
+            const fullLine = rawLine.slice(colonIdx3 + 1);
+
+            const absolutePath = file.startsWith(path.sep) ? file : path.join(projectRoot!, file);
+            const preview = makeSnippet(fullLine, Math.max(0, col - 1), query.length);
+            send({ path: absolutePath, line: ln, preview });
+            count++;
+
+            if (count >= MAX_SEARCH_RESULTS) {
+              proc.kill();
+              return;
+            }
+          }
+        });
+
+        proc.on("error", reject);
+        proc.on("close", (code) => {
+          if (code === 2) return reject(new Error(`rg exited with status ${code}`));
+          resolve();
+        });
+      });
+
+      done();
+    } catch {
+      if (state.cancelled) { done(); return; }
+
+      // ── JS fallback — rg not available ───────────────────────────────────────
+      const escapedRaw = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const pattern = matchWholeWord
+        ? `\\b${escapedRaw.replace(/\s+/g, "\\s+")}\\b`
+        : escapedRaw.replace(/\s+/g, "\\s+");
+      const regex = new RegExp(pattern, matchCase ? "" : "i");
+
+      const sem = new ReadSemaphore(16);
+      let files: string[] = [];
+      try {
+        files = await fg("**/*.*", {
+          cwd: projectRoot,
+          dot: true,
+          ignore: ["**/.git/**", ...SKIP_EXT.map((e) => `**/*.${e}`)],
+        });
+      } catch {
+        done();
+        return;
       }
 
-      if (!matchCase) rgArgs.push("--ignore-case");
-      if (matchWholeWord) rgArgs.push("--word-regexp");
-      rgArgs.push(query, ".");
-
-      const stdout = await new Promise<string>((resolve, reject) => {
-        const proc = spawn(rgPath, rgArgs, { cwd: projectRoot });
-        const chunks: Buffer[] = [];
-        proc.stdout.on('data', (d: Buffer) => chunks.push(d));
-        proc.on('error', reject);
-        proc.on('close', (code) => {
-          if (code === 2) return reject(new Error(`rg exited with status ${code}`));
-          resolve(Buffer.concat(chunks).toString());
-        });
-      });
-
-      return stdout
-        .trim()
-        .split("\n")
-        .filter(Boolean)
-        .map((line) => {
-          const [file, ln, col, ...rest] = line.split(":");
-          const absolutePath = file.startsWith(path.sep) ? file : path.join(projectRoot, file);
-          const fullLine = rest.join(":");
-          const colStart = Math.max(0, Number(col) - 1);
-          const matchLen = query.length;
-          const preview = makeSnippet(fullLine, colStart, matchLen);
-          return { path: absolutePath, line: Number(ln), preview };
-        });
-    } catch (err) {
-      const files = await fg("**/*.*", {
-        cwd: projectRoot,
-        dot: true,
-        ignore: ["**/.git/**", ...SKIP_EXT.map((e) => `**/*.${e}`)],
-      });
-
-      const results: { path: string; line: number; preview: string }[] = [];
-
-      await Promise.all(
-        files.map(async (relative) => {
+      // Process files serially so results appear in order and we can stop early.
+      for (const relative of files) {
+        if (state.cancelled || count >= MAX_SEARCH_RESULTS) break;
+        await sem.acquire();
+        try {
+          if (state.cancelled || count >= MAX_SEARCH_RESULTS) break;
           const fullPath = path.join(projectRoot, relative);
-          let content: string='';
+          let content = "";
           try {
-            content = await fsPromises.readFile(fullPath, 'utf8');
-            if (relative.includes('.void')) {
-              content = await extractReadableMarkdownText(content);
-            }
-          } catch (err) {
-            console.error('Error while reading rendered content :', err);
+            content = await fsPromises.readFile(fullPath, "utf8");
+            if (relative.includes(".void")) content = await extractReadableMarkdownText(content);
+          } catch {
+            continue;
           }
-
           const match = regex.exec(content);
           if (match && match.index !== undefined) {
             const matchIndex = match.index;
             const lineStart = content.lastIndexOf("\n", matchIndex - 1) + 1;
             const rawLineEnd = content.indexOf("\n", matchIndex);
             const lineEnd = rawLineEnd === -1 ? content.length : rawLineEnd;
-
             const lineText = content.slice(lineStart, lineEnd);
             const lineNum = content.slice(0, matchIndex).split("\n").length;
-            const colStart = matchIndex - lineStart;
-            const matchLen = match[0].length;
-
-            const preview = makeSnippet(lineText, colStart, matchLen);
-            results.push({ path: fullPath, line: lineNum, preview });
+            const preview = makeSnippet(lineText, matchIndex - lineStart, match[0].length);
+            send({ path: fullPath, line: lineNum, preview });
+            count++;
           }
-        }),
-      );
-      return results;
+        } finally {
+          sem.release();
+        }
+      }
+
+      done();
     }
   });
 }

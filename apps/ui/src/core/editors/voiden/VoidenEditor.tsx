@@ -131,7 +131,7 @@ import { variableHighlighter, updateVariableData, updateVariableKeys } from "./e
 import { useSearchStore } from "@/core/stores/searchParamsStore";
 import { usePanelStore } from "@/core/stores/panelStore";
 import { useGetActiveDocument } from "@/core/documents/hooks";
-import {useVoidVariables} from "@/core/runtimeVariables/hook/useVariableCapture";
+import { useVoidVariables } from "@/core/runtimeVariables/hook/useVariableCapture";
 import { useQueryClient } from "@tanstack/react-query";
 
 interface VoidenEditorStore {
@@ -370,6 +370,12 @@ const VoidenEditorInner = ({
 
   const initialUnsaved = useEditorStore.getState().unsaved[tabId];
 
+  // Files over this size are parsed & mounted asynchronously so the main thread
+  // is never blocked long enough to crash/freeze the app.
+  const LARGE_FILE_THRESHOLD = 20_000; // 20 KB of raw markdown
+  const isLargeContent = !initialUnsaved && content.length > LARGE_FILE_THRESHOLD;
+  const [isLoadingContent, setIsLoadingContent] = useState(isLargeContent);
+
   useEffect(() => {
     if (!isActive) return;
     // Always update the store with the new content, or an empty string if undefined.
@@ -530,8 +536,8 @@ const VoidenEditorInner = ({
   }, [showFind, findTerm]);
 
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function sanitizeDoc(node: any): any {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function sanitizeDoc(node: any): any {
     if (!node || typeof node !== "object") return node;
 
     // Fix invalid paragraph content set as number
@@ -548,7 +554,7 @@ function sanitizeDoc(node: any): any {
     }
 
     // Remove invalid text nodes
-    if (node.type === "text" && (!node.text || (typeof node.text==='string' && node.text.trim() === "") )) {
+    if (node.type === "text" && (!node.text || (typeof node.text === 'string' && node.text.trim() === ""))) {
       return null;
     }
 
@@ -579,22 +585,28 @@ function sanitizeDoc(node: any): any {
         };
       }
 
+      // Large files are loaded asynchronously in handleEditorCreate.
+      // Return a minimal placeholder so TipTap mounts immediately without blocking.
+      if (!unsavedContent && content.length > LARGE_FILE_THRESHOLD) {
+        return { type: "doc", content: [{ type: "paragraph" }] };
+      }
+
       try {
         const parsed = unsavedContent ? JSON.parse(unsavedContent) : parseMarkdown(content, memoizedSchema);
         // Validate the parsed content
         try {
-            const cleaned = sanitizeDoc(parsed); // 🧼 clean it
+          const cleaned = sanitizeDoc(parsed); // 🧼 clean it
 
-            // CRITICAL: Preserve unknown nodes before validation
-            // This wraps data from disabled plugins so it's not lost
-            const preserved = preserveUnknownNodesInJSON(cleaned, memoizedSchema);
+          // CRITICAL: Preserve unknown nodes before validation
+          // This wraps data from disabled plugins so it's not lost
+          const preserved = preserveUnknownNodesInJSON(cleaned, memoizedSchema);
 
-            memoizedSchema.nodeFromJSON(preserved);
-            return preserved;
-          } catch (e) {
-            // Instead of crashing, return a safe fallback document
-            return { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: content }] }] };
-          }
+          memoizedSchema.nodeFromJSON(preserved);
+          return preserved;
+        } catch (e) {
+          // Instead of crashing, return a safe fallback document
+          return { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: content }] }] };
+        }
       } catch (err) {
         // Instead of crashing, return a safe fallback document
         return { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: content }] }] };
@@ -610,6 +622,9 @@ function sanitizeDoc(node: any): any {
   // Updated whenever the `content` prop changes (e.g. after save + query re-fetch).
   const savedContentJSONRef = useRef<string | null>(null);
   useEffect(() => {
+    // Large files: skip the upfront parse here — handleEditorCreate populates
+    // savedContentJSONRef after the deferred setContent completes.
+    if (!initialUnsaved && content.length > LARGE_FILE_THRESHOLD) return;
     try {
       const parsed = parseMarkdown(content, memoizedSchema);
       const sanitized = sanitizeDoc(parsed);
@@ -627,7 +642,6 @@ function sanitizeDoc(node: any): any {
           useVoidenEditorStore.getState().setFilePath(source);
         }
 
-        // Set the editor in the store
         editor.storage.panelId = panelId;
         editor.storage.tabId = tabId;
         editor.storage.source = source;
@@ -635,59 +649,145 @@ function sanitizeDoc(node: any): any {
 
         const unsaved = useEditorStore.getState().unsaved[tabId];
         const savedScrollTop = useEditorStore.getState().getScrollPosition(tabId);
-        
-        try {
-          const savedContent = parseMarkdown(content, memoizedSchema);
-          const santizedContent = sanitizeDoc(savedContent);
 
-          if (unsaved) {
-            const parsedUnsaved = JSON.parse(unsaved);
-            if (JSON.stringify(parsedUnsaved) !== JSON.stringify(savedContent)) {
-              editor.commands.setContent(parsedUnsaved, false);
+        const applyContent = (santizedContent: any) => {
+          if (editor.isDestroyed) return;
+          try {
+            if (unsaved) {
+              const parsedUnsaved = JSON.parse(unsaved);
+              if (JSON.stringify(parsedUnsaved) !== JSON.stringify(santizedContent)) {
+                editor.commands.setContent(parsedUnsaved, false);
+              }
+            } else {
+              editor.commands.setContent(santizedContent, false);
             }
-          } else {
-            editor.commands.setContent(santizedContent, false);
+          } catch {
+            const fallbackContent = { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: content }] }] };
+            editor.commands.setContent(fallbackContent, false);
           }
-        } catch (parseError) {
-          // Set a safe fallback content instead of destroying the editor
-          const fallbackContent = { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: content }] }] };
-          editor.commands.setContent(fallbackContent, false);
-        }
 
-        // For brand new files only: collapse selection to start.
-        // When restoring tab scroll, forcing selection can move viewport unexpectedly.
-        if (!unsaved && savedScrollTop === 0) {
-          requestAnimationFrame(() => {
+          // Populate saved-content ref so unsaved detection works after load
+          try {
+            savedContentJSONRef.current = JSON.stringify(santizedContent);
+          } catch { /* ignore */ }
+
+          setIsLoadingContent(false);
+
+          // For brand new files only: collapse selection to start.
+          if (!unsaved && savedScrollTop === 0) {
+            requestAnimationFrame(() => {
+              if (!editor.isDestroyed) {
+                try {
+                  const $pos = editor.state.doc.resolve(1);
+                  if ($pos.parent.isTextblock) {
+                    editor.commands.setTextSelection(1);
+                  } else {
+                    let found = false;
+                    editor.state.doc.descendants((node, pos) => {
+                      if (!found && node.isTextblock) {
+                        editor.commands.setTextSelection(pos + 1);
+                        found = true;
+                        return false;
+                      }
+                    });
+                  }
+                } catch {
+                  // Silently ignore — cursor will be placed by autofocus
+                }
+              }
+            });
+          }
+        };
+
+        const doLoad = () => {
+          try {
+            const savedContent = parseMarkdown(content, memoizedSchema);
+            const santizedContent = sanitizeDoc(savedContent);
+            applyContent(santizedContent);
+          } catch {
+            const fallbackContent = { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: content }] }] };
+            if (!editor.isDestroyed) editor.commands.setContent(fallbackContent, false);
+            setIsLoadingContent(false);
+          }
+        };
+
+        // For large files: parse once (pure JS, no DOM), then insert nodes in small
+        // batches per animation frame so the main thread never blocks long enough
+        // to freeze tab switching or other UI events.
+        const doLoadChunked = () => {
+          try {
+            const savedContent = parseMarkdown(content, memoizedSchema);
+            const santizedContent = sanitizeDoc(savedContent);
+            const allNodes: any[] = santizedContent?.content ?? [];
+            const CHUNK_SIZE = 150;
+
+            if (allNodes.length <= CHUNK_SIZE) {
+              applyContent(santizedContent);
+              return;
+            }
+
+            // Mount the first chunk immediately so content appears right away.
             if (!editor.isDestroyed) {
-              // Find the first valid text position (skip atom nodes like separators)
+              editor.commands.setContent({ type: "doc", content: allNodes.slice(0, CHUNK_SIZE) }, false);
+            }
+
+            let offset = CHUNK_SIZE;
+
+            const loadNextChunk = () => {
+              if (editor.isDestroyed) return;
+              const chunk = allNodes.slice(offset, offset + CHUNK_SIZE);
               try {
-                const $pos = editor.state.doc.resolve(1);
-                if ($pos.parent.isTextblock) {
-                  editor.commands.setTextSelection(1);
-                } else {
-                  // Find first textblock in the document
-                  let found = false;
-                  editor.state.doc.descendants((node, pos) => {
-                    if (!found && node.isTextblock) {
-                      editor.commands.setTextSelection(pos + 1);
-                      found = true;
-                      return false;
-                    }
+                const { state } = editor;
+                const pmNodes = chunk.map((n: any) => state.schema.nodeFromJSON(n));
+                const tr = state.tr.insert(state.doc.content.size, pmNodes);
+                editor.view.dispatch(tr);
+              } catch { /* skip malformed nodes in this chunk */ }
+              offset += CHUNK_SIZE;
+              if (offset < allNodes.length) {
+                requestAnimationFrame(loadNextChunk);
+              } else {
+                // All chunks inserted — finalise exactly like applyContent does.
+                try { savedContentJSONRef.current = JSON.stringify(santizedContent); } catch { /* ignore */ }
+                setIsLoadingContent(false);
+                if (!unsaved && savedScrollTop === 0) {
+                  requestAnimationFrame(() => {
+                    if (editor.isDestroyed) return;
+                    try {
+                      const $pos = editor.state.doc.resolve(1);
+                      if ($pos.parent.isTextblock) {
+                        editor.commands.setTextSelection(1);
+                      } else {
+                        let found = false;
+                        editor.state.doc.descendants((node, pos) => {
+                          if (!found && node.isTextblock) { editor.commands.setTextSelection(pos + 1); found = true; return false; }
+                        });
+                      }
+                    } catch { /* ignore */ }
                   });
                 }
-              } catch {
-                // Silently ignore — cursor will be placed by autofocus
               }
-            }
-          });
+            };
+
+            requestAnimationFrame(loadNextChunk);
+          } catch {
+            const fallbackContent = { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: content }] }] };
+            if (!editor.isDestroyed) editor.commands.setContent(fallbackContent, false);
+            setIsLoadingContent(false);
+          }
+        };
+
+        if (!unsaved && content.length > LARGE_FILE_THRESHOLD) {
+          // Yield one tick so the placeholder editor paints before any work starts.
+          setTimeout(doLoadChunked, 0);
+        } else {
+          doLoad();
         }
 
       } catch (e) {
-        // Set a safe fallback content instead of destroying the editor
+        setIsLoadingContent(false);
         const fallbackContent = { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: content }] }] };
-        editor.commands.setContent(fallbackContent, false);
+        if (!editor.isDestroyed) editor.commands.setContent(fallbackContent, false);
       }
-
     },
     [source, panelId, tabId, content, memoizedSchema, isActive],
   );
@@ -1342,7 +1442,7 @@ function sanitizeDoc(node: any): any {
   if (!editor) return null;
 
   return (
-    <div ref={editorRef} className="h-full flex flex-col relative">
+    <div ref={editorRef} className="h-full w-full flex flex-col relative">
       {showFind && (
         <div className="absolute top-2 right-2 z-50">
           <div className="bg-panel border border-border rounded-md shadow-[0_4px_12px_rgba(0,0,0,0.3)] overflow-hidden min-w-[550px] max-w-[550px]">
@@ -1443,8 +1543,8 @@ function sanitizeDoc(node: any): any {
                 {findTerm && matchPositions.length > 0
                   ? `${currentMatch + 1} of ${matchPositions.length}`
                   : findTerm
-                  ? "No results"
-                  : ""}
+                    ? "No results"
+                    : ""}
               </span>
             </div>
 
@@ -1479,7 +1579,7 @@ function sanitizeDoc(node: any): any {
                   title="Replace (Enter)"
                 >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M5 12l5 5l10 -10"/>
+                    <path d="M5 12l5 5l10 -10" />
                   </svg>
                 </button>
                 <button
@@ -1494,7 +1594,7 @@ function sanitizeDoc(node: any): any {
                   title={`Replace All ${isMac ? '(⌘Enter)' : '(Ctrl+Enter)'}`}
                 >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M5 3l5 5l10 -10M5 10l5 5l10 -10M5 17l5 5l10 -10"/>
+                    <path d="M5 3l5 5l10 -10M5 10l5 5l10 -10M5 17l5 5l10 -10" />
                   </svg>
                 </button>
 
@@ -1534,6 +1634,15 @@ function sanitizeDoc(node: any): any {
         </div>
       )}
 
+      {isLoadingContent && (
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-4 bg-editor pointer-events-none select-none">
+          <svg className="animate-spin h-5 w-5 text-accent" viewBox="0 0 24 24" fill="none">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+          </svg>
+          <span className="text-xs text-comment font-mono animate-pulse">Loading file…</span>
+        </div>
+      )}
       <div className="mx-auto w-full px-2 bg-editor" style={{ maxWidth: 'var(--prose-max-width, 860px)' }}>
         {isActive && <VoidenDragMenu editor={editor} />}
         <EditorContent editor={editor} />

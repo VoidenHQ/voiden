@@ -125,9 +125,17 @@ export const ElectronEventProvider: React.FC<{ children: React.ReactNode }> = ({
         queryClient.invalidateQueries({ queryKey: ["files:tree"] });
         queryClient.invalidateQueries({ queryKey: ["sidebar:tabs"], exact: false });
         queryClient.invalidateQueries({ queryKey: ["env"] });
-
-        // Optionally, you can also invalidate other queries that depend on the active project.
+        queryClient.invalidateQueries({ queryKey: ["extensions"] });
         handleEvent("folder:opened", data);
+      },
+      // Fired by the main process once initializeState() completes and the
+      // window state + extensionManager are fully ready.  Re-fetches queries
+      // that may have received empty/error responses during the startup race.
+      "state:ready": () => {
+        queryClient.invalidateQueries({ queryKey: ["app:state"] });
+        queryClient.invalidateQueries({ queryKey: ["extensions"] });
+        queryClient.invalidateQueries({ queryKey: ["sidebar:tabs"], exact: false });
+        queryClient.invalidateQueries({ queryKey: ["projects"] });
       },
       "git:changed": (data: any) => {
         // Debounce: git:changed fires repeatedly during checkout/clone
@@ -195,6 +203,9 @@ export const ElectronEventProvider: React.FC<{ children: React.ReactNode }> = ({
       },
       "menu:open-changelog": (event: any, data: any) => {
         handleEvent("menu:open-changelog", data || {});
+      },
+      "menu:open-logs": (event: any, data: any) => {
+        handleEvent("menu:open-logs", data || {});
       },
       "window:changed": () => {
         queryClient.invalidateQueries({ queryKey: ["environments"] });

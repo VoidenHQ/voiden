@@ -25,6 +25,12 @@ import { registerPythonScriptIpcHandler } from "./main/ipc/pythonScript";
 import { registerNodeScriptIpcHandler } from "./main/ipc/nodeScript";
 import { loadMainProcessExtensions, unloadMainProcessExtensions } from "./main/extensionLoader";
 import { recomposeAndInstall } from "./main/skillsInstaller";
+import { setupLoggerIPC, logger } from "./main/logger";
+import { initializeIntegratedLogging } from "./main/loggerIntegration";
+import { patchIpcMainHandle, setupProcessTrackerIPC } from "./main/processTracker";
+
+// Patch ipcMain.handle BEFORE any side-effect imports that register handlers
+patchIpcMainHandle();
 
 // Import side-effect modules
 import "./main/terminal";
@@ -101,6 +107,7 @@ app.on("web-contents-created", (_, contents) => {
 
 // App ready event
 app.on("ready", async () => {
+  const appReadyTime = Date.now();
   // Create splash screen - will be destroyed by createWindow
   const splashWindow = new BrowserWindow({
     width: 400,
@@ -152,6 +159,12 @@ app.on("ready", async () => {
     windowManager.closeWindowFromSender(event.sender);
   })
 
+  // Initialize logger system
+  setupLoggerIPC();
+  setupProcessTrackerIPC();
+  initializeIntegratedLogging();
+  logger.info('system', 'STARTUP: app:ready fired — registering IPC handlers', { t: appReadyTime });
+
   registerSettingsIpc();
   registerFontsIpc();
   registerUpdateIpcHandlers();
@@ -176,6 +189,8 @@ app.on("ready", async () => {
   const updateChannel = settings.updates?.channel || "stable";
   initializeUpdates(updateChannel);
 
+  logger.info('system', 'STARTUP: all IPC handlers registered — creating windows');
+
   // Create main window (after IPC handlers are ready)
   const cliArgs = getCliArguments();
   // On macOS, also include any open-file paths that arrived before ready
@@ -190,6 +205,9 @@ app.on("ready", async () => {
   } else {
     await windowManager.loadAllWindows();
   }
+  logger.perf('system', 'STARTUP: windows loaded', Date.now() - appReadyTime, {
+    note: 'total time from app:ready to first window visible — if >5000ms check FileWatcher:ready and initializeState phases',
+  });
 
   // Set up the ongoing macOS "Open With" handler (remove the pre-ready queuing
   // listener first so we don't accumulate duplicate listeners).

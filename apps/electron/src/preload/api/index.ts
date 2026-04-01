@@ -5,6 +5,7 @@ import { stateApi } from "./state";
 import { terminalApi } from "./terminal";
 import { themesApi } from "./themes";
 import { autosaveApi } from "./autosave";
+import { loggerAPI, processMonitorAPI } from "../loggerBridge";
 import {
   directoriesApi,
   dialogApi,
@@ -57,5 +58,7 @@ export const electronApi = {
   skills: skillsApi,
   themes: themesApi,
   autosave: autosaveApi,
-  mainwindow:mainWindow
+  mainwindow: mainWindow,
+  logger: loggerAPI,
+  processMonitor: processMonitorAPI,
 };

@@ -94,6 +94,7 @@ const getTabIcon = (tab: Tab): JSX.Element => {
   if (tab.type === "settings") return <Settings size={14} />;
   if (tab.type === "welcome") return <BookOpen size={14} />;
   if (tab.type === "changelog") return <ScrollText size={14} />;
+  if (tab.type === "logs") return <Terminal size={14} />;
   if (tab.type === "grpc") return <Server size={14} />;
   if (tab.type === "environmentEditor") return <Settings2 size={14} />;
 

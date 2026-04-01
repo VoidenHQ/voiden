@@ -9,7 +9,6 @@ function useDebounce<T>(value: T, delay: number): T {
   }, [value, delay]);
   return debounced;
 }
-import { useQuery } from "@tanstack/react-query";
 import { NodeRendererProps, Tree, NodeApi, TreeApi } from "react-arborist";
 import { Tip } from "@/core/components/ui/Tip";
 import {
@@ -137,8 +136,10 @@ const DragOverContext = React.createContext<{
 
 const TreeActionsContext = React.createContext<{
   expandAllRecursive: (startPath: string) => Promise<void>;
+  collapseAllFromFolder: (folderNode: NodeApi<ExtendedFileTree>) => Promise<void>;
 }>({
   expandAllRecursive: async () => { },
+  collapseAllFromFolder: async () => { },
 });
 
 function TreeNode({ node, style, dragHandle, activeFile, removeTemporaryNode, onFolderToggle, refreshDir, expandedDirsRef, treeRef }: TreeNodeProps) {
@@ -694,23 +695,7 @@ function TreeNode({ node, style, dragHandle, activeFile, removeTemporaryNode, on
     }
   };
 
-  const collapseAllFromFolder = (folderNode: NodeApi<ExtendedFileTree>) => {
-    const closeDescendants = (currentNode: NodeApi<ExtendedFileTree>) => {
-      currentNode.children?.forEach((child) => {
-        if (child.data.type === "folder") {
-          closeDescendants(child);
-          if (child.isOpen) {
-            child.close();
-          }
-        }
-      });
-    };
-
-    closeDescendants(folderNode);
-    if (folderNode.isOpen) {
-      folderNode.close();
-    }
-  };
+  const { collapseAllFromFolder } = useContext(TreeActionsContext);
 
   return (
     <div
@@ -859,6 +844,7 @@ export const FileSystemList = () => {
   const { data: appState } = useGetAppState();
 
   const [showDeleteProgress, setShowDeleteProgress] = useState(false);
+  const [isTreeBusy, setIsTreeBusy] = useState(false);
   useElectronEvent<{ path: string }>("file:delete", (eventData) => {
     if (!eventData?.path) return;
     setShowDeleteProgress(false);
@@ -953,34 +939,63 @@ export const FileSystemList = () => {
     const ipcExpandDir = (window.electron as any)?.files?.expandDir as ((dirPath: string) => Promise<ExtendedFileTree[]>) | undefined;
     if (!ipcExpandDir) return;
 
+    setIsTreeBusy(true);
+
+    // BFS with parallel fetching per level.
+    // Hard caps match VS Code's approach — prevents UI freeze on large repos.
+    const MAX_DIRS = 500;
+    const MAX_DEPTH = 6;
+
     const toExpand: { dirPath: string; children: ExtendedFileTree[] }[] = [];
+    let totalDirs = 0;
+    let capped = false;
 
-    const processDir = async (dirPath: string) => {
-      const node = treeRef.current?.get(dirPath);
-      let childrenData: ExtendedFileTree[];
+    // Each BFS level: array of { dirPath, depth }
+    let currentLevel: { dirPath: string; depth: number }[] = [{ dirPath: startPath, depth: 0 }];
 
-      if (!node || node.data.lazy) {
-        try {
-          const fetched = await ipcExpandDir(dirPath);
-          if (!fetched) return;
-          childrenData = fetched as ExtendedFileTree[];
-          expandedDirsRef.current.add(dirPath);
-          toExpand.push({ dirPath, children: childrenData });
-        } catch {
-          return;
+    while (currentLevel.length > 0 && !capped) {
+      // Fetch all dirs in this level in parallel
+      const results = await Promise.all(
+        currentLevel.map(async ({ dirPath, depth }) => {
+          const node = treeRef.current?.get(dirPath);
+          let childrenData: ExtendedFileTree[];
+
+          if (!node || node.data.lazy) {
+            try {
+              const fetched = await ipcExpandDir(dirPath);
+              if (!fetched) return { dirPath, childrenData: [], depth };
+              childrenData = fetched as ExtendedFileTree[];
+              expandedDirsRef.current.add(dirPath);
+              toExpand.push({ dirPath, children: childrenData });
+            } catch {
+              return { dirPath, childrenData: [], depth };
+            }
+          } else {
+            childrenData = node.children?.map((c) => c.data) ?? [];
+          }
+
+          return { dirPath, childrenData, depth };
+        })
+      );
+
+      // Collect next level
+      const nextLevel: { dirPath: string; depth: number }[] = [];
+      for (const { childrenData, depth } of results) {
+        if (capped) break;
+        for (const child of childrenData) {
+          if (child.type === "folder") {
+            totalDirs++;
+            if (totalDirs >= MAX_DIRS || depth + 1 >= MAX_DEPTH) {
+              capped = true;
+              break;
+            }
+            nextLevel.push({ dirPath: child.path, depth: depth + 1 });
+          }
         }
-      } else {
-        childrenData = node.children?.map((c) => c.data) ?? [];
       }
 
-      for (const child of childrenData) {
-        if (child.type === "folder") {
-          await processDir(child.path);
-        }
-      }
-    };
-
-    await processDir(startPath);
+      currentLevel = nextLevel;
+    }
 
     if (toExpand.length > 0) {
       setTreeData((prev) => {
@@ -992,14 +1007,53 @@ export const FileSystemList = () => {
       });
     }
 
-    setTimeout(() => {
-      const openAll = (n: any) => {
-        if (!n || n.data.type !== "folder") return;
-        n.open();
-        n.children?.forEach(openAll);
-      };
-      openAll(treeRef.current?.get(startPath));
-    }, 0);
+
+    // Collect all folder nodes to open, then open in batches of 20 per frame
+    // so the browser stays responsive on large trees.
+    const toOpen: any[] = [];
+    const collectOpen = (n: any) => {
+      if (!n || n.data.type !== "folder") return;
+      toOpen.push(n);
+      n.children?.forEach(collectOpen);
+    };
+    collectOpen(treeRef.current?.get(startPath));
+
+    const BATCH = 20;
+    for (let i = 0; i < toOpen.length; i += BATCH) {
+      toOpen.slice(i, i + BATCH).forEach((n) => n.open());
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    }
+
+    setIsTreeBusy(false);
+  }, []);
+
+  const collapseAllFromFolder = useCallback(async (folderNode: NodeApi<ExtendedFileTree>) => {
+    // Collect all open folder nodes first (BFS read — no DOM writes yet).
+    const toClose: NodeApi<ExtendedFileTree>[] = [];
+    const collect = (node: NodeApi<ExtendedFileTree>) => {
+      node.children?.forEach((child) => {
+        if (child.data.type === "folder") {
+          collect(child);
+          if (child.isOpen) toClose.push(child);
+        }
+      });
+    };
+    collect(folderNode);
+    if (folderNode.isOpen) toClose.push(folderNode);
+    if (toClose.length === 0) return;
+
+    setIsTreeBusy(true);
+    try {
+      // Close in batches of 20 per animation frame so the browser stays
+      // responsive on huge trees (1000+ open nodes).
+      const BATCH = 20;
+      for (let i = 0; i < toClose.length; i += BATCH) {
+        toClose.slice(i, i + BATCH).forEach((n) => n.close());
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      }
+    } finally {
+      setIsTreeBusy(false);
+    }
   }, []);
 
   const expandLazyNode = useCallback(
@@ -1089,25 +1143,54 @@ export const FileSystemList = () => {
   const storeIsSearching = useSearchStore((state) => state.isSearching);
   const setStoreIsSearching = useSearchStore((state) => state.setIsSearching);
 
-  const {
-    data: searchResults,
-    isLoading: isSearching,
-    error: searchError,
-  } = useQuery<SearchResult[], Error>({
-    queryKey: ["file-search", searchQuery, matchCase, matchWholeWord],
-    queryFn: async () => {
-      const results = await window.electron?.searchFiles({
-        query: searchQuery,
-        matchCase,
-        matchWholeWord,
-      });
-      return results;
-    },
-    enabled: !!searchQuery,
-    onError: (err: any) => {
-      // console.error("[file-search] IPC error:", err);
-    },
-  });
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const searchIdRef = useRef(0);
+  const seenSearchResultsRef = useRef(new Set<string>());
+
+  useEffect(() => {
+    // Cancel the previous search unconditionally
+    window.electron?.cancelSearch?.(searchIdRef.current);
+
+    if (!searchQuery) {
+      setSearchResults([]);
+      setIsSearching(false);
+      setSearchError(null);
+      return;
+    }
+
+    searchIdRef.current += 1;
+    const currentId = searchIdRef.current;
+
+    setSearchResults([]);
+    seenSearchResultsRef.current = new Set();
+    setIsSearching(true);
+    setSearchError(null);
+
+    window.electron?.startSearch?.({ query: searchQuery, matchCase, matchWholeWord, searchId: currentId });
+
+    const unsubResult = window.electron?.onSearchResult?.((data) => {
+      if (data.searchId !== currentId) return;
+      const key = `${data.result.path}:${data.result.line}`;
+      if (!seenSearchResultsRef.current.has(key)) {
+        seenSearchResultsRef.current.add(key);
+        setSearchResults((prev) => [...prev, data.result]);
+      }
+    });
+
+    const unsubDone = window.electron?.onSearchDone?.((data) => {
+      if (data.searchId !== currentId) return;
+      setIsSearching(false);
+      if (data.error) setSearchError(data.error);
+    });
+
+    return () => {
+      unsubResult?.();
+      unsubDone?.();
+      window.electron?.cancelSearch?.(currentId);
+    };
+  }, [searchQuery, matchCase, matchWholeWord]);
 
   // ─── Sync server data → treeData ─────────────────────────────────────────────
   // On the FIRST load we initialise treeData from the server response and then
@@ -1612,7 +1695,7 @@ export const FileSystemList = () => {
     >
       {/* Loading progress bar — always reserve the space to prevent layout shift */}
       <div className="h-0.5 w-full overflow-hidden flex-shrink-0 relative">
-        {showDeleteProgress && (
+        {(showDeleteProgress || isSearching || isTreeBusy) && (
           <div
             className="absolute h-full w-1/3 bg-accent rounded-full"
             style={{ animation: "fileTreeProgress 1.2s ease-in-out infinite" }}
@@ -1675,11 +1758,11 @@ export const FileSystemList = () => {
               </svg>
             </div>
           )}
-          {searchError && <div className="text-red-500 text-sm">Error running search: {searchError.message}</div>}
-          {!isSearching && !searchError && searchResults?.length === 0 && (
+          {searchError && <div className="text-red-500 text-sm">Error running search: {searchError}</div>}
+          {!isSearching && !searchError && searchResults.length === 0 && searchQuery && (
             <div className="text-gray-500 text-sm">No results for "{rawQuery}"</div>
           )}
-          {!isSearching && !searchError && searchResults && searchResults.length > 0 && (
+          {searchResults.length > 0 && (
             <div className="flex-1 overflow-y-auto p-2 space-y-2">
               {searchResults.map(({ path, line, preview }) => (
                 <div
@@ -1720,7 +1803,7 @@ export const FileSystemList = () => {
         </div>
       ) : (
         <div ref={ref} className="flex-1 overflow-hidden">
-          <TreeActionsContext.Provider value={{ expandAllRecursive }}>
+          <TreeActionsContext.Provider value={{ expandAllRecursive, collapseAllFromFolder }}>
             <DragOverContext.Provider value={{ dragOverParentId, setDragOverParentId }}>
               <div
                 ref={dndRootElement}

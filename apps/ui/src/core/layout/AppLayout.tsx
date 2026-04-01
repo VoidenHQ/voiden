@@ -18,7 +18,7 @@ import type { Tab } from "../../../../electron/src/shared/types";
 import { MainEditor } from "./components/MainEditor";
 import { savePanelStateForTab } from "./components/PanelTabs";
 import { useElectronEvent } from "@/core/providers/ElectronEventProvider";
-import { useGetPanelTabs, useAddPanelTab, useActivateTab } from "./hooks";
+import { useGetPanelTabs, useAddPanelTab, useActivateTab, useClosePanelTab } from "./hooks";
 import { setEnvJumpTarget } from "@/core/environment/components/EnvironmentEditor";
 import { useEnvironments } from "@/core/environment/hooks";
 import { mountVariableValueTooltip, unmountVariableValueTooltip } from "@/core/editors/variableValueTooltip";
@@ -38,6 +38,7 @@ export const AppLayout = () => {
   let { settings, onChange, setSettings } = useSettings();
   const { mutate: addPanelTab } = useAddPanelTab();
   const { mutate: activateTab } = useActivateTab();
+  const { mutate: closePanelTab } = useClosePanelTab();
   const { data: panelTabs } = useGetPanelTabs("main");
   const { data: envData } = useEnvironments();
 
@@ -413,6 +414,27 @@ export const AppLayout = () => {
       });
     }
   });
+
+  useElectronEvent("menu:open-logs", () => {
+    const existing = panelTabs?.tabs?.find((t: any) => t.type === "logs");
+    if (existing) {
+      activateTab({ panelId: "main", tabId: existing.id });
+    } else {
+      addPanelTab({
+        panelId: "main",
+        tab: { id: crypto.randomUUID(), type: "logs", title: "System Logs", source: null },
+      });
+    }
+  });
+
+  useEffect(() => {
+    if (settings?.developer?.system_log === false) {
+      const logsTab = panelTabs?.tabs?.find((t: any) => t.type === "logs");
+      if (logsTab) {
+        closePanelTab({ panelId: "main", tabId: logsTab.id });
+      }
+    }
+  }, [settings?.developer?.system_log]);
 
   return (
     <div className="h-screen w-screen bg-bg font-sans text-text text-base flex flex-col overflow-hidden select-none">

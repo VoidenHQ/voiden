@@ -192,7 +192,10 @@ declare global {
         ) => () => void;
         acknowledgeUnsavedSaved: (requestId: string) => void;
       };
-      searchFiles: (query: string) => Promise<SearchResult[]>;
+      startSearch: (args: { query: string; matchCase: boolean; matchWholeWord: boolean; searchId: number }) => void;
+      cancelSearch: (searchId: number) => void;
+      onSearchResult: (cb: (data: { searchId: number; result: SearchResult }) => void) => () => void;
+      onSearchDone: (cb: (data: { searchId: number; error?: string }) => void) => () => void;
       git: {
         getBranches: () => Promise<{
           branches: string[];
@@ -453,6 +456,19 @@ declare global {
         writeVariables: (
           content: string | Record<string, any>,
         ) => Promise<void>;
+      };
+      logger: {
+        getLogs: () => Promise<any[]>;
+        filterLogs: (category?: string, level?: string, sinceTimestamp?: number) => Promise<any[]>;
+        getStats: () => Promise<Record<string, any>>;
+        clearLogs: () => Promise<boolean>;
+        exportLogs: () => Promise<string>;
+        subscribe: (callback: (log: any) => void) => () => void;
+      };
+      processMonitor: {
+        getActive: () => Promise<any[]>;
+        clearHistory: () => Promise<boolean>;
+        subscribe: (callback: (processes: any[]) => void) => () => void;
       };
     };
   }

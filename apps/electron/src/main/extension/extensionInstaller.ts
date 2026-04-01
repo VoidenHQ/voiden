@@ -1,6 +1,36 @@
+import * as https from "https";
+import { app } from "electron";
+
 interface ReleaseAsset {
   name: string;
   browser_download_url: string;
+}
+
+// Use Node.js https instead of fetch() to avoid crashing Chromium's network service.
+function httpsGetText(url: string, maxRedirects = 5): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reqOptions = {
+      headers: {
+        'User-Agent': `Voiden/${app.getVersion()} (${process.platform}; ${process.arch})`,
+        'Accept': 'application/vnd.github.v3+json',
+      },
+    };
+    function doGet(u: string, redirects: number) {
+      https.get(u, reqOptions, (res) => {
+        if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          if (redirects <= 0) { reject(new Error('Too many redirects')); return; }
+          doGet(res.headers.location, redirects - 1);
+          return;
+        }
+        if (res.statusCode && res.statusCode >= 400) { reject(new Error(`HTTP ${res.statusCode}`)); return; }
+        let data = '';
+        res.on('data', (c) => (data += c));
+        res.on('end', () => resolve(data));
+        res.on('error', reject);
+      }).on('error', reject);
+    }
+    doGet(url, maxRedirects);
+  });
 }
 
 // All bare specifiers the Voiden runtime guarantees to provide via window.__voiden_shims__
@@ -133,13 +163,8 @@ export async function getExtensionFiles(
   version: string
 ): Promise<{ manifest: string; main: string; skill?: string }> {
   const apiUrl = `https://api.github.com/repos/${repo}/releases/tags/v${version}`;
-  const response = await fetch(apiUrl);
-
-  if (!response.ok) {
-    throw new Error(`Failed to fetch release info: ${response.status}`);
-  }
-
-  const releaseInfo = await response.json();
+  const releaseRaw = await httpsGetText(apiUrl);
+  const releaseInfo = JSON.parse(releaseRaw);
   const assets: ReleaseAsset[] = releaseInfo.assets;
 
   const manifestAsset = assets.find((asset) => asset.name === "manifest.json");
@@ -149,22 +174,17 @@ export async function getExtensionFiles(
     throw new Error("Required files not found in release assets");
   }
 
-  const [manifestResponse, mainResponse] = await Promise.all([
-    fetch(manifestAsset.browser_download_url),
-    fetch(mainAsset.browser_download_url),
+  const [manifest, main] = await Promise.all([
+    httpsGetText(manifestAsset.browser_download_url),
+    httpsGetText(mainAsset.browser_download_url),
   ]);
-
-  const [manifest, main] = await Promise.all([manifestResponse.text(), mainResponse.text()]);
 
   // Attempt to fetch skill.md — best-effort, optional
   let skill: string | undefined;
   const skillAsset = assets.find((asset) => asset.name === "skill.md");
   if (skillAsset) {
     try {
-      const skillResponse = await fetch(skillAsset.browser_download_url);
-      if (skillResponse.ok) {
-        skill = await skillResponse.text();
-      }
+      skill = await httpsGetText(skillAsset.browser_download_url);
     } catch {
       // skill.md is optional — continue without it
     }

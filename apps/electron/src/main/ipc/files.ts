@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import mime from "mime-types";
+import { logger } from "../logger";
 import {
   buildFileTree,
   deleteFile,
@@ -40,18 +41,40 @@ export function registerFileIpcHandlers() {
   ipcMain.handle("files:tree", async (_event, directory: string) => {
     try { await fs.promises.access(directory); } catch { return null; }
     if (pendingTreeBuilds.has(directory)) {
+      logger.debug('filesystem', 'files:tree — deduped (build already in-flight)', { directory });
       return pendingTreeBuilds.get(directory);
     }
     const cached = treeResultCache.get(directory);
     if (cached && Date.now() - cached.at < TREE_RESULT_TTL) {
+      logger.debug('filesystem', 'files:tree — cache hit', { directory });
       return cached.result;
     }
+    const t0 = Date.now();
     const p = (async () => {
-      const [gitStatusMap] = await Promise.all([
+      // Race git status against a 400ms timeout so the file tree renders
+      // immediately even on large repos where git status takes 1-4s.
+      // The git cache warms in the background; the next files:tree call
+      // (triggered by the git:changed event) will have full decorations.
+      const GIT_TIMEOUT_MS = 400;
+      const gitStatusMap = await Promise.race([
         getCachedGitStatus(directory),
-        fs.promises.access(directory),
+        new Promise<Map<string, any>>((resolve) =>
+          setTimeout(() => {
+            logger.debug('filesystem', `files:tree — git status timed out (>${GIT_TIMEOUT_MS}ms), rendering without decorations`, { directory });
+            resolve(new Map());
+          }, GIT_TIMEOUT_MS)
+        ),
       ]);
+
       const tree = await buildFileTree(directory, gitStatusMap);
+      const ms = Date.now() - t0;
+      if (ms > 1000) {
+        logger.warn('filesystem', `files:tree SLOW (${ms}ms)`, { directory, ms });
+      } else {
+        // Use debug so periodic 30s refetches don't flood the logs panel.
+        // Only slow builds (>1s) are surfaced at warn level above.
+        logger.debug('filesystem', `files:tree (${ms}ms)`, { directory, ms });
+      }
       treeResultCache.set(directory, { result: tree, at: Date.now() });
       return tree;
     })().finally(() => pendingTreeBuilds.delete(directory));
@@ -426,9 +449,22 @@ export function registerFileIpcHandlers() {
   );
 
   ipcMain.handle("files:expandDir", async (_event, dirPath: string) => {
+    const t0 = Date.now();
     try {
       const activeProject = await getActiveProject();
-      const gitStatusMap = activeProject ? await getCachedGitStatus(activeProject) : new Map();
+      // Race git status against 200ms — expandDir is user-triggered so it must
+      // feel instant. On large repos (homebrew-cask, linux kernel) git status
+      // takes 3-6s which would block every folder expand. Decorations show on
+      // the next tree refresh once the git cache has warmed.
+      const GIT_EXPAND_TIMEOUT_MS = 200;
+      const gitStatusMap = activeProject
+        ? await Promise.race([
+            getCachedGitStatus(activeProject),
+            new Promise<Map<string, any>>((resolve) =>
+              setTimeout(() => resolve(new Map()), GIT_EXPAND_TIMEOUT_MS)
+            ),
+          ])
+        : new Map();
 
       const items = await fs.promises.readdir(dirPath, { withFileTypes: true });
 
@@ -462,6 +498,13 @@ export function registerFileIpcHandlers() {
         if (a.type !== b.type) return a.type === "folder" ? -1 : 1;
         return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
       });
+
+      const ms = Date.now() - t0;
+      if (ms > 300) {
+        logger.warn('filesystem', `files:expandDir SLOW (${ms}ms)`, { dirPath, count: children.length, ms });
+      } else {
+        logger.debug('filesystem', 'files:expandDir', { dirPath, count: children.length, ms });
+      }
 
       return children;
     } catch {

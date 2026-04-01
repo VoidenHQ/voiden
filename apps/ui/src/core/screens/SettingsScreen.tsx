@@ -1,5 +1,5 @@
 import { useSettings, ProxyConfig } from "@/core/settings/hooks/useSettings";
-import { Check, RefreshCw, Plus, Trash2, Edit2, Palette, FileText, Network, Search, Keyboard, ChevronUp, ChevronDown, Settings, Plug } from "lucide-react";
+import { Check, RefreshCw, Plus, Trash2, Edit2, Palette, FileText, Network, Search, Keyboard, ChevronUp, ChevronDown, Settings, Plug, Code2 } from "lucide-react";
 import { useEffect, useMemo, useState, useRef } from "react";
 import { loadThemeById, getAvailableThemes } from "@/utils/themeLoader";
 import { Kbd } from "@/core/components/ui/kbd";
@@ -126,6 +126,7 @@ export const SettingsScreen = () => {
   const editorRef = useRef<HTMLElement>(null);
   const networkRef = useRef<HTMLElement>(null);
   const integrationsRef = useRef<HTMLElement>(null);
+  const developerRef = useRef<HTMLElement>(null);
   const keyboardRef = useRef<HTMLElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
 
@@ -138,6 +139,7 @@ export const SettingsScreen = () => {
     { id: "editor", label: "Editor", icon: <FileText className="w-4 h-4" />, ref: editorRef },
     { id: "network", label: "Network", icon: <Network className="w-4 h-4" />, ref: networkRef },
     { id: "integrations", label: "Integrations", icon: <Plug className="w-4 h-4" />, ref: integrationsRef },
+    { id: "developer", label: "Developer", icon: <Code2 className="w-4 h-4" />, ref: developerRef },
     { id: "keyboard", label: "Keyboard", icon: <Keyboard className="w-4 h-4" />, ref: keyboardRef },
   // eslint-disable-next-line react-hooks/exhaustive-deps
   ], []);
@@ -1270,6 +1272,27 @@ export const SettingsScreen = () => {
                 </Card>
               </>
             )}
+          </section>
+
+          {/* ── Developer ────────────────────────────────────────── */}
+          <section ref={developerRef} data-section="developer" className="mb-10">
+            <h2 className="text-lg font-semibold text-text mb-4">Developer</h2>
+
+            <Card>
+              {matchesSearch("System Log developer process IPC git state") && (
+                <Row
+                  title="System Log"
+                  description="Show the System Log tab to inspect IPC calls, git operations, and state changes."
+                  border={false}
+                  control={
+                    <Toggle
+                      checked={settings.developer?.system_log ?? false}
+                      onChange={(v) => save({ developer: { system_log: v } })}
+                    />
+                  }
+                />
+              )}
+            </Card>
           </section>
 
           {/* ── Keyboard ─────────────────────────────────────────── */}

@@ -1,8 +1,9 @@
-import { ipcMain, IpcMainInvokeEvent } from "electron";
+import { ipcMain, IpcMainInvokeEvent, BrowserWindow } from "electron";
 import { getActiveProject } from "./state";
 import simpleGit from "simple-git";
 import * as fs from "fs";
 import * as path from "path";
+import { logger } from "./logger";
 
 // Add caching to improve performance
 interface GitStatusCache {
@@ -54,6 +55,76 @@ const CACHE_EXPIRATION = 30000; // 30 seconds — reduces redundant git status c
 // (e.g. files:tree and git:getStatus firing simultaneously) share one git process.
 const pendingGitStatusFetch = new Map<string, Promise<Map<string, any>>>();
 
+// ── isRepo cache ─────────────────────────────────────────────────────────────
+// Caches whether a path is a git repo. Both truthy and falsy results are cached
+// to prevent repeated subprocess spawning on non-git projects. The long TTL
+// means it survives the polling cycle — only git:initialize should invalidate it.
+interface IsRepoEntry { isRepo: boolean; timestamp: number; }
+const isRepoCacheMap = new Map<string, IsRepoEntry>();
+const IS_REPO_TTL = 300_000; // 5 minutes
+// In-flight dedup: concurrent callers for the same path share one subprocess.
+const pendingIsRepoFetch = new Map<string, Promise<boolean>>();
+
+export async function getCachedIsRepo(projectPath: string): Promise<boolean> {
+  const entry = isRepoCacheMap.get(projectPath);
+  if (entry && Date.now() - entry.timestamp < IS_REPO_TTL) return entry.isRepo;
+
+  // Share in-flight check — prevents 3 simultaneous checkIsRepo subprocesses
+  // for the same path when multiple IPC handlers fire at startup.
+  if (pendingIsRepoFetch.has(projectPath)) {
+    return pendingIsRepoFetch.get(projectPath)!;
+  }
+
+  const p = (async () => {
+    try {
+      // Fast-path: if .git doesn't exist at root, skip the subprocess entirely.
+      const hasDotGit = await fs.promises
+        .access(path.join(projectPath, '.git'))
+        .then(() => true)
+        .catch(() => false);
+      if (!hasDotGit) {
+        isRepoCacheMap.set(projectPath, { isRepo: false, timestamp: Date.now() });
+        logger.debug('git', 'isRepo: no .git found (fast-path, no subprocess)', { path: projectPath });
+        return false;
+      }
+      logger.debug('git', 'isRepo: cache miss — spawning checkIsRepo subprocess', { path: projectPath });
+      const t0 = Date.now();
+      const isRepo = await getSharedGit(projectPath).checkIsRepo();
+      logger.debug('git', `isRepo: result cached (${Date.now() - t0}ms)`, { path: projectPath, isRepo });
+      isRepoCacheMap.set(projectPath, { isRepo, timestamp: Date.now() });
+      return isRepo;
+    } catch {
+      isRepoCacheMap.set(projectPath, { isRepo: false, timestamp: Date.now() });
+      return false;
+    }
+  })().finally(() => pendingIsRepoFetch.delete(projectPath));
+
+  pendingIsRepoFetch.set(projectPath, p);
+  return p;
+}
+
+export function invalidateRepoCache(projectPath: string): void {
+  isRepoCacheMap.delete(projectPath);
+}
+
+// ── Shared git instance pool ──────────────────────────────────────────────────
+// All callers for the same project path share one SimpleGit instance.
+// simple-git's maxConcurrentProcesses queue is per-instance, so sharing means
+// concurrent IPC handlers (startup burst, polling, file-watcher events) all feed
+// through the same limit instead of each spawning unlimited git subprocesses.
+const sharedGitInstances = new Map<string, ReturnType<typeof simpleGit>>();
+const GIT_MAX_CONCURRENT = 3;
+
+export function getSharedGit(projectPath: string): ReturnType<typeof simpleGit> {
+  let g = sharedGitInstances.get(projectPath);
+  if (!g) {
+    g = simpleGit(projectPath, { maxConcurrentProcesses: GIT_MAX_CONCURRENT });
+    sharedGitInstances.set(projectPath, g);
+    logger.debug('git', 'getSharedGit: new shared instance created', { path: projectPath, maxConcurrentProcesses: GIT_MAX_CONCURRENT });
+  }
+  return g;
+}
+
 // Get cached Git status or fetch new status
 export async function getCachedGitStatus(directory: string): Promise<Map<string, any>> {
   const cacheEntry = gitStatusCache.get(directory);
@@ -69,22 +140,24 @@ export async function getCachedGitStatus(directory: string): Promise<Map<string,
   const p = (async () => {
     const gitStatusMap = new Map<string, any>();
     try {
-      // Async existence check — avoids blocking the event loop
-      const gitDir = path.join(directory, ".git");
-      const exists = await fs.promises.access(gitDir).then(() => true).catch(() => false);
-      if (exists) {
-        const git = simpleGit(directory);
-        const isRepo = await git.checkIsRepo();
-        if (isRepo) {
-          const status = await git.status();
-          status.files.forEach((fileStatus) => {
-            gitStatusMap.set(path.join(directory, fileStatus.path), fileStatus);
+      if (await getCachedIsRepo(directory)) {
+        const git = getSharedGit(directory);
+        const t0 = Date.now();
+        const status = await git.status();
+        const statusMs = Date.now() - t0;
+        if (statusMs > 1000) {
+          logger.warn('git', `getCachedGitStatus: slow git status (${statusMs}ms) — large repo or I/O contention`, {
+            path: directory, statusMs,
+            tip: 'Enable core.fsmonitor in this repo: git config core.fsmonitor true',
           });
-          status.not_added.forEach((filePath) => {
-            gitStatusMap.set(path.join(directory, filePath), { path: filePath, index: "??", working_dir: "??" });
-          });
-          gitStatusCache.set(directory, { timestamp: Date.now(), status: gitStatusMap });
         }
+        status.files.forEach((fileStatus) => {
+          gitStatusMap.set(path.join(directory, fileStatus.path), fileStatus);
+        });
+        status.not_added.forEach((filePath) => {
+          gitStatusMap.set(path.join(directory, filePath), { path: filePath, index: "??", working_dir: "??" });
+        });
+        gitStatusCache.set(directory, { timestamp: Date.now(), status: gitStatusMap });
       }
     } catch {
       // ignore
@@ -103,7 +176,8 @@ async function getCachedBranchInfo(projectPath: string): Promise<any> {
     return cacheEntry.branchSummary;
   }
 
-  const git = simpleGit(projectPath);
+  if (!await getCachedIsRepo(projectPath)) return null;
+  const git = getSharedGit(projectPath);
   const branchSummary = await git.branch(['-a']);
 
   branchCache.set(projectPath, {
@@ -114,10 +188,21 @@ async function getCachedBranchInfo(projectPath: string): Promise<any> {
   return branchSummary;
 }
 
-// Invalidate caches after operations that modify Git state
+// Minimum age before a git status result can be invalidated by a file watcher
+// event. On large repos (homebrew-cask, linux kernel) git status takes 3-6s.
+// Without this guard, a burst of file watcher events clears the cache immediately
+// after it warms, causing repeated 5s-blocking git status calls.
+const GIT_STATUS_MIN_AGE_MS = 5_000;
+
+// Invalidate caches after operations that modify Git state.
+// git status invalidation is guarded by GIT_STATUS_MIN_AGE_MS — if the cached
+// result is fresh (just ran), keep it and let the next natural expiry handle it.
 export function invalidateGitCache(projectPath: string): void {
   branchCache.delete(projectPath);
-  gitStatusCache.delete(projectPath);
+  const entry = gitStatusCache.get(projectPath);
+  if (!entry || Date.now() - entry.timestamp >= GIT_STATUS_MIN_AGE_MS) {
+    gitStatusCache.delete(projectPath);
+  }
 }
 
 // Original IPC handlers with optimized implementations
@@ -129,20 +214,16 @@ ipcMain.handle("git:getBranches", async (event:IpcMainInvokeEvent): Promise<{ br
     return null;
   }
 
-  const git = simpleGit(projectPath);
-
   try {
-    // Check if the directory is a valid Git repository.
-    const isRepo = await git.checkIsRepo();
-    if (!isRepo) {
-      return null;
-    }
+    if (!await getCachedIsRepo(projectPath)) return null;
+    const git = getSharedGit(projectPath);
 
     const remotes = await git.getRemotes(false);
     const remoteNames = new Set(remotes.map((r) => r.name));
 
     // Use cached branch info if available.
     const branchSummary = await getCachedBranchInfo(projectPath);
+    if (!branchSummary) return null;
 
     const activeBranch = normalizeBranchDisplayName(branchSummary.current, remoteNames);
     const branches = dedupeBranchNames([
@@ -157,13 +238,13 @@ ipcMain.handle("git:getBranches", async (event:IpcMainInvokeEvent): Promise<{ br
   }
 });
 
-ipcMain.handle("git:checkout", async (_, projectPath: string, branch: string) => {
+ipcMain.handle("git:checkout", async (event, projectPath: string, branch: string) => {
   if (!projectPath) {
     throw new Error("No active project selected.");
   }
   try {
     // Initialize simple-git with the project path.
-    const git = simpleGit(projectPath);
+    const git = getSharedGit(projectPath);
     const remotes = await git.getRemotes(false);
     const remoteNames = new Set(remotes.map((r) => r.name));
     const localBranches = await git.branchLocal();
@@ -218,6 +299,9 @@ ipcMain.handle("git:checkout", async (_, projectPath: string, branch: string) =>
       ...branchSummary.all,
     ], remoteNames);
 
+    // Notify renderer so git status, log, and file tree all refresh immediately
+    BrowserWindow.fromWebContents(event.sender)?.webContents.send('git:changed', { path: projectPath });
+
     return { activeBranch, branches };
   } catch (error) {
     // console.error("Error checking out branch:", error);
@@ -230,7 +314,7 @@ ipcMain.handle("git:createBranch", async (_, projectPath: string, branch: string
     throw new Error("No active project selected.");
   }
   try {
-    const git = simpleGit(projectPath);
+    const git = getSharedGit(projectPath);
 
     // Create and checkout the new branch
     await git.checkoutLocalBranch(branch);
@@ -262,7 +346,7 @@ ipcMain.handle("git:createBranchFrom", async (_, projectPath: string, branch: st
     throw new Error("No active project selected.");
   }
   try {
-    const git = simpleGit(projectPath);
+    const git = getSharedGit(projectPath);
 
     // Create and checkout the new branch from the specified source branch
     await git.checkoutBranch(branch, fromBranch);
@@ -300,13 +384,8 @@ ipcMain.handle("git:diffBranches", async (event:IpcMainInvokeEvent, baseBranch: 
   }
 
   try {
-    const git = simpleGit(projectPath);
-
-    // Check if repo exists
-    const isRepo = await git.checkIsRepo();
-    if (!isRepo) {
-      throw new Error("Not a git repository");
-    }
+    if (!await getCachedIsRepo(projectPath)) throw new Error("Not a git repository");
+    const git = getSharedGit(projectPath);
 
     // Get diff summary between branches (using two dots for direct comparison)
     const diffSummary = await git.diffSummary([`${baseBranch}..${compareBranch}`]);
@@ -351,7 +430,7 @@ ipcMain.handle("git:diffFile", async (event:IpcMainInvokeEvent, baseBranch: stri
   }
 
   try {
-    const git = simpleGit(projectPath);
+    const git = getSharedGit(projectPath);
 
     // Get unified diff for the file
     const diff = await git.diff([`${baseBranch}..${compareBranch}`, '--', filePath]);
@@ -371,13 +450,8 @@ ipcMain.handle("git:getFileAtBranch", async (event:IpcMainInvokeEvent, branch: s
   }
 
   try {
-    const git = simpleGit(projectPath);
-
-    // First, get the repo root to ensure we're in a git repository
-    const isRepo = await git.checkIsRepo();
-    if (!isRepo) {
-      return null;
-    }
+    if (!await getCachedIsRepo(projectPath)) return null;
+    const git = getSharedGit(projectPath);
 
     // Get file content at the specified branch
     // Note: git show uses paths relative to the repository root

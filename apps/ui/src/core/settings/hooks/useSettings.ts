@@ -223,6 +223,14 @@ function validateSettings(settings: UserSettings): UserSettings {
     validated.history.retention_days = 2;
   }
 
+  if (!validated.developer) {
+    validated.developer = { system_log: false };
+  }
+
+  if (typeof validated.developer.system_log !== 'boolean') {
+    validated.developer.system_log = false;
+  }
+
   return validated;
 }
 
@@ -284,6 +292,10 @@ export type UserSettings = {
     enabled: boolean;
     /** How many days to retain history entries (1–7, default: 2) */
     retention_days: number;
+  };
+  developer?: {
+    /** Show the System Log tab (default: false) */
+    system_log: boolean;
   };
 };
 
@@ -364,6 +376,7 @@ export function useSettings() {
       cli: { ...currentSettings.cli, ...patch.cli },
       projects: { ...currentSettings.projects, ...patch.projects },
       history: { ...currentSettings.history, ...patch.history },
+      developer: { ...currentSettings.developer, ...patch.developer },
     };
     const validatedSettings = validateSettings(mergedSettings as UserSettings);
 

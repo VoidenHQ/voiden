@@ -26,14 +26,14 @@ export const useIsGitRepo = () => {
 };
 
 export const useGetGitBranches = () => {
+  const { data: isGitRepo } = useIsGitRepo();
   return useQuery({
     queryKey: ["git:branches"],
     queryFn: async () => {
-      // Assumes window.electron.git.branches calls your IPC handler "git:getBranches"
       const response = await window.electron?.git.getBranches();
-
       return response;
     },
+    enabled: !!isGitRepo,
   });
 };
 
@@ -82,13 +82,10 @@ export const useCheckoutBranch = () => {
       return window.electron?.git.checkout(projectPath, branch);
     },
     onSuccess: async () => {
-      // Invalidate the git branches query to refresh the list (and active branch) after a checkout.
       queryClient.invalidateQueries({ queryKey: ["git:branches"] });
-      queryClient.invalidateQueries({ queryKey: ["files:tree", activeDirectory] });
+      queryClient.invalidateQueries({ queryKey: ["git:status"] });
       queryClient.invalidateQueries({ queryKey: ["git:log"] });
-
-      // Don't reload tabs here - the git:changed file watcher event will handle it
-      // This prevents double reloading
+      queryClient.invalidateQueries({ queryKey: ["files:tree", activeDirectory] });
     },
   });
 };

@@ -11,7 +11,19 @@ export const coreApi = {
       fetchOptions,
       signalState,
     }),
-  searchFiles: (query: string) => ipcRenderer.invoke("search-files", query),
+  startSearch: (args: { query: string; matchCase: boolean; matchWholeWord: boolean; searchId: number }) =>
+    ipcRenderer.send("search-files:start", args),
+  cancelSearch: (searchId: number) => ipcRenderer.send("search-files:cancel", searchId),
+  onSearchResult: (cb: (data: { searchId: number; result: { path: string; line: number; preview: string } }) => void) => {
+    const handler = (_: Electron.IpcRendererEvent, data: any) => cb(data);
+    ipcRenderer.on("search-files:result", handler);
+    return () => ipcRenderer.removeListener("search-files:result", handler);
+  },
+  onSearchDone: (cb: (data: { searchId: number; error?: string }) => void) => {
+    const handler = (_: Electron.IpcRendererEvent, data: any) => cb(data);
+    ipcRenderer.on("search-files:done", handler);
+    return () => ipcRenderer.removeListener("search-files:done", handler);
+  },
   getVersion: () => ipcRenderer.invoke("get-app-version"),
   checkForUpdates: (channel: "stable" | "early-access") => ipcRenderer.invoke("app:checkForUpdates", channel),
   onUpdateProgress: (callback: (progress: { percent?: number; bytesPerSecond?: number; transferred?: number; total?: number; status: string }) => void) => {

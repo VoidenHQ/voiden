@@ -32,6 +32,7 @@ import { updateFileWatcher } from "./fileWatcher";
 import { windowManager } from "./windowManager";
 import { getSettings } from "./settings";
 import { recomposeAndInstall } from "./skillsInstaller";
+import { logger } from "./logger";
 
 function maybeRecomposeSkills(state: AppState): void {
   const skills = getSettings().skills;
@@ -56,7 +57,15 @@ export const updateWindowState = () => {
 export const initializeState = async (
   skipDefault?: boolean,
 ): Promise<AppState> => {
+  const startupTimer = Date.now();
+  logger.info('system', 'STARTUP [1/5] initializeState begin', { skipDefault });
+
+  const t0 = Date.now();
   appState = await loadState(skipDefault);
+  logger.perf('system', 'STARTUP [1/5] loadState complete', Date.now() - t0, {
+    activeDirectory: appState.activeDirectory,
+    dirCount: Object.keys(appState.directories || {}).length,
+  });
 
   appSettings = await loadSettings();
 
@@ -75,19 +84,29 @@ export const initializeState = async (
   }
 
   // Initialize extension manager after the state is loaded.
+  const t1 = Date.now();
   extensionManager = new ExtensionManager(appState);
   await extensionManager.loadInstalledCommunityExtensions();
+  logger.perf('system', 'STARTUP [2/5] loadInstalledCommunityExtensions complete', Date.now() - t1);
 
   // Save state after syncing extensions to persist any new core extensions
+  const t2 = Date.now();
   await saveState(appState);
+  logger.perf('system', 'STARTUP [3/5] saveState complete', Date.now() - t2);
 
-  // Initialize file watcher if an active project exists in state.
+  // Initialize file watcher in the background — do NOT await it.
+  // The watcher does not need to be ready before the window opens, and on large
+  // projects chokidar's setup can flood the event loop with EMFILE errors before
+  // any window is created, making the app appear stuck at launch.
   if (appState.activeDirectory) {
-    // console.debug("Initializing file watcher for active project:", appState.activeDirectory);
-    await updateFileWatcher(
-      appState.activeDirectory,
-      windowManager.activeWindowId as string,
-    );
+    const _watchPath = appState.activeDirectory;
+    const _watcherId = windowManager.activeWindowId as string;
+    logger.info('system', 'STARTUP [4/5] updateFileWatcher scheduled (non-blocking)', { path: _watchPath });
+    setImmediate(() => {
+      updateFileWatcher(_watchPath, _watcherId).catch((err) => {
+        logger.warn('system', 'FileWatcher: init error', { error: err?.message, path: _watchPath });
+      });
+    });
   }
 
   // Collect all tab IDs from the state for cleanup
@@ -118,6 +137,10 @@ export const initializeState = async (
 
   // Clean up autosaved files that are no longer referenced
   await cleanupAutosaveFiles(activeTabIds);
+
+  logger.perf('system', 'STARTUP [5/5] initializeState complete', Date.now() - startupTimer, {
+    activeDirectory: appState.activeDirectory,
+  });
 
   return appState;
 };
@@ -676,6 +699,8 @@ export const ipcStateHandlers = () => {
         return { type: "welcome", tabId, title };
       case "changelog":
         return { type: "changelog", tabId, title };
+      case "logs":
+        return { type: "logs", tabId, title };
       case "document": {
         if (!source) {
           // Try to load autosaved content for unsaved files
@@ -973,7 +998,17 @@ export const ipcStateHandlers = () => {
 
   // Toggle history-related sidebar tabs (left: globalHistory, right: history) based on setting
   ipcMain.handle("sidebar:setHistoryEnabled", async (_event, enabled: boolean) => {
-    const appState = getAppState();
+    // Guard against the startup race: this handler is invoked by the renderer's
+    // useHistoryTabSync effect on mount, which can fire before initializeState()
+    // registers the window state.  Return early instead of throwing so the UI
+    // doesn't surface an unhandled-rejection error; the renderer re-applies the
+    // setting whenever userSettings.onChange fires.
+    let appState: ReturnType<typeof getAppState>;
+    try {
+      appState = getAppState();
+    } catch {
+      return { success: false };
+    }
 
     if (enabled) {
       // Add globalHistory to left if missing
@@ -1094,6 +1129,10 @@ export const ipcStateHandlers = () => {
 
   // New IPC endpoints using the extension manager:
   ipcMain.handle("extensions:getAll", async () => {
+    // Guard against the startup race: extensionManager is set inside
+    // initializeState() which is async. Return an empty array if called
+    // before initialization completes; the renderer will retry.
+    if (!extensionManager) return [];
     const localExtensions = await extensionManager.getAllExtensions();
     const remoteExtensions = await getRemoteExtensions();
     const mergedExtensions = localExtensions.map((ext) => {
@@ -1217,6 +1256,13 @@ export const ipcStateHandlers = () => {
         return;
       }
       await setActiveProject(projectPath);
+
+      // Notify the renderer that the active project changed so it invalidates
+      // its query cache (files:tree, git:status, app:state, etc.) immediately.
+      // Without this the renderer keeps using the old activeDirectory until its
+      // 30-second refetchInterval fires, causing stale git/file-tree checks.
+      const win = BrowserWindow.fromWebContents(event.sender);
+      win?.webContents.send("folder:opened", { path: projectPath });
     },
   );
 
