@@ -6,6 +6,7 @@ export interface BlockContentStore {
   setBlock: (uid: string, block: any) => void;
   getBlock: (uid: string) => any;
   removeBlock: (uid: string) => void;
+  clearBlocks: () => void;
 }
 
 export const useBlockContentStore = create<BlockContentStore>((set, get) => ({
@@ -18,4 +19,5 @@ export const useBlockContentStore = create<BlockContentStore>((set, get) => ({
       delete newBlocks[uid];
       return { blocks: newBlocks };
     }),
+  clearBlocks: () => set({ blocks: {} }),
 }));

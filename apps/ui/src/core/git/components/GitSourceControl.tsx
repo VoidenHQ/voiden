@@ -4,6 +4,8 @@ import { Loader2, FilePlus, FileEdit, FileX, GitBranch, Check, Plus, Minus, Rota
 import { cn } from "@/core/lib/utils";
 import { useState } from "react";
 import { toast } from "@/core/components/ui/sonner";
+import { useElectronEvent } from "@/core/providers";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/core/components/ui/dialog";
 import { useAddPanelTab } from "@/core/layout/hooks";
 import { GitGraph } from "./GitGraph";
 import { ConflictResolver } from "./ConflictResolver";
@@ -39,6 +41,12 @@ export const GitSourceControl = () => {
   const [stashMessage, setStashMessage] = useState("");
   const [cloneUrl, setCloneUrl] = useState("");
   const [cloneToken, setCloneToken] = useState("");
+  const [clonedProjectPath, setClonedProjectPath] = useState<string | null>(null);
+  const [cloneProgress, setCloneProgress] = useState<{ stage: string; progress: number } | null>(null);
+
+  useElectronEvent<{ stage: string; progress: number }>("git:clone:progress", (data) => {
+    setCloneProgress(data);
+  });
   const [showToken, setShowToken] = useState(false);
   const [showCloneForm, setShowCloneForm] = useState(false);
   const [commitMessage, setCommitMessage] = useState("");
@@ -252,28 +260,33 @@ export const GitSourceControl = () => {
       return;
     }
 
+    setCloneProgress(null);
     cloneRepo(
       { repoUrl: cloneUrl.trim(), token: cloneToken.trim() || undefined },
       {
         onSuccess: (result) => {
+          setCloneProgress(null);
           setCloneUrl("");
           setCloneToken("");
           setShowCloneForm(false);
 
+          if (result?.lfsWarning) {
+            toast.warning("Cloned without LFS files", {
+              description: "git-lfs is not installed. Run `git lfs install` then `git lfs pull` inside the repo.",
+            });
+          }
+
           if (result?.isNewProject) {
             openProject(result.clonedPath);
           } else if (result?.clonedPath) {
-            toast.success("Repository cloned", {
-              description: result.clonedPath.split("/").pop(),
-              action: {
-                label: "Open Project",
-                onClick: () => setActiveProject(result.clonedPath),
-              },
-            });
+            setClonedProjectPath(result.clonedPath);
           }
         },
         onError: (error: any) => {
-          toast.error("Clone failed", { description: error?.message || String(error) });
+          setCloneProgress(null);
+          const msg: string = error?.message || String(error);
+          const short = msg.length > 120 ? msg.slice(0, 117).trimEnd() + "…" : msg;
+          toast.error("Clone failed", { description: short });
         },
       }
     );
@@ -282,14 +295,46 @@ export const GitSourceControl = () => {
   if (!status) {
     return (
       <div className="p-4 flex flex-col gap-4">
+        <Dialog open={!!clonedProjectPath} onOpenChange={(open) => { if (!open) setClonedProjectPath(null); }}>
+          {!!clonedProjectPath && <div className="fixed inset-0 bg-black/50 z-40" />}
+          <DialogContent className="max-w-[420px] bg-panel border border-border">
+            <DialogHeader>
+              <DialogTitle className="text-text">Repository cloned</DialogTitle>
+              <DialogDescription className="text-comment">
+                <span className="font-medium text-text">{clonedProjectPath?.split("/").pop()}</span> was cloned into the current folder. Would you like to open it as the active project?
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <button
+                onClick={() => setClonedProjectPath(null)}
+                className="px-3 py-1.5 text-xs rounded border border-border text-comment hover:text-text transition"
+              >
+                Stay here
+              </button>
+              <button
+                onClick={() => {
+                  if (clonedProjectPath) setActiveProject(clonedProjectPath);
+                  setClonedProjectPath(null);
+                }}
+                className="px-3 py-1.5 text-xs rounded bg-accent hover:bg-accent/90 text-white transition"
+              >
+                Open Project
+              </button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
         {/* Header */}
-        <div className="flex flex-col items-center gap-1 py-2">
-          <GitFork size={28} className="text-comment mb-1" />
-          <p className="text-xs font-medium text-text">No repository found</p>
-          <p className="text-[11px] text-comment text-center leading-relaxed">
-            Initialize a new repo or clone an existing one to get started.
-          </p>
-        </div>
+        {
+          !showCloneForm && (
+            <div className="flex flex-col items-center gap-1 py-2">
+              <GitFork size={28} className="text-comment mb-1" />
+              <p className="text-xs font-medium text-text">No repository found</p>
+              <p className="text-[11px] text-comment text-center leading-relaxed">
+                Initialize a new repo or clone an existing one to get started.
+              </p>
+            </div>
+          )
+        }
 
         {!showCloneForm && (
           <>
@@ -359,9 +404,26 @@ export const GitSourceControl = () => {
               ) : "Clone"}
             </button>
             {isCloning && (
-              <p className="text-[10px] text-comment text-center animate-pulse">
-                This may take a moment…
-              </p>
+              <div className="flex flex-col gap-1">
+                <div className="h-1 w-full bg-border rounded-full overflow-hidden">
+                  {cloneProgress ? (
+                    <div
+                      className="h-full bg-accent rounded-full transition-all duration-300"
+                      style={{ width: `${cloneProgress.progress}%` }}
+                    />
+                  ) : (
+                    <div
+                      className="h-full w-1/3 bg-accent rounded-full"
+                      style={{ animation: "fileTreeProgress 1.2s ease-in-out infinite" }}
+                    />
+                  )}
+                </div>
+                <p className="text-[10px] text-comment text-center">
+                  {cloneProgress
+                    ? `${cloneProgress.stage} — ${cloneProgress.progress}%`
+                    : "Connecting…"}
+                </p>
+              </div>
             )}
             <button
               onClick={() => { setShowCloneForm(false); setCloneUrl(""); setCloneToken(""); }}
@@ -397,6 +459,34 @@ export const GitSourceControl = () => {
 
   return (
     <div className="flex flex-col h-full">
+      <Dialog open={!!clonedProjectPath} onOpenChange={(open) => { if (!open) setClonedProjectPath(null); }}>
+        {!!clonedProjectPath && <div className="fixed inset-0 bg-black/50 z-40" />}
+        <DialogContent className="max-w-[420px] bg-[#1f2430] border border-border">
+          <DialogHeader>
+            <DialogTitle>Repository cloned</DialogTitle>
+            <DialogDescription>
+              <span className="font-medium text-text">{clonedProjectPath?.split("/").pop()}</span> was cloned into the current folder. Would you like to open it as the active project?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <button
+              onClick={() => setClonedProjectPath(null)}
+              className="px-3 py-1.5 text-xs rounded border border-border text-comment hover:text-text transition"
+            >
+              Stay here
+            </button>
+            <button
+              onClick={() => {
+                if (clonedProjectPath) setActiveProject(clonedProjectPath);
+                setClonedProjectPath(null);
+              }}
+              className="px-3 py-1.5 text-xs rounded bg-accent hover:bg-accent/90 text-white transition"
+            >
+              Open Project
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       {/* Branch header */}
       <div className="px-3 py-2 border-b border-border flex-shrink-0 relative">
         <div className="flex items-center gap-2">

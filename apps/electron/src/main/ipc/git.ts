@@ -142,6 +142,24 @@ export function registerGitIpcHandlers() {
       const dirExists = (p: string) =>
         fs.promises.access(p).then(() => true).catch(() => false);
 
+      // Helper to send progress to the renderer safely
+      const sendProgress = (stage: string, progress: number) => {
+        try {
+          if (!event.sender.isDestroyed()) {
+            event.sender.send("git:clone:progress", { stage, progress });
+          }
+        } catch { /* renderer disposed */ }
+      };
+
+      // Create a git instance that forwards clone progress to the renderer
+      const makeProgressGit = (baseDir: string) =>
+        simpleGit({
+          baseDir,
+          progress({ stage, progress }) {
+            sendProgress(stage, progress);
+          },
+        });
+
       if (!activeProject) {
         // No active project — clone into ~/Voiden/<name>, then scaffold .voiden
         const voidenHome = path.join(os.homedir(), "Voiden");
@@ -160,10 +178,18 @@ export function registerGitIpcHandlers() {
         // Clone directly (git clone creates the directory).
         // Suppress watcher events for the clone destination so the IPC channel
         // isn't flooded with file:new events for every file being cloned.
-        const gitParent = simpleGit(voidenHome);
+        const gitParent = makeProgressGit(voidenHome);
         setCloning(newProjectPath, true);
+        let newLfsWarning = false;
         try {
-          await gitParent.raw(["clone", "--depth", "1", "--no-local", cloneUrl, newFolderName]);
+          await gitParent.clone(cloneUrl, newFolderName, ["--depth", "1", "--no-local"]);
+        } catch (cloneErr: any) {
+          const msg: string = cloneErr?.message || String(cloneErr);
+          if (msg.includes("Clone succeeded, but checkout failed") || (msg.includes("git-lfs") && msg.includes("command not found"))) {
+            newLfsWarning = true; // repo downloaded, LFS files missing — treat as success with warning
+          } else {
+            throw cloneErr;
+          }
         } finally {
           setCloning(newProjectPath, false);
         }
@@ -176,7 +202,7 @@ export function registerGitIpcHandlers() {
           JSON.stringify({ project: newFolderName })
         );
 
-        return { clonedPath: newProjectPath, clonedInPlace: false, isNewProject: true };
+        return { clonedPath: newProjectPath, clonedInPlace: false, isNewProject: true, lfsWarning: newLfsWarning };
       }
 
       // Find a unique folder name inside the active project (repo, repo-1, repo-2, ...)
@@ -188,14 +214,22 @@ export function registerGitIpcHandlers() {
       }
 
       const clonedPath = path.join(activeProject, folderName);
-      const git = getSharedGit(activeProject);
+      const gitWithProgress = makeProgressGit(activeProject);
       setCloning(clonedPath, true);
+      let lfsWarning = false;
       try {
-        await git.raw(["clone", "--depth", "1", "--no-local", cloneUrl, folderName]);
+        await gitWithProgress.clone(cloneUrl, folderName, ["--depth", "1", "--no-local"]);
+      } catch (cloneErr: any) {
+        const msg: string = cloneErr?.message || String(cloneErr);
+        if (msg.includes("Clone succeeded, but checkout failed") || (msg.includes("git-lfs") && msg.includes("command not found"))) {
+          lfsWarning = true;
+        } else {
+          throw cloneErr;
+        }
       } finally {
         setCloning(clonedPath, false);
       }
-      return { clonedPath, clonedInPlace: false, isNewProject: false };
+      return { clonedPath, clonedInPlace: false, isNewProject: false, lfsWarning };
     } catch (error: any) {
       console.error("Error cloning repository:", error);
       const raw: string = (error?.message || String(error)).replace(/:[^@]*@/, ":***@");

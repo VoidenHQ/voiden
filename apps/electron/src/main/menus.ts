@@ -10,9 +10,26 @@ import { Tab } from "src/shared/types";
 import { saveState } from "./persistState";
 import eventBus from "./eventBus";
 import { FileTreeItem } from "src/types";
-import fs from "node:fs";
+import { logger } from "./logger";
+import { setDeleting } from "./fileWatcher";
 
 let contextMenuHandlersRegistered = false;
+
+/** Send to renderer only if the window and its webContents are still alive. */
+function safeSend(win: BrowserWindow | null | undefined, channel: string, data?: any) {
+  try {
+    if (win && !win.isDestroyed() && !win.webContents.isDestroyed()) {
+      win.webContents.send(channel, data ?? {});
+    }
+  } catch {
+    // Renderer frame disposed — nothing to do
+  }
+}
+
+/** Yield to the Node.js event loop so the UI can process queued messages. */
+function yieldToEventLoop() {
+  return new Promise<void>((resolve) => setImmediate(resolve));
+}
 
 export const createFileTreeContextMenu = (mainWindow: BrowserWindow) => {
   // Prevent registering handlers multiple times (called for each window)
@@ -35,26 +52,19 @@ export const createFileTreeContextMenu = (mainWindow: BrowserWindow) => {
         {
           label: "New Voiden file...",
           click: async () => {
-            senderWindow?.webContents.send("file:create-void", {
-              path: data.path,
-            });
+            safeSend(senderWindow, "file:create-void", { path: data.path });
           },
         },
         {
           label: "New file...",
           click: async () => {
-            // console.debug("new -regular file");
-            senderWindow?.webContents.send("file:create", {
-              path: data.path,
-            });
+            safeSend(senderWindow, "file:create", { path: data.path });
           },
         },
         {
           label: "New folder...",
           click: async () => {
-            senderWindow?.webContents.send("directory:create", {
-              path: data.path,
-            });
+            safeSend(senderWindow, "directory:create", { path: data.path });
           },
         },
         {
@@ -72,7 +82,7 @@ export const createFileTreeContextMenu = (mainWindow: BrowserWindow) => {
           {
             label: "Close Project",
             click: async () => {
-              senderWindow?.webContents.send("directory:close-project", {});
+              safeSend(senderWindow, "directory:close-project");
             },
           },
           { type: "separator" as const },
@@ -86,16 +96,33 @@ export const createFileTreeContextMenu = (mainWindow: BrowserWindow) => {
         menuTemplate.push({
           label: "Rename",
           click: () => {
-            senderWindow?.webContents.send("file:rename", {
-              path: data.path,
-            });
+            safeSend(senderWindow, "file:rename", { path: data.path });
           },
         });
         menuTemplate.push({
           label: "Delete",
           accelerator: process.platform === "darwin" ? "Cmd+Backspace" : "Delete",
           click: async () => {
-            const res = await deleteDirectory(data.path);
+            const { response } = await dialog.showMessageBox({
+              type: "none",
+              buttons: ["Cancel", "Delete"],
+              defaultId: 0,
+              title: "Confirm Delete",
+              message: "Are you sure you want to delete this folder?",
+              detail: `The folder "${path.basename(data.path)}" and its contents will be moved to trash.`,
+            });
+
+            if (response !== 1) return;
+
+            logger.info('filesystem', `Delete folder: ${data.name}`, { path: data.path });
+            safeSend(senderWindow, "file:delete-start");
+            setDeleting(data.path, true);
+            try {
+              await shell.trashItem(data.path);
+            } finally {
+              setDeleting(data.path, false);
+            }
+            logger.info('filesystem', `Folder trashed: ${data.name}`, { path: data.path });
 
             // Close any open tabs whose source lives inside the deleted directory.
             const delAppState = getAppState(event);
@@ -124,7 +151,7 @@ export const createFileTreeContextMenu = (mainWindow: BrowserWindow) => {
               if (stateChanged) await saveState(delAppState);
             }
 
-            senderWindow?.webContents.send("directory:delete", data);
+            safeSend(senderWindow, "directory:delete", data);
           },
         });
       }
@@ -143,49 +170,51 @@ export const createFileTreeContextMenu = (mainWindow: BrowserWindow) => {
         {
           label: "Rename",
           click: () => {
-            senderWindow?.webContents.send("file:rename", {
-              path: data.path,
-            });
+            safeSend(senderWindow, "file:rename", { path: data.path });
           },
         },
         {
           label: "Delete",
           accelerator: process.platform === "darwin" ? "Cmd+Backspace" : "Delete",
           click: async () => {
-            // Delete the file from disk
-            const deleted = await deleteFile(data.path);
-            if (!deleted) return;
+            const { response: fileDeleteResponse } = await dialog.showMessageBox({
+              type: "none",
+              buttons: ["Cancel", "Delete"],
+              defaultId: 1,
+              title: "Confirm Delete",
+              message: "Are you sure you want to delete this file?",
+              detail: `The file "${path.basename(data.path)}" will be moved to trash.`,
+            });
+            if (fileDeleteResponse !== 1) return;
+
+            logger.info('filesystem', `Delete file: ${data.name}`, { path: data.path });
+            safeSend(senderWindow, "file:delete-start");
+            setDeleting(data.path, true);
+            try {
+              await shell.trashItem(data.path);
+            } finally {
+              setDeleting(data.path, false);
+            }
+            logger.info('filesystem', `File trashed: ${data.name}`, { path: data.path });
 
             const appState = getAppState(event);
             const layout = appState.activeDirectory ? appState.directories[appState.activeDirectory]?.layout : appState.unsaved.layout;
-            if (!layout) {
-              throw new Error("No layout found to close tab.");
-            }
-
-            // Build a dummy tab that represents the file tab.
-            // We assume that file tabs are of type "document" and that their 'source' field is the file path.
-            const dummyTab: Tab = {
-              id: "", // not used in the search
-              type: "document",
-              title: data.name,
-              source: data.path,
-              directory: null,
-            };
-
-            // Use the helper to search for the tab in the "main" panel.
-            const tabToRemove = findTabInPanel(layout, "main", dummyTab);
-            if (!tabToRemove) {
-              // console.warn("No matching tab found for file:", data.path);
-            } else {
-              // Remove the tab using its real id.
-              const removed = removeTabFromPanel(layout, "main", tabToRemove.id);
-              if (removed) {
-                await saveState(appState);
+            if (layout) {
+              const dummyTab: Tab = {
+                id: "",
+                type: "document",
+                title: data.name,
+                source: data.path,
+                directory: null,
+              };
+              const tabToRemove = findTabInPanel(layout, "main", dummyTab);
+              if (tabToRemove) {
+                const removed = removeTabFromPanel(layout, "main", tabToRemove.id);
+                if (removed) await saveState(appState);
               }
             }
 
-            // Notify that the file was deleted.
-            senderWindow?.webContents.send("file:delete", data);
+            safeSend(senderWindow, "file:delete", data);
           },
         },
         {
@@ -199,10 +228,7 @@ export const createFileTreeContextMenu = (mainWindow: BrowserWindow) => {
 
             try {
               const result = await duplicateFile(originalPath, newName);
-              senderWindow?.webContents.send("file:duplicate", {
-                path: result.path,
-                name: result.name,
-              });
+              safeSend(senderWindow, "file:duplicate", { path: result.path, name: result.name });
             } catch (err: any) {
               dialog.showErrorBox("Error", `Failed to duplicate file:\n${err.message}`);
             }
@@ -229,63 +255,82 @@ export const createFileTreeContextMenu = (mainWindow: BrowserWindow) => {
             detail: `${data.length} items will be moved to trash.`,
           });
 
-          if (response === 1) {
-            const appState = getAppState(event);
-            const layout = appState.activeDirectory ? appState.directories[appState.activeDirectory]?.layout : appState.unsaved.layout;
+          if (response !== 1) return;
 
-            // Delete all items
-            for (const item of data) {
-              if (item.type === "folder") {
-                await fs.promises.rm(item.path, { recursive: true, force: true });
+          logger.info('filesystem', `Bulk delete: ${data.length} items`, { paths: data.map(i => i.path) });
+          safeSend(bulkSenderWindow, "file:delete-start");
 
-                // Close any open tabs whose source lives inside the deleted directory.
-                if (layout) {
-                  const dirPrefix = item.path.endsWith(path.sep) ? item.path : item.path + path.sep;
-                  let stateChanged = false;
-                  // Collect tabs to remove first (mutating while iterating is unsafe).
-                  const tabsToRemove: Array<{ panelId: string; tabId: string }> = [];
-                  const collectTabs = (el: any, panelId?: string) => {
-                    if (el.type === "panel") {
-                      for (const tab of el.tabs) {
-                        if (tab.source && (tab.source === item.path || tab.source.startsWith(dirPrefix))) {
-                          tabsToRemove.push({ panelId: el.id, tabId: tab.id });
-                        }
-                      }
-                    } else if (el.children) {
-                      for (const child of el.children) collectTabs(child);
-                    }
-                  };
-                  collectTabs(layout);
-                  for (const { panelId, tabId } of tabsToRemove) {
-                    if (removeTabFromPanel(layout, panelId, tabId)) stateChanged = true;
-                  }
-                  if (stateChanged) await saveState(appState);
-                }
+          const appState = getAppState(event);
+          const layout = appState.activeDirectory
+            ? appState.directories[appState.activeDirectory]?.layout
+            : appState.unsaved.layout;
 
-                bulkSenderWindow?.webContents.send("directory:delete", item);
-              } else {
+          // Delete items one at a time, yielding between each so the UI stays responsive.
+          for (const item of data) {
+            await yieldToEventLoop();
+
+            if (item.type === "folder") {
+              setDeleting(item.path, true);
+              try {
                 await shell.trashItem(item.path);
-
-                // Remove the open tab BEFORE notifying the UI so the refetch sees updated state.
-                if (layout) {
-                  const dummyTab: Tab = {
-                    id: "",
-                    type: "document",
-                    title: item.name,
-                    source: item.path,
-                    directory: null,
-                  };
-                  const tabToRemove = findTabInPanel(layout, "main", dummyTab);
-                  if (tabToRemove) {
-                    const removed = removeTabFromPanel(layout, "main", tabToRemove.id);
-                    if (removed) await saveState(appState);
-                  }
-                }
-
-                bulkSenderWindow?.webContents.send("file:delete", item);
+              } finally {
+                setDeleting(item.path, false);
               }
+              logger.info('filesystem', `Bulk: folder trashed: ${item.name}`, { path: item.path });
+
+              // Close any open tabs whose source lives inside the deleted directory.
+              if (layout) {
+                const dirPrefix = item.path.endsWith(path.sep) ? item.path : item.path + path.sep;
+                const tabsToRemove: Array<{ panelId: string; tabId: string }> = [];
+                const collectTabs = (el: any) => {
+                  if (el.type === "panel") {
+                    for (const tab of el.tabs) {
+                      if (tab.source && (tab.source === item.path || tab.source.startsWith(dirPrefix))) {
+                        tabsToRemove.push({ panelId: el.id, tabId: tab.id });
+                      }
+                    }
+                  } else if (el.children) {
+                    for (const child of el.children) collectTabs(child);
+                  }
+                };
+                collectTabs(layout);
+                let stateChanged = false;
+                for (const { panelId, tabId } of tabsToRemove) {
+                  if (removeTabFromPanel(layout, panelId, tabId)) stateChanged = true;
+                }
+                if (stateChanged) await saveState(appState);
+              }
+
+              safeSend(bulkSenderWindow, "directory:delete", item);
+            } else {
+              setDeleting(item.path, true);
+              try {
+                await shell.trashItem(item.path);
+              } finally {
+                setDeleting(item.path, false);
+              }
+              logger.info('filesystem', `Bulk: file trashed: ${item.name}`, { path: item.path });
+
+              if (layout) {
+                const dummyTab: Tab = {
+                  id: "",
+                  type: "document",
+                  title: item.name,
+                  source: item.path,
+                  directory: null,
+                };
+                const tabToRemove = findTabInPanel(layout, "main", dummyTab);
+                if (tabToRemove) {
+                  const removed = removeTabFromPanel(layout, "main", tabToRemove.id);
+                  if (removed) await saveState(appState);
+                }
+              }
+
+              safeSend(bulkSenderWindow, "file:delete", item);
             }
           }
+
+          logger.info('filesystem', `Bulk delete complete: ${data.length} items`);
         },
       },
     ];

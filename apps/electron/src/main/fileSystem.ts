@@ -1,6 +1,8 @@
 import { app, dialog, shell, BrowserWindow, ipcMain } from "electron";
 import path from "node:path";
 import fs from "node:fs";
+import { logger } from "./logger";
+import { setDeleting } from "./fileWatcher";
 import { TreeNode, FolderNode, FileTreeItem } from "../types";
 import { addTab } from "./tabs";
 import { aggregateGitStatus } from "./git";
@@ -194,10 +196,15 @@ export async function deleteFile(filePath: string) {
     detail: `The file "${path.basename(filePath)}" will be moved to trash.`,
   });
 
-  // If user confirms (clicks Delete)
   if (response === 1) {
-    // Unwatch the path first to release file handles on Windows
-    await shell.trashItem(filePath);
+    logger.info('filesystem', `Delete file: ${path.basename(filePath)}`, { path: filePath });
+    setDeleting(filePath, true);
+    try {
+      await shell.trashItem(filePath);
+    } finally {
+      setDeleting(filePath, false);
+    }
+    logger.info('filesystem', `File trashed: ${path.basename(filePath)}`, { path: filePath });
     return true;
   }
   return false;
@@ -270,9 +277,14 @@ export async function deleteDirectory(dirPath: string) {
   });
 
   if (response === 1) {
-    // Unwatch the path first to release file handles on Windows
-    // This prevents "permission denied" errors when file watcher is active
-    await fs.promises.rm(dirPath, { recursive: true, force: true });
+    logger.info('filesystem', `Delete folder: ${path.basename(dirPath)}`, { path: dirPath });
+    setDeleting(dirPath, true);
+    try {
+      await shell.trashItem(dirPath);
+    } finally {
+      setDeleting(dirPath, false);
+    }
+    logger.info('filesystem', `Folder trashed: ${path.basename(dirPath)}`, { path: dirPath });
     return true;
   }
   return false;

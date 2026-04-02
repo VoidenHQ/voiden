@@ -23,6 +23,22 @@ function isCloningActive(filePath: string): boolean {
   return false;
 }
 
+// Set of paths currently being deleted — watcher unlink events are suppressed
+// so the IPC channel isn't flooded when trashing a large directory tree.
+const deletingPaths = new Set<string>();
+
+export function setDeleting(dir: string, active: boolean) {
+  if (active) deletingPaths.add(dir);
+  else deletingPaths.delete(dir);
+}
+
+function isDeletingActive(filePath: string): boolean {
+  for (const dir of deletingPaths) {
+    if (filePath === dir || filePath.startsWith(dir + path.sep)) return true;
+  }
+  return false;
+}
+
 function debounce(func: (...args: any[]) => void, wait: number) {
   let timeout: NodeJS.Timeout | null = null;
   return (...args: any[]) => {
@@ -88,9 +104,8 @@ export async function updateFileWatcher(
   const phase2Paths = [
     path.join(activeProject, ".env.*"),
     path.join(activeProject, ".git", "refs", "**", "*"),
-    path.join(activeProject, "**", "*.void"),
-    // Root-level only (depth 0) for add/delete events on direct children
-    path.join(activeProject, "*"),
+    // Watch entire project tree so external file changes at any depth are picked up
+    activeProject,
   ];
 
   let emfileLogged = false;
@@ -98,8 +113,7 @@ export async function updateFileWatcher(
   const watcher = chokidar.watch(phase1Paths, {
     persistent: true,
     ignoreInitial: true,
-    // depth 0 — phase 1 paths are exact files, no recursion needed
-    depth: 0,
+    depth: 10,
     followSymlinks: false,
     usePolling: false,
     ignored: (filePath: string) => {
@@ -182,6 +196,7 @@ export async function updateFileWatcher(
       }
     })
     .on("unlink", (filePath: string) => {
+      if (isDeletingActive(filePath)) return;
       if (isGitRelated(filePath)) {
         emitGitChangedDebounced({ path: filePath });
       } else {
@@ -189,6 +204,7 @@ export async function updateFileWatcher(
       }
     })
     .on("unlinkDir", (dirPath: string) => {
+      if (isDeletingActive(dirPath)) return;
       if (isGitRelated(dirPath)) {
         emitGitChangedDebounced({ path: dirPath });
       } else {

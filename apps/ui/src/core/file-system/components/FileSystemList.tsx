@@ -47,6 +47,7 @@ import { useOpenProject, useCloseActiveProject } from "@/core/projects/hooks";
 import { useElectronEvent } from "@/core/providers";
 import { useFocusStore } from "@/core/stores/focusStore";
 import { useSearchStore } from "@/core/stores/searchStore";
+import { useBlockContentStore } from "@/core/stores/blockContentStore";
 import { Input } from "@/core/components/ui/input";
 import { useSetActiveProject } from "@/core/projects/hooks";
 import { toggle } from "fp-ts/lib/ReadonlySet";
@@ -824,6 +825,18 @@ function getParentPath(path: string): string {
   return path.slice(0, sep);
 }
 
+// Finds a node anywhere in the tree by its path.
+function findNodeByPath(nodes: ExtendedFileTree[], targetPath: string): ExtendedFileTree | undefined {
+  for (const node of nodes) {
+    if (node.path === targetPath) return node;
+    if (node.children) {
+      const found = findNodeByPath(node.children, targetPath);
+      if (found) return found;
+    }
+  }
+  return undefined;
+}
+
 function ensureFolderExpanded(folderNode: NodeApi<ExtendedFileTree> | undefined, path: string, expandedDirsRef: React.MutableRefObject<Set<string>>) {
   if (!folderNode) return;
   if (!folderNode.isOpen) {
@@ -845,9 +858,12 @@ export const FileSystemList = () => {
 
   const [showDeleteProgress, setShowDeleteProgress] = useState(false);
   const [isTreeBusy, setIsTreeBusy] = useState(false);
+  useElectronEvent("file:delete-start", () => {
+    setShowDeleteProgress(true);
+  });
   useElectronEvent<{ path: string }>("file:delete", (eventData) => {
     if (!eventData?.path) return;
-    setShowDeleteProgress(false);
+    // Surgically remove the node — loading stays on until the tree refetch completes
     setTreeData((prev) => removeNodeByPath(prev, eventData.path));
     queryClient.invalidateQueries({ queryKey: ["panel:tabs"] });
     queryClient.invalidateQueries({ queryKey: ["app:state"] });
@@ -855,13 +871,15 @@ export const FileSystemList = () => {
 
   useElectronEvent<{ path: string }>("directory:delete", (eventData) => {
     if (!eventData?.path) return;
-    setShowDeleteProgress(false);
+    // Surgically remove the node — loading stays on until the tree refetch completes
     setTreeData((prev) => removeNodeByPath(prev, eventData.path));
     expandedDirsRef.current.delete(eventData.path);
     queryClient.invalidateQueries({ queryKey: ["panel:tabs"] });
     queryClient.invalidateQueries({ queryKey: ["app:state"] });
   });
   useEffect(() => {
+    // Clear the delete progress bar only after the tree finishes refetching,
+    // so it stays visible while the server catches up on large projects.
     if (!isFetching) setShowDeleteProgress(false);
   }, [isFetching]);
 
@@ -921,13 +939,41 @@ export const FileSystemList = () => {
     try {
       const children = await (electronFiles as any).expandDir(dirPath);
       if (children) {
-        setTreeData((prev) => injectChildren(prev, dirPath, children as ExtendedFileTree[]));
+        setTreeData((prev) => {
+          // Preserve already-expanded siblings: if a new child folder is currently
+          // expanded, keep its existing children so it doesn't collapse.
+          const mergedChildren = (children as ExtendedFileTree[]).map((newChild) => {
+            if (newChild.type === "folder" && expandedDirsRef.current.has(newChild.path)) {
+              const existing = findNodeByPath(prev, newChild.path);
+              if (existing?.children) {
+                return { ...newChild, children: existing.children, lazy: false };
+              }
+            }
+            return newChild;
+          });
+          return injectChildren(prev, dirPath, mergedChildren);
+        });
         if (wasOpen) {
           expandedDirsRef.current.add(dirPath);
-          // Re-open the folder after the state update renders
-          setTimeout(() => treeRef.current?.get(dirPath)?.open(), 0);
+          // Re-open the folder and any previously-expanded siblings after render
+          setTimeout(() => {
+            treeRef.current?.get(dirPath)?.open();
+            // Re-open expanded siblings whose open state was reset by the tree update
+            for (const expandedPath of expandedDirsRef.current) {
+              if (expandedPath === dirPath) continue;
+              const node = treeRef.current?.get(expandedPath);
+              if (node && !node.isOpen) node.open();
+            }
+          }, 0);
         } else {
           expandedDirsRef.current.delete(dirPath);
+          // Still re-open any other expanded dirs that may have been reset
+          setTimeout(() => {
+            for (const expandedPath of expandedDirsRef.current) {
+              const node = treeRef.current?.get(expandedPath);
+              if (node && !node.isOpen) node.open();
+            }
+          }, 0);
         }
       }
     } catch (e) {
@@ -1475,6 +1521,9 @@ export const FileSystemList = () => {
 
   useEffect(() => {
     const off = window.electron?.files.onReferencesUpdated(async (updatedPaths: string[]) => {
+      // Clear linkedBlock cache so updated references are refetched
+      useBlockContentStore.getState().clearBlocks();
+      
       // Remove caches for block content and file existence checks
       queryClient.removeQueries({ queryKey: ["voiden-wrapper:blockContent"] });
       queryClient.removeQueries({ queryKey: ["file:exists"] });
@@ -1589,6 +1638,12 @@ export const FileSystemList = () => {
     queryClient.invalidateQueries({ queryKey: ["app:state"] });
     queryClient.invalidateQueries({ queryKey: ["panel:tabs"] });
     queryClient.invalidateQueries({ queryKey: ["git:branches"] });
+    queryClient.removeQueries({
+      predicate: (query) => {
+        const key = query.queryKey[0];
+        return typeof key === "string" && key.startsWith("git:");
+      },
+    });
     queryClient.invalidateQueries({ queryKey: ["environments"] });
   });
 

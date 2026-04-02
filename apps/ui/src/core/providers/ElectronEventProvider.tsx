@@ -72,6 +72,12 @@ export const ElectronEventProvider: React.FC<{ children: React.ReactNode }> = ({
         queryClient.invalidateQueries({ queryKey: ["env"] });
         handleEvent("file:duplicate", data);
       },
+      "git:clone:progress": (_event: any, data: any) => {
+        handleEvent("git:clone:progress", data);
+      },
+      "file:delete-start": (_event: any) => {
+        handleEvent("file:delete-start", {});
+      },
       "file:delete": (event: any, data: any) => {
         // Per-event: handle .env side-effect and emit immediately
         if (data.path.replace(/\\/g, "/").split("/").pop()?.startsWith(".env")) {
@@ -97,6 +103,11 @@ export const ElectronEventProvider: React.FC<{ children: React.ReactNode }> = ({
         handleEvent("directory:create", data);
       },
       "directory:close-project": (event: any, data: any) => {
+        queryClient.removeQueries({
+          predicate: (query) => typeof query.queryKey[0] === "string" && (query.queryKey[0] as string).startsWith("git:"),
+        });
+        queryClient.invalidateQueries({ queryKey: ["app:state"] });
+        queryClient.invalidateQueries({ queryKey: ["files:tree"] });
         handleEvent("directory:close-project", data);
       },
       "file:rename": (event: any, data: any) => {
@@ -117,7 +128,10 @@ export const ElectronEventProvider: React.FC<{ children: React.ReactNode }> = ({
         }, 400);
       },
       "folder:opened": (data: any) => {
-        // Invalidate queries related to projects or app state.
+        // Clear all git cache so the new project's git state is fetched fresh.
+        queryClient.removeQueries({
+          predicate: (query) => typeof query.queryKey[0] === "string" && (query.queryKey[0] as string).startsWith("git:"),
+        });
         queryClient.invalidateQueries({ queryKey: ["projects"] });
         queryClient.invalidateQueries({ queryKey: ["app:state"] });
         queryClient.invalidateQueries({ queryKey: ["panel:tabs"], exact: false });
@@ -158,8 +172,8 @@ export const ElectronEventProvider: React.FC<{ children: React.ReactNode }> = ({
         queryClient.invalidateQueries({ queryKey: ["voiden-wrapper:blockContent", data.path], exact: false });
         handleEvent("apy:changed", data);
       },
-      "directory:delete": (event: any) => {
-        handleEvent("directory:delete", event.data);
+      "directory:delete": (_event: any, data: any) => {
+        handleEvent("directory:delete", data);
         // Debounce — may arrive alongside many file:delete events for each child
         if (dirDeleteDebounceRef.current) clearTimeout(dirDeleteDebounceRef.current);
         dirDeleteDebounceRef.current = setTimeout(() => {

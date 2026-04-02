@@ -34,8 +34,12 @@ class EventBus extends EventEmitter {
     this.emit(channel, data);
     // Forward to all registered windows that aren't destroyed
     this.windows.forEach((win) => {
-      if (!win.isDestroyed()) {
-        win.webContents.send(channel, data);
+      try {
+        if (!win.isDestroyed() && !win.webContents.isDestroyed()) {
+          win.webContents.send(channel, data);
+        }
+      } catch {
+        // Renderer frame was disposed — ignore
       }
     });
   }

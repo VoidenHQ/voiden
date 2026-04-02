@@ -12,13 +12,23 @@ export const useGetProjects = () => {
   });
 };
 
+const clearGitQueries = (queryClient: ReturnType<typeof useQueryClient>) => {
+  queryClient.removeQueries({
+    predicate: (query) => typeof query.queryKey[0] === "string" && (query.queryKey[0] as string).startsWith("git:"),
+  });
+};
+
 export const useOpenProject = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (projectPath: string) => window.electron?.state.openProject(projectPath),
-    onSuccess:()=>{
-      queryClient.invalidateQueries({queryKey:['environments']})
-    }
+    onSuccess: () => {
+      clearGitQueries(queryClient);
+      queryClient.invalidateQueries({ queryKey: ["environments"] });
+      queryClient.invalidateQueries({ queryKey: ["app:state"] });
+      queryClient.invalidateQueries({ queryKey: ["files:tree"] });
+      queryClient.invalidateQueries({ queryKey: ["panel:tabs"] });
+    },
   });
 };
 
@@ -32,12 +42,12 @@ export const useSetActiveProject = () => {
   return useMutation({
     mutationFn: async (projectPath: string) => window.electron?.state.setActiveProject(projectPath),
     onSuccess: () => {
-      // Invalidate relevant queries
+      clearGitQueries(queryClient);
       queryClient.invalidateQueries({ queryKey: ["projects"] });
       queryClient.invalidateQueries({ queryKey: ["app:state"] });
       queryClient.invalidateQueries({ queryKey: ["panel:tabs"] });
       queryClient.invalidateQueries({ queryKey: ["files:tree"] });
-      queryClient.invalidateQueries({ queryKey: ["git:branches"] });
+      queryClient.invalidateQueries({ queryKey: ["environments"] });
     },
   });
 };
@@ -47,12 +57,12 @@ export const useCloseActiveProject = () => {
   return useMutation({
     mutationFn: async () => window.electron?.state.emptyActiveProject(),
     onSuccess: () => {
-      // Invalidate relevant queries
+      clearGitQueries(queryClient);
       queryClient.invalidateQueries({ queryKey: ["projects"] });
       queryClient.invalidateQueries({ queryKey: ["app:state"] });
       queryClient.invalidateQueries({ queryKey: ["panel:tabs"] });
       queryClient.invalidateQueries({ queryKey: ["files:tree"] });
-      queryClient.invalidateQueries({ queryKey: ["git:branches"] });
+      queryClient.invalidateQueries({ queryKey: ["environments"] });
     },
   });
 };
