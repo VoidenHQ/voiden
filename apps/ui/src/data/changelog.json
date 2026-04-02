@@ -1,5 +1,30 @@
 [
   {
+    "version": "v1.4.3-beta.1",
+    "date": "02/04/2026",
+    "title": "File Explorer & Git Polish",
+    "description": "Beta release improving file explorer performance with lazy loading for large projects, inline rename on duplicate, smarter file link and search loading, and a range of git and editor fixes.",
+    "icon": "FolderOpen",
+    "iconColor": "text-amber-400",
+    "bgColor": "bg-gradient-to-br from-amber-900 to-orange-900",
+    "changes": {
+      "Added": [
+        "Inline rename on duplicate — duplicating a file now immediately opens an inline rename input so you can name it in one step, without needing to right-click and rename separately",
+        "Developer settings — a new Developer section in settings with a toggle to show System Logs, giving you a real-time view of internal process timings to diagnose slow operations and share logs with the Voiden team for inspection"
+      ],
+      "Improved": [
+        "File explorer lazy loading to handle large projects without performance degradation",
+        "File link and search file now load results progressively at a threshold to avoid overwhelming and hanging Voiden on large codebases"
+      ],
+      "Fixed": [
+        "Comments inside JSON blocks now parse correctly",
+        "Renaming a file or block now triggers the update references dialog to keep all links in sync",
+        "Git clone now shows a progress indicator during the clone operation",
+        "Git panel no longer incorrectly refreshes on project change, window close, and similar events — it now reflects the correct repository state"
+      ]
+    }
+  },
+  {
     "version": "v1.4.2-beta.1",
     "date": "25/03/2026",
     "title": "Panel Layouts & Open With",
