@@ -352,6 +352,7 @@ const config: ForgeConfig = {
       build: [
         { entry: "src/main.ts", config: "vite.main.config.ts" },
         { entry: "src/preload.ts", config: "vite.preload.config.ts" },
+        { entry: "src/fileWatcher.worker.ts", config: "vite.watcher.config.ts" },
       ],
       renderer: [{ name: "main_window", config: "vite.renderer.config.ts" }],
     }),

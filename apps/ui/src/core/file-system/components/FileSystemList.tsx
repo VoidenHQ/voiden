@@ -727,7 +727,8 @@ function TreeNode({ node, style, dragHandle, activeFile, removeTemporaryNode, on
         <div className={`flex items-center ${node.data.type === "folder" ? "gap-1" : "gap-2"} w-full`}>
           {node.data.type === "folder" && (
             <div className="w-30 flex items-center">
-              <ChevronRight size={14} className={`transition-transform ${node.isOpen && node.children && node.children.length > 0 ? "rotate-90" : ""}`} />
+              {/* Chevron rotates whenever the folder is open, including empty folders */}
+              <ChevronRight size={14} className={`transition-transform ${node.isOpen ? "rotate-90" : ""}`} />
             </div>
           )}
           <div className="w-30">{node.data.type !== "folder" && getFileIcon(node.data.name, node.data.path)}</div>
@@ -752,6 +753,10 @@ function TreeNode({ node, style, dragHandle, activeFile, removeTemporaryNode, on
             >
               {node.data.name}
             </span>
+          )}
+          {/* Show "(empty)" hint when a non-lazy folder is open and has no children */}
+          {node.data.type === "folder" && node.isOpen && !node.data.lazy && (!node.children || node.children.length === 0) && (
+            <span className="ml-1 text-[10px] text-comment opacity-50 select-none shrink-0">(empty)</span>
           )}
         </div>
         {node.data.type === "folder" && (
@@ -1242,10 +1247,9 @@ export const FileSystemList = () => {
   // On the FIRST load we initialise treeData from the server response and then
   // re-expand any directories that were open before (e.g. after a project switch).
   //
-  // On SUBSEQUENT server refetches (triggered by delete events, etc.) we deliberately
-  // DO NOT reset treeData — expanded children are managed surgically via refreshDir
-  // and injectChildren.  Resetting here would collapse the whole tree every time a
-  // background query re-runs.
+  // On SUBSEQUENT server refetches (triggered by delete events, etc.) we merge in
+  // new root children while preserving expanded subtrees so open folders don't
+  // collapse.  This keeps the tree responsive without losing expansion state.
   useEffect(() => {
     if (!data) return;
 
@@ -1289,17 +1293,37 @@ export const FileSystemList = () => {
       return;
     }
 
-    // Subsequent refetches: only update root-level metadata (name, git status, etc.)
-    // on the root node itself without blowing away expanded children.
+    // Subsequent refetches: merge in new root children while preserving expanded
+    // subtrees so open folders don't collapse.
     setTreeData((prev) => {
       if (prev.length === 0) return [data as ExtendedFileTree];
-      // Merge new root metadata but keep the existing children subtree intact
+
+      const incoming = data as ExtendedFileTree;
+
+      const mergeChildren = (existingChildren: ExtendedFileTree[] | undefined, incomingChildren: ExtendedFileTree[]) => {
+        const existingByPath = new Map((existingChildren ?? []).map((child) => [child.path, child]));
+        return incomingChildren.map((child) => {
+          const existing = existingByPath.get(child.path);
+          if (!existing) return child;
+          if (child.type === "folder") {
+            const isExpanded =
+              expandedDirsRef.current.has(child.path) ||
+              Boolean(treeRef.current?.get(child.path)?.isOpen);
+            if (isExpanded && existing.children) {
+              return { ...child, children: existing.children, lazy: false };
+            }
+          }
+          return child;
+        });
+      };
+
       return prev.map((existingRoot) => {
-        const incoming = data as ExtendedFileTree;
-        if (existingRoot.path === incoming.path) {
-          return { ...incoming, children: existingRoot.children };
-        }
-        return existingRoot;
+        if (existingRoot.path !== incoming.path) return existingRoot;
+        const mergedChildren = mergeChildren(
+          existingRoot.children,
+          (incoming.children ?? []) as ExtendedFileTree[],
+        );
+        return { ...incoming, children: mergedChildren };
       });
     });
   }, [data]);
@@ -1328,6 +1352,19 @@ export const FileSystemList = () => {
     nodeToRename.edit();
     return true;
   }, []);
+
+  // External file/folder additions detected by the file watcher.
+  // `files:tree` invalidation alone doesn't work here because the subsequent-
+  // refetch handler keeps existing children and discards incoming data to
+  // preserve expanded state. refreshDir surgically updates the parent dir instead.
+  useElectronEvent<{ path: string }>("file:new", (eventData) => {
+    const newPath = eventData?.path;
+    if (!newPath) return;
+    const parentPath = getParentPath(newPath);
+    if (parentPath) {
+      refreshDir(parentPath);
+    }
+  });
 
   useElectronEvent<{ path: string }>("file:duplicate", (eventData) => {
     const path = eventData?.path;
