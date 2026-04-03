@@ -272,7 +272,7 @@ async function main() {
 
   // ─── Summary ───────────────────────────────────────────────────────────────
 
-  const baseUrl = `https://${bucket}.s3.${region}.amazonaws.com`;
+  const baseUrl = `https://voiden.md`;
 
   console.log(`\n✅ APT repository published to s3://${bucket}/apt/\n`);
   console.log('─── Install instructions ───────────────────────────────────\n');
