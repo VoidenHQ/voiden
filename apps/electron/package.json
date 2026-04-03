@@ -25,7 +25,7 @@
     "publish:apt": "node publish-apt.js",
     "publish:snap:beta": "node publish-snap.js beta",
     "publish:snap:stable": "node publish-snap.js stable",
-    "publish:snap": "node publish-snap.js",
+    "publish:snap": "node publish-snap.js"
   },
   "installConfig": {
     "hoistingLimits": "workspaces"
