@@ -22,7 +22,10 @@
     "version:bump:stable-major": "node version-bump.js stable major",
     "publish:apt:beta": "node publish-apt.js beta",
     "publish:apt:stable": "node publish-apt.js stable",
-    "publish:apt": "node publish-apt.js"
+    "publish:apt": "node publish-apt.js",
+    "publish:snap:beta": "node publish-snap.js beta",
+    "publish:snap:stable": "node publish-snap.js stable",
+    "publish:snap": "node publish-snap.js",
   },
   "installConfig": {
     "hoistingLimits": "workspaces"

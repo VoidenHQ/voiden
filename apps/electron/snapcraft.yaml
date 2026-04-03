@@ -1,0 +1,52 @@
+name: voiden
+title: Voiden
+version: "1.4.3-beta.1"
+summary: Build, Test, Document & Collaborate
+description: |
+  Voiden is a file-based API client for building, testing, documenting
+  and collaborating on APIs. Supports REST, GraphQL, WebSocket and gRPC.
+
+grade: stable        # use 'devel' for beta builds
+confinement: strict
+base: core22
+icon: src/images/icon.png
+
+parts:
+  voiden:
+    plugin: dump
+    source: .
+    source-type: local
+    # electron-forge produces the deb — dump its contents into the snap
+    override-build: |
+      DEB=$(ls out/make/deb/x64/*.deb | head -1)
+      dpkg -x "$DEB" $SNAPCRAFT_PART_INSTALL
+    stage-packages:
+      - libgtk-3-0
+      - libnotify4
+      - libnss3
+      - libxss1
+      - libxtst6
+      - xdg-utils
+      - libatspi2.0-0
+      - libuuid1
+      - libsecret-1-0
+
+apps:
+  voiden:
+    command: usr/lib/voiden/Voiden
+    desktop: usr/share/applications/voiden.desktop
+    environment:
+      TMPDIR: $XDG_RUNTIME_DIR
+    plugs:
+      - home
+      - network
+      - network-bind
+      - opengl
+      - pulseaudio
+      - removable-media
+      - desktop
+      - desktop-legacy
+      - wayland
+      - x11
+      - browser-support
+      - password-manager-service
