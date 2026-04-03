@@ -6,7 +6,7 @@ description: |
   Voiden is a file-based API client for building, testing, documenting
   and collaborating on APIs. Supports REST, GraphQL, WebSocket and gRPC.
 
-grade: stable        # use 'devel' for beta builds
+grade: stable
 confinement: strict
 base: core22
 icon: src/images/icon.png
@@ -20,6 +20,9 @@ parts:
     override-build: |
       DEB=$(ls out/make/deb/x64/*.deb | head -1)
       dpkg -x "$DEB" $SNAPCRAFT_PART_INSTALL
+      # Remove chrome-sandbox — it has setuid (4755) which snapcraft rejects in strict
+      # confinement. Snaps use AppArmor for sandboxing so this binary is not needed.
+      rm -f $SNAPCRAFT_PART_INSTALL/usr/lib/voiden/chrome-sandbox
     stage-packages:
       - libgtk-3-0
       - libnotify4
@@ -33,7 +36,7 @@ parts:
 
 apps:
   voiden:
-    command: usr/lib/voiden/Voiden
+    command: usr/lib/voiden/Voiden --no-sandbox
     desktop: usr/share/applications/voiden.desktop
     environment:
       TMPDIR: $XDG_RUNTIME_DIR

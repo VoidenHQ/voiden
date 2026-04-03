@@ -20,7 +20,7 @@
 
 const fs   = require('fs');
 const path = require('path');
-const { execSync, spawnSync } = require('child_process');
+const { spawnSync } = require('child_process');
 
 require('dotenv').config({ path: path.join(__dirname, '../../.env') });
 
@@ -83,7 +83,7 @@ console.log(`   .deb : ${path.basename(debPath)}\n`);
 const snapcraftYamlPath = path.join(__dirname, 'snapcraft.yaml');
 let snapcraftYaml = fs.readFileSync(snapcraftYamlPath, 'utf-8');
 snapcraftYaml = snapcraftYaml.replace(/^version:.*$/m, `version: "${version}"`);
-snapcraftYaml = snapcraftYaml.replace(/^grade:.*$/m, `grade: ${channel === 'beta' ? 'devel' : 'stable'}`);
+snapcraftYaml = snapcraftYaml.replace(/^grade:.*$/m, `grade: stable`);
 fs.writeFileSync(snapcraftYamlPath, snapcraftYaml);
 console.log(`   ✓ Stamped version ${version} into snapcraft.yaml`);
 
@@ -116,16 +116,23 @@ console.log(`\n📤 Uploading to Snap Store (channel: ${snapChannel})...\n`);
 
 const uploadResult = spawnSync('snapcraft', [
   'upload',
-  '--release', snapChannel,
   path.join(__dirname, snapFile),
+  '--release', snapChannel,
 ], {
-  cwd:   __dirname,
-  stdio: 'inherit',
+  cwd:    __dirname,
+  stdio:  ['inherit', 'pipe', 'pipe'],
+  encoding: 'utf-8',
 });
 
+const uploadStdout = uploadResult.stdout || '';
+const uploadStderr = uploadResult.stderr || '';
+
+// Print output regardless so user sees what snapcraft said
+if (uploadStdout) process.stdout.write(uploadStdout);
+if (uploadStderr) process.stderr.write(uploadStderr);
+
 if (uploadResult.status !== 0) {
-  console.error('\n❌ Snap Store upload failed.');
-  console.error('   Make sure you are logged in: snapcraft login');
+  console.error('\n❌ Snap Store upload failed. Snapcraft output above shows the actual reason.');
   process.exit(1);
 }
 
