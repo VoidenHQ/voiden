@@ -203,6 +203,8 @@ if (!process.env.S3_ACCESS_KEY_ID || !process.env.S3_SECRET_ACCESS_KEY) {
   process.exit(1);
 }
 
+// suppress the aws-sdk v2 migration warning
+process.env.AWS_SDK_JS_SUPPRESS_MAINTENANCE_MODE_MESSAGE = '1';
 const AWS = require('aws-sdk');
 
 const s3 = new AWS.S3({
@@ -211,6 +213,7 @@ const s3 = new AWS.S3({
   region,
 });
 
+// Small files — single putObject, just tick when done
 async function upload(key, body, contentType) {
   const fullKey = `apt/${key}`;
   await s3.putObject({
@@ -223,11 +226,37 @@ async function upload(key, body, contentType) {
   console.log(`   ✓ ${fullKey}`);
 }
 
+// Large files — upload from local file with progress bar
+async function uploadDebWithProgress(key, filePath, contentType) {
+  const fullKey    = `apt/${key}`;
+  const totalBytes = fs.statSync(filePath).size;
+  const totalMB    = (totalBytes / 1024 / 1024).toFixed(1);
+
+  const managed = s3.upload({
+    Bucket:      bucket,
+    Key:         fullKey,
+    Body:        fs.createReadStream(filePath),
+    ContentType: contentType,
+    ACL:         'public-read',
+  });
+
+  managed.on('httpUploadProgress', ({ loaded }) => {
+    const loadedMB = (loaded / 1024 / 1024).toFixed(1);
+    const pct    = Math.min(100, Math.round((loaded / totalBytes) * 100));
+    const filled = Math.floor(pct / 5);
+    const bar    = '█'.repeat(filled) + '░'.repeat(20 - filled);
+    process.stdout.write(`\r   [${bar}] ${pct}%  ${loadedMB} / ${totalMB} MB  `);
+  });
+
+  await managed.promise();
+  process.stdout.write(`\r   ✓ ${fullKey} (${totalMB} MB)${' '.repeat(20)}\n`);
+}
+
 async function main() {
   console.log('📤 Uploading to S3...\n');
 
-  // 1. .deb binary in pool
-  await upload(poolPath, fs.readFileSync(debPath), 'application/vnd.debian.binary-package');
+  // 1. .deb binary in pool — copy from forge's existing upload, or upload fresh
+  await uploadDebWithProgress(poolPath, debPath, 'application/vnd.debian.binary-package');
 
   // 2. Packages index
   await upload(`dists/${suite}/${binaryDir}/Packages`,    packagesBuf,   'text/plain');
