@@ -24,9 +24,11 @@ import {
   Search,
   Copy,
   ExternalLink,
+  Download,
 } from 'lucide-react';
 import { stitchStore } from '../lib/stitchStore';
 import type { StitchRunState, StitchFileResult, StitchSectionResult } from '../lib/types';
+import { exportStitchToExcel } from '../lib/exportExcel';
 
 /** Generate a simple cURL command from request info. */
 function toCurl(req: NonNullable<StitchSectionResult['requestInfo']>): string {
@@ -513,6 +515,16 @@ export const StitchResultsSidebar = ({ sourceFilePath }: { sourceFilePath?: stri
               >
                 {allExpanded ? <ChevronsDownUp size={14} /> : <ChevronsUpDown size={14} />}
               </button>
+              {isDone && (
+                <button
+                  onClick={() => exportStitchToExcel(run)}
+                  className="p-1.5 text-comment hover:text-text transition-colors rounded"
+                  title="Export to Excel"
+                  style={{ cursor: 'pointer' }}
+                >
+                  <Download size={14} />
+                </button>
+              )}
               <button
                 onClick={() => stitchStore.clear()}
                 className="p-1.5 text-comment hover:text-text transition-colors rounded"

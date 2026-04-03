@@ -1,7 +1,7 @@
 {
   "id": "voiden-stitch",
   "name": "Voiden Stitch",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Batch-run multiple .void files as a stitch with aggregated assertion results, variable isolation, and sequential execution",
   "author": "Voiden Team",
   "enabled": true,
@@ -37,6 +37,7 @@
     "Per-file pass/fail with assertion counts and timing",
     "Stop-on-failure option",
     "Configurable delay between files",
-    "Abort/cancel support"
+    "Abort/cancel support",
+    "Export results to styled Excel report with per-file sheets, assertion breakdowns, and pass/fail percentages"
   ]
 }

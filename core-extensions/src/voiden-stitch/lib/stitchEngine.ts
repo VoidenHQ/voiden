@@ -246,8 +246,8 @@ export async function runStitch(
               sectionResult = {
                 sectionIndex: sectionIdx,
                 sectionLabel: response?.__sectionLabel || null,
-                status: response?.status || null,
-                statusText: response?.statusText || null,
+                status: response?.status ?? response?.statusCode ?? response?.httpStatus ?? null,
+                statusText: response?.statusText ?? response?.httpStatusText ?? null,
                 duration: Date.now() - sectionStart,
                 error: response?.error || null,
                 assertions: assertionResults,
