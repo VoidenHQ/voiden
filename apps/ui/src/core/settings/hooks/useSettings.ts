@@ -17,6 +17,8 @@ const UI_FONT_SIZE_MIN = 10;
 const UI_FONT_SIZE_MAX = 16;
 const AUTO_SAVE_DELAY_MIN = 0;
 const AUTO_SAVE_DELAY_MAX = 1800;
+const CODE_BLOCK_MAX_LINES_MIN = 10;
+const CODE_BLOCK_MAX_LINES_MAX = 500;
 const DEFAULT_PROJECT_DIRECTORY = "Voiden";
 const CONTENT_WIDTH_MIN = 600;
 const CONTENT_WIDTH_MAX = 1400;
@@ -72,6 +74,16 @@ function validateSettings(settings: UserSettings): UserSettings {
       validated.editor.auto_save_delay > AUTO_SAVE_DELAY_MAX) {
       validated.editor.auto_save_delay = 5; // Default fallback
     }
+  }
+
+  // Validate code block max lines (0 = unlimited)
+  if (
+    typeof validated.editor.code_block_max_lines !== 'number' ||
+    (validated.editor.code_block_max_lines !== 0 &&
+      (validated.editor.code_block_max_lines < CODE_BLOCK_MAX_LINES_MIN ||
+        validated.editor.code_block_max_lines > CODE_BLOCK_MAX_LINES_MAX))
+  ) {
+    validated.editor.code_block_max_lines = 50;
   }
 
   // Validate request timeout
@@ -260,6 +272,7 @@ export type UserSettings = {
   editor: {
     auto_save: boolean;
     auto_save_delay: number; // seconds
+    code_block_max_lines: number; // 0 = unlimited
   };
   requests: {
     disable_tls_verification: boolean;

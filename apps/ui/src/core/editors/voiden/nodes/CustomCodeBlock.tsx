@@ -3,12 +3,22 @@ import CodeBlock from "@tiptap/extension-code-block";
 import { NodeViewWrapper, ReactNodeViewRenderer } from "@tiptap/react";
 import { CodeEditor } from "@/core/editors/code/lib/components/CodeEditor";
 import { RequestBlockHeader } from "@/core/editors/voiden/nodes/RequestBlockHeader";
+import { useSettings } from "@/core/settings/hooks";
+
+// CodeMirror default line height in pixels (font-size 14px × 1.5)
+const CM_LINE_HEIGHT_PX = 21;
 
 const CodeBlockView = (props: NodeViewProps) => {
   const { node, updateAttributes, editor } = props;
   const body = node.attrs.body || "";
   const language = node.attrs.language || "plaintext";
   const isEditable = editor.isEditable;
+  const { settings } = useSettings();
+
+  const maxLines = settings?.editor?.code_block_max_lines ?? 50;
+  const maxHeightStyle = maxLines === 0
+    ? undefined
+    : { maxHeight: `${maxLines * CM_LINE_HEIGHT_PX}px`, overflowY: 'auto' as const };
 
   return (
     <NodeViewWrapper className="code-block-wrapper not-prose my-2">
@@ -52,7 +62,7 @@ const CodeBlockView = (props: NodeViewProps) => {
         </div>
 
         {/* Code editor */}
-        <div contentEditable={false} style={{ height: 'auto' }}>
+        <div contentEditable={false} style={{ height: 'auto', ...maxHeightStyle }}>
           <CodeEditor
             lang={language}
             readOnly={!isEditable}

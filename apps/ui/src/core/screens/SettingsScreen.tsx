@@ -999,6 +999,28 @@ export const SettingsScreen = () => {
                   }
                 />
               )}
+              {matchesSearch("Code block max lines Maximum height code block expand collapse") && (
+                <Row
+                  title="Code block max lines"
+                  description="Maximum number of lines a code block expands to before scrolling. Set to Unlimited to always expand fully."
+                  border={false}
+                  control={
+                    <Select
+                      value={settings.editor.code_block_max_lines ?? 50}
+                      onChange={(e) => {
+                        save({ editor: { code_block_max_lines: Number(e.target.value) } });
+                      }}
+                    >
+                      <option value={25}>25 lines</option>
+                      <option value={50}>50 lines (default)</option>
+                      <option value={100}>100 lines</option>
+                      <option value={200}>200 lines</option>
+                      <option value={500}>500 lines</option>
+                      <option value={0}>Unlimited</option>
+                    </Select>
+                  }
+                />
+              )}
             </Card>
           </section>
 
