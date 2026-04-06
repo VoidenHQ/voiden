@@ -38,6 +38,10 @@ export const Terminal = ({ tabId, cwd }: TerminalProps) => {
   // Get font size from settings, fallback to 14
   const fontSize = settings?.appearance?.font_size || 14;
 
+  // Derive effective font family: prefer Nerd Font when active, otherwise use the app's chosen font
+  const appFontFamily = settings?.appearance?.font_family || 'Inconsolata';
+  const effectiveFontFamily = fontFamily || `'${appFontFamily}', monospace`;
+
   // Helper to fit terminal and sync dimensions with PTY
   const fitTerminal = () => {
     if (!fitAddonRef.current || !xtermRef.current || !sessionIdRef.current) return;
@@ -111,14 +115,14 @@ export const Terminal = ({ tabId, cwd }: TerminalProps) => {
     }
   }, [fontSize]);
 
-  // Update terminal font family when Nerd Font is loaded or unloaded
+  // Update terminal font family when Nerd Font or app font setting changes
   useEffect(() => {
     if (xtermRef.current) {
-      xtermRef.current.options.fontFamily = fontFamily || "'Geist Mono', 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'SF Mono', 'Monaco', 'Menlo', 'Consolas', monospace";
+      xtermRef.current.options.fontFamily = effectiveFontFamily;
       // Debounced fit to prevent excessive re-renders
       debouncedFit();
     }
-  }, [fontFamily]);
+  }, [effectiveFontFamily]);
 
   // Update terminal colors when theme changes
   // Use a ref to track the last theme name to avoid unnecessary updates
@@ -218,7 +222,7 @@ export const Terminal = ({ tabId, cwd }: TerminalProps) => {
         brightWhite: getCssVar("--ansi-bright-white"),
       },
       fontSize: fontSize,
-      fontFamily: fontFamily || "'Geist Mono', 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'SF Mono', 'Monaco', 'Menlo', 'Consolas', monospace",
+      fontFamily: effectiveFontFamily,
       fontWeight: "400",
       fontWeightBold: "600",
       lineHeight: 1.3,

@@ -14,4 +14,13 @@ declare module "@voiden/sdk/ui" {
       setHeight: (h: number) => void;
     };
   }
+
+  interface UIComponents {
+    Tip: React.ComponentType<{
+      children: React.ReactNode;
+      label: React.ReactNode;
+      side?: "top" | "bottom";
+      align?: "start" | "center" | "end";
+    }>;
+  }
 }

@@ -2,7 +2,7 @@
   "id": "voiden-rest-api",
   "name": "Voiden REST API",
   "description": "HTTP/REST API testing toolkit with extensible request pipeline, custom blocks for headers/body, environment variables, response visualization, and support for all HTTP methods including multipart file uploads",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "author": "Voiden Team",
   "enabled": true,
   "priority": 10,

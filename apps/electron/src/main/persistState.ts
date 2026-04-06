@@ -147,8 +147,8 @@ export async function loadState(skipDefault?: boolean): Promise<AppState> {
 }
 
 // Save state to file.
-export async function saveState(state: AppState): Promise<void> {
-  const STATE_FILE = windowManager.getStateFilePath();
+export async function saveState(state: AppState, windowId?: string): Promise<void> {
+  const STATE_FILE = windowManager.getStateFilePath(windowId);
   await fs.writeFile(STATE_FILE, JSON.stringify({ ...state }, null, 2), "utf8");
 }
 

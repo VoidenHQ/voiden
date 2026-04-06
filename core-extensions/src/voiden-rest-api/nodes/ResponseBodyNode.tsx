@@ -11,7 +11,16 @@
 import * as React from "react";
 import { Node } from "@tiptap/core";
 import { ReactNodeViewRenderer } from "@tiptap/react";
-import { Copy, Download, Eye, FileDown, FileText, WrapText } from "lucide-react";
+import { AlertCircle, ChevronDown, Copy, Download, Eye, FileDown, FileText, WrapText } from "lucide-react";
+
+// Truncate response body display at this character count to prevent UI freeze
+const TRUNCATE_THRESHOLD = 500 * 1024; // 500 KB
+
+function formatBodySize(chars: number): string {
+  if (chars < 1024) return `${chars} B`;
+  if (chars < 1024 * 1024) return `${(chars / 1024).toFixed(1)} KB`;
+  return `${(chars / 1024 / 1024).toFixed(2)} MB`;
+}
 
 
 export interface ResponseBodyAttrs {
@@ -62,15 +71,53 @@ export const createResponseBodyNode = (
   NodeViewWrapper: any,
   CodeEditor: any,
   useParentResponseDoc: (editor: any, getPos: () => number) => { openNodes: string[]; parentPos: number | null },
-  useResponseBodyHeight: () => { height: number | null; setHeight: (h: number) => void }
+  useResponseBodyHeight: () => { height: number | null; setHeight: (h: number) => void },
+  Tip: any
 ) => {
   const ResponseBodyComponent = ({ node, getPos, editor }: any) => {
     const { body, contentType, downloadFilename } = node.attrs as ResponseBodyAttrs;
     const [viewMode, setViewMode] = React.useState<ViewMode>("preview");
     const [isPrettified, setIsPrettified] = React.useState(false);
 
+    // Content-type detection — derived from contentType only, safe to compute before hooks
+    const ct = (contentType || "").toLowerCase();
+    const isImage = ct.startsWith("image/");
+    const isVideo = ct.startsWith("video/");
+    const isAudio = ct.startsWith("audio/");
+    const isPdf = ct === "application/pdf";
+    const isJson = ct.includes("json");
+    const isXml = ct.includes("xml");
+    const isHtml = ct.includes("html");
+    const isText = ct.startsWith("text/");
+    const isBinary = ct === "application/octet-stream" || (!isImage && !isVideo && !isAudio && !isPdf && !isJson && !isXml && !isHtml && !isText && ct.startsWith("application/"));
+    const hasPreview = isImage || isVideo || isAudio || isPdf || isHtml;
+
     // Persisted height from the response store (per-tab)
     const { height: persistedHeight, setHeight: persistHeight } = useResponseBodyHeight();
+
+    // Memoize body serialization — JSON.stringify on large objects is expensive
+    const { serializedBody, totalBodySize } = React.useMemo(() => {
+      if (!body || isImage || isVideo || isAudio || isPdf) {
+        return { serializedBody: null, totalBodySize: 0 };
+      }
+      if (typeof body === "object" && body.type === "Buffer" && Array.isArray(body.data)) {
+        return { serializedBody: null, totalBodySize: body.data.length };
+      }
+      let text: string;
+      if (isJson) {
+        text = typeof body === "string" ? body : JSON.stringify(body, null, 2);
+      } else if (isXml || isHtml || isText) {
+        text = typeof body === "string" ? body : String(body);
+      } else if (typeof body === "object") {
+        text = JSON.stringify(body, null, 2);
+      } else {
+        text = String(body);
+      }
+      return { serializedBody: text, totalBodySize: text.length };
+    }, [body, isJson, isXml, isHtml, isText, isImage, isVideo, isAudio, isPdf]);
+
+    const [showFullContent, setShowFullContent] = React.useState(false);
+    const isTruncated = !showFullContent && totalBodySize > TRUNCATE_THRESHOLD;
 
     // Resize state for the response body code editor (must be at top level)
     const defaultHeight = Math.min(window.innerHeight * 0.6, 500);
@@ -104,22 +151,6 @@ export const createResponseBodyNode = (
         </NodeViewWrapper>
       );
     }
-
-    const ct = (contentType || "").toLowerCase();
-
-    // Detect content type category
-    const isImage = ct.startsWith("image/");
-    const isVideo = ct.startsWith("video/");
-    const isAudio = ct.startsWith("audio/");
-    const isPdf = ct === "application/pdf";
-    const isJson = ct.includes("json");
-    const isXml = ct.includes("xml");
-    const isHtml = ct.includes("html");
-    const isText = ct.startsWith("text/");
-    const isBinary = ct === "application/octet-stream" || (!isImage && !isVideo && !isAudio && !isPdf && !isJson && !isXml && !isHtml && !isText && ct.startsWith("application/"));
-
-    // Can show preview?
-    const hasPreview = isImage || isVideo || isAudio || isPdf || isHtml;
 
     // Download handler
     const handleDownload = () => {
@@ -418,25 +449,8 @@ export const createResponseBodyNode = (
         );
       }
 
-      let lang = "text";
-      let displayValue = body;
-
-      if (isJson) {
-        lang = "json";
-        displayValue = typeof body === "string" ? body : JSON.stringify(body, null, 2);
-      } else if (isXml) {
-        lang = "xml";
-        displayValue = typeof body === "string" ? body : String(body);
-      } else if (isHtml) {
-        lang = "html";
-        const rawHtml = typeof body === "string" ? body : String(body);
-        displayValue = isPrettified ? prettifyHtml(rawHtml) : rawHtml;
-
-      } else if (isText) {
-        lang = "text";
-        displayValue = String(body);
-      } else if (typeof body === "object" && body.type === "Buffer" && Array.isArray(body.data)) {
-        // Binary buffer - show hex representation or message
+      // Binary buffer — show download prompt
+      if (typeof body === "object" && body.type === "Buffer" && Array.isArray(body.data)) {
         return (
           <div className="p-8 text-center bg-bg">
             <div className="text-comment mb-4">
@@ -454,13 +468,22 @@ export const createResponseBodyNode = (
             </button>
           </div>
         );
-      } else if (typeof body === "object") {
-        lang = "json";
-        displayValue = JSON.stringify(body, null, 2);
-      } else {
-        displayValue = String(body);
       }
 
+      let lang = "text";
+      if (isJson || (!isXml && !isHtml && !isText && typeof body === "object")) lang = "json";
+      else if (isXml) lang = "xml";
+      else if (isHtml) lang = "html";
+
+      // Use memoized serialized body; apply prettify for HTML if toggled
+      let displayValue = serializedBody ?? String(body);
+      if (isHtml && isPrettified) {
+        displayValue = prettifyHtml(displayValue);
+      }
+
+      // Truncate very large content — CodeMirror can handle big docs but the initial
+      // parse + syntax highlight of multi-MB content still stalls the main thread.
+      const displayedValue = isTruncated ? displayValue.slice(0, TRUNCATE_THRESHOLD) : displayValue;
 
       const handleResizeStart = (e: React.MouseEvent) => {
         e.preventDefault();
@@ -512,11 +535,22 @@ export const createResponseBodyNode = (
               background: var(--bg) !important;
             }
           `}</style>
+          {isTruncated && (
+            <div className="flex justify-end">
+              <button
+                onClick={(e) => { e.stopPropagation(); setShowFullContent(true); }}
+                className="flex items-center shrink-0 whitespace-nowrap cursor-pointer px-4 py-2  text-accent"
+              >
+                Show full response
+                <ChevronDown size={14} className="ml-1" />
+              </button>
+            </div>
+          )}
           <div className="response-body-editor">
             <CodeEditor
               readOnly
               lang={lang}
-              value={displayValue}
+              value={displayedValue}
               showReplace={false}
             />
           </div>
@@ -603,10 +637,30 @@ export const createResponseBodyNode = (
                 />
               </svg>
               <span className="text-sm font-semibold" style={{ pointerEvents: 'none' }}>Response Body</span>
-
+              {totalBodySize > 0 && (
+                <span
+                  className="text-xs text-comment font-mono"
+                  style={{ pointerEvents: 'none', opacity: 0.7 }}
+                >
+                  {formatBodySize(totalBodySize)}
+                </span>
+              )}
             </div>
 
             <div className="flex items-center gap-1" style={{ userSelect: 'none' }}>
+              {/* Size indicator — always visible when body has content */}
+              {totalBodySize > 0 && Tip && (
+                <Tip
+                  label={isTruncated ? "Size is too big — showing partial content" : `Response size: ${formatBodySize(totalBodySize)}`}
+                  side="top"
+                  align="end"
+                >
+                  <span className={`flex items-center cursor-default px-1 ${isTruncated ? "text-accent" : "text-comment opacity-60"}`}>
+                    <AlertCircle size={13} />
+                  </span>
+                </Tip>
+              )}
+
               {/* Tab buttons */}
               {!isCollapsed && hasPreview && !isBinary && (
                 <>

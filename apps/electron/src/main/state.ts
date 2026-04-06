@@ -1384,8 +1384,10 @@ export const ipcStateHandlers = () => {
     return { success: true, updatedExtension };
   });
 
-  ipcMain.handle("terminal:new", async (_, panelId: string) => {
-    const appState = getAppState();
+  ipcMain.handle("terminal:new", async (event, panelId: string) => {
+    const win = BrowserWindow.fromWebContents(event.sender) as any;
+    const windowId = win?.windowInfo?.id as string | undefined;
+    const appState = getAppState(event);
     const layout = appState.activeDirectory
       ? appState.directories[appState.activeDirectory]?.layout
       : appState.unsaved.layout;
@@ -1409,7 +1411,7 @@ export const ipcStateHandlers = () => {
 
     addTabToPanel(layout, panelId, newTab);
     activateTabInLayout(layout, panelId, newTab.id);
-    await saveState(appState);
+    await saveState(appState, windowId);
 
     // Return the cwd along with the new tab id so the renderer can pass it to "terminal:attachOrCreate"
     return { panelId, tabId: newTab.id, cwd: defaultCwd };

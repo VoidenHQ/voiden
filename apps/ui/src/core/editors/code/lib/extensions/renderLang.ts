@@ -6,14 +6,14 @@ import { jsonc } from "@shopify/lang-jsonc";
 import { langs } from "@uiw/codemirror-extensions-langs";
 import { EditorView } from "codemirror";
 
-export const renderLang = (lang: string) => {
+export const renderLang = (lang: string, skipLint = false) => {
   switch (lang) {
     case "javascript":
       return [javascript()];
     case "json":
     case "jsonc":
       // Using jsonc parser - template expressions will be handled by variable highlighting
-      return [jsonc(), linter(jsonCLinter)];
+      return skipLint ? [jsonc()] : [jsonc(), linter(jsonCLinter)];
     case "xml":
       return [langs.xml()];
     case "html":

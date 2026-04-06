@@ -157,7 +157,7 @@ const voidenRestApiPlugin = (context: PluginContext) => {
       const { createRestFileNode } = await import('./nodes/RestFile');
 
       // Create nodes with context components and hooks
-      const { NodeViewWrapper, CodeEditor, RequestBlockHeader } = context.ui.components;
+      const { NodeViewWrapper, CodeEditor, RequestBlockHeader, Tip } = context.ui.components;
       const { useSendRestRequest, useParentResponseDoc, useResponseBodyHeight } = context.ui.hooks;
 
       const JsonNode = createJsonNode(NodeViewWrapper, CodeEditor, RequestBlockHeader, context.project.openFile);
@@ -196,7 +196,7 @@ const voidenRestApiPlugin = (context: PluginContext) => {
       const ResponseStatusNode = createResponseStatusNode(NodeViewWrapper);
       const ResponseHeadersNode = createResponseHeadersNode(NodeViewWrapper, CodeEditor, useParentResponseDoc);
       const RequestHeadersNode = createRequestHeadersNode(NodeViewWrapper, CodeEditor, useParentResponseDoc);
-      const ResponseBodyNode = createResponseBodyNode(NodeViewWrapper, CodeEditor, useParentResponseDoc, useResponseBodyHeight);
+      const ResponseBodyNode = createResponseBodyNode(NodeViewWrapper, CodeEditor, useParentResponseDoc, useResponseBodyHeight, Tip);
       const ResponseDocNode = createResponseDocNode(NodeViewWrapper);
       context.registerVoidenExtension(ResponseStatusNode);
       context.registerVoidenExtension(ResponseHeadersNode);
