@@ -168,8 +168,12 @@ const PassRateArc = ({ passed, failed, total, size = 36 }: { passed: number; fai
 };
 
 /** Collapsible section row for a single request within a file. */
-const SectionRow = ({ section }: { section: StitchSectionResult }) => {
-  const [expanded, setExpanded] = useState(false);
+const SectionRow = ({ section, defaultExpanded }: { section: StitchSectionResult; defaultExpanded?: boolean }) => {
+  const [expanded, setExpanded] = useState(defaultExpanded ?? false);
+
+  useEffect(() => {
+    setExpanded(defaultExpanded ?? false);
+  }, [defaultExpanded]);
   const [showReqBody, setShowReqBody] = useState(false);
   const [showBody, setShowBody] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -361,6 +365,10 @@ const SectionRow = ({ section }: { section: StitchSectionResult }) => {
 const FileRow = ({ file, defaultExpanded, onOpenFile }: { file: StitchFileResult; defaultExpanded?: boolean; onOpenFile?: (path: string) => void }) => {
   const [expanded, setExpanded] = useState(defaultExpanded ?? false);
   const hasDetails = file.sections.length > 0 || !!file.error;
+
+  useEffect(() => {
+    setExpanded(defaultExpanded ?? false);
+  }, [defaultExpanded]);
   const isRunning = file.status === 'running';
 
   return (
@@ -413,7 +421,7 @@ const FileRow = ({ file, defaultExpanded, onOpenFile }: { file: StitchFileResult
             <div className="px-4 py-2 text-[11px] text-red-400 font-mono break-all bg-editor">{file.error}</div>
           )}
           {file.sections.map((section, i) => (
-            <SectionRow key={i} section={section} />
+            <SectionRow key={i} section={section} defaultExpanded={defaultExpanded} />
           ))}
         </div>
       )}
