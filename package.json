@@ -44,8 +44,7 @@
   "workspaces": {
     "packages": [
       "apps/*",
-      "packages/*",
-      "core-extensions"
+      "packages/*"
     ]
   },
   "dependencies": {

@@ -47,6 +47,8 @@ export default defineConfig((env) => {
         'lodash',
         'prosemirror-model',
         'markdown-it',
+        // xlsx-js-style is CJS — pre-bundle it explicitly so it exposes a default export
+        'xlsx-js-style',
       ],
     },
     server: {

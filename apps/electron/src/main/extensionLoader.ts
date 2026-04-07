@@ -133,14 +133,14 @@ function createContextForExtension(extensionId: string): {
 export async function loadMainProcessExtensions(extensions: ExtensionData[]) {
   for (const ext of extensions) {
     if (!ext.enabled) continue;
-    // Check for mainProcess flag in the extension data or manifest capabilities
-    if (!(ext as any).mainProcess) continue;
 
     let factory: ElectronPluginFactory | null = null;
 
     if (ext.type === "core") {
+      // For core extensions, coreMainProcessPlugins is the source of truth —
+      // skip if there's no main-process plugin registered for this extension.
       factory = coreMainProcessPlugins[ext.id] ?? null;
-    } else if (ext.installedPath) {
+    } else if ((ext as any).mainProcess && ext.installedPath) {
       try {
         // Community extensions: dynamically require main-process.js
         const mod = require(path.join(ext.installedPath, "main-process.js"));

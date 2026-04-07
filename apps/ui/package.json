@@ -89,7 +89,7 @@
     "@uiw/codemirror-extensions-langs": "^4.21.18",
     "@uiw/codemirror-theme-quietlight": "^4.22.2",
     "@uiw/react-codemirror": "^4.21.18",
-    "@voiden/core-extensions": "workspace:*",
+    "@voiden/core-extensions": "https://github.com/VoidenHQ/core-plugins/releases/download/v1.0.0/voiden-core-extensions-1.0.0.tgz",
     "@voiden/sdk": "^1.0.8",
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/addon-webgl": "^0.18.0",

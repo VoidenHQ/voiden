@@ -11,12 +11,11 @@ dotenv.config({ path: "../../.env" });
 
 export const builtins = ["electron", ...builtinModules.map((m) => [m, `node:${m}`]).flat()];
 
-// Filter out workspace packages that should be bundled (not treated as external)
-const workspacePackages = ["@voiden/core-extensions"];
-const externalDeps = Object.keys("dependencies" in pkg ? (pkg.dependencies as Record<string, unknown>) : {})
-  .filter(dep => !workspacePackages.includes(dep));
+const externalDeps = Object.keys("dependencies" in pkg ? (pkg.dependencies as Record<string, unknown>) : {});
 
-export const external = [...builtins, "fsevents", ...externalDeps];
+// undici is used by @voiden/core-extensions/main (voiden-advanced-auth) and must be
+// externalized so Rollup doesn't try to bundle it — it is available in node_modules at runtime.
+export const external = [...builtins, "fsevents", "undici", ...externalDeps];
 
 export function getBuildConfig(env: ConfigEnv<"build">): UserConfig {
   const { root, mode, command } = env;

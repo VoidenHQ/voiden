@@ -15,9 +15,9 @@ function getCoreExtensionSkillPath(extensionId: string): string {
   if (app.isPackaged) {
     return path.join(process.resourcesPath, "skills", "core", `${extensionId}.skill.md`);
   }
-  // Dev: read directly from core-extensions source tree.
-  // __dirname = apps/electron/.vite/build/main/ → 4 levels up reaches the monorepo root
-  return path.join(__dirname, "../../../../core-extensions/src", extensionId, "skill.md");
+  // Dev: read from installed node_modules package (dist/ contains copied skill.md files).
+  // __dirname = apps/electron/.vite/build/main/ → 5 levels up reaches the monorepo root
+  return path.join(__dirname, "../../../../../node_modules/@voiden/core-extensions/dist", extensionId, "skill.md");
 }
 
 /**

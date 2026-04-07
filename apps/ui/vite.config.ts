@@ -24,7 +24,6 @@ export default defineConfig(async () => ({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
-      "@voiden/core-extensions": path.resolve(__dirname, "../../packages/core-extensions/src"),
       "@voiden/sdk": path.resolve(__dirname, "../../packages/sdk/src"),
       "@voiden/shared": path.resolve(__dirname, "../../packages/shared/src"),
     },
@@ -43,17 +42,12 @@ export default defineConfig(async () => ({
   optimizeDeps: {
     exclude: [
       "js-big-decimal",
-      // Exclude workspace packages to ensure fresh builds
-      "@voiden/core-extensions",
       "@voiden/sdk",
       "@voiden/shared",
     ],
-    // Force re-optimization on every start in development
     force: process.env.NODE_ENV !== 'production',
-    // Explicitly include entries to ensure proper resolution
     entries: [
       './src/**/*.{ts,tsx}',
-      '../../packages/**/*.{ts,tsx}',
     ],
   },
 

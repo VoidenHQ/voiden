@@ -228,16 +228,22 @@ const config: ForgeConfig = {
     // Stamp version from package.json into bin scripts before packaging
     generateAssets: async () => {
       // Copy core extension skill.md files into skills/core/ so they are
-      // bundled as extraResource and available at runtime via process.resourcesPath
-      const coreExtSrcDir = path.join(__dirname, "../../core-extensions/src");
+      // bundled as extraResource and available at runtime via process.resourcesPath.
+      // Reads from the installed package's src/ directory (requires "src/**/skill.md"
+      // to be included in the @voiden/core-extensions package's "files" field).
+      const coreExtDistDir = path.join(__dirname, "../../node_modules/@voiden/core-extensions/dist");
       const skillsCoreDir = path.join(__dirname, "skills", "core");
       fs.mkdirSync(skillsCoreDir, { recursive: true });
-      for (const extId of fs.readdirSync(coreExtSrcDir)) {
-        const skillSrc = path.join(coreExtSrcDir, extId, "skill.md");
-        if (fs.existsSync(skillSrc)) {
-          fs.copyFileSync(skillSrc, path.join(skillsCoreDir, `${extId}.skill.md`));
-          console.log(`Copied skill.md for ${extId}`);
+      if (fs.existsSync(coreExtDistDir)) {
+        for (const extId of fs.readdirSync(coreExtDistDir)) {
+          const skillSrc = path.join(coreExtDistDir, extId, "skill.md");
+          if (fs.existsSync(skillSrc)) {
+            fs.copyFileSync(skillSrc, path.join(skillsCoreDir, `${extId}.skill.md`));
+            console.log(`Copied skill.md for ${extId}`);
+          }
         }
+      } else {
+        console.warn("Warning: @voiden/core-extensions/dist not found — skill.md files will not be bundled.");
       }
 
       const binDir = path.join(__dirname, "bin");

@@ -10,9 +10,7 @@
 # 4. Clears Vite cache
 # 5. Removes build artifacts
 # 6. Clears Yarn cache (optional)
-# 7. Runs yarn install
-# 8. Builds packages in dependency order (SDK -> Shared -> Core Extensions)
-#    - Core Extensions automatically runs 'yarn generate-registry' as prebuild step
+# 7. Runs yarn install (fetches @voiden/core-extensions from GitHub Releases)
 
 set -e  # Exit on error
 
@@ -39,7 +37,7 @@ echo ""
 # Step 2: Remove all dist folders
 echo -e "${YELLOW}=📦 Removing all dist folders...${NC}"
 find . -name "dist" -type d -prune -exec rm -rf '{}' +
-echo -e "${GREEN}✓ Removed all dist folders (includes core-extensions compiled output)${NC}"
+echo -e "${GREEN}✓ Removed all dist folders${NC}"
 echo ""
 
 # Step 3: Remove TypeScript build info files
@@ -73,17 +71,7 @@ yarn install
 echo -e "${GREEN}✓ Dependencies installed${NC}"
 echo ""
 
-# Step 8: Build packages in correct order
-echo -e "${YELLOW}=🔨 Building packages in correct order...${NC}"
-echo ""
-
-echo "  Building core extensions..."
-echo -e "${BLUE}   → Running 'yarn generate-registry' (automatic via prebuild)${NC}"
-yarn workspace @voiden/core-extensions build
-echo -e "${GREEN}   ✓ Core extensions built (voiden-rest-api, voiden-advanced-auth, voiden-faker, md-preview, postman-import)${NC}"
-echo ""
-
-# Step 9: Optional - Build UI (commented out by default since dev mode doesn't need it)
+# Step 8: Optional - Build UI (commented out by default since dev mode doesn't need it)
 # Uncomment the lines below if you want to build the UI as well
 # echo "  4/4 Building UI..."
 # cd apps/ui && yarn build
