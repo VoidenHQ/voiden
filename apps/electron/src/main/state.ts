@@ -855,6 +855,11 @@ export const ipcStateHandlers = () => {
               const relativePath = tab.source.slice(oldPath.length);
               tab.source = newPath + relativePath;
             }
+            // For folder rename: update all files under the folder
+            else if (isDirectory && tab.source.startsWith(oldPath + path.sep)) {
+              const relativePath = tab.source.slice(oldPath.length);
+              tab.source = newPath + relativePath;
+            }
           });
         } else if (layout.type === "group") {
           layout.children.forEach((child) => updateTabsInLayout(child));

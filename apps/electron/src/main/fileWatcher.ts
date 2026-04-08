@@ -59,6 +59,7 @@ function send(msg: object) {
   watcherProc?.postMessage(msg);
 }
 
+// ── Public API (same signatures as before) ────────────────────────────────────
 
 /**
  * Start (or restart) watching a project directory.

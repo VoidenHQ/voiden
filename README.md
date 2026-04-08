@@ -32,7 +32,7 @@ No accounts, no sync, no cloud required.
 ### 📦 Download
 **Version 1.3.1 is now available!**
 
-👉 **[Download Voiden ↗️](https://voiden.md/download)**
+**[Download Voiden ↗️](https://voiden.md/download)**
 
 The website will automatically detect your operating system and highlight the correct installer for you.
 (Windows, macOS Intel/Apple Silicon, and Linux).
@@ -127,8 +127,8 @@ We welcome contributions! Please read:
 
 Track our progress and see what's coming next:
 
-### 🎯 Current Sprint
-👉 **[View active milestone →](https://github.com/voidenhq/voiden/milestones)**
+### Current Sprint
+**[View active milestone →](https://github.com/voidenhq/voiden/milestones)**
 
 We organize our work into milestones that group related issues and features. Each milestone includes:
 - **Planned features** for the release
