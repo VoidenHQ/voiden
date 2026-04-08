@@ -1,5 +1,44 @@
 [
   {
+  "version": "v1.4.0",
+  "date": "08/04/2026",
+  "title": "Multi-Request, Stitch Runner & Large Response Handling",
+  "description": "Stable release introducing multi-request support, the Stitch workflow runner for batch-executing .void files, a redesigned streaming UI for WebSocket and gRPC, chunked large JSON response handling, file explorer performance improvements, and a range of editor and stability fixes.",
+  "icon": "Sparkles",
+  "iconColor": "text-violet-400",
+  "bgColor": "bg-gradient-to-br from-violet-900 to-indigo-900",
+  "changes": {
+    "Added": [
+      "Stitch — workflow runner for batch-executing multiple .void files sequentially via the /stitch slash command, with glob include/exclude patterns, stop-on-failure, variable isolation, configurable delay between files, environment selection, and Excel export for run results",
+      "Multi-request in a single file — multiple requests can coexist in one .void file using visual separators with color-coded borders; Cmd+Enter runs the focused section, Cmd+Shift+Enter runs all sections sequentially, with headers, body, and auth fully scoped per section",
+      "Unified streaming UI — WebSocket and gRPC now share a common layout with a collapsible header showing protocol label, connection status and message stats, a compact message input toolbar at the bottom, and Cmd+Enter to send",
+      "Cross-panel search — Cmd+F now searches across both the editor and response panel simultaneously, with highlights synced inside embedded CodeMirror editors",
+      "Bottom panel layout for response viewer — move the response panel below the editor via the panel toggle; the right panel spans the full editor height while the bottom panel shares space with the terminal",
+      "Open with Voiden — open .void, .json, .yaml, and other supported file types directly in Voiden via the OS \"Open with\" dialog",
+      "Inline rename on duplicate — duplicating a file now immediately opens an inline rename input so you can name it in one step without needing to right-click and rename separately",
+      "Developer settings — a new Developer section in settings with a toggle to show system logs, giving a real-time view of internal process timings for diagnosing slow operations",
+      "Table cell autocomplete — header and query parameter table cells now show autocomplete suggestions for common header names and content types",
+      "Request options block — new /options slash command for configuring per-request settings such as timeout and follow redirects"
+    ],
+    "Improved": [
+      "Large JSON response handling — huge JSON responses are now loaded in chunks instead of all at once to prevent UI freezes; syntax highlighting for large responses is opt-in and must be triggered manually to keep scrolling fast",
+      "Code block max-height setting — a new setting lets you control how tall code blocks can grow before they scroll, so large responses don't push other content off screen",
+      "File explorer lazy loading to handle large projects without performance degradation",
+      "File link and search now load results progressively at a threshold to avoid overwhelming and hanging Voiden on large codebases",
+      "Git panel reliability — the git panel no longer incorrectly refreshes on project change or window close events and now consistently reflects the correct repository state"
+    ],
+    "Fixed": [
+      "Editor highlight on file open — syntax highlighting for environment and runtime variables now applies correctly when a file is first opened, without requiring an edit or cursor movement",
+      "Stitch runner not showing on unsaved or temporary tabs — Stitch is now accessible from any tab, not just saved .void files",
+      "Files could not be attached and sent in FormData or Binary request bodies",
+      "Renaming a file or block now triggers the update references dialog to keep all linked files in sync",
+      "Downloads now use the filename from the server's Content-Disposition header instead of a random UUID",
+      "Comments inside JSON blocks now parse correctly without causing errors",
+      "Git clone now shows a progress indicator during the clone operation"
+    ]
+  }
+},
+  {
     "version": "v1.4.3-beta.1",
     "date": "02/04/2026",
     "title": "File Explorer & Git Polish",

@@ -220,6 +220,20 @@ function installPackage(filePath: string, type: "deb" | "rpm" | "appimage") {
   });
 }
 
+function isNewerVersion(latestVersion: string, currentVersion: string): boolean {
+  if (!semver.valid(latestVersion)) return false;
+  if (semver.gt(latestVersion, currentVersion)) return true;
+
+  // If current is a prerelease, a stable release at the same major.minor is an upgrade
+  const isCurrentPre = !!semver.prerelease(currentVersion);
+  const isLatestStable = !semver.prerelease(latestVersion);
+  if (isCurrentPre && isLatestStable) {
+    const baseline = `${semver.major(currentVersion)}.${semver.minor(currentVersion)}.0`;
+    return semver.gte(latestVersion, baseline);
+  }
+  return false;
+}
+
 function checkForLinuxUpdate(currentVersion: string, channel: "stable" | "early-access" = "stable") {
   if (isUpdateInProgress()) {
     showToast("info", "Update In Progress", "An update is already in progress. Please wait for it to complete.");
@@ -249,7 +263,7 @@ function checkForLinuxUpdate(currentVersion: string, channel: "stable" | "early-
 
           setUpdateState(UpdateState.IDLE);
 
-          if (semver.valid(latestVersion) && semver.gt(latestVersion, currentVersion)) {
+          if (isNewerVersion(latestVersion, currentVersion)) {
             const channelLabel = channel === "early-access" ? " (Early Access)" : "";
 
             // Determine download URL based on how the app was installed
@@ -382,7 +396,7 @@ export async function checkForUpdatesManually(channel: "stable" | "early-access"
 
               setUpdateState(UpdateState.IDLE);
 
-              if (semver.valid(latestVersion) && semver.gt(latestVersion, currentVersion)) {
+              if (isNewerVersion(latestVersion, currentVersion)) {
                 resolve({ available: true, version: latestVersion });
               } else {
                 resolve({ available: false });
