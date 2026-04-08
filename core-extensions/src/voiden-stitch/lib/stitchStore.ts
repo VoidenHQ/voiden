@@ -14,6 +14,8 @@ type Listener = () => void;
 
 /** All stitch runs keyed by source file path */
 let runs: Record<string, StitchRunState> = {};
+/** Secondary index: maps tabId → sourceFilePath for temp/unsaved file lookup */
+let tabIdToSourcePath: Record<string, string> = {};
 /** Currently active source file path (last run or last viewed) */
 let activeSourcePath: string = '';
 
@@ -28,12 +30,14 @@ function getActiveRun(): StitchRunState {
 }
 
 export const stitchStore = {
-  /** Start a new stitch run for the given source file. */
-  startRun(filePaths: { filePath: string; fileName: string }[], sourceFilePath: string) {
+  /** Start a new stitch run for the given source file.
+   *  Pass `tabId` for unsaved (temp) files so results can be found by tab. */
+  startRun(filePaths: { filePath: string; fileName: string }[], sourceFilePath: string, tabId?: string) {
     activeSourcePath = sourceFilePath;
     // Clear any previous run results for this source file
     delete runs[sourceFilePath];
-    
+    if (tabId) tabIdToSourcePath[tabId] = sourceFilePath;
+
     runs[sourceFilePath] = {
       ...createEmptyRun(),
       id: `stitch-${Date.now()}`,
@@ -142,10 +146,15 @@ export const stitchStore = {
     notify();
   },
 
-  /** Get run for a specific source file. */
-  getRun(sourceFilePath?: string): StitchRunState {
+  /** Get run for a source file path, or fall back to tab ID for unsaved files. */
+  getRun(sourceFilePath?: string, tabId?: string): StitchRunState {
     if (sourceFilePath) {
-      return runs[sourceFilePath] || createEmptyRun();
+      const byPath = runs[sourceFilePath];
+      if (byPath) return byPath;
+    }
+    if (tabId) {
+      const path = tabIdToSourcePath[tabId];
+      if (path && runs[path]) return runs[path];
     }
     return getActiveRun();
   },
@@ -177,6 +186,7 @@ export const stitchStore = {
   /** Clear all results. */
   clearAll() {
     runs = {};
+    tabIdToSourcePath = {};
     activeSourcePath = '';
     notify();
   },

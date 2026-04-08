@@ -40,6 +40,8 @@ interface EngineContext {
   allEnvs?: { data: Record<string, Record<string, string>> };
   /** Callback to open the results sidebar tab */
   openResultsTab: () => void;
+  /** Tab ID of the editor that triggered the run — used for temp/unsaved file lookup */
+  tabId?: string;
 }
 
 export async function runStitch(
@@ -113,6 +115,7 @@ export async function runStitch(
   stitchStore.startRun(
     matchedFiles.map((f: any) => ({ filePath: f.source, fileName: f.relativePath })),
     currentFilePath,
+    ctx.tabId,
   );
   ctx.openResultsTab();
 

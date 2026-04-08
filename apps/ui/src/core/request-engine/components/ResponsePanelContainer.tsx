@@ -54,8 +54,8 @@ function hasAnyResponse(tabSections: Record<number, any> | undefined): boolean {
   return Object.values(tabSections).some((s: any) => s?.responseDoc);
 }
 
-/** Hook to subscribe to stitch store for the active file */
-function useStitchResults(activeFilePath: string | undefined) {
+/** Hook to subscribe to stitch store for the active file or tab */
+function useStitchResults(activeFilePath: string | undefined, activeTabId: string | undefined) {
   const [hasResults, setHasResults] = useState(false);
   const [StitchComponent, setStitchComponent] = useState<React.ComponentType<{ sourceFilePath?: string }> | null>(null);
 
@@ -65,17 +65,14 @@ function useStitchResults(activeFilePath: string | undefined) {
 
     const store = helpers.stitchStore;
     const update = () => {
-      if (activeFilePath) {
-        const fileRun = store.getRun(activeFilePath);
-        setHasResults(fileRun?.status !== 'idle' && !!fileRun?.id);
-      } else {
-        setHasResults(false);
-      }
+      // Try by file path first; for temp/unsaved files fall back to tab ID
+      const fileRun = store.getRun(activeFilePath, activeTabId);
+      setHasResults(fileRun?.status !== 'idle' && !!fileRun?.id);
     };
     update();
     const unsub = store.subscribe(update);
     return unsub;
-  }, [activeFilePath]);
+  }, [activeFilePath, activeTabId]);
 
   useEffect(() => {
     const helpers = (window as any).__voidenHelpers__?.['voiden-stitch'];
@@ -97,8 +94,8 @@ export function ResponsePanelContainer() {
   const isVoidFile = activeTab?.title?.endsWith(".void") ?? false;
   const activeFilePath = (activeTab as any)?.source || undefined;
 
-  // Subscribe to stitch results for the active file
-  const { hasResults: hasStitchResults, StitchComponent } = useStitchResults(activeFilePath);
+  // Subscribe to stitch results — passes tabId as fallback for unsaved temp files
+  const { hasResults: hasStitchResults, StitchComponent } = useStitchResults(activeFilePath, activeTabId);
 
   const {
     isLoading,
@@ -714,7 +711,7 @@ export function ResponsePanelContainer() {
         )}
 
         {/* Stitch results as collapsible section when there are other responses */}
-        {hasStitchResults && StitchComponent && activeFilePath && (
+        {hasStitchResults && StitchComponent && (
           <div
             key="stitch-runner"
             style={{ borderLeft: "3px solid var(--accent, #7c3aed)" }}

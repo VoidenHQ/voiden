@@ -152,6 +152,7 @@ export function createStitchNode(
           activeEnv,
           allEnvs: envData ? { data: envData.data } : undefined,
           openResultsTab,
+          tabId: editor.storage.tabId,
         }, abortRef.current.signal);
       } catch (err) {
         console.error('[voiden-stitch] Run failed:', err);
