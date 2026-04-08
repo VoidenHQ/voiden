@@ -583,6 +583,14 @@ export const getRequest = async (
           clientSecret: config.client_secret || oauth2Attrs.clientSecret || "",
           scope: config.scope || "",
           refreshToken: `{{process.${varPrefix}_refresh_token}}`,
+          // Additional fields for auto-acquisition during pipeline execution
+          authUrl: config.auth_url || "",
+          callbackUrl: config.callback_url || "",
+          state: config.state || "",
+          username: config.username || "",
+          password: config.password || "",
+          clientAuthMethod: oauth2Attrs.clientAuthMethod || "client_secret_post",
+          customParams: oauth2Attrs.customParams || "",
         };
         break;
       }
