@@ -1099,7 +1099,10 @@ export const FileSystemList = () => {
       // responsive on huge trees (1000+ open nodes).
       const BATCH = 20;
       for (let i = 0; i < toClose.length; i += BATCH) {
-        toClose.slice(i, i + BATCH).forEach((n) => n.close());
+        toClose.slice(i, i + BATCH).forEach((n) => {
+          expandedDirsRef.current.delete(n.data.path);
+          n.close();
+        });
         await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
       }
     } finally {
@@ -1112,10 +1115,20 @@ export const FileSystemList = () => {
       const nodePath: string = node.data.path;
       if (loadingDirs.has(nodePath)) return;
       if (!node.data.lazy) {
+        if (node.isOpen) {
+          expandedDirsRef.current.delete(nodePath);
+        } else {
+          expandedDirsRef.current.add(nodePath);
+        }
         node.toggle();
         return;
       }
       if (node.data.children && node.data.children.length > 0) {
+        if (node.isOpen) {
+          expandedDirsRef.current.delete(nodePath);
+        } else {
+          expandedDirsRef.current.add(nodePath);
+        }
         node.toggle();
         return;
       }

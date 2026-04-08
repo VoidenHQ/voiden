@@ -20,7 +20,23 @@ export default function createVoidenStitchPlugin(context: any) {
       // Open the response panel (stitch results now render inside it)
       const openResultsTab = async () => {
         try {
-          context.ui.openRightPanel();
+          // @ts-ignore - Vite dynamic import
+          const { getResponsePanelPosition } = await import(/* @vite-ignore */ '@/core/stores/responsePanelPosition') as any;
+          const responsePanelPosition = getResponsePanelPosition();
+
+          if (responsePanelPosition === 'bottom') {
+            // @ts-ignore - Vite dynamic import
+            const { usePanelStore } = await import(/* @vite-ignore */ '@/core/stores/panelStore') as any;
+            const { setBottomActiveView, openBottomPanel, bottomPanelRef } = usePanelStore.getState();
+            setBottomActiveView('sidebar');
+            openBottomPanel();
+            if (bottomPanelRef?.current) {
+              bottomPanelRef.current.expand();
+            }
+          } else {
+            context.ui.openRightPanel();
+          }
+
           // Switch to the first (response) tab
           const tabs = await (window as any).electron?.sidebar?.getTabs?.("right");
           const firstTab = (tabs?.tabs as any[])?.[0];
