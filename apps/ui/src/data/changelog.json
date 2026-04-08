@@ -1,6 +1,6 @@
 [
   {
-  "version": "v1.4.0",
+  "version": "v1.4.3",
   "date": "08/04/2026",
   "title": "Multi-Request, Stitch Runner & Large Response Handling",
   "description": "Stable release introducing multi-request support, the Stitch workflow runner for batch-executing .void files, a redesigned streaming UI for WebSocket and gRPC, chunked large JSON response handling, file explorer performance improvements, and a range of editor and stability fixes.",
