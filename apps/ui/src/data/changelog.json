@@ -1,5 +1,31 @@
 [
   {
+  "version": "v1.4.4",
+  "date": "09/04/2026",
+  "title": "OAuth2 Auto-Fire, File Tree Reflection & Large File Import",
+  "description": "Release adding automatic OAuth2 flow execution on request run, instant file tree updates when files are created externally or by generators, and significant improvements to importing and working with large OpenAPI and Postman JSON/YAML files.",
+  "icon": "Zap",
+  "iconColor": "text-yellow-400",
+  "bgColor": "bg-gradient-to-br from-yellow-900 to-orange-900",
+  "changes": {
+    "Added": [
+      "OAuth2 auto-fire — when an OAuth2 block is configured, the authorization flow now triggers automatically on request execution without requiring a manual step",
+      "Cancel generation — a cancel button now appears beside the Generate Voiden Files button while a Postman import is in progress, letting you stop mid-run without waiting for it to complete"
+    ],
+    "Improved": [
+      "File tree reflects instantly — files created by AI agents, code generators, or any external process now appear in the file explorer immediately instead of after a multi-second delay; fixed by busting the server-side tree cache on every file system event and reducing chokidar write-finish thresholds from 300 ms to 50 ms",
+      "Generate Voiden Files button now appears on large OpenAPI and Postman files — the button predicate correctly evaluates after streaming completes by storing a per-tab content snapshot, and survives tab switches without re-evaluating from scratch",
+      "Generate Voiden Files progress survives tab switches — import state is persisted per tab so switching away and back no longer resets the progress display or the in-flight generation",
+    ],
+    "Fixed": [
+      "Postman and OpenAPI import buttons were not shown on large files loaded via streaming because tab.content was always empty until fully loaded",
+      "Saving a streamable file wrote an empty string or a 512 KB truncated snapshot to disk, resulting in an empty file on reopen",
+      "Large file save froze the app by serialising the entire file content in a single IPC message; now split into sequential 512 KB chunks",
+      "Generate Voiden Files showed a 'Postman collection is empty' error on large JSON files because tab.content was not populated for streamable tabs; now falls back to reading from disk"
+    ]
+  }
+},
+  {
   "version": "v1.4.3",
   "date": "08/04/2026",
   "title": "Multi-Request, Stitch Runner & Large Response Handling",
