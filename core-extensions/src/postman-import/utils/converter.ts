@@ -217,8 +217,11 @@ export const processItems = async (
   onProgress?: (current: number, total: number) => void,
   progressState = { current: 0, total: 0 },
   onError?: (itemName: string, error: unknown) => void,
+  signal?: { cancelled: boolean },
 ) => {
   for (let i = 0; i < items.length; i++) {
+    if (signal?.cancelled) return;
+
     const item = items[i];
 
     try {
@@ -230,7 +233,7 @@ export const processItems = async (
         const folderPath = `${currentPath}/${actualFolderName}`;
 
         // Pass the same progressState object to nested calls
-        await processItems(item.item, folderPath, onProgress, progressState, onError);
+        await processItems(item.item, folderPath, onProgress, progressState, onError, signal);
       } else if (item.request) {
         try {
           await createSingleFile(item, currentPath, sanitizeName(item.name));
@@ -264,6 +267,7 @@ export const importPostmanCollection = async (
   activeProject: string,
   onProgress?: (current: number, total: number) => void,
   onError?: (itemName: string, error: unknown) => void,
+  signal?: { cancelled: boolean },
 ) => {
   try {
     const json: PostmanCollection = JSON.parse(collection);
@@ -295,7 +299,7 @@ export const importPostmanCollection = async (
     }
 
     // Process items with global progress tracking
-    await processItems(json.item, `${activeProject}/${actualRootFolderName}`, onProgress, progressState, onError);
+    await processItems(json.item, `${activeProject}/${actualRootFolderName}`, onProgress, progressState, onError, signal);
 
     return {
       success: true,

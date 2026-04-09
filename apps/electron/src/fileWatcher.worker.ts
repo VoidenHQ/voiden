@@ -108,8 +108,8 @@ function startWatching(projectPath: string, watcherId: string) {
       return false;
     },
     awaitWriteFinish: {
-      stabilityThreshold: 300,
-      pollInterval: 100,
+      stabilityThreshold: 50,
+      pollInterval: 50,
     },
   });
 

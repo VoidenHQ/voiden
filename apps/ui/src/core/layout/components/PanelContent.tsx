@@ -372,6 +372,7 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
   const editorActions = usePluginStore((state) => state.editorActions);
   const { settings } = useSettings();
   const activeEditor = useCodeEditorStore((state) => state.activeEditor);
+  const streamSnapshots = useCodeEditorStore((state) => state.streamSnapshots);
 
   // If tab content load times out (30s), close the tab and show a toast
   useEffect(() => {
@@ -505,8 +506,15 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
   if (activeDocTabContent && !visibleDocumentTabIds.includes(activeDocTabContent.tabId)) {
     visibleDocumentTabIds.push(activeDocTabContent.tabId);
   }
-  const actionsToDisplay = activeDocTabContent
-    ? editorActions.filter((action) => !action.predicate || action.predicate(activeDocTabContent))
+  // For streamable files tab.content is null — use the per-tab snapshot stored
+  // after streaming completes so predicates survive tab switches.
+  const tabDataForPredicate = activeDocTabContent
+    ? (!activeDocTabContent.content && streamSnapshots.get(activeDocTabContent.tabId))
+      ? { ...activeDocTabContent, content: streamSnapshots.get(activeDocTabContent.tabId) }
+      : activeDocTabContent
+    : null;
+  const actionsToDisplay = tabDataForPredicate
+    ? editorActions.filter((action) => !action.predicate || action.predicate(tabDataForPredicate))
     : [];
 
   const cachedEditorsBlock = visibleDocumentTabIds.length > 0 && (

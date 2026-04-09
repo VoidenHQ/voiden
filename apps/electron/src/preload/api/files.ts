@@ -13,6 +13,8 @@ export const filesApi = {
     ipcRenderer.invoke("files:readChunk", path, offset, size),
   write: (path: string, content: string, tabId?: string) =>
     ipcRenderer.invoke("files:write", path, content, tabId),
+  appendChunk: (path: string, chunk: string, isFirst: boolean, isLast: boolean): Promise<string> =>
+    ipcRenderer.invoke("files:appendChunk", path, chunk, isFirst, isLast),
   createVoid: (projectName: string, fileName: string): Promise<string> =>
     ipcRenderer.invoke("files:create-void", projectName, fileName),
   create: (projectName: string, fileName: string): Promise<string> =>

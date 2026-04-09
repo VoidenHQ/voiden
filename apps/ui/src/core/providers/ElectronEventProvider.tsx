@@ -64,7 +64,7 @@ export const ElectronEventProvider: React.FC<{ children: React.ReactNode }> = ({
           queryClient.invalidateQueries({ queryKey: ["files:tree"] });
           queryClient.invalidateQueries({ queryKey: ["env"] });
           handleEvent("file:new", data);
-        }, 400);
+        }, 100);
       },
       "file:duplicate": (event: any, data: any) => {
         queryClient.invalidateQueries({ queryKey: ["files:tree"] });

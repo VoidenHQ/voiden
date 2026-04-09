@@ -34,6 +34,11 @@ import { fold } from "fp-ts/lib/Tree";
 const treeResultCache = new Map<string, { result: any; at: number }>();
 const TREE_RESULT_TTL = 3000; // ms — reuse a finished build for 3 s
 
+/** Bust the tree cache — called by fileWatcher when external files appear/disappear. */
+export function clearTreeResultCache() {
+  treeResultCache.clear();
+}
+
 export function registerFileIpcHandlers() {
   // Deduplicate: if a tree build is already in-flight, share the result.
   const pendingTreeBuilds = new Map<string, Promise<any>>();
@@ -187,6 +192,7 @@ export function registerFileIpcHandlers() {
     }
 
     await fs.promises.writeFile(filePath, content, "utf8");
+    treeResultCache.clear();
 
     if (tabId) {
       const appState = getAppState();
@@ -209,6 +215,22 @@ export function registerFileIpcHandlers() {
     return filePath;
   },
 );
+
+  // Chunked write — avoids sending a huge IPC message for large files.
+  // isFirst=true truncates/creates the file; subsequent chunks are appended.
+  // isLast=true busts the tree cache after the final chunk is flushed.
+  ipcMain.handle(
+    "files:appendChunk",
+    async (_event, filePath: string, chunk: string, isFirst: boolean, isLast: boolean) => {
+      if (isFirst) {
+        await fs.promises.writeFile(filePath, chunk, "utf8");
+      } else {
+        await fs.promises.appendFile(filePath, chunk, "utf8");
+      }
+      if (isLast) treeResultCache.clear();
+      return filePath;
+    },
+  );
 
   ipcMain.handle(
     "files:create-void",

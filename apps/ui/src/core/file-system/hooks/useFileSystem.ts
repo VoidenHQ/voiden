@@ -12,6 +12,23 @@ import { useCodeEditorStore } from "@/core/editors/code/CodeEditorStore";
 import { useEditorEnhancementStore } from "@/plugins";
 // import type { Tab } from "../../../electron/src/shared/types";
 
+// Write a file in 512 KB IPC chunks to avoid freezing the main process for large
+// files (streamable files can be 5 MB–100 MB+). Falls back to a single write for
+// small content to keep the fast path fast.
+const WRITE_CHUNK_SIZE = 512 * 1024;
+async function writeFileChunked(filePath: string, content: string): Promise<void> {
+  if (content.length <= WRITE_CHUNK_SIZE) {
+    await window.electron?.files.write(filePath, content);
+    return;
+  }
+  for (let i = 0; i < content.length; i += WRITE_CHUNK_SIZE) {
+    const chunk = content.slice(i, i + WRITE_CHUNK_SIZE);
+    const isFirst = i === 0;
+    const isLast = i + WRITE_CHUNK_SIZE >= content.length;
+    await (window as any).electron?.files.appendChunk(filePath, chunk, isFirst, isLast);
+  }
+}
+
 export const useGetActiveDirectory = () => {
   return useQuery({
     queryKey: ["directory:active"],
@@ -605,7 +622,12 @@ export const globalSaveFile = async () => {
 
       if (activeEditor.tabId && activeEditor.source) {
         try {
-          await window.electron?.files.write(activeEditor.source, activeEditor.content);
+          // Read full content from the live EditorView — activeEditor.content is
+          // only a partial snapshot for streamable files and must not be used directly.
+          const content = activeEditor.editor
+            ? activeEditor.editor.state.doc.toString()
+            : activeEditor.content;
+          await writeFileChunked(activeEditor.source, content);
           invalidateOnFileSave(activeEditor.source, activeEditor.panelId || "", activeEditor.tabId);
           useEditorStore.getState().clearUnsaved(activeEditor.tabId);
           return true;
@@ -633,8 +655,10 @@ export const globalSaveFile = async () => {
 
     if (activeEditor.tabId && activeEditor.source) {
       try {
-        // Save the code editor content
-        await window.electron?.files.write(activeEditor.source, activeEditor.content);
+        const content = activeEditor.editor
+          ? activeEditor.editor.state.doc.toString()
+          : activeEditor.content;
+        await writeFileChunked(activeEditor.source, content);
         invalidateOnFileSave(activeEditor.source, activeEditor.panelId || "", activeEditor.tabId);
         useEditorStore.getState().clearUnsaved(activeEditor.tabId);
         return true;

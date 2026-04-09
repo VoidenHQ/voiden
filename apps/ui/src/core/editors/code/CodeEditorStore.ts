@@ -9,10 +9,14 @@ interface CodeEditorState {
     panelId: string | null;
     editor: EditorView | null;
   };
+  // Per-tab content snapshots for streamable files so predicates (e.g. OpenAPI /
+  // Postman buttons) survive tab switches without relying on activeEditor.tabId.
+  streamSnapshots: Map<string, string>;
   setActiveEditor: (tabId: string, content: string, source: string, panelId: string) => void;
   clearActiveEditor: () => void;
   updateContent: (content: string) => void;
   setEditor: (editor: EditorView) => void;
+  setStreamSnapshot: (tabId: string, content: string) => void;
 }
 
 export const useCodeEditorStore = create<CodeEditorState>((set) => ({
@@ -23,6 +27,7 @@ export const useCodeEditorStore = create<CodeEditorState>((set) => ({
     panelId: null,
     editor: null,
   },
+  streamSnapshots: new Map(),
   setActiveEditor: (tabId, content, source, panelId) =>
     set((state) => ({
       activeEditor: {
@@ -42,6 +47,12 @@ export const useCodeEditorStore = create<CodeEditorState>((set) => ({
     set((state) => ({
       activeEditor: { ...state.activeEditor, editor },
     })),
+  setStreamSnapshot: (tabId, content) =>
+    set((state) => {
+      const next = new Map(state.streamSnapshots);
+      next.set(tabId, content);
+      return { streamSnapshots: next };
+    }),
 }));
 
 // Export globally for extensions to access

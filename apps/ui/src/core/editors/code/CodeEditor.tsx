@@ -353,7 +353,7 @@ export const CodeEditor = memo(({ tabId, content, source, panelId, isActive = tr
     getScrollPosition: state.getScrollPosition,
   }));
 
-  const { setActiveEditor, updateContent, setEditor } = useCodeEditorStore();
+  const { setActiveEditor, updateContent, setEditor, setStreamSnapshot } = useCodeEditorStore();
 
   // Determine the language extension based on file extension — declared early so the
   // streaming effect below can reference it without a temporal dead zone error.
@@ -374,6 +374,11 @@ export const CodeEditor = memo(({ tabId, content, source, panelId, isActive = tr
   useEffect(() => {
     if (!streamable || !source || !editorView) return;
 
+    // Register this tab as the active editor immediately so that PanelContent's
+    // predicate checks (e.g. Postman import button) can match by tabId once
+    // content arrives — setActiveEditor is otherwise only called on user focus.
+    setActiveEditor(tabId, "", source, panelId);
+
     const CHUNK = 512 * 1024; // 512 KB per IPC call
     let cancelled = false;
 
@@ -387,9 +392,14 @@ export const CodeEditor = memo(({ tabId, content, source, panelId, isActive = tr
         const { content: chunk, bytesRead, done, totalSize } = result;
 
         if (chunk) {
+          // Preserve scroll position — appending content changes the document
+          // height which causes CodeMirror to recalculate the viewport and
+          // produces a visible glitch while the user is scrolling.
+          const scrollTop = editorView.scrollDOM.scrollTop;
           editorView.dispatch({
             changes: { from: editorView.state.doc.length, insert: chunk },
           });
+          editorView.scrollDOM.scrollTop = scrollTop;
         }
 
         offset += bytesRead;
@@ -408,11 +418,17 @@ export const CodeEditor = memo(({ tabId, content, source, panelId, isActive = tr
       if (!cancelled) {
         setStreamProgress(null); // hide progress bar
         if (langExt) setCanHighlight(true); // offer highlight button if language is known
+        // Streaming complete — snapshot first 512 KB into the per-tab store so
+        // editor-action predicates (OpenAPI / Postman buttons) appear and survive
+        // tab switches. Keys like "openapi:" are always near the top of the file.
+        const snapshot = editorView.state.doc.sliceString(0, CHUNK);
+        updateContent(snapshot);
+        setStreamSnapshot(tabId, snapshot);
       }
     })();
 
     return () => { cancelled = true; };
-  }, [streamable, source, editorView, fullSize, langExt]);
+  }, [streamable, source, editorView, fullSize, langExt, updateContent, setActiveEditor, setStreamSnapshot, tabId, panelId]);
 
   // Create debounced update function for large files
   const debouncedUpdate = useMemo(

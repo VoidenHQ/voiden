@@ -11,6 +11,7 @@ import { utilityProcess } from "electron";
 import type { UtilityProcess } from "electron";
 import eventBus from "./eventBus";
 import { invalidateGitCache } from "./git";
+import { clearTreeResultCache } from "./ipc/files";
 import { logger } from "./logger";
 
 // ── Process lifecycle ─────────────────────────────────────────────────────────
@@ -35,6 +36,11 @@ function spawnWorker() {
       // git:changed requires a cache bust before the event reaches the renderer
       if (channel === "git:changed" && data?.project) {
         invalidateGitCache(data.project);
+      }
+      // file:new / file:delete mean something appeared or disappeared on disk —
+      // bust the tree cache so the next files:tree IPC call rebuilds immediately.
+      if (channel === "file:new" || channel === "file:delete") {
+        clearTreeResultCache();
       }
       eventBus.emitEvent(channel, data);
     } else if (msg.type === "log") {
