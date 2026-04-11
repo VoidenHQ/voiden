@@ -43,6 +43,11 @@ const VariableList = forwardRef<VariableListHandle, VariableListProps>(
         }, [selectedIndex])
 
         const onKeyDown = ({ event }: { event: KeyboardEvent }): boolean => {
+            // If there are no items to select, don't consume any keys.
+            if (!items || items.length === 0) {
+                return false
+            }
+
             if (event.key === 'ArrowUp') {
                 setSelectedIndex((selectedIndex + items.length - 1) % items.length)
                 return true
