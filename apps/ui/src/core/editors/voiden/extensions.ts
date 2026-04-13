@@ -35,8 +35,12 @@ import { TableCellAutocomplete } from "./extensions/TableCellAutocomplete";
 // Extension to prevent markdown input rules in table cells
 const DisableMarkdownInTables = Extension.create({
   name: 'disableMarkdownInTables',
+  priority: 10000,
 
   addProseMirrorPlugins() {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const ext = this;
+
     return [
       new Plugin({
         key: new PluginKey('disableMarkdownInTables'),
@@ -65,13 +69,16 @@ const DisableMarkdownInTables = Extension.create({
             return false;
           },
 
-          // Intercept Enter key to prevent markdown transformations
-          handleKeyDown(view, event) {
+          // Intercept Enter key: navigate to next cell (or create a new row)
+          handleKeyDown(_view, event) {
             if (event.key !== 'Enter') {
               return false;
             }
 
-            const { $from } = view.state.selection;
+            const editor = ext.editor;
+            if (!editor) return false;
+
+            const { $from } = editor.state.selection;
 
             // Check if we're inside a table cell
             let insideTableCell = false;
@@ -83,10 +90,15 @@ const DisableMarkdownInTables = Extension.create({
               }
             }
 
-            // If inside table cell, don't intercept - let table handle it normally
-            // But we need to prevent input rules from running
-            // The issue is that Enter triggers input rules AFTER this handler
-            // So we return false to let default behavior run (which is table row navigation)
+            if (insideTableCell) {
+              // Try to move to the next cell; if none exists, add a row first
+              const moved = editor.commands.goToNextCell();
+              if (!moved) {
+                editor.chain().addRowAfter().goToNextCell().run();
+              }
+              return true;
+            }
+
             return false;
           },
         },

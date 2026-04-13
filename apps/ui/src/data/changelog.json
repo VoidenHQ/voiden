@@ -1,5 +1,26 @@
 [
   {
+    "version": "v1.4.5",
+    "date": "13/04/2026",
+    "title": "External File Detection, Table Navigation & Border Fixes",
+    "description": "Patch release with external file change detection for the Voiden editor, runtime variables table border styling, table Enter-key navigation, and JSON/YAML linting disabled on large files to prevent UI freezes.",
+    "icon": "RefreshCw",
+    "iconColor": "text-cyan-400",
+    "bgColor": "bg-gradient-to-br from-cyan-900 to-teal-900",
+    "changes": {
+      "Added": [
+        "External file change detection for Voiden editor — clean tabs auto-reload when the file is modified on disk; dirty tabs show a toast with an Overwrite option to apply the disk version",
+        "On-activation content comparison — when switching back to a clean Voiden tab, the editor silently syncs with the current disk content if it has drifted",
+        "External file change detection for CodeEditor tabs — non-.void files now also detect disk changes and invalidate their tab content cache"
+      ],
+      "Fixed": [
+        "Enter key in table cells now navigates to the next cell (or creates a new row when at the last cell) instead of inserting a newline",
+        "Runtime variables table cell borders now match the style of other request-block tables (headers, query, etc.)",
+        "JSON and YAML linting is now skipped on load for files larger than 500 KB — a banner appears once the file is ready with an option to enable highlighting and linting on demand"
+      ]
+    }
+  },
+  {
   "version": "v1.4.4",
   "date": "09/04/2026",
   "title": "OAuth2 Auto-Fire, File Tree Reflection & Large File Import",
@@ -261,10 +282,6 @@
     }
   },
   {
-    "version": "v1.2.0-beta.1",
-    "date": "24/02/2026",
-    "title": "Scripting, Navigation & UX Enhancements",
-    "description": "Beta release introducing pre/post request scripting, YAML environment configuration, improved file explorer navigation, drag-and-drop file management, YAML content-type support, and response preview improvements.",
     "version": "v1.2.0",
     "date": "03/03/2026",
     "title": "Scripting, Navigation & UX Enhancements",

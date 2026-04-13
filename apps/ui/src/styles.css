@@ -175,7 +175,8 @@ input[type="week"]::-webkit-datetime-edit-year-field:focus {
 .node-url-table td,
 .node-multipart-table td,
 .node-path-table td,
-.node-form-table td {
+.node-form-table td,
+.node-runtime-variables td {
   border: 1px solid color-mix(in srgb, var(--fg-secondary, var(--ui-line)) 35%, transparent) !important;
 }
 
@@ -184,7 +185,8 @@ input[type="week"]::-webkit-datetime-edit-year-field:focus {
 .node-url-table td:first-child,
 .node-multipart-table td:first-child,
 .node-path-table td:first-child,
-.node-form-table td:first-child {
+.node-form-table td:first-child,
+.node-runtime-variables td:first-child {
   border-left: none !important;
 }
 
@@ -193,7 +195,8 @@ input[type="week"]::-webkit-datetime-edit-year-field:focus {
 .node-url-table td:last-child,
 .node-multipart-table td:last-child,
 .node-path-table td:last-child,
-.node-form-table td:last-child {
+.node-form-table td:last-child,
+.node-runtime-variables td:last-child {
   border-right: none !important;
 }
 
@@ -202,7 +205,8 @@ input[type="week"]::-webkit-datetime-edit-year-field:focus {
 .node-url-table table,
 .node-multipart-table table,
 .node-path-table table,
-.node-form-table table {
+.node-form-table table,
+.node-runtime-variables table {
   border: 1px solid color-mix(in srgb, var(--ui-line) 40%, transparent);
   border-radius: 6px;
   overflow: hidden;

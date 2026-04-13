@@ -135,6 +135,15 @@ const lintTooltipTheme = EditorView.theme({
   ".cm-tooltip.cm-tooltip-lint .cm-diagnostic:last-child": {
     borderBottom: "none",
   },
+  ".cm-lintRange": { textDecoration: "none !important", background: "none !important" },
+  ".cm-lintRange-error": { textDecoration: "none !important", background: "none !important" },
+  ".cm-lintRange-warning": { textDecoration: "none !important", background: "none !important" },
+  ".cm-lintRange-info": { textDecoration: "none !important", background: "none !important" },
+  ".cm-lint-marker": {
+    width: "14px",
+    height: "14px",
+    cursor: "pointer",
+  },
 });
 
 // Content size thresholds for performance tiering
@@ -363,7 +372,8 @@ export const CodeEditor = ({
       lintGutter(),
       linter((view) => {
         const content = view.state.doc.toString();
-        const results = validateFn(content);
+        const allResults = validateFn(content);
+        const results = allResults.length > 100 ? allResults.slice(0, 100) : allResults;
         return results.map((r) => {
           try {
             const line = view.state.doc.line(r.line);
@@ -376,7 +386,7 @@ export const CodeEditor = ({
               severity: (r.severity || 'error') as 'error' | 'warning' | 'info',
               renderMessage: () => {
                 const box = document.createElement('div');
-                box.className = 'voiden-lint-message';
+                box.style.cssText = 'padding:6px 10px;font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word;max-width:320px;';
                 box.textContent = r.message;
                 return box;
               },

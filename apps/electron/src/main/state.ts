@@ -671,10 +671,7 @@ export const ipcStateHandlers = () => {
         }
 
         try {
-          // For files larger than 5 MB, skip reading here entirely.
-          // The renderer will stream the content in chunks via files:readChunk
-          // so the IPC message never serialises a large string at once.
-          const STREAM_THRESHOLD = 5 * 1024 * 1024; // 5 MB
+          const STREAM_THRESHOLD = 1 * 1024 * 1024;
           const stat = await fs.stat(source);
           if (stat.size > STREAM_THRESHOLD) {
             return { type: "document", tabId, title, content: null, source, streamable: true, fullSize: stat.size };

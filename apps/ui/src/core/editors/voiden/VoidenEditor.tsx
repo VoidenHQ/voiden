@@ -280,10 +280,12 @@ interface EditorStore {
   setScrollPosition: (tabId: string, position: number) => void;
   getScrollPosition: (tabId: string) => number;
   clearScrollPosition: (tabId: string) => void;
-  // Store reload functions for each tab
   reloadFunctions: Record<string, () => Promise<void>>;
   registerReload: (tabId: string, reloadFn: () => Promise<void>) => void;
   unregisterReload: (tabId: string) => void;
+  forceReloadFunctions: Record<string, () => Promise<void>>;
+  registerForceReload: (tabId: string, fn: () => Promise<void>) => void;
+  unregisterForceReload: (tabId: string) => void;
 }
 
 export const useEditorStore = create<EditorStore>((set, get) => ({
@@ -312,6 +314,15 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { [tabId]: _, ...rest } = state.reloadFunctions;
       return { reloadFunctions: rest };
+    }),
+  forceReloadFunctions: {},
+  registerForceReload: (tabId, fn) =>
+    set((state) => ({ forceReloadFunctions: { ...state.forceReloadFunctions, [tabId]: fn } })),
+  unregisterForceReload: (tabId) =>
+    set((state) => {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { [tabId]: _, ...rest } = state.forceReloadFunctions;
+      return { forceReloadFunctions: rest };
     }),
 }));
 
@@ -901,46 +912,70 @@ const VoidenEditorInner = ({
   useEffect(() => {
     if (!editor || !source) return;
 
+    const applyDiskContent = async () => {
+      const freshContent = await window.electron?.files.read(source);
+      if (!freshContent) return;
+      clearUnsaved(tabId);
+      const parsed = parseMarkdown(freshContent, memoizedSchema);
+      const sanitized = sanitizeDoc(parsed);
+      const preserved = preserveUnknownNodesInJSON(sanitized, memoizedSchema);
+      editor.commands.setContent(preserved, false);
+    };
+
     const reloadFromFile = async () => {
       try {
-        // If the user has unsaved changes, skip the external reload to preserve their work.
-        // This prevents git:changed events (triggered by saveRuntimeVariables writing
-        // .voiden/.process.env.json / .gitignore) from wiping the editor mid-session.
+        // If dirty, skip — the apy:changed handler will show a toast instead.
         if (useEditorStore.getState().unsaved[tabId]) return;
-
-        // Read fresh content from disk
-        const freshContent = await window.electron?.files.read(source);
-        if (!freshContent) {
-          return;
-        }
-
-        // Clear unsaved state
-        clearUnsaved(tabId);
-
-        // Parse the markdown
-        const parsed = parseMarkdown(freshContent, memoizedSchema);
-        const sanitized = sanitizeDoc(parsed);
-        const preserved = preserveUnknownNodesInJSON(sanitized, memoizedSchema);
-
-        // Update the editor content
-        editor.commands.setContent(preserved, false);
+        await applyDiskContent();
       } catch (error) {
         console.error(`[VoidenEditor] Error reloading from file:`, error);
       }
     };
 
-    // Register the reload function
+    const forceReloadFromFile = async () => {
+      try {
+        await applyDiskContent();
+      } catch (error) {
+        console.error(`[VoidenEditor] Error force-reloading from file:`, error);
+      }
+    };
+
     useEditorStore.getState().registerReload(tabId, reloadFromFile);
+    useEditorStore.getState().registerForceReload(tabId, forceReloadFromFile);
 
     return () => {
-      // Unregister on unmount
       useEditorStore.getState().unregisterReload(tabId);
+      useEditorStore.getState().unregisterForceReload(tabId);
     };
   }, [editor, source, tabId, clearUnsaved, memoizedSchema]);
 
   // Fallback: if full value maps are unavailable, keep validity highlighting via keys-only lists.
   const { data: envKeys } = useEnvironmentKeys();
   const { data: voidVariableKeys } = useVoidVariables();
+  // When user activates a clean tab, compare editor content vs disk and reload if different.
+  useEffect(() => {
+    if (!editor || !isActive || !source) return;
+    if (useEditorStore.getState().unsaved[tabId]) return;
+    let cancelled = false;
+    window.electron?.files.read(source).then((diskContent) => {
+      if (cancelled || !diskContent) return;
+      if (useEditorStore.getState().unsaved[tabId]) return;
+      try {
+        const parsed = parseMarkdown(diskContent, memoizedSchema);
+        const sanitized = sanitizeDoc(parsed);
+        const diskJSON = JSON.stringify(sanitized);
+        const editorJSON = JSON.stringify(editor.getJSON());
+        if (diskJSON !== editorJSON) {
+          const preserved = preserveUnknownNodesInJSON(sanitized, memoizedSchema);
+          editor.commands.setContent(preserved, false);
+        }
+      } catch {
+        // ignore parse errors
+      }
+    });
+    return () => { cancelled = true; };
+  }, [isActive]);
+
   const queryClient = useQueryClient();
   useEffect(() => {
     if (!editor || !isActive) return;

@@ -618,14 +618,13 @@ export const globalSaveFile = async () => {
       }
     } else {
       // Use code editor save logic
-      const { activeEditor } = useCodeEditorStore.getState();
+      const { activeEditor, editorViews } = useCodeEditorStore.getState();
 
       if (activeEditor.tabId && activeEditor.source) {
         try {
-          // Read full content from the live EditorView — activeEditor.content is
-          // only a partial snapshot for streamable files and must not be used directly.
-          const content = activeEditor.editor
-            ? activeEditor.editor.state.doc.toString()
+          const view = editorViews.get(activeEditor.tabId);
+          const content = view
+            ? view.state.doc.toString()
             : activeEditor.content;
           await writeFileChunked(activeEditor.source, content);
           invalidateOnFileSave(activeEditor.source, activeEditor.panelId || "", activeEditor.tabId);
@@ -651,12 +650,13 @@ export const globalSaveFile = async () => {
     return saveFileUtil(path, content, panelId, tabId, voidenEditor.schema);
   } else {
     // Try to get data from CodeEditor store
-    const { activeEditor } = useCodeEditorStore.getState();
+    const { activeEditor, editorViews } = useCodeEditorStore.getState();
 
     if (activeEditor.tabId && activeEditor.source) {
       try {
-        const content = activeEditor.editor
-          ? activeEditor.editor.state.doc.toString()
+        const view = editorViews.get(activeEditor.tabId);
+        const content = view
+          ? view.state.doc.toString()
           : activeEditor.content;
         await writeFileChunked(activeEditor.source, content);
         invalidateOnFileSave(activeEditor.source, activeEditor.panelId || "", activeEditor.tabId);

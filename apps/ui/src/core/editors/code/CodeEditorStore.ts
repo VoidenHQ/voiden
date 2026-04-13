@@ -9,13 +9,14 @@ interface CodeEditorState {
     panelId: string | null;
     editor: EditorView | null;
   };
-  // Per-tab content snapshots for streamable files so predicates (e.g. OpenAPI /
-  // Postman buttons) survive tab switches without relying on activeEditor.tabId.
+  editorViews: Map<string, EditorView>;
   streamSnapshots: Map<string, string>;
   setActiveEditor: (tabId: string, content: string, source: string, panelId: string) => void;
   clearActiveEditor: () => void;
   updateContent: (content: string) => void;
   setEditor: (editor: EditorView) => void;
+  registerEditorView: (tabId: string, editor: EditorView) => void;
+  unregisterEditorView: (tabId: string) => void;
   setStreamSnapshot: (tabId: string, content: string) => void;
 }
 
@@ -27,6 +28,7 @@ export const useCodeEditorStore = create<CodeEditorState>((set) => ({
     panelId: null,
     editor: null,
   },
+  editorViews: new Map(),
   streamSnapshots: new Map(),
   setActiveEditor: (tabId, content, source, panelId) =>
     set((state) => ({
@@ -47,6 +49,18 @@ export const useCodeEditorStore = create<CodeEditorState>((set) => ({
     set((state) => ({
       activeEditor: { ...state.activeEditor, editor },
     })),
+  registerEditorView: (tabId, editor) =>
+    set((state) => {
+      const next = new Map(state.editorViews);
+      next.set(tabId, editor);
+      return { editorViews: next };
+    }),
+  unregisterEditorView: (tabId) =>
+    set((state) => {
+      const next = new Map(state.editorViews);
+      next.delete(tabId);
+      return { editorViews: next };
+    }),
   setStreamSnapshot: (tabId, content) =>
     set((state) => {
       const next = new Map(state.streamSnapshots);
@@ -55,7 +69,6 @@ export const useCodeEditorStore = create<CodeEditorState>((set) => ({
     }),
 }));
 
-// Export globally for extensions to access
 if (typeof window !== 'undefined') {
   (window as any).__codeEditorStore = useCodeEditorStore;
 }

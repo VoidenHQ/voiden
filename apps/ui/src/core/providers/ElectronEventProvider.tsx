@@ -4,6 +4,7 @@ import { EventEmitter } from "events";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { globalSaveFile, saveTabById } from "@/core/file-system/hooks";
+import { reloadVoidenEditor, useEditorStore } from "@/core/editors/voiden/VoidenEditor";
 import { useLoadEnv, useSetActiveEnv } from "@/core/environment/hooks";
 import { toast } from "@/core/components/ui/sonner";
 
@@ -168,9 +169,50 @@ export const ElectronEventProvider: React.FC<{ children: React.ReactNode }> = ({
         queryClient.invalidateQueries({ queryKey: ["environment-keys"] });
         handleEvent("env:changed", data);
       },
-      "apy:changed": (data: any) => {
-        queryClient.invalidateQueries({ queryKey: ["voiden-wrapper:blockContent", data.path], exact: false });
+      "file:changed": (_event: any, data: any) => {
+        const changedPath = data?.path?.replace(/\\/g, "/");
+        if (!changedPath) return;
+        const panelQueries = queryClient.getQueriesData<any>({ queryKey: ["panel:tabs"] });
+        for (const [, panelData] of panelQueries) {
+          for (const tab of panelData?.tabs ?? []) {
+            if (tab.source?.replace(/\\/g, "/") === changedPath) {
+              queryClient.invalidateQueries({
+                queryKey: ["tab:content", undefined, tab.id, tab.source],
+                exact: false,
+              });
+            }
+          }
+        }
+      },
+      "apy:changed": (_event: any, data: any) => {
+        queryClient.invalidateQueries({ queryKey: ["voiden-wrapper:blockContent", data?.path], exact: false });
         handleEvent("apy:changed", data);
+
+        const changedPath = data?.path?.replace(/\\/g, "/");
+        if (!changedPath) return;
+
+        const panelQueries = queryClient.getQueriesData<any>({ queryKey: ["panel:tabs"] });
+        for (const [, panelData] of panelQueries) {
+          for (const tab of panelData?.tabs ?? []) {
+            if (tab.source?.replace(/\\/g, "/") !== changedPath) continue;
+            const isDirty = !!useEditorStore.getState().unsaved[tab.id];
+            if (isDirty) {
+              toast.warning(`${tab.title} was modified on disk`, {
+                description: "You have unsaved changes. Overwrite with disk version?",
+                action: {
+                  label: "Overwrite",
+                  onClick: () => {
+                    const forceReload = useEditorStore.getState().forceReloadFunctions[tab.id];
+                    if (forceReload) forceReload();
+                  },
+                },
+                duration: 10000,
+              });
+            } else {
+              reloadVoidenEditor(tab.id);
+            }
+          }
+        }
       },
       "directory:delete": (_event: any, data: any) => {
         handleEvent("directory:delete", data);

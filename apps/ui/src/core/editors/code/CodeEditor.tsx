@@ -6,7 +6,7 @@ import { EditorView, keymap } from "@codemirror/view";
 import { useEditorStore } from "../voiden/VoidenEditor";
 import { tags as t } from "@lezer/highlight";
 import { createTheme, type CreateThemeOptions } from "@uiw/codemirror-themes";
-import { linter } from "@codemirror/lint";
+import { linter, lintGutter } from "@codemirror/lint";
 import { createCustomSearchPanel, customSearchPanelStyles } from "./lib/extensions/customSearchPanel";
 
 import {
@@ -38,6 +38,8 @@ interface CodeEditorProps {
 }
 
 const LARGE_FILE_THRESHOLD = 5 * 1024 * 1024;
+const AUTO_ENABLE_THRESHOLD = 10 * 1024 * 1024;
+const MEDIUM_FILE_THRESHOLD = 512 * 1024;
 
 function debounce<T extends (...args: any[]) => any>(
   func: T,
@@ -282,7 +284,61 @@ const searchPanelTheme = EditorView.theme({
 
 export const voidenTheme = [quietlightInit(), searchPanelTheme];
 
-const myLinter = linter((view) => lintYaml(view));
+const YAML_SPECTRAL_SIZE_LIMIT = 500 * 1024;
+const myYamlLinter = linter((view) => {
+  if (view.state.doc.length > YAML_SPECTRAL_SIZE_LIMIT) return Promise.resolve([]);
+  return lintYaml(view, []);
+}, { delay: 2000 });
+
+const myJsonOASLinter = linter((view) => lintYaml(view, []), { delay: 2000 });
+
+const lintGutterTheme = EditorView.theme({
+  ".cm-gutter.cm-gutter-lint": {
+    backgroundColor: "var(--editor-bg)",
+    minWidth: "18px",
+  },
+  ".cm-gutter.cm-gutter-lint .cm-gutterElement": {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    cursor: "pointer",
+  },
+  ".cm-lint-marker-error": { color: "#ef4444" },
+  ".cm-lint-marker-warning": { color: "#f59e0b" },
+  ".cm-lint-marker-info": { color: "#3b82f6" },
+  ".cm-lintRange, .cm-lintRange-error, .cm-lintRange-warning, .cm-lintRange-info": {
+    textDecoration: "none !important",
+    background: "none !important",
+  },
+  ".cm-tooltip.cm-tooltip-lint": {
+    border: "1px solid var(--border)",
+    borderRadius: "6px",
+    backgroundColor: "var(--panel)",
+    boxShadow: "0 4px 16px rgba(0,0,0,0.24)",
+    overflow: "hidden",
+    maxWidth: "320px",
+  },
+  ".cm-tooltip.cm-tooltip-lint .cm-diagnostic": {
+    margin: "0",
+    padding: "7px 10px",
+    fontSize: "12px",
+    lineHeight: "1.4",
+    color: "var(--text)",
+    backgroundColor: "var(--editor-bg)",
+    whiteSpace: "pre-wrap",
+    wordBreak: "break-word",
+    borderBottom: "1px solid var(--border)",
+  },
+  ".cm-tooltip.cm-tooltip-lint .cm-diagnostic:last-child": {
+    borderBottom: "none",
+  },
+});
+
+const getLintExtensions = (ext: string | undefined) => {
+  if (ext === "json") return [lintGutterTheme, lintGutter(), myJsonOASLinter];
+  if (ext === "yml" || ext === "yaml") return [lintGutterTheme, lintGutter(), myYamlLinter];
+  return [];
+};
 
 const getLanguageExtension = (filename: string) => {
   const ext = filename?.split(".").pop()?.toLowerCase() || "";
@@ -334,7 +390,9 @@ export const CodeEditor = memo(({ tabId, content, source, panelId, isActive = tr
   const [streamProgress, setStreamProgress] = useState<number | null>(streamable ? 0 : null);
   const [canHighlight, setCanHighlight] = useState(false);
   const [highlighted, setHighlighted] = useState(false);
+  const [isApplyingFeatures, setIsApplyingFeatures] = useState(false);
   const langCompartment = useRef(new Compartment()).current;
+  const lintCompartment = useRef(new Compartment()).current;
 
   const { setUnsaved, clearUnsaved, setScrollPosition, getScrollPosition } = useEditorStore((state) => ({
     setUnsaved: state.setUnsaved,
@@ -343,7 +401,9 @@ export const CodeEditor = memo(({ tabId, content, source, panelId, isActive = tr
     getScrollPosition: state.getScrollPosition,
   }));
 
-  const { setActiveEditor, updateContent, setEditor, setStreamSnapshot } = useCodeEditorStore();
+  const { setActiveEditor, updateContent, setEditor, registerEditorView, unregisterEditorView, setStreamSnapshot } = useCodeEditorStore();
+
+  const fileExtension = source.split(".").pop()?.toLowerCase();
 
   const langExt = useMemo(() => {
     const ext = getLanguageExtension(source);
@@ -356,6 +416,12 @@ export const CodeEditor = memo(({ tabId, content, source, panelId, isActive = tr
     const sizeInBytes = new Blob([content]).size;
     return sizeInBytes > LARGE_FILE_THRESHOLD;
   }, [content, streamable]);
+
+  const isMediumFile = useMemo(() => {
+    if (isLargeFile) return false;
+    const sizeInBytes = new Blob([content]).size;
+    return sizeInBytes > MEDIUM_FILE_THRESHOLD;
+  }, [content, isLargeFile]);
 
   useEffect(() => {
     if (!streamable || !source || !editorView) return;
@@ -394,7 +460,20 @@ export const CodeEditor = memo(({ tabId, content, source, panelId, isActive = tr
 
       if (!cancelled) {
         setStreamProgress(null);
-        if (langExt) setCanHighlight(true);
+        const fileSize = fullSize ?? 0;
+        if (fileSize <= AUTO_ENABLE_THRESHOLD) {
+          setIsApplyingFeatures(true);
+          editorView.dispatch({
+            effects: [
+              ...(langExt ? [langCompartment.reconfigure([langExt])] : []),
+              lintCompartment.reconfigure(getLintExtensions(fileExtension)),
+            ],
+          });
+          setHighlighted(true);
+        } else {
+          // Very large file — let the user decide
+          if (langExt) setCanHighlight(true);
+        }
         const snapshot = editorView.state.doc.sliceString(0, CHUNK);
         updateContent(snapshot);
         setStreamSnapshot(tabId, snapshot);
@@ -402,7 +481,7 @@ export const CodeEditor = memo(({ tabId, content, source, panelId, isActive = tr
     })();
 
     return () => { cancelled = true; };
-  }, [streamable, source, editorView, fullSize, langExt, updateContent, setActiveEditor, setStreamSnapshot, tabId, panelId]);
+  }, [streamable, source, editorView, fullSize, langExt, langCompartment, lintCompartment, fileExtension, updateContent, setActiveEditor, setStreamSnapshot, tabId, panelId]);
 
   const debouncedUpdate = useMemo(
     () => debounce((value: string, tId: string) => {
@@ -433,12 +512,18 @@ export const CodeEditor = memo(({ tabId, content, source, panelId, isActive = tr
   const onCreateEditor = useCallback(
     (view: EditorView) => {
       if (view) {
+        setActiveEditor(tabId, initialContent, source, panelId);
         setEditor(view);
         setEditorView(view);
+        registerEditorView(tabId, view);
       }
     },
-    [setEditor],
+    [setEditor, setActiveEditor, registerEditorView, tabId, initialContent, source, panelId],
   );
+
+  useEffect(() => {
+    return () => { unregisterEditorView(tabId); };
+  }, [tabId, unregisterEditorView]);
 
   useLayoutEffect(() => {
     if (!editorView || !isActive) return;
@@ -518,6 +603,15 @@ export const CodeEditor = memo(({ tabId, content, source, panelId, isActive = tr
 
   const onChange = useCallback(
     (value: string) => {
+      // If another tab is registered as active, re-register this one.
+      // Tabs stay mounted when switching, so onCreateEditor doesn't re-fire —
+      // onChange is the reliable signal that THIS editor is the one being edited.
+      const store = useCodeEditorStore.getState();
+      if (store.activeEditor.tabId !== tabId) {
+        setActiveEditor(tabId, value, source, panelId);
+        if (editorView) setEditor(editorView);
+      }
+
       if (isLargeFile) {
         debouncedUpdate(value, tabId);
       } else {
@@ -529,21 +623,15 @@ export const CodeEditor = memo(({ tabId, content, source, panelId, isActive = tr
         updateContent(value);
       }
     },
-    [tabId, content, setUnsaved, clearUnsaved, updateContent, isLargeFile, debouncedUpdate],
+    [tabId, content, source, panelId, editorView, setUnsaved, clearUnsaved, updateContent, setActiveEditor, setEditor, isLargeFile, debouncedUpdate],
   );
 
   const languageExtension = useMemo(() => {
-    return [langCompartment.of(isLargeFile ? [] : (langExt ? [langExt] : []))];
-  }, [isLargeFile, langExt, langCompartment]);
-
-  const fileExtension = source.split(".").pop()?.toLowerCase();
-  const lintExtension = useMemo(() => {
-    if (isLargeFile) return [];
-    return fileExtension === "json" || fileExtension === "yml" || fileExtension === "yaml" ? [myLinter] : [];
-  }, [fileExtension, isLargeFile]);
+    return [langCompartment.of((isLargeFile || isMediumFile) ? [] : (langExt ? [langExt] : []))];
+  }, [isLargeFile, isMediumFile, langExt, langCompartment]);
 
   const basicSetupOptions = useMemo(() => {
-    if (isLargeFile) {
+    if (isLargeFile || isMediumFile) {
       return {
         foldGutter: false,
         highlightActiveLine: false,
@@ -551,12 +639,14 @@ export const CodeEditor = memo(({ tabId, content, source, panelId, isActive = tr
       };
     }
     return undefined;
-  }, [isLargeFile]);
+  }, [isLargeFile, isMediumFile]);
 
   const extensions = useMemo(() => {
+    const initialLint = (isLargeFile || isMediumFile) ? [] : getLintExtensions(fileExtension);
+
     const baseExtensions = [
       ...languageExtension,
-      ...lintExtension,
+      lintCompartment.of(initialLint),
       search({ top: true, createPanel: (view) => createCustomSearchPanel(view) }),
       keymap.of([
         ...searchKeymap,
@@ -564,21 +654,41 @@ export const CodeEditor = memo(({ tabId, content, source, panelId, isActive = tr
       ]),
     ];
 
-    if (!isLargeFile) {
+    if (!isLargeFile && !isMediumFile) {
       baseExtensions.push(highlightSelectionMatches());
     }
 
     return baseExtensions;
-  }, [languageExtension, lintExtension, isLargeFile]);
+  }, [languageExtension, lintCompartment, fileExtension, isLargeFile, isMediumFile]);
+
+  useEffect(() => {
+    if (!isApplyingFeatures) return;
+    const t = setTimeout(() => setIsApplyingFeatures(false), 900);
+    return () => clearTimeout(t);
+  }, [isApplyingFeatures]);
+
+  // For non-streamable large/medium files with lintable extensions (json/yaml),
+  // linting is skipped on load — show the opt-in banner once the editor is ready.
+  const isLintableExt = fileExtension === "json" || fileExtension === "yml" || fileExtension === "yaml";
+  useEffect(() => {
+    if (streamable || highlighted) return;
+    if ((isMediumFile || isLargeFile) && isLintableExt && editorView) {
+      setCanHighlight(true);
+    }
+  }, [streamable, isMediumFile, isLargeFile, isLintableExt, editorView, highlighted]);
 
   const handleEnableHighlight = useCallback(() => {
-    if (!editorView || !langExt) return;
+    if (!editorView) return;
+    setIsApplyingFeatures(true);
     editorView.dispatch({
-      effects: langCompartment.reconfigure([langExt]),
+      effects: [
+        ...(langExt ? [langCompartment.reconfigure([langExt])] : []),
+        lintCompartment.reconfigure(getLintExtensions(fileExtension)),
+      ],
     });
     setCanHighlight(false);
     setHighlighted(true);
-  }, [editorView, langExt, langCompartment]);
+  }, [editorView, langExt, langCompartment, lintCompartment, fileExtension]);
 
   return (
     <div className="relative txt-editor flex flex-col h-full">
@@ -595,14 +705,23 @@ export const CodeEditor = memo(({ tabId, content, source, panelId, isActive = tr
           </span>
         </div>
       )}
+      {isApplyingFeatures && (
+        <div className="flex items-center gap-2 px-3 py-1.5 bg-active border-b border-border flex-shrink-0 select-none">
+          <svg className="animate-spin w-3 h-3 text-comment flex-shrink-0" viewBox="0 0 24 24" fill="none">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          </svg>
+          <span className="text-xs text-comment">Applying highlighting & linting…</span>
+        </div>
+      )}
       {canHighlight && !highlighted && (
         <div className="flex items-center gap-3 px-3 py-1.5 bg-active border-b border-border flex-shrink-0 select-none">
-          <span className="text-xs text-comment flex-1">File loaded. Syntax highlighting is off for performance.</span>
+          <span className="text-xs text-comment flex-1">File loaded. Syntax highlighting and linting are off for performance.</span>
           <button
             onClick={handleEnableHighlight}
             className="text-xs px-2 py-0.5 rounded border border-border text-comment hover:text-text hover:border-accent transition-colors"
           >
-            Enable highlighting
+            Enable highlighting & linting
           </button>
         </div>
       )}
