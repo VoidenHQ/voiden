@@ -16,6 +16,7 @@ import { mapErrorToMessage } from "../utils/errorMessages";
 import { requestOrchestrator } from "../requestOrchestrator";
 import { toast } from "@/core/components/ui/sonner";
 import { useVoidenEditorStore } from "@/core/editors/voiden/VoidenEditor";
+import { expandLinkedFilesInDoc } from "@/core/editors/voiden/utils/expandLinkedBlocks";
 
 export const  useSendRestRequest = (_editor: Editor) => {
   // Always use the main VoidenEditor, not the passed editor.
@@ -182,15 +183,28 @@ export const  useSendRestRequest = (_editor: Editor) => {
 
     await showResponsePanel();
 
-    // Count total sections and determine starting index.
-    // If the doc starts with a separator, section 0 is empty — skip it.
+    // Count total sections from the expanded document (linkedFile nodes are inlined so
+    // their request-separator nodes are included in the count).
+    let docForCounting = editor.getJSON();
+    const hasLinkedFiles = docForCounting.content?.some((n: any) => n.type === "linkedFile");
+    if (hasLinkedFiles) {
+      try {
+        docForCounting = await expandLinkedFilesInDoc(docForCounting, (editor as any).schema);
+      } catch {
+        toast.error("Could not load linked files. Fix any broken file links and try again.");
+        return;
+      }
+    }
+
     let sectionCount = 1;
     let firstNodeIsSeparator = false;
     let firstChild = true;
-    editor.state.doc.forEach((child: any) => {
-      if (firstChild && child.type.name === "request-separator") firstNodeIsSeparator = true;
+    // docForCounting is JSON — node type is child.type (string), not child.type.name
+    docForCounting.content?.forEach((child: any) => {
+      const typeName: string = typeof child.type === "string" ? child.type : child.type?.name ?? "";
+      if (firstChild && typeName === "request-separator") firstNodeIsSeparator = true;
       firstChild = false;
-      if (child.type.name === "request-separator") sectionCount++;
+      if (typeName === "request-separator") sectionCount++;
     });
     const startSection = firstNodeIsSeparator ? 1 : 0;
 

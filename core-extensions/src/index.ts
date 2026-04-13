@@ -26,3 +26,6 @@ export { default as voidenScriptingPlugin } from './voiden-scripting';
 export * from './voiden-rest-api';
 export { VoidenRestApiExtension } from './voiden-rest-api';
 
+// Export shared stitch utilities
+export { getBlocksForSection } from './voiden-stitch/lib/stitchEngine';
+

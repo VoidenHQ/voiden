@@ -10,7 +10,7 @@ import { sendRequestHybrid } from "./sendRequestHybrid";
 import type { RequestBuildHandler, ResponseProcessHandler, ResponseSection } from "@voiden/sdk/ui";
 import { requestLogger } from "@/core/lib/logger";
 import { getFirstSectionLabel } from "@/core/editors/voiden/extensions/sectionIndicator";
-import { expandLinkedBlocksInDoc } from "@/core/editors/voiden/utils/expandLinkedBlocks";
+import { expandLinkedBlocksInDoc, expandLinkedFilesInDoc } from "@/core/editors/voiden/utils/expandLinkedBlocks";
 
 interface RequestOrchestrator {
   /** Registered request build handlers from plugins */
@@ -87,11 +87,30 @@ class RequestOrchestratorImpl implements RequestOrchestrator {
     let resolvedSectionLabel: string | undefined;
     const hasSectionInfo = options?.sectionIndex !== undefined || sectionPos !== undefined;
 
+    // Pre-expand linkedFile nodes into their constituent blocks so they participate
+    // in section splitting. Only done when sectionIndex is explicitly provided (i.e.
+    // runAll), not for single-request execution by cursor position (sectionPos), as
+    // that would shift separator indices relative to the original DOM positions.
+    let preExpandedDocForSplit: any = null;
+    if (options?.sectionIndex !== undefined) {
+      try {
+        const rawDoc = editor.getJSON();
+        const hasLinkedFiles = rawDoc.content?.some((n: any) => n.type === "linkedFile");
+        if (hasLinkedFiles) {
+          preExpandedDocForSplit = await expandLinkedFilesInDoc(rawDoc, (editor as any).schema);
+        }
+      } catch (err) {
+        requestLogger.warn("Failed to pre-expand linkedFile nodes:", err);
+      }
+    }
+
     // Cache for expanded JSON so we only expand linked blocks once
     let expandedJsonCache: any = null;
 
     {
-      const originalGetJSON = editor.getJSON.bind(editor);
+      const originalGetJSON = preExpandedDocForSplit
+        ? () => preExpandedDocForSplit
+        : editor.getJSON.bind(editor);
       handlerEditor = Object.create(editor);
 
       // Use direct sectionIndex if provided (DOM-based), otherwise compute from position
@@ -158,7 +177,14 @@ class RequestOrchestratorImpl implements RequestOrchestrator {
     // receive fully-resolved documents without needing direct core imports
     try {
       const rawJson = handlerEditor.getJSON();
-      expandedJsonCache = await expandLinkedBlocksInDoc(rawJson, { forceRefresh: true });
+      let expandedJson = await expandLinkedBlocksInDoc(rawJson, { forceRefresh: true });
+      // For the sectionPos path the doc was not pre-expanded, so any linkedFile blocks
+      // within the scoped section still need to be inlined. For the sectionIndex path
+      // pre-expansion already handled this — the check is a no-op.
+      if (expandedJson.content?.some((n: any) => n.type === "linkedFile")) {
+        expandedJson = await expandLinkedFilesInDoc(expandedJson, (editor as any).schema);
+      }
+      expandedJsonCache = expandedJson;
       // Override getJSON to return the expanded version
       handlerEditor.getJSON = () => expandedJsonCache;
     } catch (error) {

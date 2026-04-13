@@ -1,6 +1,7 @@
 import { JSONContent } from "@tiptap/core";
 import { useBlockContentStore } from "@/core/stores/blockContentStore";
 import { getQueryClient } from "@/main";
+import { parseMarkdown } from "@/core/editors/voiden/markdownConverter";
 
 
 interface ExpandOptions {
@@ -107,6 +108,84 @@ export async function expandLinkedBlocks(
 
   // No expansion needed
   return json;
+}
+
+// Re-export from core-extensions so callers don't need to change their import paths.
+export { getBlocksForSection } from "@voiden/core-extensions";
+
+/**
+ * Expands linkedFile nodes in a document by inlining the referenced file's top-level
+ * blocks into the document content array. This must be called BEFORE section splitting
+ * so that request-separator nodes from the linked file are visible to the orchestrator.
+ *
+ * @param doc    - The editor document JSON
+ * @param schema - TipTap schema used to parse the linked file's markdown
+ * @returns Document with all linkedFile nodes replaced by their constituent blocks
+ */
+export async function expandLinkedFilesInDoc(
+  doc: JSONContent,
+  schema?: any,
+): Promise<JSONContent> {
+  if (!doc.content || !Array.isArray(doc.content)) return doc;
+  if (!doc.content.some((n) => n.type === "linkedFile")) return doc;
+
+  const expandedContent: JSONContent[] = [];
+
+  for (const node of doc.content) {
+    if (node.type === "linkedFile") {
+      const blocks = await fetchLinkedFileBlocks(node, schema);
+      expandedContent.push(...blocks);
+    } else {
+      expandedContent.push(node);
+    }
+  }
+
+  return { ...doc, content: expandedContent };
+}
+
+async function fetchLinkedFileBlocks(node: JSONContent, schema?: any): Promise<JSONContent[]> {
+  const originalFile = node.attrs?.originalFile;
+  const sectionUid: string | null = node.attrs?.sectionUid ?? null;
+  if (!originalFile || !schema) return [];
+
+  try {
+    const queryClient = getQueryClient();
+    const projects = queryClient.getQueryData<{
+      projects: { path: string; name: string }[];
+      activeProject: string;
+    }>(["projects"]);
+    const activeProject = projects?.activeProject;
+    const absolutePath = activeProject
+      ? ((await window.electron?.utils?.pathJoin(activeProject, originalFile)) ?? originalFile)
+      : originalFile;
+
+    const markdown = await window.electron?.voiden?.getBlockContent(absolutePath);
+    if (!markdown || typeof markdown !== "string") return [];
+
+    const parsedDoc = parseMarkdown(markdown, schema);
+    if (!parsedDoc?.content) return [];
+
+    const markImported = (n: JSONContent): JSONContent => ({
+      ...n,
+      attrs: { ...n.attrs, importedFrom: originalFile },
+      ...(n.content && { content: n.content.map(markImported) }),
+    });
+
+    if (sectionUid !== null) {
+      // Section-specific import: return only the blocks for that section.
+      // The parent document already provides the separator before this linkedFile.
+      return getBlocksForSection(parsedDoc.content, sectionUid).map(markImported);
+    }
+
+    // Whole-file import: drop a leading request-separator (parent provides it).
+    const blocks = parsedDoc.content[0]?.type === "request-separator"
+      ? parsedDoc.content.slice(1)
+      : parsedDoc.content;
+
+    return blocks.map(markImported);
+  } catch {
+    return [];
+  }
 }
 
 /**
