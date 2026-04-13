@@ -1,5 +1,5 @@
 import { PanelLeft, Terminal, Github, MessageCircle, PanelRight, GitCompareArrows, Download, icons, Activity, X, GripHorizontal, Trash2, Logs } from "lucide-react";
-import { cn } from "@/core/lib/utils";
+import { cn, isMac } from "@/core/lib/utils";
 import { GitBranchesList } from "@/core/git/components/GitBranchesList";
 import { BranchComparisonDialog } from "@/core/git/components/BranchComparisonDialog";
 import { useSettings } from "@/core/settings/hooks/useSettings";
@@ -14,6 +14,7 @@ import { Kbd } from "@/core/components/ui/kbd";
 import { Tip } from "@/core/components/ui/Tip";
 import { usePluginStore } from "@/plugins";
 import type { StatusBarItem } from "@voiden/sdk/ui";
+import { matchesShortcut, getShortcutLabel } from "@/core/shortcuts";
 
 const handleExternalLink = (url: string) => (e: React.MouseEvent) => {
   e.preventDefault();
@@ -265,7 +266,6 @@ export const StatusBar = ({
   const [isCompareDialogOpen, setIsCompareDialogOpen] = useState(false);
   const [memStats, setMemStats] = useState<{ heap: number; processes: { type: string; mb: number; cpu: number }[] } | null>(null);
   const [updateProgress, setUpdateProgress] = useState<{ percent?: number; bytesPerSecond?: number; transferred?: number; total?: number; status: string } | null>(null);
-  const isMac = navigator?.userAgent?.toLowerCase().includes("mac") ?? false;
 
   const handleCheckForUpdates = async () => {
     if (isCheckingUpdates) return;
@@ -328,26 +328,14 @@ export const StatusBar = ({
         return;
       }
 
-      const modKey = isMac ? event.metaKey : event.ctrlKey;
-
-      if (event.code === "KeyD" && modKey && event.altKey) {
+      if (matchesShortcut("ToggleCompareBranches", event)) {
         event.preventDefault();
         setIsCompareDialogOpen((open) => !open);
         return;
       }
-      if (target?.closest('.cm-editor, .txt-editor')) {
-        return;
-      }
 
-      const modifierPressed = isMac ? event.metaKey : event.ctrlKey;
-
-      const hasOtherModifiers =
-        (isMac && event.ctrlKey) || // Ctrl on Mac
-        (!isMac && event.metaKey) || // Cmd on Windows/Linux
-        event.altKey ||
-        event.shiftKey;
-
-      if (modifierPressed && !hasOtherModifiers && event.key.toLowerCase() === 'b') {
+      // TODO: Duplicate shortcut for toggle sidebar?
+      if (matchesShortcut("ToggleSidebar", event)) {
         event.preventDefault();
         event.stopPropagation();
         toggleLeft();
@@ -355,14 +343,14 @@ export const StatusBar = ({
     };
     document.addEventListener("keydown", down);
     return () => document.removeEventListener("keydown", down);
-  }, [isMac]);
+  }, []);
 
   return (
     <>
     <div className="h-8 flex-none border-t border-border flex items-center justify-between bg-panel">
       {/* Left Status Items */}
       <div className="flex items-center h-full">
-        <Tip label={<span className="flex items-center gap-2"><span>Toggle left panel</span><Kbd keys={'⌘B'} size="sm" /></span>}>
+        <Tip label={<span className="flex items-center gap-2"><span>Toggle left panel</span><Kbd keys={getShortcutLabel("ToggleSidebar")} size="sm" /></span>}>
           <button className={cn("h-full px-2 hover:bg-active text-comment", !isLeftCollapsed && "bg-active")} onClick={toggleLeft}>
             <PanelLeft size={14} />
           </button>
@@ -370,7 +358,7 @@ export const StatusBar = ({
 
         <GitBranchesList />
 
-        <Tip label={<span className="flex items-center gap-2"><span>Compare branches</span><Kbd keys={'⌥⌘D'} size="sm" /></span>}>
+        <Tip label={<span className="flex items-center gap-2"><span>Compare branches</span><Kbd keys={getShortcutLabel("ToggleCompareBranches")} size="sm" /></span>}>
           <button
             className={cn("text-sm h-full px-2 flex items-center gap-2 hover:bg-active no-drag text-comment")}
             onClick={() => setIsCompareDialogOpen(true)}
@@ -537,7 +525,7 @@ export const StatusBar = ({
           </Tip>
 
           {/* Bottom Panel Toggle */}
-          <Tip label={<span className="flex items-center gap-2"><span>Toggle terminal</span><Kbd keys={'⌘J'} size="sm" /></span>} align="end">
+          <Tip label={<span className="flex items-center gap-2"><span>Toggle terminal</span><Kbd keys={getShortcutLabel("ToggleTerminal")} size="sm" /></span>} align="end">
             <button
               className={cn(
                 "h-full px-2 hover:bg-active text-comment",
@@ -588,7 +576,7 @@ export const StatusBar = ({
           </Tip>
 
           {/* Response Panel — open/close in current position */}
-          <Tip label={<span className="flex items-center gap-2"><span>Toggle response panel</span><Kbd keys={'⌘Y'} size="sm" /></span>} align="end">
+          <Tip label={<span className="flex items-center gap-2"><span>Toggle response panel</span><Kbd keys={getShortcutLabel("ToggleResponsePanel")} size="sm" /></span>} align="end">
             <button
               className={cn(
                 "h-full px-2 hover:bg-active text-comment",

@@ -10,6 +10,7 @@ import { Separator } from "@/core/components/ui/separator.tsx";
 import { Sheet, SheetContent } from "@/core/components/ui/sheet.tsx";
 import { Skeleton } from "@/core/components/ui/skeleton.tsx";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/core/components/ui/tooltip.tsx";
+import { matchesShortcut } from "@/core/shortcuts";
 
 const SIDEBAR_COOKIE_NAME = "sidebar:state";
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7;
@@ -82,17 +83,7 @@ const SidebarProvider = React.forwardRef<
       }
 
       // Check for Cmd+B (Mac) or Ctrl+B (Windows/Linux)
-      const isMac = navigator.platform ? navigator.platform.toLowerCase().includes('mac') : false;
-      const modifierPressed = isMac ? event.metaKey : event.ctrlKey;
-
-      // Ensure it's exactly Cmd/Ctrl + B (no other modifiers like Shift or Alt)
-      const hasOtherModifiers =
-        (isMac && event.ctrlKey) || // Ctrl on Mac
-        (!isMac && event.metaKey) || // Cmd on Windows/Linux
-        event.altKey ||
-        event.shiftKey;
-
-      if (modifierPressed && !hasOtherModifiers && event.key.toLowerCase() === 'b') {
+      if (matchesShortcut("ToggleSidebar", event)) {
         event.preventDefault();
         event.stopPropagation();
         toggleSidebar();

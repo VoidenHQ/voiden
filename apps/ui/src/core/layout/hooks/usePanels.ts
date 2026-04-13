@@ -6,6 +6,7 @@ import { getResponsePanelPosition } from "@/core/stores/responsePanelPosition";
 import { useGetPanelTabs } from "./usePanelTabs";
 import { useNewTerminalTab } from "@/core/terminal/hooks";
 import { useGetAppState } from "@/core/state/hooks";
+import { matchesShortcut } from "@/core/shortcuts";
 
 const STORAGE_KEYS = {
   LEFT_PANEL: "novus:left-panel-collapsed",
@@ -44,8 +45,6 @@ export const useLeftPanel = ({ defaultSize = 20, minSize = 0 }: UseLeftPanelProp
 
   // Keyboard shortcut: Cmd+Shift+E
   useEffect(() => {
-    const isMac = navigator.userAgent ? navigator.userAgent.toLowerCase().includes("mac") : true;
-
     const handleKeyDown = (e: KeyboardEvent) => {
       // Don't trigger if focus is in a CodeMirror editor
       const target = e.target as HTMLElement;
@@ -53,9 +52,7 @@ export const useLeftPanel = ({ defaultSize = 20, minSize = 0 }: UseLeftPanelProp
         return;
       }
 
-      const key = e.key.toLowerCase();
-      const isSidebarShortcut = key === "e" && e.shiftKey && ((isMac && e.metaKey) || (!isMac && e.ctrlKey));
-
+      const isSidebarShortcut = matchesShortcut("ToggleExplorer", e);
       if (isSidebarShortcut) {
         e.preventDefault();
         toggle();
@@ -196,7 +193,7 @@ export const useBottomPanel = ({ defaultSize = 0, minSize = 20, panelId = "botto
         return;
       }
 
-      if ((e.metaKey || e.ctrlKey) && e.key === "j") {
+      if (matchesShortcut("ToggleTerminal", e)) {
         e.preventDefault();
         handleToggleBottomPanel();
       }
@@ -282,7 +279,7 @@ export const useRightPanel = ({ defaultSize = 0, minSize = 30 }: UseRightPanelPr
         return;
       }
 
-      if ((e.metaKey || e.ctrlKey) && e.key === "y") {
+      if (matchesShortcut("ToggleResponsePanel", e)) {
         e.preventDefault();
         const { setBottomActiveView, openBottomPanel, bottomPanelRef, bottomActiveView } = usePanelStore.getState();
         const responsePanelPosition = getResponsePanelPosition();
