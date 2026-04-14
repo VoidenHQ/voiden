@@ -5,8 +5,7 @@ import { useGetProjects, useSetActiveProject, removeProjectFromList } from "@/co
 import { X, Folder, Check } from "lucide-react";
 import { Kbd } from "@/core/components/ui/kbd";
 import { Tip } from "@/core/components/ui/Tip";
-
-const SHORTCUT_KEYS = "⌥⌘O";
+import { matchesShortcut, getShortcutLabel } from "@/core/shortcuts";
 
 export const RecentProjectsSelector = () => {
   const { data: projects, refetch } = useGetProjects();
@@ -14,12 +13,8 @@ export const RecentProjectsSelector = () => {
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
-    const isMac = navigator.userAgent ? navigator.userAgent.toLowerCase().includes("mac") : true;
-
     const down = (e: KeyboardEvent) => {
-      const isToggleShortcut = e.code === "KeyO" && ((isMac && e.metaKey && e.altKey) || (!isMac && e.ctrlKey && e.altKey));
-
-      if (isToggleShortcut) {
+      if (matchesShortcut("ToggleRecentProjectsSelector", e)) {
         e.preventDefault();
         setOpen((open) => !open);
       }
@@ -52,7 +47,7 @@ export const RecentProjectsSelector = () => {
   if (!projects) return null;
   return (
     <>
-      <Tip label={<span className="flex items-center gap-2"><span>Open recent project</span><Kbd keys={SHORTCUT_KEYS} size="sm" /></span>}>
+      <Tip label={<span className="flex items-center gap-2"><span>Open recent project</span><Kbd keys={getShortcutLabel("ToggleRecentProjectsSelector")} size="sm" /></span>}>
         <button
           className={cn(
             "text-sm h-full px-2 flex items-center gap-2 hover:bg-active no-drag text-comment",
@@ -145,7 +140,7 @@ export const RecentProjectsSelector = () => {
                   <div className="flex items-center justify-between text-comment">
                     <span className="text-xs">Use ↑↓ to navigate • Enter to select</span>
                     <span className="flex items-center gap-1.5">
-                      <Kbd keys={SHORTCUT_KEYS} size="sm" />
+                      <Kbd keys={getShortcutLabel("ToggleRecentProjectsSelector")} size="sm" />
                       <span className="text-xs">to toggle</span>
                     </span>
                   </div>

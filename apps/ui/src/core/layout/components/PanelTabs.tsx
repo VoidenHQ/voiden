@@ -20,7 +20,7 @@ import {
   Blocks,
   Terminal,
 } from "lucide-react";
-import { cn } from "@/core/lib/utils";
+import { cn, isMac } from "@/core/lib/utils";
 import { useActivateTab, useGetPanelTabs, useClosePanelTab, useDuplicatePanelTab, useReloadPanelTab, useSetTabsOrder, useClosePanelTabs } from "@/core/layout/hooks";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import { useEditorStore } from "@/core/editors/voiden/VoidenEditor";
@@ -33,6 +33,7 @@ import { getQueryClient } from "@/main";
 import { Kbd } from "@/core/components/ui/kbd";
 import { Tip } from "@/core/components/ui/Tip";
 import { useSettings } from "@/core/settings/hooks/useSettings";
+import { matchesShortcut, getShortcutLabel } from "@/core/shortcuts";
 
 const PANEL_STATES_KEY = "panelStates";
 
@@ -243,7 +244,6 @@ const TabComponent = ({
     });
     closeTabs(panel, tabsClosed);
   };
-  const isMac = navigator.platform ? navigator.platform.toLowerCase().includes("mac") : false;
 
   const handleMouseDown = (e: React.MouseEvent) => {
     // Middle click
@@ -321,7 +321,7 @@ const TabComponent = ({
             {getTabIcon(tab)}
             <span className="truncate">{tab.title}</span>
           </div>
-          <Tip label={<><span>Close tab</span>{isActive && <span className="ml-4">{isMac ? "⌘W" : "Ctrl+W"}</span>}</>} side="bottom">
+          <Tip label={<><span>Close tab</span>{isActive && <span className="ml-4">{getShortcutLabel("CloseTab")}</span>}</>} side="bottom">
             <button className="p-0.5 hover:bg-active rounded-sm opacity-0 group-hover:opacity-100" onClick={handleClose}>
               <X size={14} className="text-comment" strokeWidth={2.5} />
             </button>
@@ -413,7 +413,6 @@ export const PanelTabs = ({ panel }: { panel: string }) => {
     }
     return unsaved;
   };
-  const isMac = navigator.platform ? navigator.platform.toLowerCase().includes("mac") : false;
 
   const transparentImage = new Image();
   transparentImage.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
@@ -548,7 +547,7 @@ export const PanelTabs = ({ panel }: { panel: string }) => {
 
       // Allow Cmd+W to work even in CodeMirror/txt editors
       // But block other shortcuts when in code editors
-      const isCloseTabShortcut = ((isMac && e.metaKey) || (!isMac && e.ctrlKey)) && e.key.toLowerCase() === "w";
+      const isCloseTabShortcut = matchesShortcut("CloseTab", e);
 
       if (isInCodeEditor && !isCloseTabShortcut) {
         return;
@@ -558,7 +557,7 @@ export const PanelTabs = ({ panel }: { panel: string }) => {
       if (panel !== "main" && panel !== "bottom") return;
 
       // Handle Reload Tab shortcut (Cmd/Ctrl + R)
-      if ((isMac ? e.metaKey : e.ctrlKey) && e.key.toLowerCase() === "r") {
+      if (matchesShortcut("ReloadTab", e)) {
         e.preventDefault();
         if (tabs && tabs.activeTabId) {
           const activeTab = tabs.tabs.find((t: Tab) => t.id === tabs.activeTabId);
@@ -571,15 +570,7 @@ export const PanelTabs = ({ panel }: { panel: string }) => {
         return;
       }
 
-      const wPressedWithModifier = (isMac && e.metaKey) || (!isMac && e.ctrlKey);
-
-      if (wPressedWithModifier && e.key.toLowerCase() === "w") {
-        const hasOtherModifiers = (!isMac && e.metaKey) || (isMac && e.ctrlKey) || e.altKey || e.shiftKey;
-
-        if (hasOtherModifiers) {
-          return;
-        }
-
+      if (matchesShortcut("CloseTab", e)) {
         e.preventDefault();
 
         if (rPressed.current) {

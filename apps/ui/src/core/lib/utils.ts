@@ -28,3 +28,5 @@ export const getDocumentJSONFromBinary = (data: ArrayBuffer): JSONContent => {
     return {};
   }
 };
+
+export const isMac = window.electron?.platform === "darwin";

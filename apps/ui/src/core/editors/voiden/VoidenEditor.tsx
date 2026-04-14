@@ -133,6 +133,7 @@ import { usePanelStore } from "@/core/stores/panelStore";
 import { useGetActiveDocument } from "@/core/documents/hooks";
 import { useVoidVariables } from "@/core/runtimeVariables/hook/useVariableCapture";
 import { useQueryClient } from "@tanstack/react-query";
+import { matchesShortcut } from "@/core/shortcuts";
 
 interface VoidenEditorStore {
   editor: Editor | null;
@@ -439,11 +440,8 @@ const VoidenEditorInner = ({
         return;
       }
 
-      const key = e.key.toLowerCase();
-      const mod = isMac ? e.metaKey : e.ctrlKey;
-
       // Cmd/Ctrl+F: Open find (without replace)
-      if (mod && key === "f" && hasSearch && !e.shiftKey) {
+      if (matchesShortcut("Find", e) && hasSearch) {
         e.preventDefault();
         setShowFind(true);
         setShowReplaceSection(false);
@@ -452,7 +450,7 @@ const VoidenEditorInner = ({
       }
 
       // Cmd/Ctrl+H: Open find and replace
-      if (mod && key === "h" && hasSearch) {
+      if (matchesShortcut("FindAndReplace", e) && hasSearch) {
         e.preventDefault();
         setShowFind(true);
         setShowReplaceSection(true);
@@ -461,7 +459,7 @@ const VoidenEditorInner = ({
       }
 
       // Cmd/Ctrl+G: Find next (only when find panel is open)
-      if (mod && key === "g" && showFind && !e.shiftKey) {
+      if (matchesShortcut("FindNext", e) && showFind) {
         e.preventDefault();
         if (matchPositions.length > 0) {
           const nextIndex = (currentMatch + 1) % matchPositions.length;
@@ -471,7 +469,7 @@ const VoidenEditorInner = ({
       }
 
       // Shift+Cmd/Ctrl+G: Find previous (only when find panel is open)
-      if (mod && key === "g" && showFind && e.shiftKey) {
+      if (matchesShortcut("FindPrev", e) && showFind) {
         e.preventDefault();
         if (matchPositions.length > 0) {
           const prevIndex = (currentMatch - 1 + matchPositions.length) % matchPositions.length;

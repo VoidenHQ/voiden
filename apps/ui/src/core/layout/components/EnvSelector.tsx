@@ -7,6 +7,7 @@ import { useAddPanelTab, useActivateTab, useGetPanelTabs } from "@/core/layout/h
 import { ChevronRight, FileText, Ban, Check, Settings2, Layers } from "lucide-react";
 import { Kbd } from "@/core/components/ui/kbd";
 import { Tip } from "@/core/components/ui/Tip";
+import { matchesShortcut, getShortcutLabel } from "@/core/shortcuts";
 
 export const EnvSelector = () => {
   const queryClient = useQueryClient();
@@ -37,10 +38,7 @@ export const EnvSelector = () => {
       }
 
       // ⌥⌘E (Mac) or Alt+Ctrl+E (Windows/Linux) to toggle
-      const isMac = navigator.platform ? navigator.platform.toLowerCase().includes('mac') : false;
-      const modKey = isMac ? e.metaKey : e.ctrlKey;
-
-      if (e.code === "KeyE" && modKey && e.altKey) {
+      if (matchesShortcut("ToggleEnvSelector", e)) {
         e.preventDefault();
         setOpen((open) => !open);
       }
@@ -81,7 +79,7 @@ export const EnvSelector = () => {
       <div className="px-1">
         <ChevronRight size={14} className="text-comment" />
       </div>
-      <Tip label={<span className="flex items-center gap-2"><span>Select an environment</span><Kbd keys="⌥⌘E" size="sm" /></span>}>
+      <Tip label={<span className="flex items-center gap-2"><span>Select an environment</span><Kbd keys={getShortcutLabel("ToggleEnvSelector")} size="sm" /></span>}>
         <button
           className={cn("text-sm h-full px-2 flex items-center gap-2 hover:bg-active no-drag", !envs?.activeEnv && "text-comment")}
           onClick={() => setOpen(true)}
@@ -233,7 +231,7 @@ export const EnvSelector = () => {
                       Edit Environments & Profiles
                     </button>
                     <span className="flex items-center gap-1.5">
-                      <Kbd keys="⌥⌘E" size="sm" />
+                      <Kbd keys={getShortcutLabel("ToggleEnvSelector")} size="sm" />
                       <span className="text-sm">to toggle</span>
                     </span>
                   </div>

@@ -471,6 +471,7 @@ declare global {
         subscribe: (callback: (processes: any[]) => void) => () => void;
       };
     };
+    platform: NodeJS.Platform;
   }
 }
 

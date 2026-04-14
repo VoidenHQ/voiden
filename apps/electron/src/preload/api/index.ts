@@ -61,4 +61,5 @@ export const electronApi = {
   mainwindow: mainWindow,
   logger: loggerAPI,
   processMonitor: processMonitorAPI,
+  platform: process.platform,
 };

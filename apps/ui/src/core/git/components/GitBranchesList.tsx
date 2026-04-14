@@ -7,6 +7,7 @@ import { useGetProjects } from "@/core/projects/hooks";
 import { toast } from "@/core/components/ui/sonner";
 import { Kbd } from "@/core/components/ui/kbd";
 import { Tip } from "@/core/components/ui/Tip";
+import { matchesShortcut, getShortcutLabel } from "@/core/shortcuts";
 
 type Step =
   | { type: "main" }
@@ -38,10 +39,7 @@ export const GitBranchesList = () => {
       const target = e.target as HTMLElement;
       if (target?.closest('.cm-editor, .txt-editor')) return;
 
-      const isMac = navigator.platform ? navigator.platform.toLowerCase().includes('mac') : false;
-      const modKey = isMac ? e.metaKey : e.ctrlKey;
-
-      if (e.code === "KeyB" && modKey && e.altKey) {
+      if (matchesShortcut("ToggleCheckoutBranch", e)) {
         e.preventDefault();
         setOpen((open) => !open);
       }
@@ -157,7 +155,7 @@ export const GitBranchesList = () => {
 
   return (
     <>
-      <Tip label={<span className="flex items-center gap-2"><span>Checkout branch</span><Kbd keys="⌥⌘B" size="sm" /></span>}>
+      <Tip label={<span className="flex items-center gap-2"><span>Checkout branch</span><Kbd keys={getShortcutLabel("ToggleCheckoutBranch")} size="sm" /></span>}>
         <button
           className={cn("text-sm h-full px-2 flex items-center gap-2 hover:bg-active no-drag text-comment", !data?.activeBranch && "text-comment")}
           onClick={() => setOpen(true)}

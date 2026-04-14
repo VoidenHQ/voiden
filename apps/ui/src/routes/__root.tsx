@@ -9,6 +9,7 @@ import { useState, useEffect } from "react";
 import { CommandPalette } from "@/core/components/CommandPalette";
 import { HelpModal } from "@/core/help/HelpModal";
 import { useHistoryTabSync } from "@/core/layout/hooks";
+import { matchesShortcut } from "@/core/shortcuts";
 
 export const Route = createRootRouteWithContext<{
   queryClient: QueryClient;
@@ -27,7 +28,9 @@ export const Route = createRootRouteWithContext<{
     useEffect(() => {
       const handleKeyDown = (e: KeyboardEvent) => {
         // Cmd+P or Ctrl+P - check for both with and without shift
-        if ((e.metaKey || e.ctrlKey) && (e.key === 'p' || e.key === 'P')) {
+        const isCommandModeShortcut = matchesShortcut("CommandPaletteCommands", e);
+        const isFileModeShortcut = matchesShortcut("CommandPaletteFiles", e);
+        if (isCommandModeShortcut || isFileModeShortcut) {
           e.preventDefault();
 
           // Close help modal if it's open
@@ -35,7 +38,7 @@ export const Route = createRootRouteWithContext<{
             setHelpModalOpen(false);
           }
 
-          if (e.shiftKey) {
+          if (isCommandModeShortcut) {
             // Cmd+Shift+P - Command mode
             setPaletteMode('commands');
           } else {
