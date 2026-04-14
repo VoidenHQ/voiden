@@ -1,7 +1,7 @@
 [
   {
     "version": "v1.4.5",
-    "date": "13/04/2026",
+    "date": "14/04/2026",
     "title": "File Import, Highlight Fixes & Editor Polish",
     "description": "Patch release with collapsible whole-file and section imports, highlight persistence fixes, imported file play button, and editor input improvements.",
     "icon": "RefreshCw",
