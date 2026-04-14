@@ -75,6 +75,10 @@ export function extractFieldValue(field: string, context: AssertionContext): any
   }
 
   // Handle body field access
+  if (normalizedField === 'body' || normalizedField === 'response.body') {
+    return context.response.body;
+  }
+
   if (normalizedField.startsWith('body.') || normalizedField.startsWith('response.body.')) {
     const bodyPath = normalizedField.replace(/^(response\.)?body\./, '');
     return extractFromObject(context.response.body, bodyPath);
