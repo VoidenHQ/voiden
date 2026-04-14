@@ -110,8 +110,11 @@ const voidenTheme: Extension = createTheme({
   styles: quietlightStyle,
 });
 
+const JSON_LINT_SIZE_LIMIT = 500 * 1024;
+
 // Helper function to create a linter for JSON
 const jsonLinter = linter((view) => {
+  if (view.state.doc.length > JSON_LINT_SIZE_LIMIT) return [];
   try {
     JSON.parse(view.state.doc.toString());
     return [];

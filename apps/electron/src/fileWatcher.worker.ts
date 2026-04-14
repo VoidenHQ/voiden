@@ -151,6 +151,7 @@ function startWatching(projectPath: string, watcherId: string) {
       if (isVoidFile(filePath)) send("event", { channel: "apy:changed", data: { path: filePath, project: projectPath, watcherId } });
       else if (isEnvFile(filePath)) send("event", { channel: "env:changed", data: { path: filePath, project: projectPath, watcherId } });
       else if (isGitRelated(filePath)) emitGitChangedDebounced({ path: filePath });
+      else send("event", { channel: "file:changed", data: { path: filePath, project: projectPath, watcherId } });
     })
     .on("unlink", (filePath) => {
       if (isDeletingActive(filePath)) return;

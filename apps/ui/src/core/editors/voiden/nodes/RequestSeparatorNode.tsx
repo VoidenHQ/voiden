@@ -22,6 +22,13 @@ const RequestSeparatorView = (props: NodeViewProps) => {
   const { settings } = useSettings();
   const alignment = settings?.appearance?.separator_alignment ?? "center";
 
+  // Auto-assign a uid if missing (handles older .void files that pre-date uid support)
+  useEffect(() => {
+    if (!node.attrs.uid && editor.isEditable) {
+      updateAttributes({ uid: crypto.randomUUID() });
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Read section color from decoration data attribute (set by sectionIndicator plugin)
   useEffect(() => {
     const el = wrapperRef.current;
@@ -167,6 +174,12 @@ export const RequestSeparatorNode = Node.create({
 
   addAttributes() {
     return {
+      uid: {
+        default: null,
+        // Auto-generate a uid when one isn't present (e.g. older files without uid)
+        parseHTML: (element) => element.getAttribute("data-uid") || null,
+        renderHTML: (attributes) => attributes.uid ? { "data-uid": attributes.uid } : {},
+      },
       colorIndex: {
         default: 0,
       },

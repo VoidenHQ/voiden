@@ -1,5 +1,32 @@
 [
   {
+    "version": "v1.4.5",
+    "date": "13/04/2026",
+    "title": "File Import, Highlight Fixes & Editor Polish",
+    "description": "Patch release with collapsible whole-file and section imports, highlight persistence fixes, imported file play button, and editor input improvements.",
+    "icon": "RefreshCw",
+    "iconColor": "text-cyan-400",
+    "bgColor": "bg-gradient-to-br from-cyan-900 to-teal-900",
+    "changes": {
+      "Added": [
+        "Import whole file or section — @ file suggestions now support importing an entire .void file or a specific named section, both rendered as a collapsible linked block",
+        "External file change detection — when a .void file is modified on disk by an external process, clean tabs silently reload the latest content while dirty tabs show a toast prompting you to overwrite with the disk version or keep your unsaved changes",
+        "On-activation content sync — switching back to a clean Voiden tab compares the editor content against disk and silently applies any changes that occurred while the tab was hidden",
+        "External file change detection for all file types — both .void and code editor tabs now detect disk changes and refresh automatically"
+      ],
+      "Fixed": [
+        "Enter key now works correctly when the autocomplete dropdown has no suggestions — previously the key event was consumed by the suggestion handler even when there was nothing to select, blocking newlines and other Enter-triggered actions",
+        "Play button on imported file blocks now correctly executes the request",
+        "Variable and environment highlights no longer disappear after saving or switching tabs",
+        "Importing an empty .void file no longer shows a 'Cannot load linked file' error",
+        "Current file is now excluded from @ file import suggestions",
+        "Enter key in table cells now navigates to the next cell instead of inserting a newline",
+        "Runtime variables table cell borders now match other request-block tables",
+        "Simple assertions now work correctly on plain-text response bodies — asserting against body or response.body no longer fails when the response is not JSON"
+      ]
+    }
+  },
+  {
   "version": "v1.4.4",
   "date": "09/04/2026",
   "title": "OAuth2 Auto-Fire, File Tree Reflection & Large File Import",
@@ -261,10 +288,6 @@
     }
   },
   {
-    "version": "v1.2.0-beta.1",
-    "date": "24/02/2026",
-    "title": "Scripting, Navigation & UX Enhancements",
-    "description": "Beta release introducing pre/post request scripting, YAML environment configuration, improved file explorer navigation, drag-and-drop file management, YAML content-type support, and response preview improvements.",
     "version": "v1.2.0",
     "date": "03/03/2026",
     "title": "Scripting, Navigation & UX Enhancements",

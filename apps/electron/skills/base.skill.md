@@ -181,6 +181,77 @@ attrs:
 
 Blocks that were pulled in via a `linkedBlock` carry `importedFrom` on their attrs (e.g. `importedFrom: "/shared/base-headers.void"`). This is set **automatically by Voiden** when resolving links — never set it manually when generating `.void` files.
 
+### linkedFile — Import a File or Section
+
+Use `linkedFile` to dynamically import a `.void` file (or a specific section of one) into the current document. The imported content is displayed read-only and collapsible, and runs as part of **Run All** in document order.
+
+A `linkedFile` is always preceded by a `request-separator` that acts as its section boundary. The separator's `label` names the section; the `linkedFile` provides the content.
+
+| Attr | Description |
+|------|-------------|
+| `uid` | Fresh UUID v4 for this `linkedFile` instance |
+| `originalFile` | Path to the target file from the **project root** (e.g. `/auth/session.void`) |
+| `sectionUid` | *(optional)* The `uid` of a `request-separator` in the target file. When set, only blocks from that section are imported. Omit (or `null`) to import the whole file. |
+
+**Behaviour:**
+- The imported content is shown read-only, collapsible, under a separator-styled header.
+- When **Run All** is triggered, the linked content runs as part of the normal section sequence.
+- Clicking the filename opens the linked file in its own tab.
+- Changes to the target file are automatically reflected — no re-linking needed.
+- If the target file's first block is a `request-separator`, it is dropped on expansion (the parent separator serves as the section boundary).
+
+**Whole-file import** — use for single-section files (files containing no `request-separator` nodes):
+
+```yaml
+---
+type: request-separator
+attrs:
+  uid: c18a4ff7-0f03-40d7-a82c-32e716968e34
+  colorIndex: 0
+  label: "session"
+---
+```
+
+```yaml
+---
+type: linkedFile
+attrs:
+  uid: 79fcc235-7cca-4612-8053-dcc5d8691cc3
+  originalFile: /auth/session.void
+  sectionUid: null
+---
+```
+
+**Section-specific import** — use for multi-section files; `sectionUid` is the `uid` of the target `request-separator`:
+
+```yaml
+---
+type: request-separator
+attrs:
+  uid: c18a4ff7-0f03-40d7-a82c-32e716968e35
+  colorIndex: 0
+  label: "Login"
+---
+```
+
+```yaml
+---
+type: linkedFile
+attrs:
+  uid: 14d9c721-f84b-4103-ad66-1d645218c469
+  originalFile: /ike/web/auth/login_ADMIN_SSO.void
+  sectionUid: 9830f1a2-cc45-4b67-de89-f01234567890
+---
+```
+
+**How to generate a `linkedFile` in code:**
+1. Read the target file to find the `request-separator` uid (for section imports) or confirm it has no separators (for whole-file imports).
+2. Generate a fresh UUID for `uid`.
+3. Set `originalFile` to the project-root-relative path.
+4. Set `sectionUid` to the separator's `uid`, or `null` for whole-file.
+5. Prepend a `request-separator` block with a descriptive `label`, with a colorIndex unique in the file.
+6. Place the pair at the top level of the document (never inside a `request` block).
+
 ## File Naming
 
 - kebab-case: `list-users.void`, `get-user.void`, `create-order.void`

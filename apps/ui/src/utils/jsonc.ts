@@ -166,7 +166,10 @@ export function stripComments(jsonString: string) {
 
 export default linter;
 
+const JSON_LINT_SIZE_LIMIT = 500 * 1024;
+
 export const jsonCLinter = async (view: EditorView) => {
+  if (view.state.doc.length > JSON_LINT_SIZE_LIMIT) return [];
   const diagnostics: Diagnostic[] = [];
   const code = view.state.doc.toString();
 

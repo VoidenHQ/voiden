@@ -185,7 +185,14 @@ export async function runStitch(
           throw new Error(`Failed to parse void file: ${file.source}`);
         }
 
-        // Pre-expand linked blocks before creating the headless editor.
+        // Pre-expand linkedFile nodes (inline entire referenced files).
+        try {
+          docJson = await expandLinkedFilesForStitch(docJson, allVoidFilesByPath, schema, parseMarkdown);
+        } catch (err) {
+          console.warn('[voiden-stitch] Failed to expand linked files for', file.relativePath, err);
+        }
+
+        // Pre-expand linkedBlock nodes.
         try {
           docJson = await expandLinkedBlocksForStitch(docJson, file.source, allVoidFilesByPath, schema, parseMarkdown);
         } catch (err) {
@@ -402,6 +409,90 @@ function extractAssertionResults(response: any): {
   };
 }
 
+/** Returns blocks belonging to the section introduced by the separator with the given uid. */
+export function getBlocksForSection(content: any[], sectionUid: string): any[] {
+  let inSection = false;
+  const blocks: any[] = [];
+  for (const node of content) {
+    if (node.type === 'request-separator') {
+      if (inSection) break;
+      if (node.attrs?.uid === sectionUid) inSection = true;
+    } else if (inSection) {
+      blocks.push(node);
+    }
+  }
+  return blocks;
+}
+
+/**
+ * Expand linkedFile nodes in document JSON by inlining each referenced file's blocks.
+ * Uses the stitch engine's allVoidFilesByPath cache so no extra IPC calls are needed.
+ */
+async function expandLinkedFilesForStitch(
+  json: any,
+  filesByPath: Map<string, any>,
+  schema: any,
+  parseMarkdownFn: (markdown: string, schema: any) => any,
+): Promise<any> {
+  if (!json?.content || !Array.isArray(json.content)) return json;
+  if (!json.content.some((n: any) => n.type === 'linkedFile')) return json;
+
+  const expandedContent: any[] = [];
+
+  for (const node of json.content) {
+    if (node.type !== 'linkedFile') {
+      expandedContent.push(node);
+      continue;
+    }
+
+    const originalFile = node.attrs?.originalFile;
+    const sectionUid: string | null = node.attrs?.sectionUid ?? null;
+    if (!originalFile) continue;
+
+    try {
+      const normalizedFile = originalFile.replace(/\\/g, '/').replace(/^\//, '');
+      const sourceFile = filesByPath.get(originalFile) || filesByPath.get(normalizedFile);
+
+      if (!sourceFile) {
+        console.warn('[voiden-stitch] Could not find linked file:', originalFile);
+        continue;
+      }
+
+      let content = sourceFile.content;
+      if (!content) {
+        content = await (window as any).electron?.files?.read?.(sourceFile.source);
+      }
+      if (!content) continue;
+
+      const parsed = parseMarkdownFn(content, schema);
+      if (!parsed?.content) continue;
+
+      const markImported = (n: any): any => ({
+        ...n,
+        attrs: { ...n.attrs, importedFrom: originalFile },
+        ...(n.content && { content: n.content.map(markImported) }),
+      });
+
+      let blocks: any[];
+      if (sectionUid !== null) {
+        // Section-specific import: extract only that section's blocks.
+        blocks = getBlocksForSection(parsed.content, sectionUid);
+      } else {
+        // Whole-file import: drop leading request-separator (parent provides it).
+        blocks = parsed.content[0]?.type === 'request-separator'
+          ? parsed.content.slice(1)
+          : parsed.content;
+      }
+
+      expandedContent.push(...blocks.map(markImported));
+    } catch (err) {
+      console.warn('[voiden-stitch] Error expanding linked file:', originalFile, err);
+    }
+  }
+
+  return { ...json, content: expandedContent };
+}
+
 /**
  * Expand linkedBlock nodes in document JSON using the stitch engine's own file cache.
  * This avoids the path resolution issues in the core expandLinkedBlocksInDoc when
@@ -458,7 +549,7 @@ async function expandLinkedBlocksForStitch(
       const markImported = (node: any): any => ({
         ...node,
         attrs: { ...node.attrs, importedFrom: originalFile },
-        content: node.content?.map(markImported),
+        ...(node.content && { content: node.content.map(markImported) }),
       });
       return markImported(expanded);
     } catch (err) {

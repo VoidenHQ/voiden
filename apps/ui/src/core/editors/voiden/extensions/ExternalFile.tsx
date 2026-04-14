@@ -94,6 +94,49 @@ export interface BlockSection {
 }
 
 /**
+ * Extracts section labels and indices from a .void file with request-separator nodes.
+ * Used to present section-level import options in the @ picker for multi-section files.
+ * Section 0 = content after the first separator (or the whole content if no separator).
+ */
+export function extractAllSections(pmJSON: JSONContent): Array<{ label: string; sectionUid: string; blocks: JSONContent[] }> {
+  if (!pmJSON?.content || !Array.isArray(pmJSON.content)) return [];
+
+  const linkableNodeTypes = getLinkableNodeTypes();
+  const result: Array<{ label: string; sectionUid: string; blocks: JSONContent[] }> = [];
+  let currentLabel = "Request";
+  let currentUid: string | null = null;
+  let currentBlocks: JSONContent[] = [];
+  let currentHasLinkedFile = false;
+  let isFirstNode = true;
+
+  for (const node of pmJSON.content) {
+    if (node.type === "request-separator") {
+      if (!isFirstNode && currentUid && !currentHasLinkedFile) {
+        result.push({ label: currentLabel, sectionUid: currentUid, blocks: currentBlocks });
+      }
+      currentBlocks = [];
+      currentHasLinkedFile = false;
+      isFirstNode = false;
+      currentLabel = node.attrs?.label || "Request";
+      currentUid = node.attrs?.uid ?? null;
+    } else {
+      isFirstNode = false;
+      if (node.type === "linkedFile") {
+        currentHasLinkedFile = true;
+      } else if (node.type !== "linkedBlock" && linkableNodeTypes.includes(node.type || '')) {
+        currentBlocks.push(node);
+      }
+    }
+  }
+
+  if (currentUid && !currentHasLinkedFile) {
+    result.push({ label: currentLabel, sectionUid: currentUid, blocks: currentBlocks });
+  }
+
+  return result;
+}
+
+/**
  * Groups blocks by request sections using request-separator nodes as dividers.
  * Returns an array of sections, each with a label and its child blocks.
  */
@@ -281,9 +324,14 @@ const FileLinkTippyContent = forwardRef((props: FileLinkListProps & { editor?: E
   // Instant client-side filter on corpus — no wait for server
   const allFileLinks = useMemo((): FileLinkItem[] => {
     const q = props.query.toLowerCase();
-    if (!q) return fileCorpus;
-    return fileCorpus.filter((f) => f.filename.toLowerCase().includes(q));
-  }, [fileCorpus, props.query]);
+    // Derive the current file's relative path to exclude it from suggestions
+    const currentSource = parentEditor?.storage?.source as string | undefined;
+    const currentRelPath = currentSource
+      ? currentSource.replace(/\\/g, "/").replace(activeProject.replace(/\\/g, "/"), "")
+      : null;
+    const base = q ? fileCorpus.filter((f) => f.filename.toLowerCase().includes(q)) : fileCorpus;
+    return currentRelPath ? base.filter((f) => f.filePath !== currentRelPath) : base;
+  }, [fileCorpus, props.query, parentEditor, activeProject]);
   
   // Use refs map to track all items
   const itemRefs = useRef<Map<number, HTMLDivElement>>(new Map());
@@ -309,25 +357,45 @@ const FileLinkTippyContent = forwardRef((props: FileLinkListProps & { editor?: E
   }, [isBlockMode, selectedFile]);
 
   // Flat list of selectable items for keyboard navigation
-  // Each entry is either a section header or a block
-  type FlatBlockItem = { kind: "section"; section: BlockSection; flatIndex: number }
+  // Each entry is a "whole file" import option, a linked-section option, a section header, or a block
+  type FlatBlockItem = { kind: "file"; flatIndex: number }
+                     | { kind: "linked-section"; sectionUid: string; label: string; flatIndex: number }
+                     | { kind: "section"; section: BlockSection; flatIndex: number }
                      | { kind: "block"; block: JSONContent; sectionLabel: string; flatIndex: number };
 
   const flatBlockItems = useMemo((): FlatBlockItem[] => {
     const items: FlatBlockItem[] = [];
-    const singleSection = groupedSections.length === 1;
-    for (const section of groupedSections) {
-      // Always show section headers; use "Request" (no number) for single-section docs
-      const displaySection = singleSection
-        ? { ...section, label: "Request" }
-        : section;
-      items.push({ kind: "section", section: displaySection, flatIndex: items.length });
-      for (const block of section.blocks) {
-        items.push({ kind: "block", block, sectionLabel: displaySection.label, flatIndex: items.length });
+    const hasSeparators = selectedFile?.pmJSON?.content?.some(
+      (n: any) => n.type === "request-separator"
+    ) ?? false;
+
+    if (hasSeparators) {
+      // Multi-section file: show each section as an importable header + its individual blocks
+      const allSections = extractAllSections(selectedFile!.pmJSON!);
+      for (const sec of allSections) {
+        items.push({ kind: "linked-section", sectionUid: sec.sectionUid, label: sec.label, flatIndex: items.length });
+        for (const block of sec.blocks) {
+          items.push({ kind: "block", block, sectionLabel: sec.label, flatIndex: items.length });
+        }
+      }
+    } else {
+      // No separators: offer whole-file import (unless the file itself contains a linkedFile
+      // block — importing it would leave the nested reference unexpanded)
+      const fileHasLinkedFile = selectedFile?.pmJSON?.content?.some(
+        (n: any) => n.type === "linkedFile"
+      ) ?? false;
+      if (!fileHasLinkedFile) items.push({ kind: "file", flatIndex: 0 });
+      const singleSection = groupedSections.length === 1;
+      for (const section of groupedSections) {
+        const displaySection = singleSection ? { ...section, label: "Request" } : section;
+        items.push({ kind: "section", section: displaySection, flatIndex: items.length });
+        for (const block of section.blocks) {
+          items.push({ kind: "block", block, sectionLabel: displaySection.label, flatIndex: items.length });
+        }
       }
     }
     return items;
-  }, [groupedSections]);
+  }, [groupedSections, selectedFile]);
 
   const currentItems = useMemo(() => {
     if (isBlockMode) {
@@ -488,9 +556,13 @@ const FileLinkTippyContent = forwardRef((props: FileLinkListProps & { editor?: E
           }
           setMultiSelectedItems([]);
         } else if (isBlockMode && selectedFile) {
-          // Check if we're selecting a section header or a block
+          // Check if we're selecting the whole-file import, a section header, or a block
           const flatItem = flatBlockItems[listSelectedIndex];
-          if (flatItem?.kind === "section") {
+          if (flatItem?.kind === "file") {
+            command({ importFile: selectedFile.filePath } as any);
+          } else if (flatItem?.kind === "linked-section") {
+            command({ importFile: selectedFile.filePath, sectionUid: flatItem.sectionUid, sectionLabel: flatItem.label } as any);
+          } else if (flatItem?.kind === "section") {
             // Insert all blocks in the section
             const blocksToInsert = flatItem.section.blocks.map((block) => ({
               block,
@@ -593,6 +665,54 @@ const FileLinkTippyContent = forwardRef((props: FileLinkListProps & { editor?: E
           >
             {flatBlockItems.length > 0 ? (
               flatBlockItems.map((flatItem, index) => {
+                if (flatItem.kind === "file") {
+                  const isSelected = index === listSelectedIndex;
+                  return (
+                    <div
+                      key="import-file"
+                      ref={setItemRef(index)}
+                      onClick={() => {
+                        setListSelectedIndex(index);
+                        if (isSelected) command({ importFile: selectedFile!.filePath } as any);
+                      }}
+                      className={cn(
+                        "px-3 py-2 cursor-pointer transition-colors border-l-2 border-transparent border-b border-border",
+                        "hover:bg-active/50",
+                        isSelected && "bg-active border-l-accent",
+                      )}
+                    >
+                      <div className="flex items-center gap-2">
+                        <ArrowRight className="text-accent flex-shrink-0" size={13} />
+                        <span className="text-xs font-semibold text-accent">Import entire file</span>
+                      </div>
+                    </div>
+                  );
+                }
+
+                if (flatItem.kind === "linked-section") {
+                  const isSelected = index === listSelectedIndex;
+                  return (
+                    <div
+                      key={`linked-section-${flatItem.sectionUid}`}
+                      ref={setItemRef(index)}
+                      onClick={() => {
+                        setListSelectedIndex(index);
+                        if (isSelected) command({ importFile: selectedFile!.filePath, sectionUid: flatItem.sectionUid, sectionLabel: flatItem.label } as any);
+                      }}
+                      className={cn(
+                        "px-3 py-2 cursor-pointer transition-colors border-l-2 border-transparent",
+                        "hover:bg-active/50",
+                        isSelected && "bg-active border-l-accent",
+                      )}
+                    >
+                      <div className="flex items-center gap-2">
+                        <ArrowRight className="text-accent flex-shrink-0" size={13} />
+                        <span className="text-xs font-semibold text-accent truncate">{flatItem.label}</span>
+                      </div>
+                    </div>
+                  );
+                }
+
                 if (flatItem.kind === "section") {
                   const section = flatItem.section;
                   const isSelected = index === listSelectedIndex;
@@ -1050,15 +1170,11 @@ export const FileLink = Node.create<FileLinkOptions>({
                   },
                 });
               } else if (item.isNew) {
-                // For multi-selection, handling new file creation might require a different approach.
-                // You could either disallow multi-select for new files or handle it separately.
+                // For multi-selection, new file creation is not supported
 
               } else {
                 // Insert an existing file link.
-                nodes.push({
-                  type: "fileLink",
-                  attrs: item,
-                });
+                nodes.push({ type: "fileLink", attrs: item });
               }
               // Append a space after each inserted node.
               nodes.push({ type: "text", text: " " });
@@ -1127,6 +1243,34 @@ export const FileLink = Node.create<FileLinkOptions>({
                   .run();
               }
             }
+          } else if ((props as any).importFile) {
+            // Import .void file as a linkedFile block. May be whole-file or section-specific.
+            const rawPath = (props as any).importFile as string;
+            const normalizedRaw = rawPath.replace(/\\/g, "/");
+            const normalizedProject = activeProject?.replace(/\\/g, "/");
+            let relativeFilePath = normalizedRaw;
+            if (normalizedProject && normalizedRaw.startsWith(normalizedProject)) {
+              relativeFilePath = normalizedRaw.replace(normalizedProject, "");
+            }
+            const sectionUid = (props as any).sectionUid as string | undefined;
+            const label = (props as any).sectionLabel
+              ?? relativeFilePath.split("/").pop()?.replace(/\.void$/i, "") ?? "";
+            editor
+              .chain()
+              .focus()
+              .deleteRange(range)
+              .insertContent([
+                {
+                  type: "request-separator",
+                  attrs: { uid: crypto.randomUUID(), colorIndex: 0, label },
+                },
+                {
+                  type: "linkedFile",
+                  attrs: { uid: crypto.randomUUID(), originalFile: relativeFilePath, sectionUid: sectionUid ?? null },
+                },
+                { type: "paragraph" },
+              ], { updateSelection: true })
+              .run();
           } else {
             editor
               .chain()

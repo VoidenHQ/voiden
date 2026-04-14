@@ -92,8 +92,8 @@ export const createResponseBodyNode = (
     const isBinary = ct === "application/octet-stream" || (!isImage && !isVideo && !isAudio && !isPdf && !isJson && !isXml && !isHtml && !isText && ct.startsWith("application/"));
     const hasPreview = isImage || isVideo || isAudio || isPdf || isHtml;
 
-    // Persisted height from the response store (per-tab)
-    const { height: persistedHeight, setHeight: persistHeight } = useResponseBodyHeight();
+    // Keep hook call for API stability (hook order must not change)
+    useResponseBodyHeight();
 
     // Memoize body serialization — JSON.stringify on large objects is expensive
     const { serializedBody, totalBodySize } = React.useMemo(() => {
@@ -120,20 +120,6 @@ export const createResponseBodyNode = (
     const [highlightEnabled, setHighlightEnabled] = React.useState(false);
     const isTruncated = !showFullContent && totalBodySize > TRUNCATE_THRESHOLD;
     const showHighlightBtn = showFullContent && !highlightEnabled && totalBodySize > TRUNCATE_THRESHOLD;
-
-    // Resize state for the response body code editor (must be at top level)
-    const defaultHeight = Math.min(window.innerHeight * 0.6, 500);
-    const [editorHeight, setEditorHeight] = React.useState(persistedHeight ?? defaultHeight);
-    const isResizingRef = React.useRef(false);
-    const startYRef = React.useRef(0);
-    const startHeightRef = React.useRef(0);
-
-    // Sync local height when persisted height changes (e.g. tab switch)
-    React.useEffect(() => {
-      if (persistedHeight != null) {
-        setEditorHeight(persistedHeight);
-      }
-    }, [persistedHeight]);
 
     // Read parent's openNodes state - automatically updates when parent changes
     const { openNodes } = useParentResponseDoc(editor, getPos);
@@ -479,49 +465,17 @@ export const createResponseBodyNode = (
       // parse + syntax highlight of multi-MB content still stalls the main thread.
       const displayedValue = isTruncated ? displayValue.slice(0, TRUNCATE_THRESHOLD) : displayValue;
 
-      const handleResizeStart = (e: React.MouseEvent) => {
-        e.preventDefault();
-        e.stopPropagation();
-        isResizingRef.current = true;
-        startYRef.current = e.clientY;
-        startHeightRef.current = editorHeight;
-
-        let latestHeight = startHeightRef.current;
-
-        const onMouseMove = (ev: MouseEvent) => {
-          if (!isResizingRef.current) return;
-          const delta = ev.clientY - startYRef.current;
-          latestHeight = Math.max(100, startHeightRef.current + delta);
-          setEditorHeight(latestHeight);
-        };
-
-        const onMouseUp = () => {
-          isResizingRef.current = false;
-          persistHeight(latestHeight);
-          document.removeEventListener('mousemove', onMouseMove);
-          document.removeEventListener('mouseup', onMouseUp);
-          document.body.style.cursor = '';
-          document.body.style.userSelect = '';
-        };
-
-        document.body.style.cursor = 'row-resize';
-        document.body.style.userSelect = 'none';
-        document.addEventListener('mousemove', onMouseMove);
-        document.addEventListener('mouseup', onMouseUp);
-      };
-
       return (
         <div style={{ height: 'auto', overflow: 'visible' }}>
           <style>{`
             .response-body-editor .cm-editor {
-              height: ${editorHeight}px !important;
-              max-height: none !important;
+              height: auto !important;
             }
             .response-body-editor .cm-scroller {
-              max-height: none !important;
+              min-height: 0 !important;
+              max-height: min(600px, calc(var(--response-panel-height, 70vh) - 120px)) !important;
               overflow-y: auto !important;
             }
-            /* Ensure find panel is visible and not clipped */
             .response-body-editor .cm-panels-top {
               position: sticky !important;
               top: 0 !important;
@@ -559,30 +513,6 @@ export const createResponseBodyNode = (
               showReplace={false}
               forceHighlight={highlightEnabled}
             />
-          </div>
-          {/* Resize handle */}
-          <div
-            onMouseDown={handleResizeStart}
-            style={{
-              height: '4px',
-              cursor: 'row-resize',
-              background: 'transparent',
-              position: 'relative',
-              zIndex: 5,
-            }}
-            title="Drag to resize"
-          >
-            <div style={{
-              position: 'absolute',
-              left: '50%',
-              top: '50%',
-              transform: 'translate(-50%, -50%)',
-              width: '32px',
-              height: '3px',
-              borderRadius: '2px',
-              background: 'var(--comment)',
-              opacity: 0.4,
-            }} />
           </div>
         </div>
       );

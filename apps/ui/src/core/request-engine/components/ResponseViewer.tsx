@@ -447,6 +447,16 @@ export const ResponseViewer = forwardRef<ResponseViewerHandle, ResponseViewerPro
           padding-left: 0 !important;
           padding-right: 0 !important;
         }
+        .response-body-editor .cm-editor,
+        .response-body-node .cm-editor {
+          height: auto !important;
+        }
+        .response-body-editor .cm-scroller,
+        .response-body-node .cm-scroller {
+          min-height: 0 !important;
+          max-height: max(24px, calc(var(--response-panel-height, 70vh) - 120px)) !important;
+          overflow-y: auto !important;
+        }
         .response-headers-node .cm-editor,
         .response-headers-node .cm-scroller,
         .response-headers-editor .cm-editor,
