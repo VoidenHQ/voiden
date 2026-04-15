@@ -7,6 +7,7 @@ import { useSettings } from "../../settings/hooks/useSettings";
 import { useNerdFont } from "../hooks/useNerdFont";
 import { useClosePanelTab, useGetPanelTabs } from "@/core/layout/hooks";
 import { usePanelStore } from "@/core/stores/panelStore";
+import { getShortcutLabel, matchesShortcut } from "@/core/shortcuts";
 
 interface TerminalProps {
   tabId: string;
@@ -263,19 +264,19 @@ export const Terminal = ({ tabId, cwd }: TerminalProps) => {
 
     xterm.attachCustomKeyEventHandler((e: KeyboardEvent) => {
       if (e.type !== 'keydown') return true;
-      if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
+      if (matchesShortcut("Paste", e)) {
         handlePaste();
         return false; // Prevent default browser behavior
       }
-      if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
+      if (matchesShortcut("SelectAll", e)) {
         handleSelectAll();
         return false;
       }
-      if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
+      if (matchesShortcut("Copy", e) && xterm.hasSelection()) {
         handleCopy();
         return false;
       }
-      if ((e.ctrlKey || e.metaKey) && e.key === 'l') {
+      if (matchesShortcut("ClearTerminal", e)) {
         handleClear();
         return false;
       }
@@ -549,24 +550,24 @@ export const Terminal = ({ tabId, cwd }: TerminalProps) => {
       label: 'Copy',
       action: handleCopy,
       disabled: (xtermRef.current ? xtermRef.current.getSelection() : '').length == 0,
-      shortcut: 'Ctrl+C'
+      shortcut: getShortcutLabel('Copy')
     },
     {
       label: 'Paste',
       action: handlePaste,
-      shortcut: 'Ctrl+V'
+      shortcut: getShortcutLabel('Paste')
     },
     { separator: true },
     {
       label: 'Select All',
       action: handleSelectAll,
-      shortcut: 'Ctrl+A'
+      shortcut: getShortcutLabel('SelectAll')
     },
     { separator: true },
     {
       label: 'Clear Terminal',
       action: handleClear,
-      shortcut: 'Ctrl+L'
+      shortcut: getShortcutLabel('ClearTerminal')
     }
   ];
 

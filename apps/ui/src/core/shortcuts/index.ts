@@ -13,37 +13,19 @@ enum Modifiers {
   Shift = 1 << 3,
 }
 
-type Shortcut =
-  | "CloseTab"
-  | "CommandPaletteCommands"
-  | "CommandPaletteFiles"
-  | "Find"
-  | "FindAndReplace"
-  | "FindNext"
-  | "FindPrev"
-  | "NewFile"
-  | "NextTab"
-  | "PrevTab"
-  | "ReloadTab"
-  | "SendRequest"
-  | "ToggleCheckoutBranch"
-  | "ToggleCompareBranches"
-  | "ToggleExplorer"
-  | "ToggleEnvSelector"
-  | "ToggleRecentProjectsSelector"
-  | "ToggleResponsePanel"
-  | "ToggleSidebar"
-  | "ToggleTerminal";
-
 const primaryModifier = isMac ? Modifiers.Meta : Modifiers.Ctrl;
 
 const shortcuts = {
+  // Ctrl (not primaryModifier) is intentional: ctrl+L is the readline
+  // convention for clearing a terminal on all platforms, including macOS.
+  ClearTerminal: { code: "KeyL", modifiers: Modifiers.Ctrl },
   CloseTab: { code: "KeyW", modifiers: primaryModifier },
   CommandPaletteCommands: {
     code: "KeyP",
     modifiers: primaryModifier | Modifiers.Shift,
   },
   CommandPaletteFiles: { code: "KeyP", modifiers: primaryModifier },
+  Copy: { code: "KeyC", modifiers: primaryModifier },
   Find: {
     code: "KeyF",
     modifiers: primaryModifier,
@@ -68,11 +50,13 @@ const shortcuts = {
     code: "BracketRight",
     modifiers: primaryModifier | Modifiers.Shift,
   },
+  Paste: { code: "KeyV", modifiers: primaryModifier },
   PrevTab: {
     code: "BracketLeft",
     modifiers: primaryModifier | Modifiers.Shift,
   },
   ReloadTab: { code: "KeyR", modifiers: primaryModifier },
+  SelectAll: { code: "KeyA", modifiers: primaryModifier },
   SendRequest: { code: "Enter", modifiers: primaryModifier },
   ToggleCheckoutBranch: {
     code: "KeyB",
@@ -100,7 +84,9 @@ const shortcuts = {
   ToggleResponsePanel: { code: "KeyY", modifiers: primaryModifier },
   ToggleSidebar: { code: "KeyB", modifiers: primaryModifier },
   ToggleTerminal: { code: "KeyJ", modifiers: primaryModifier },
-} as const satisfies Record<Shortcut, Keybind>;
+} as const satisfies Record<string, Keybind>;
+
+type Shortcut = keyof typeof shortcuts;
 
 export function getShortcutLabel(shortcut: Shortcut): string {
   const bind = shortcuts[shortcut];
