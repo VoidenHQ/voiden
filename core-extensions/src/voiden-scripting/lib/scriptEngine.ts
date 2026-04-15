@@ -81,7 +81,7 @@ const workerSource = `
       'greater':'>','greaterthan':'>','gte':'>=',
       'less':'<','lessthan':'<','lte':'<=',
       '>':'>','>=':'>=','<':'<','<=':'<=',
-      'contains':'contains','includes':'includes',
+      'contains':'contains','includes':'contains',
       'matches':'matches','regex':'matches',
       'truthy':'truthy','falsy':'falsy',
     };
@@ -496,9 +496,10 @@ function buildBashScript(params: {
   assertFile: string;
   cancelFile: string;
   reqFile: string;
+  respFile: string;
   userScriptFile: string;
 }): string {
-  const { request, response, envVars, variables, logFile, varFile, assertFile, cancelFile, reqFile, userScriptFile } = params;
+  const { request, response, envVars, variables, logFile, varFile, assertFile, cancelFile, reqFile, respFile, userScriptFile } = params;
 
   const envLines = Object.entries(envVars)
     .map(([k, v]) => `_VD_ENV_${k.replace(/[^A-Za-z0-9_]/g, '_')}=${shSingleQuote(String(v))}`)
@@ -519,8 +520,9 @@ function buildBashScript(params: {
     `_VD_ASSERT_FILE=${q(assertFile)}`,
     `_VD_CANCEL_FILE=${q(cancelFile)}`,
     `_VD_REQUEST_FILE=${q(reqFile)}`,
+    `_VD_RESPONSE_FILE=${q(respFile)}`,
     `_VD_USERSCRIPT_FILE=${q(userScriptFile)}`,
-    'touch "$_VD_LOG_FILE" "$_VD_VAR_FILE" "$_VD_ASSERT_FILE" "$_VD_REQUEST_FILE"',
+    'touch "$_VD_LOG_FILE" "$_VD_VAR_FILE" "$_VD_ASSERT_FILE" "$_VD_REQUEST_FILE" "$_VD_RESPONSE_FILE"',
     '_vd_b64() { printf "%s" "$1" | base64 | tr -d "\\n"; }',
     'voiden_log() {',
     '  local _level="log"',
@@ -553,13 +555,44 @@ function buildBashScript(params: {
     'voiden.request.url()         { [ $# -gt 0 ] && export VOIDEN_REQUEST_URL="$(_vd_val "$@")"          || printf "%s" "$VOIDEN_REQUEST_URL"; }',
     'voiden.request.method()      { [ $# -gt 0 ] && export VOIDEN_REQUEST_METHOD="$(_vd_val "$@")"       || printf "%s" "$VOIDEN_REQUEST_METHOD"; }',
     'voiden.request.body()        { [ $# -gt 0 ] && export VOIDEN_REQUEST_BODY="$(_vd_val "$@")"         || printf "%s" "$VOIDEN_REQUEST_BODY"; }',
-    'voiden.request.headers()     { [ $# -gt 0 ] && export VOIDEN_REQUEST_HEADERS="$(_vd_val "$@")"     || printf "%s" "$VOIDEN_REQUEST_HEADERS"; }',
-    'voiden.request.queryParams() { [ $# -gt 0 ] && export VOIDEN_REQUEST_QUERY_PARAMS="$(_vd_val "$@")" || printf "%s" "$VOIDEN_REQUEST_QUERY_PARAMS"; }',
-    'voiden.request.pathParams()  { [ $# -gt 0 ] && export VOIDEN_REQUEST_PATH_PARAMS="$(_vd_val "$@")"  || printf "%s" "$VOIDEN_REQUEST_PATH_PARAMS"; }',
-    '# response getters (read-only)',
-    'voiden.response.status()     { printf "%s" "$VOIDEN_RESPONSE_STATUS"; }',
-    'voiden.response.statusText() { printf "%s" "$VOIDEN_RESPONSE_STATUS_TEXT"; }',
-    'voiden.response.body()       { printf "%s" "$VOIDEN_RESPONSE_BODY"; }',
+    '# shared entry builder — stores result in $_VD_KV_ENTRY',
+    '_vd_build_kv_entry() {',
+    '  local _Q=\'"\' _k _v',
+    '  _k="${1//$_Q/\\\\$_Q}"',
+    '  _v="${2//$_Q/\\\\$_Q}"',
+    '  printf -v _VD_KV_ENTRY \'{"key":"%s","value":"%s","enabled":true}\' "$_k" "$_v"',
+    '}',
+    '# _vd_set_kv: replace the array with a single entry',
+    '_vd_set_kv() {',
+    '  local _var="$1"',
+    '  _vd_build_kv_entry "$2" "$3"',
+    '  printf -v "$_var" \'[%s]\' "$_VD_KV_ENTRY"',
+    '  export "$_var"',
+    '}',
+    '# _vd_push_kv: append an entry to the existing array',
+    '_vd_push_kv() {',
+    '  local _var="$1" _cur',
+    '  _vd_build_kv_entry "$2" "$3"',
+    '  _cur="${!_var}"',
+    '  if [ -z "$_cur" ] || [ "$_cur" = "[]" ]; then',
+    '    printf -v "$_var" \'[%s]\' "$_VD_KV_ENTRY"',
+    '  else',
+    '    printf -v "$_var" \'%s,%s]\' "${_cur%]}" "$_VD_KV_ENTRY"',
+    '  fi',
+    '  export "$_var"',
+    '}',
+    '# collection setters: 2 args = set as single {key,value}; 1 arg = raw JSON; 0 args = getter',
+    'voiden.request.headers()     { if [ $# -ge 2 ]; then _vd_set_kv VOIDEN_REQUEST_HEADERS "$1" "$2"; elif [ $# -gt 0 ]; then export VOIDEN_REQUEST_HEADERS="$(_vd_val "$@")"; else printf "%s" "$VOIDEN_REQUEST_HEADERS"; fi; }',
+    'voiden.request.queryParams() { if [ $# -ge 2 ]; then _vd_set_kv VOIDEN_REQUEST_QUERY_PARAMS "$1" "$2"; elif [ $# -gt 0 ]; then export VOIDEN_REQUEST_QUERY_PARAMS="$(_vd_val "$@")"; else printf "%s" "$VOIDEN_REQUEST_QUERY_PARAMS"; fi; }',
+    'voiden.request.pathParams()  { if [ $# -ge 2 ]; then _vd_set_kv VOIDEN_REQUEST_PATH_PARAMS "$1" "$2"; elif [ $# -gt 0 ]; then export VOIDEN_REQUEST_PATH_PARAMS="$(_vd_val "$@")"; else printf "%s" "$VOIDEN_REQUEST_PATH_PARAMS"; fi; }',
+    'voiden.request.headers.push()     { _vd_push_kv VOIDEN_REQUEST_HEADERS "$1" "$2"; }',
+    'voiden.request.queryParams.push() { _vd_push_kv VOIDEN_REQUEST_QUERY_PARAMS "$1" "$2"; }',
+    'voiden.request.pathParams.push()  { _vd_push_kv VOIDEN_REQUEST_PATH_PARAMS "$1" "$2"; }',
+    '# response getters and writable setters (status, statusText, body)',
+    'voiden.response.status()     { [ $# -gt 0 ] && export VOIDEN_RESPONSE_STATUS="$(_vd_val "$@")"      || printf "%s" "$VOIDEN_RESPONSE_STATUS"; }',
+    'voiden.response.statusText() { [ $# -gt 0 ] && export VOIDEN_RESPONSE_STATUS_TEXT="$(_vd_val "$@")" || printf "%s" "$VOIDEN_RESPONSE_STATUS_TEXT"; }',
+    'voiden.response.body()       { [ $# -gt 0 ] && export VOIDEN_RESPONSE_BODY="$(_vd_val "$@")"        || printf "%s" "$VOIDEN_RESPONSE_BODY"; }',
+    '# response read-only fields',
     'voiden.response.headers()    { printf "%s" "$VOIDEN_RESPONSE_HEADERS"; }',
     'voiden.response.time()       { printf "%s" "$VOIDEN_RESPONSE_TIME"; }',
     'voiden.response.size()       { printf "%s" "$VOIDEN_RESPONSE_SIZE"; }',
@@ -567,15 +600,18 @@ function buildBashScript(params: {
     'voiden_assert() {',
     '  local _actual="$1" _op="$2" _expected="$3" _msg="${4:-}" _passed="false"',
     '  case "$_op" in',
-    '    "=="|eq|equal)          [ "$_actual" = "$_expected" ] && _passed="true" ;;',
-    '    "!="|neq|notequal)      [ "$_actual" != "$_expected" ] && _passed="true" ;;',
-    '    contains|includes)      case "$_actual" in *"$_expected"*) _passed="true";; esac ;;',
-    '    truthy)                 [ -n "$_actual" ] && _passed="true" ;;',
-    '    falsy)                  [ -z "$_actual" ] && _passed="true" ;;',
+    '    "=="|eq|equal)           [ "$_actual" = "$_expected" ] && _passed="true" ;;',
+    '    "===")                   [ "$_actual" = "$_expected" ] && _passed="true" ;;',
+    '    "!="|neq|notequal)       [ "$_actual" != "$_expected" ] && _passed="true" ;;',
+    '    "!==")                   [ "$_actual" != "$_expected" ] && _passed="true" ;;',
+    '    contains|includes)       case "$_actual" in *"$_expected"*) _passed="true";; esac ;;',
+    '    matches|regex)           printf "%s" "$_actual" | grep -qE "$_expected" 2>/dev/null && _passed="true"; true ;;',
+    '    truthy)                  [ -n "$_actual" ] && _passed="true" ;;',
+    '    falsy)                   [ -z "$_actual" ] && _passed="true" ;;',
     '    ">"|greater|greaterthan) (( _actual > _expected )) 2>/dev/null && _passed="true"; true ;;',
-    '    ">="|gte)               (( _actual >= _expected )) 2>/dev/null && _passed="true"; true ;;',
-    '    "<"|less|lessthan)      (( _actual < _expected )) 2>/dev/null && _passed="true"; true ;;',
-    '    "<="|lte)               (( _actual <= _expected )) 2>/dev/null && _passed="true"; true ;;',
+    '    ">="|gte)                (( _actual >= _expected )) 2>/dev/null && _passed="true"; true ;;',
+    '    "<"|less|lessthan)       (( _actual < _expected )) 2>/dev/null && _passed="true"; true ;;',
+    '    "<="|lte)                (( _actual <= _expected )) 2>/dev/null && _passed="true"; true ;;',
     '  esac',
     '  printf "%s\\t%s\\t%s\\t%s\\t%s\\n" "$(_vd_b64 "$_passed")" "$(_vd_b64 "$_actual")" "$(_vd_b64 "$_op")" "$(_vd_b64 "$_expected")" "$(_vd_b64 "$_msg")" >> "$_VD_ASSERT_FILE"',
     '}',
@@ -609,6 +645,13 @@ function buildBashScript(params: {
     'printf "%s\\t%s\\n" "$(_vd_b64 "headers")"     "$(_vd_b64 "$VOIDEN_REQUEST_HEADERS")"      >> "$_VD_REQUEST_FILE"',
     'printf "%s\\t%s\\n" "$(_vd_b64 "queryParams")" "$(_vd_b64 "$VOIDEN_REQUEST_QUERY_PARAMS")" >> "$_VD_REQUEST_FILE"',
     'printf "%s\\t%s\\n" "$(_vd_b64 "pathParams")"  "$(_vd_b64 "$VOIDEN_REQUEST_PATH_PARAMS")"  >> "$_VD_REQUEST_FILE"',
+    '# Write modified response fields (only when a response exists)',
+    `[ -n ${q(has ? '1' : '')} ] && {`,
+    'printf "%s\\t%s\\n" "$(_vd_b64 "status")"     "$(_vd_b64 "$VOIDEN_RESPONSE_STATUS")"      >> "$_VD_RESPONSE_FILE"',
+    'printf "%s\\t%s\\n" "$(_vd_b64 "statusText")" "$(_vd_b64 "$VOIDEN_RESPONSE_STATUS_TEXT")" >> "$_VD_RESPONSE_FILE"',
+    'printf "%s\\t%s\\n" "$(_vd_b64 "body")"       "$(_vd_b64 "$VOIDEN_RESPONSE_BODY")"        >> "$_VD_RESPONSE_FILE"',
+    '}',
+    'true',
   ].join('\n');
 }
 
@@ -777,6 +820,7 @@ async function executeShellScript(scriptBody: string, vdApi: VdApi): Promise<Scr
     assertFile: '__VD_ASSERT__',
     cancelFile: '__VD_CANCEL__',
     reqFile: '__VD_REQUEST__',
+    respFile: '__VD_RESPONSE__',
     userScriptFile: '__VD_USERSCRIPT__',
   });
 
@@ -794,7 +838,7 @@ async function executeShellScript(scriptBody: string, vdApi: VdApi): Promise<Scr
         try { await vdApi.variables.set(key, value); } catch { /* best effort */ }
       }
     }
-    return { success: Boolean(result.success), logs: result.logs || [], assertions: result.assertions || [], error: result.success === false ? 'Shell execution failed' : result.error, cancelled: result.cancelled || false, exitCode: result.exitCode ?? (result.success ? 0 : 1), modifiedRequest: result.modifiedRequest };
+    return { success: Boolean(result.success), logs: result.logs || [], assertions: result.assertions || [], error: result.success === false ? 'Shell execution failed' : result.error, cancelled: result.cancelled || false, exitCode: result.exitCode ?? (result.success ? 0 : 1), modifiedRequest: result.modifiedRequest, modifiedResponse: result.modifiedResponse };
   } catch (error: any) {
     return { success: false, logs: [], error: `Shell execution failed: ${error.message || String(error)}`, cancelled: false, exitCode: -1 };
   }

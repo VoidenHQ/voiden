@@ -383,6 +383,7 @@ export default function createVoidenScriptingMainPlugin(
           const assertFile     = path.join(tmpDir, "asserts.tsv");
           const cancelFile     = path.join(tmpDir, "cancel");
           const reqFile        = path.join(tmpDir, "request.tsv");
+          const respFile       = path.join(tmpDir, "response.tsv");
 
           // Replace placeholder paths embedded by buildBashScript() in scriptEngine.ts
           bashScript = bashScript
@@ -391,6 +392,7 @@ export default function createVoidenScriptingMainPlugin(
             .split("__VD_ASSERT__").join(assertFile)
             .split("__VD_CANCEL__").join(cancelFile)
             .split("__VD_REQUEST__").join(reqFile)
+            .split("__VD_RESPONSE__").join(respFile)
             .split("__VD_USERSCRIPT__").join(userScriptFile);
 
           // Write user script to its own file so bash syntax errors don't abort the wrapper
@@ -400,6 +402,7 @@ export default function createVoidenScriptingMainPlugin(
           fsSync.writeFileSync(varFile, "");
           fsSync.writeFileSync(assertFile, "");
           fsSync.writeFileSync(reqFile, "");
+          fsSync.writeFileSync(respFile, "");
 
           const cleanup = () => {
             try { fsSync.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ignore */ }
@@ -423,6 +426,7 @@ export default function createVoidenScriptingMainPlugin(
               const varRows    = readTsvB64(varFile);
               const assertRows = readTsvB64(assertFile);
               const reqRows    = readTsvB64(reqFile);
+              const respRows   = readTsvB64(respFile);
               const cancelled  = fsSync.existsSync(cancelFile);
 
               const logs: Array<{ level: string; args: any[] }> =
@@ -454,6 +458,16 @@ export default function createVoidenScriptingMainPlugin(
                   }
                 : undefined;
 
+              const respMap: Record<string, string> = {};
+              respRows.forEach((row) => { if (row[0]) respMap[row[0]] = row[1] || ""; });
+              const modifiedResponse = Object.keys(respMap).length > 0
+                ? {
+                    status: respMap["status"] !== undefined ? (Number(respMap["status"]) || respMap["status"]) : undefined,
+                    statusText: respMap["statusText"] ?? undefined,
+                    body: respMap["body"] !== undefined ? safeJson(respMap["body"], respMap["body"]) : undefined,
+                  }
+                : undefined;
+
               if (modifiedVariables && Object.keys(modifiedVariables).length > 0) {
                 const current = await loadProjectVariables(projectPath);
                 await persistProjectVariables(projectPath, { ...current, ...modifiedVariables });
@@ -467,6 +481,7 @@ export default function createVoidenScriptingMainPlugin(
                 cancelled,
                 exitCode: code ?? -1,
                 modifiedRequest,
+                modifiedResponse,
                 modifiedVariables,
               });
             });
