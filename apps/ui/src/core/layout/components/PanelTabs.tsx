@@ -19,7 +19,9 @@ import {
   Server,
   Blocks,
   Terminal,
+  Lock,
 } from "lucide-react";
+import { useProjectLock } from "@/core/file-system/hooks";
 import { cn, isMac } from "@/core/lib/utils";
 import { useActivateTab, useGetPanelTabs, useClosePanelTab, useDuplicatePanelTab, useReloadPanelTab, useSetTabsOrder, useClosePanelTabs } from "@/core/layout/hooks";
 import * as ContextMenu from "@radix-ui/react-context-menu";
@@ -167,6 +169,7 @@ const TabComponent = ({
   hideUnsavedIndicator: boolean;
 }) => {
   const unsavedContent = tab.type === "document" ? useEditorStore((state) => state.unsaved[tab.id]) : undefined;
+  const { locked: projectLocked } = useProjectLock();
   const { bottomPanelRef, closeBottomPanel } = usePanelStore();
 
   const handleClose = (e: React.MouseEvent) => {
@@ -316,7 +319,13 @@ const TabComponent = ({
             <div className="absolute right-0 top-0 bottom-0 w-0.5 bg-accent z-10" />
           )}
 
-          <div className="w-2 h-2">{!hideUnsavedIndicator && unsavedContent && <div className="w-2 h-2 rounded-full bg-accent" />}</div>
+          <div className="w-2 h-2 flex items-center justify-center">
+            {projectLocked && tab.type === "document" && tab.source ? (
+              <Lock size={10} className="text-comment" strokeWidth={2.5} />
+            ) : !hideUnsavedIndicator && unsavedContent ? (
+              <div className="w-2 h-2 rounded-full bg-accent" />
+            ) : null}
+          </div>
           <div className="flex items-center gap-1.5">
             {getTabIcon(tab)}
             <span className="truncate">{tab.title}</span>

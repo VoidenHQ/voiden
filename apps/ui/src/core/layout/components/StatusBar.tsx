@@ -1,4 +1,5 @@
-import { PanelLeft, Terminal, Github, MessageCircle, PanelRight, GitCompareArrows, Download, icons, Activity, X, GripHorizontal, Trash2, Logs } from "lucide-react";
+import { PanelLeft, Terminal, Github, MessageCircle, PanelRight, GitCompareArrows, Download, icons, Activity, X, GripHorizontal, Trash2, Logs, Lock, Unlock } from "lucide-react";
+import { useProjectLock } from "@/core/file-system/hooks";
 import { cn, isMac } from "@/core/lib/utils";
 import { GitBranchesList } from "@/core/git/components/GitBranchesList";
 import { BranchComparisonDialog } from "@/core/git/components/BranchComparisonDialog";
@@ -258,6 +259,7 @@ export const StatusBar = ({
   const { data: bottomPanelData } = useGetPanelTabs("bottom");
   const { data: mainPanelData } = useGetPanelTabs("main");
   const queryClient = useQueryClient();
+  const { projectRoot, locked: isProjectLocked, toggle: toggleProjectLock, isToggling: isTogglingLock } = useProjectLock();
   const statusBarItems = usePluginStore((state) => state.statusBarItems);
   const leftItems = statusBarItems.filter((item) => item.position === 'left');
   const rightItems = statusBarItems.filter((item) => item.position === 'right');
@@ -397,6 +399,31 @@ export const StatusBar = ({
               </button>
             </Tip>
           ))}
+
+          {/* Project Lock */}
+          {projectRoot && (
+            <Tip
+              label={
+                isProjectLocked
+                  ? "Project is locked — saves are blocked. Click to unlock."
+                  : "Click to lock this project and prevent writes to .void files."
+              }
+              align="end"
+            >
+              <button
+                onClick={() => { void toggleProjectLock(); }}
+                disabled={isTogglingLock}
+                className={cn(
+                  "h-full px-2 flex items-center gap-1.5 hover:bg-active transition-colors",
+                  isProjectLocked ? "text-accent" : "text-comment",
+                  isTogglingLock && "opacity-60 cursor-wait",
+                )}
+              >
+                {isProjectLocked ? <Lock size={13} /> : <Unlock size={13} />}
+                <span className="text-xs">{isProjectLocked ? "Locked" : "Unlocked"}</span>
+              </button>
+            </Tip>
+          )}
 
           {/* Memory / CPU */}
           {memStats && (() => {

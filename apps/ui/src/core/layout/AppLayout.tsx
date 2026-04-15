@@ -10,7 +10,7 @@ import { StatusBar } from "./components/StatusBar";
 import OnboardingModal from "@/core/screens/OnboardingModal";
 import AboutModal from "@/core/screens/AboutModal";
 import { useGetAppState } from "@/core/state/hooks";
-import { saveTabById } from "@/core/file-system/hooks";
+import { saveTabById, useProjectLock } from "@/core/file-system/hooks";
 import { getQueryClient } from "@/main";
 import { useEditorStore } from "@/core/editors/voiden/VoidenEditor";
 import { hideSlashMenu } from "@/core/editors/voiden/SlashCommand";
@@ -32,6 +32,7 @@ export const AppLayout = () => {
   const closeRightPanel = usePanelStore((state) => state.closeRightPanel);
 
   const { data: appState } = useGetAppState();
+  const { locked: projectLocked } = useProjectLock();
   const [onboarding, setOnboarding] = useState<boolean | null>(null);
   const [version, setVersion] = useState<string>("");
   const [isAboutModalOpen, setIsAboutModalOpen] = useState(false);
@@ -167,6 +168,7 @@ export const AppLayout = () => {
     const backgroundBatchDelayMs = 1500;
 
     if (!on) return;
+    if (projectLocked) return;
 
     let backgroundSaveTimeout: NodeJS.Timeout | null = null;
     const perTabTimeouts = new Map<string, NodeJS.Timeout>();
@@ -295,7 +297,7 @@ export const AppLayout = () => {
       perTabTimeouts.clear();
       unsubscribe();
     };
-  }, [settings?.editor?.auto_save, settings?.editor?.auto_save_delay]);
+  }, [settings?.editor?.auto_save, settings?.editor?.auto_save_delay, projectLocked]);
 
   // subscribe to external changes (other windows, etc.)
   useEffect(() => {

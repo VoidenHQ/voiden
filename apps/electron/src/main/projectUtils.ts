@@ -27,21 +27,74 @@ export async function copyDirectory(src: string, dest: string) {
   }
 }
 
+export type ProjectMetadata = {
+  project: string;
+  locked?: boolean;
+};
+
+function getMetadataFile(projectPath: string) {
+  return path.join(projectPath, ".voiden", ".voiden-projects");
+}
+
+export async function readProjectMetadata(
+  projectPath: string,
+): Promise<ProjectMetadata | null> {
+  try {
+    const raw = await fs.readFile(getMetadataFile(projectPath), "utf8");
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && typeof parsed.project === "string") {
+      return parsed as ProjectMetadata;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+async function writeProjectMetadata(
+  projectPath: string,
+  metadata: ProjectMetadata,
+) {
+  const metadataDir = path.join(projectPath, ".voiden");
+  await fs.mkdir(metadataDir, { recursive: true });
+  await fs.writeFile(
+    getMetadataFile(projectPath),
+    JSON.stringify(metadata),
+    "utf8",
+  );
+}
+
 export async function ensureVoidenProjectMetadata(
   projectPath: string,
   projectName?: string,
 ) {
   await fs.mkdir(projectPath, { recursive: true });
 
-  const metadataDir = path.join(projectPath, ".voiden");
-  await fs.mkdir(metadataDir, { recursive: true });
+  const existing = await readProjectMetadata(projectPath);
+  const next: ProjectMetadata = {
+    project: existing?.project || projectName || path.basename(projectPath),
+    ...(existing?.locked ? { locked: true } : {}),
+  };
 
-  const metadataFile = path.join(metadataDir, ".voiden-projects");
-  await fs.writeFile(
-    metadataFile,
-    JSON.stringify({ project: projectName || path.basename(projectPath) }),
-    "utf8",
-  );
+  await writeProjectMetadata(projectPath, next);
+}
+
+export async function getProjectLocked(projectPath: string): Promise<boolean> {
+  const metadata = await readProjectMetadata(projectPath);
+  return !!metadata?.locked;
+}
+
+export async function setProjectLocked(
+  projectPath: string,
+  locked: boolean,
+): Promise<boolean> {
+  const existing = await readProjectMetadata(projectPath);
+  const next: ProjectMetadata = {
+    project: existing?.project || path.basename(projectPath),
+  };
+  if (locked) next.locked = true;
+  await writeProjectMetadata(projectPath, next);
+  return locked;
 }
 
 export async function getUniqueProjectPath(

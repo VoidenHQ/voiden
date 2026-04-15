@@ -203,6 +203,23 @@ export const variablesApi = {
   writeVariables: (content: string | Record<string, any>) => ipcRenderer.invoke("variables:writeVariables", content),
 }
 
+export const projectApi = {
+  getLocked: (projectRoot: string): Promise<boolean> =>
+    ipcRenderer.invoke("project:getLocked", projectRoot),
+  setLocked: (projectRoot: string, locked: boolean): Promise<boolean> =>
+    ipcRenderer.invoke("project:setLocked", projectRoot, locked),
+  onLockedChanged: (
+    cb: (payload: { projectRoot: string; locked: boolean }) => void,
+  ) => {
+    const handler = (
+      _: Electron.IpcRendererEvent,
+      payload: { projectRoot: string; locked: boolean },
+    ) => cb(payload);
+    ipcRenderer.on("project:locked-changed", handler);
+    return () => ipcRenderer.removeListener("project:locked-changed", handler);
+  },
+};
+
 export const mainWindow = {
   minimize: () => ipcRenderer.invoke("mainwindow:minimize"),
   maximize: () => ipcRenderer.invoke("mainwindow:maximize"),

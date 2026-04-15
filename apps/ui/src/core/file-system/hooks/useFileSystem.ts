@@ -10,6 +10,15 @@ import { Schema } from "@tiptap/pm/model";
 import { getSchema } from "@tiptap/core";
 import { useCodeEditorStore } from "@/core/editors/code/CodeEditorStore";
 import { useEditorEnhancementStore } from "@/plugins";
+import { isPathInsideLockedProject } from "./useProjectLock";
+import { toast } from "@/core/components/ui/sonner";
+
+const LOCK_TOAST_ID = "project-lock-save-blocked";
+const LOCKED_SAVE_MESSAGE = "Project is locked — changes not saved.";
+
+const notifyLockedSave = () => {
+  toast.info(LOCKED_SAVE_MESSAGE, { id: LOCK_TOAST_ID });
+};
 // import type { Tab } from "../../../electron/src/shared/types";
 
 // Tracks paths currently being written by the app so apy:changed events triggered
@@ -104,6 +113,10 @@ export const invalidateOnFileSave = (path: string, panelId: string, tabId: strin
 };
 
 export const saveFileUtil = async (path: string | null, content: string, panelId: string, tabId: string, schema: Schema) => {
+  if (isPathInsideLockedProject(path)) {
+    notifyLockedSave();
+    return;
+  }
   const markdown = prosemirrorToMarkdown(content, schema);
   const filePath = await window.electron?.files.write(path, markdown, tabId);
   if (!filePath) return;
@@ -502,7 +515,14 @@ export const saveTabById = async (tabId: string, options?: { silent?: boolean })
   if (!tab || !tab.source) {
     return false; // Tab not found or not persisted
   }
-  
+
+  if (isPathInsideLockedProject(tab.source)) {
+    // Project is locked — keep in-memory edits but do not persist to disk.
+    // Autosave (silent) stays silent; manual callers see a non-blocking no-op.
+    if (!options?.silent) notifyLockedSave();
+    return true;
+  }
+
   // Get unsaved content for this tab
   const unsavedContent = useEditorStore.getState().unsaved[tabId];
   if (!unsavedContent) {
@@ -639,6 +659,10 @@ export const globalSaveFile = async () => {
       const { activeEditor, editorViews } = useCodeEditorStore.getState();
 
       if (activeEditor.tabId && activeEditor.source) {
+        if (isPathInsideLockedProject(activeEditor.source)) {
+          notifyLockedSave();
+          return true;
+        }
         try {
           const view = editorViews.get(activeEditor.tabId);
           const content = view
@@ -688,6 +712,10 @@ export const globalSaveFile = async () => {
     // If no editor found, try to get the active document as fallback
     const activePath = await window.electron?.active.getDocument();
     if (activePath) {
+      if (isPathInsideLockedProject(activePath)) {
+        notifyLockedSave();
+        return false;
+      }
       return window.electron?.files.write(activePath, "");
     }
 
