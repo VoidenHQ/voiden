@@ -13,6 +13,21 @@ import { Node } from "@tiptap/core";
 import { ReactNodeViewRenderer } from "@tiptap/react";
 import { AlertCircle, ChevronDown, Copy, Download, Eye, FileDown, FileText, WrapText } from "lucide-react";
 
+type LangOption = { label: string; value: string };
+const LANG_OPTIONS: LangOption[] = [
+  { label: "Auto", value: "auto" },
+  { label: "Raw", value: "raw" },
+  { label: "JSON", value: "json" },
+  { label: "XML", value: "xml" },
+  { label: "HTML", value: "html" },
+  { label: "YAML", value: "yaml" },
+  { label: "JavaScript", value: "javascript" },
+  { label: "Python", value: "python" },
+  { label: "Plain Text", value: "text" },
+  { label: "Hex", value: "hex" },
+  { label: "Base64", value: "base64" },
+];
+
 // Truncate response body display at this character count to prevent UI freeze
 const TRUNCATE_THRESHOLD = 500 * 1024; // 500 KB
 
@@ -28,6 +43,34 @@ export interface ResponseBodyAttrs {
   contentType: string | null;
   downloadFilename: string | null;
 }
+
+const PRETTIFIABLE_LANGS = new Set(["json", "xml", "html", "yaml", "javascript", "python", "css"]);
+
+const prettifyContent = (text: string, lang: string): string => {
+  try {
+    if (lang === "json") {
+      return JSON.stringify(JSON.parse(text), null, 2);
+    }
+    if (lang === "xml" || lang === "html") {
+      return prettifyHtml(text);
+    }
+    if (lang === "yaml") {
+      // Basic YAML prettify: normalize indentation to 2 spaces
+      return text
+        .split("\n")
+        .map((line) => {
+          const match = line.match(/^(\t+)/);
+          if (match) return "  ".repeat(match[1].length) + line.slice(match[1].length);
+          return line;
+        })
+        .join("\n")
+        .trim();
+    }
+  } catch {
+    // If parsing fails, return original
+  }
+  return text;
+};
 
 const prettifyHtml = (html: string): string => {
   let formatted = '';
@@ -76,8 +119,25 @@ export const createResponseBodyNode = (
 ) => {
   const ResponseBodyComponent = ({ node, getPos, editor }: any) => {
     const { body, contentType, downloadFilename } = node.attrs as ResponseBodyAttrs;
-    const [viewMode, setViewMode] = React.useState<ViewMode>("preview");
+    const [viewMode, setViewMode] = React.useState<ViewMode>("raw");
     const [isPrettified, setIsPrettified] = React.useState(false);
+    const [langOverride, setLangOverride] = React.useState<string>("auto");
+    const [isLangDropdownOpen, setIsLangDropdownOpen] = React.useState(false);
+    const langDropdownRef = React.useRef<HTMLDivElement>(null);
+
+    // Reset prettify when language changes
+    React.useEffect(() => { setIsPrettified(false); }, [langOverride]);
+
+    React.useEffect(() => {
+      if (!isLangDropdownOpen) return;
+      const handleClickOutside = (e: MouseEvent) => {
+        if (langDropdownRef.current && !langDropdownRef.current.contains(e.target as globalThis.Node)) {
+          setIsLangDropdownOpen(false);
+        }
+      };
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
+    }, [isLangDropdownOpen]);
 
     // Content-type detection — derived from contentType only, safe to compute before hooks
     const ct = (contentType || "").toLowerCase();
@@ -124,6 +184,16 @@ export const createResponseBodyNode = (
     // Read parent's openNodes state - automatically updates when parent changes
     const { openNodes } = useParentResponseDoc(editor, getPos);
     const isCollapsed = !openNodes.includes("response-body");
+
+    // Compute effective lang at component level so header buttons can use it
+    const autoLang = (() => {
+      if (isJson || (!isXml && !isHtml && !isText && typeof body === "object")) return "json";
+      if (isXml) return "xml";
+      if (isHtml) return "html";
+      return "text";
+    })();
+    const effectiveLang = langOverride === "auto" ? autoLang : langOverride;
+    const canPrettify = PRETTIFIABLE_LANGS.has(effectiveLang);
 
     // Handle click - toggle this node open/closed
     const handleSetActive = () => {
@@ -408,6 +478,10 @@ export const createResponseBodyNode = (
 
     // Render raw content
     const renderRaw = () => {
+      if (langOverride === "hex") return renderHex();
+      if (langOverride === "base64") return renderBase64();
+      if (langOverride === "raw") return renderRawNoHighlight();
+
       // For binary/media content, show a message instead of trying to display raw bytes
       if (isImage || isVideo || isAudio || isPdf) {
         return (
@@ -450,15 +524,12 @@ export const createResponseBodyNode = (
         );
       }
 
-      let lang = "text";
-      if (isJson || (!isXml && !isHtml && !isText && typeof body === "object")) lang = "json";
-      else if (isXml) lang = "xml";
-      else if (isHtml) lang = "html";
+      const lang = effectiveLang;
 
-      // Use memoized serialized body; apply prettify for HTML if toggled
+      // Use memoized serialized body; apply prettify if toggled
       let displayValue = serializedBody ?? String(body);
-      if (isHtml && isPrettified) {
-        displayValue = prettifyHtml(displayValue);
+      if (isPrettified && canPrettify) {
+        displayValue = prettifyContent(displayValue, lang);
       }
 
       // Truncate very large content — CodeMirror can handle big docs but the initial
@@ -514,6 +585,96 @@ export const createResponseBodyNode = (
               forceHighlight={highlightEnabled}
             />
           </div>
+        </div>
+      );
+    };
+
+    // Render raw content with no syntax highlighting
+    const renderRawNoHighlight = () => {
+      const text = serializedBody ?? String(body);
+      const displayed = isTruncated ? text.slice(0, TRUNCATE_THRESHOLD) : text;
+      return (
+        <div className="response-body-editor">
+          <CodeEditor readOnly lang="text" value={displayed} showReplace={false} />
+        </div>
+      );
+    };
+
+    // Convert body to bytes for hex/base64 views
+    const getBodyBytes = (): Uint8Array => {
+      if (typeof body === "string") return new TextEncoder().encode(body);
+      if (body instanceof Uint8Array) return body;
+      if (body instanceof ArrayBuffer) return new Uint8Array(body);
+      if (body instanceof Blob) return new Uint8Array(0); // can't sync-read Blob
+      if (typeof body === "object" && body.type === "Buffer" && Array.isArray(body.data)) {
+        return new Uint8Array(body.data);
+      }
+      return new TextEncoder().encode(typeof body === "string" ? body : JSON.stringify(body, null, 2));
+    };
+
+    // Render hex dump view
+    const renderHex = () => {
+      const HEX_BYTE_LIMIT = 64 * 1024; // show up to 64 KB of bytes
+      const bytes = getBodyBytes();
+      const truncated = bytes.length > HEX_BYTE_LIMIT;
+      const slice = truncated ? bytes.slice(0, HEX_BYTE_LIMIT) : bytes;
+      const ROW = 16;
+      const rows: string[] = [];
+      for (let i = 0; i < slice.length; i += ROW) {
+        const chunk = slice.slice(i, i + ROW);
+        const offset = i.toString(16).padStart(8, "0");
+        const hex = Array.from(chunk)
+          .map((b) => b.toString(16).padStart(2, "0"))
+          .join(" ")
+          .padEnd(ROW * 3 - 1, " ");
+        const ascii = Array.from(chunk)
+          .map((b) => (b >= 32 && b <= 126 ? String.fromCharCode(b) : "."))
+          .join("");
+        rows.push(`${offset}  ${hex}  |${ascii}|`);
+      }
+      const hexText = rows.join("\n");
+
+      return (
+        <div>
+          {truncated && (
+            <div className="flex justify-end px-3 py-1.5">
+              <span className="text-xs text-accent">Showing first 64 KB of {formatBodySize(bytes.length)}</span>
+            </div>
+          )}
+          <div className="response-body-editor">
+            <CodeEditor
+              readOnly
+              lang="text"
+              value={hexText}
+              showReplace={false}
+            />
+          </div>
+        </div>
+      );
+    };
+
+    // Render base64 view
+    const renderBase64 = () => {
+      let b64 = "";
+      try {
+        const bytes = getBodyBytes();
+        const CHUNK = 8192;
+        let binary = "";
+        for (let i = 0; i < bytes.length; i += CHUNK) {
+          binary += String.fromCharCode(...bytes.slice(i, i + CHUNK));
+        }
+        b64 = btoa(binary);
+      } catch {
+        b64 = "(failed to encode as base64)";
+      }
+      return (
+        <div className="response-body-editor">
+          <CodeEditor
+            readOnly
+            lang="text"
+            value={b64}
+            showReplace={false}
+          />
         </div>
       );
     };
@@ -584,64 +745,8 @@ export const createResponseBodyNode = (
             </div>
 
             <div className="flex items-center gap-1" style={{ userSelect: 'none' }}>
-              {/* Size indicator — always visible when body has content */}
-              {totalBodySize > 0 && Tip && (
-                <Tip
-                  label={isTruncated ? "Size is too big — showing partial content" : `Response size: ${formatBodySize(totalBodySize)}`}
-                  side="top"
-                  align="end"
-                >
-                  <span className={`flex items-center cursor-default px-1 ${isTruncated ? "text-accent" : "text-comment opacity-60"}`}>
-                    <AlertCircle size={13} />
-                  </span>
-                </Tip>
-              )}
-
-              {/* Tab buttons */}
-              {!isCollapsed && hasPreview && !isBinary && (
-                <>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); setViewMode("preview"); }}
-                    className={`px-3 py-1 text-xs rounded ${viewMode === "preview"
-                      ? "bg-active text-text"
-                      : "text-comment hover:bg-active"
-                      }`}
-
-                    style={{ cursor: 'pointer', userSelect: 'none' }}
-                  >
-                    <Eye size={14}></Eye>
-                  </button>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); setViewMode("raw"); }}
-                    className={`px-3 py-1 text-xs rounded ${viewMode === "raw"
-                      ? "bg-active text-text"
-                      : "text-comment hover:bg-active"
-                      }`}
-
-                    style={{ cursor: 'pointer', userSelect: 'none' }}
-                  >
-                    <FileText size={14} />
-                  </button>
-                </>
-              )}
-
-              {/* Prettify button - only show for HTML in raw view */}
-              {!isCollapsed && isHtml && (viewMode === "raw" || !hasPreview) && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); setIsPrettified(!isPrettified); }}
-                  className={`px-3 py-1 text-xs rounded ${isPrettified
-                    ? "bg-active text-text"
-                    : "text-comment hover:bg-active"
-                    }`}
-                  title={isPrettified ? "Show raw HTML" : "Prettify HTML"}
-                  style={{ cursor: 'pointer', userSelect: 'none' }}
-                >
-                  <WrapText size={14} />
-                </button>
-              )}
-
               {/* Copy button - only show for text-based content */}
-              {!isCollapsed && (isJson || isXml || isHtml || isText) && (
+              {(isJson || isXml || isHtml || isText) && (
                 <button
                   onClick={(e) => { e.stopPropagation(); handleCopy(); }}
                   className="response-action-btn px-3 py-1 text-xs text-comment rounded"
@@ -651,27 +756,93 @@ export const createResponseBodyNode = (
                   <Copy size={14} />
                 </button>
               )}
-
-              {!isCollapsed && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); handleDownload(); }}
-                  className="response-action-btn px-3 py-1 text-xs text-comment rounded"
-                  title="Download"
-                  style={{ cursor: 'pointer', userSelect: 'none' }}
-                >
-                  <Download size={14} />
-                </button>
-              )}
-
+              <button
+                onClick={(e) => { e.stopPropagation(); handleDownload(); }}
+                className="response-action-btn px-3 py-1 text-xs text-comment rounded"
+                title="Download"
+                style={{ cursor: 'pointer', userSelect: 'none' }}
+              >
+                <Download size={14} />
+              </button>
             </div>
           </div>
 
           {/* Content area - collapsible */}
           {!isCollapsed && (
             <div className="bg-editor">
-              {contentType && (
-                <span className="px-4 py-2 text-xs text-comment font-mono" style={{ pointerEvents: 'none' }}>{contentType}</span>
-              )}
+              {/* Toolbar: content-type + view controls */}
+              <div className="flex items-center justify-between p-3 border-b border-border" onClick={(e) => e.stopPropagation()}>
+                <span className="text-xs text-comment font-mono" style={{ pointerEvents: 'none' }}>
+                  {contentType ?? ""}
+                </span>
+                <div className="flex items-center gap-1">
+                  {/* Preview / Raw tabs */}
+                  {hasPreview && !isBinary && (
+                    <button
+                      onClick={() => setViewMode("preview")}
+                      className={`px-2 py-1 text-xs rounded ${viewMode === "preview" ? "bg-active text-text" : "text-comment hover:bg-active"}`}
+                      title="Preview"
+                      style={{ cursor: 'pointer' }}
+                    >
+                      <Eye size={13} />
+                    </button>
+                  )}
+                  {!isBinary && (
+                    <button
+                      onClick={() => setViewMode("raw")}
+                      className={`px-2 py-1 text-xs rounded ${viewMode === "raw" ? "bg-active text-text" : "text-comment hover:bg-active"}`}
+                      title="Raw"
+                      style={{ cursor: 'pointer' }}
+                    >
+                      <FileText size={13} />
+                    </button>
+                  )}
+
+                  {/* Prettify */}
+                  {canPrettify && viewMode === "raw" && (
+                    <button
+                      onClick={() => setIsPrettified(!isPrettified)}
+                      className={`px-2 py-1 text-xs rounded ${isPrettified ? "bg-active text-text" : "text-comment hover:bg-active"}`}
+                      title={isPrettified ? "Show original" : `Prettify ${effectiveLang.toUpperCase()}`}
+                      style={{ cursor: 'pointer' }}
+                    >
+                      <WrapText size={13} />
+                    </button>
+                  )}
+
+                  {/* Language selector */}
+                  {!isBinary && !isImage && !isVideo && !isAudio && !isPdf && viewMode === "raw" && (
+                    <div ref={langDropdownRef} className="relative">
+                      <button
+                        onClick={() => setIsLangDropdownOpen((o) => !o)}
+                        className={`flex items-center gap-1 px-2 py-0.5 text-xs rounded ${isLangDropdownOpen ? "bg-active text-text" : "text-comment hover:bg-active"}`}
+                        style={{ cursor: 'pointer', fontFamily: 'var(--font-family-mono)' }}
+                        title="Change language"
+                      >
+                        {LANG_OPTIONS.find((o) => o.value === langOverride)?.label ?? "Auto"}
+                        <ChevronDown size={10} />
+                      </button>
+                      {isLangDropdownOpen && (
+                        <div
+                          className="absolute right-0 z-50 mt-1 py-1 rounded border border-border bg-panel shadow-lg"
+                          style={{ minWidth: '110px', top: '100%' }}
+                        >
+                          {LANG_OPTIONS.map((opt) => (
+                            <button
+                              key={opt.value}
+                              onClick={() => { setLangOverride(opt.value); setIsLangDropdownOpen(false); }}
+                              className={`w-full text-left px-3 py-1.5 text-xs hover:bg-active transition-colors ${langOverride === opt.value ? "text-accent" : "text-text"}`}
+                              style={{ cursor: 'pointer', fontFamily: 'var(--font-family-mono)' }}
+                            >
+                              {opt.label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
 
               {isBinary
                 ? renderBinaryView()
