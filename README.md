@@ -29,8 +29,8 @@ No accounts, no sync, no cloud required.
 
 ---
 
-### 📦 Download
-**Version 1.3.1 is now available!**
+###  Download
+**Version 1.4.6 is now available!**
 
 **[Download Voiden ↗️](https://voiden.md/download)**
 
@@ -63,7 +63,7 @@ If you are using Voiden or thinking about contributing, come join the conversati
 
 ---
 
-Thanks for sharing your thoughts with us 💜
+Thanks for sharing your thoughts with us !
 
 ---
 
