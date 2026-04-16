@@ -1,6 +1,6 @@
-# Contributing to Voiden
+# Building Voiden, together...
 
-Thank you for your interest in contributing to Voiden! This document provides guidelines and instructions for contributing.
+Thank you for your interest in helping us improve Voiden! This document provides guidelines and instructions for contributing.
 
 ## Table of Contents
 
