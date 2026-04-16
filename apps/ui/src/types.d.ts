@@ -457,6 +457,13 @@ declare global {
           content: string | Record<string, any>,
         ) => Promise<void>;
       };
+      project: {
+        getLocked: (projectRoot: string) => Promise<boolean>;
+        setLocked: (projectRoot: string, locked: boolean) => Promise<boolean>;
+        onLockedChanged: (
+          cb: (payload: { projectRoot: string; locked: boolean }) => void,
+        ) => () => void;
+      };
       logger: {
         getLogs: () => Promise<any[]>;
         filterLogs: (category?: string, level?: string, sinceTimestamp?: number) => Promise<any[]>;

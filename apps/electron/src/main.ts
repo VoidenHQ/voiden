@@ -12,6 +12,7 @@ import { windowManager } from "./main/windowManager";
 import { registerFileIpcHandlers } from "./main/ipc/files";
 import { registerGitIpcHandlers } from "./main/ipc/git";
 import { registerDirectoryIpcHandlers } from "./main/ipc/directory";
+import { registerProjectIpcHandlers } from "./main/ipc/project";
 import { registerTabIpcHandlers } from "./main/ipc/tabHandlers";
 import { registerPluginIpcHandlers } from "./main/ipc/plugins";
 import { registerAppIpcHandlers } from "./main/ipc/app";
@@ -170,6 +171,7 @@ app.on("ready", async () => {
   registerFileIpcHandlers();
   registerGitIpcHandlers();
   registerDirectoryIpcHandlers();
+  registerProjectIpcHandlers();
   registerTabIpcHandlers();
   registerPluginIpcHandlers();
   registerAppIpcHandlers();

@@ -6,3 +6,4 @@
 
 export * from "./useFileSystem";
 export * from "./useElectronEvents";
+export * from "./useProjectLock";
