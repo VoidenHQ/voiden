@@ -6,8 +6,8 @@ import {
   ExtensionData,
   PanelElement,
   SidebarTab,
+  Tab
 } from "src/shared/types";
-import { Tab } from "src/shared/types";
 import { ExtensionManager } from "./extension/extensionManager";
 import { getRemoteExtensions } from "./extension/extensionFetcher";
 import { BrowserWindow, dialog, ipcMain, IpcMainInvokeEvent } from "electron";
@@ -403,7 +403,7 @@ export function findTabById(
 
 async function isClosingTabInLockedProject(
   appState: AppState,
-  closingTab: any,
+  closingTab: Tab,
 ): Promise<boolean> {
   const source: string | undefined = closingTab?.source;
   if (!source) return false;
@@ -1363,35 +1363,38 @@ export const ipcStateHandlers = () => {
       if (closingTab.type === "document" && unsavedContent) {
         const locked = await isClosingTabInLockedProject(appState, closingTab);
         if (locked) {
+          const cancelId = 1;
           const result = await dialog.showMessageBox({
             type: "warning",
             buttons: ["Discard", "Cancel"],
             defaultId: 0,
-            cancelId: 1,
+            cancelId,
             title: "Project Locked",
             message: `Discard unsaved changes to ${closingTab.title}?`,
             detail:
               "The project is locked, so these changes can't be saved. Closing the tab will discard them.",
           });
-          if (result.response === 1) {
+          if (result.response === cancelId) {
             return { canceled: true };
           }
         } else {
+          const cancelId = 2;
+          const defaultId = 0;
           const result = await dialog.showMessageBox({
             type: "warning",
             buttons: ["Save", "Don't Save", "Cancel"],
-            defaultId: 0,
-            cancelId: 2,
+            defaultId,
+            cancelId,
             title: "Unsaved Changes",
             message: `Do you want to save changes made to ${closingTab.title}?`,
             detail: "Your changes will be lost if you don't save them.",
           });
 
-          if (result.response === 2) {
+          if (result.response === cancelId) {
             return { canceled: true };
           }
 
-          if (result.response === 0) {
+          if (result.response === defaultId) {
             const success = await saveDocument(closingTab, unsavedContent);
             if (!success) {
               return { canceled: true };
