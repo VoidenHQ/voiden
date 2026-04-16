@@ -1,5 +1,27 @@
 [
   {
+    "version": "v1.4.6",
+    "date": "16/04/2026",
+    "title": "Shell Scripting Fixes, Lock Mode & Shortcut Refactor",
+    "description": "Patch release fixing shell scripting API alignment, response panel language override, section execution via keyboard shortcut, and introducing a status bar lock for safe testing. Keyboard shortcut system refactored by a community contributor.",
+    "icon": "Lock",
+    "iconColor": "text-cyan-400",
+    "bgColor": "bg-gradient-to-br from-cyan-900 to-slate-900",
+    "changes": {
+      "Added": [
+        "Lock mode — a lock toggle in the status bar that prevents any data from being saved during a session, making it safe to run test requests without overwriting existing content",
+        "Manual response format override — force the response panel to render a body as a specific format (e.g. JSON, HTML) regardless of the content type returned by the server, useful when APIs return JSON with an incorrect content type header"
+      ],
+      "Fixed": [
+        "Shell scripting APIs now align with the same conventions used by other scripting languages in Voiden, ensuring a consistent scripting experience across all supported languages",
+        "Section execution via Cmd + Enter (macOS) / Ctrl + Enter (Windows/Linux) now triggers reliably when pressing the shortcut inside a section block"
+      ],
+      "Changed": [
+        "Keyboard shortcut system refactored and centralized — contributed by a community contributor"
+      ]
+    }
+  },
+  {
     "version": "v1.4.5",
     "date": "14/04/2026",
     "title": "File Import, Highlight Fixes & Editor Polish",

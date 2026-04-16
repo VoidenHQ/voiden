@@ -1,5 +1,5 @@
 import { Cookie, FileText, Puzzle } from "lucide-react";
-import { Terminal, Plug, FileDown, Paintbrush, Braces, Code, LayoutDashboard, Eye, FilePlus2, Rocket, Wrench, Zap, Sparkles, Compass, Workflow, PanelBottom , FolderOpen } from "lucide-react";
+import { Terminal, Plug, FileDown, Paintbrush, Braces, Code, LayoutDashboard, Eye, FilePlus2, Rocket, Wrench, Zap, Sparkles, Compass, Workflow, PanelBottom , FolderOpen ,Lock} from "lucide-react";
 import changelogData from "@/data/changelog.json";
 
 // Map icon names to Lucide icon components
@@ -22,7 +22,8 @@ const iconMap = {
   Cookie:Cookie,
   Workflow:Workflow,
   PanelBottom:PanelBottom,
-  FolderOpen:FolderOpen
+  FolderOpen:FolderOpen,
+  Lock:Lock
 };
 
 const ChangeLogScreen = () => {
