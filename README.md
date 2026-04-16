@@ -19,9 +19,13 @@
   <a href="https://docs.voiden.md/docs/getting-started-section/intro" rel="nofollow"><img src="https://camo.githubusercontent.com/ae085ed78e2d78de6bf57bf725d555769e12e21bbfbf5ce461d55a567ccbbdfe/68747470733a2f2f696d672e736869656c64732e696f2f62616467652f446f63732d3065613565392e737667" alt="Documentation" data-canonical-src="https://img.shields.io/badge/Docs-0ea5e9.svg" style="max-width: 100%;" ></a>
 </p>
 
-**Voiden** is an offline-first API client for developers, Testers and Technical Writers who want their API work to feel like code—not a SaaS dashboard.
+**Voiden** is an offline-first API client for developers, Testers and Technical Writers who want their API work to feel like code, not a SaaS dashboard. In Voiden, API requests live as executable Markdown and are versioned in Git. 
 
-Voiden lets you build, test, and link API requests like reusable blocks, comment on JSON or XML, preview responses (even PDFs or videos), and manage environments, themes, and scripts. The best part is that Voiden enables all this without ever needing the cloud. Voiden is your API lab: fast, transparent, versionable, and unapologetically opinionated.
+The goal, when we set out to build Voiden, was to combine the power and flexibility of Obsidian-style files with the simplicity of curl. Instead of static forms, API requests can be composed with blocks (endpoint, auth, params, body). Blocks that you can add, reuse, override, and stitch together across files (more like functions than requests).
+
+With our more recent updates, Voiden lets you also do define workflows, chain requests, script them, and structure everything in reusable .void files. 
+
+The best part is that Voiden enables all this without ever needing the cloud. Voiden is your API lab: fast, transparent, versionable, and a bit opinionated.
 
 No accounts, no sync, no cloud required.
 
