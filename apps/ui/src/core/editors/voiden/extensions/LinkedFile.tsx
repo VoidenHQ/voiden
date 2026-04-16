@@ -194,7 +194,7 @@ const LinkedFileNodeView = ({ node, editor, getPos }: any) => {
 
         {/* File content (collapsible) */}
         {!isCollapsed && (
-          <div>
+          <div className="px-2">
             {isLoading ? (
               <div className="p-3 text-xs text-comment flex items-center justify-center">
                 Loading {fileName}…

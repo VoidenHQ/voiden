@@ -531,12 +531,21 @@ input[type="week"]::-webkit-datetime-edit-year-field:focus {
       pointer-events: none;
     }
 
+    .tiptap .is-empty {
+      position: relative;
+    }
+
     .tiptap .is-empty::before {
       color: var(--syntax-comment);
       @apply content-[attr(data-placeholder)];
-      @apply float-left;
       @apply pointer-events-none;
-      @apply h-0;
+      position: absolute;
+      top: 0;
+      left: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 100%;
     }
 
     /* table selection */

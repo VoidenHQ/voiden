@@ -55,7 +55,12 @@ export const UrlNode = Node.create({
             return false;
           }
         } else if (node?.type.name === "url") {
-          const pos = this.editor.$node("url")?.to;
+          // Use the cursor's depth-1 ancestor position to find THIS url node's end,
+          // not the first url node in the document (which $node("url") would return).
+          const $head = this.editor.state.selection.$head;
+          const urlNodePos = $head.before($head.depth);
+          const urlNodeSize = this.editor.state.doc.nodeAt(urlNodePos)?.nodeSize ?? 0;
+          const pos = urlNodePos + urlNodeSize;
           if (pos) {
             this.editor.chain().focus(pos).insertContent({ type: "paragraph" }).run();
             return true;
