@@ -1,7 +1,6 @@
 import * as E from "fp-ts/lib/Either.js";
 import * as O from "fp-ts/lib/Option.js";
 import { pipe } from "fp-ts/lib/function.js";
-import { cloneDeep } from "lodash-es";
 
 import {
   GlobalEnvItem,
@@ -518,7 +517,7 @@ const createExpectation = (
  * @returns Object with methods in the `voiden-wrapper` namespace
  */
 export const getPreRequestScriptMethods = (envs: TestResult["envs"]) => {
-  const { methods, updatedEnvs } = getSharedMethods(cloneDeep(envs));
+  const { methods, updatedEnvs } = getSharedMethods(structuredClone(envs));
   return { voiden: methods, updatedEnvs };
 };
 
@@ -548,7 +547,7 @@ export const getTestRunnerScriptMethods = (envs: TestResult["envs"]) => {
   const expectFn = (expectVal: any) =>
     createExpectation(expectVal, false, testRunStack);
 
-  const { methods, updatedEnvs } = getSharedMethods(cloneDeep(envs));
+  const { methods, updatedEnvs } = getSharedMethods(structuredClone(envs));
 
   const voiden = {
     ...methods,

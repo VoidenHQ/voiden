@@ -54,7 +54,6 @@
     "@faker-js/faker": "^9.0.3",
     "@voiden/sdk": "^1.0.9",
     "js-yaml": "^4.1.0",
-    "lodash": "^4.17.21",
     "shell-quote": "^1.8.1",
     "xlsx-js-style": "^1.2.0"
   },
@@ -76,7 +75,6 @@
     "@tiptap/pm": "^2.8.0",
     "@tiptap/react": "^2.8.0",
     "@types/js-yaml": "^4.0.9",
-    "@types/lodash": "^4.14.200",
     "@types/react": "^18.2.15",
     "@types/react-dom": "^18.2.7",
     "@types/shell-quote": "^1.7.1",

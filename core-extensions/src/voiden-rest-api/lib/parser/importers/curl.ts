@@ -3,7 +3,6 @@ import { parse, CURL_DATA_FLAGS } from "./shell-quote-override";
 
 import { Converter, ImportRequest, Parameter, PostData } from "../types";
 import { Request, RequestParam } from "@voiden/sdk/shared";
-import * as _ from "lodash";
 import { getFormDataBody } from "./preproc";
 
 let requestCount = 1;
@@ -94,14 +93,14 @@ const importCommand = (parseEntries: ParseEntry[], rawData?: string): ImportRequ
       }
 
       if (parseEntry.includes("data-raw") && contentType?.value?.includes("multipart/form-data")) {
-        pairsByName["form"] = [...(_.isArray(value) ? value : [value])];
+        pairsByName["form"] = [...(Array.isArray(value) ? value : [value])];
         continue;
       }
 
       if (!pairsByName[name]) {
-        pairsByName[name] = [...(_.isArray(value) ? value : [value])];
+        pairsByName[name] = [...(Array.isArray(value) ? value : [value])];
       } else {
-        pairsByName[name].push(...(_.isArray(value) ? value : [value]));
+        pairsByName[name].push(...(Array.isArray(value) ? value : [value]));
       }
     } else if (parseEntry) {
       singletons.push(parseEntry);
