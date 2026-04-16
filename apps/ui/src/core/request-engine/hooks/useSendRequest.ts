@@ -18,7 +18,7 @@ import { toast } from "@/core/components/ui/sonner";
 import { useVoidenEditorStore } from "@/core/editors/voiden/VoidenEditor";
 import { expandLinkedFilesInDoc } from "@/core/editors/voiden/utils/expandLinkedBlocks";
 
-export const  useSendRestRequest = (_editor: Editor) => {
+export const useSendRestRequest = (_editor: Editor) => {
   // Always use the main VoidenEditor, not the passed editor.
   // This is critical for imported/linked blocks whose editor prop
   // points to the linked block's sub-editor, not the main document.
@@ -97,29 +97,13 @@ export const  useSendRestRequest = (_editor: Editor) => {
         sectionIndexOverrideRef.current = undefined; // Clear after reading
 
         if (sectionIndex === undefined) {
-          const activeEl = document.activeElement;
-          const proseDom = editor.view.dom;
-          if (activeEl && proseDom.contains(activeEl)) {
-            // Walk up from activeElement to find its position among top-level children
-            let topLevelNode: Element | null = activeEl;
-            while (topLevelNode && topLevelNode.parentElement !== proseDom) {
-              topLevelNode = topLevelNode.parentElement;
+          const nodePos = editor.state.selection.$from.pos;
+          sectionIndex = 0;
+          editor.state.doc.forEach((child: any, offset: number) => {
+            if (child.type.name === "request-separator" && offset < nodePos) {
+              sectionIndex++;
             }
-            if (topLevelNode) {
-              // Count separator nodes before this element
-              // TipTap node views have data-node-view-wrapper, and the inner div has data-type
-              let idx = 0;
-              let sibling = proseDom.firstElementChild;
-              while (sibling && sibling !== topLevelNode) {
-                const isSeparator =
-                  sibling.getAttribute('data-type') === 'request-separator' ||
-                  sibling.querySelector?.('[data-type="request-separator"]') !== null;
-                if (isSeparator) idx++;
-                sibling = sibling.nextElementSibling;
-              }
-              sectionIndex = idx;
-            }
-          }
+          });
         }
         // Fallback to ProseMirror selection
         const cursorPos = sectionIndex !== undefined ? undefined : editor.state.selection.$from.pos;
