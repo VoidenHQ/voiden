@@ -41,9 +41,9 @@ No accounts, no sync, no cloud required.
 The website will automatically detect your operating system and highlight the correct installer for you.
 (Windows, macOS Intel/Apple Silicon, and Linux).
 
-> 📋 Want to see what's new in this version? **[Check the changelog ↗️](https://voiden.md/changelog)**
+> Want to see what's new in this version? **[Check the changelog ↗️](https://voiden.md/changelog)**
 
->🔧 Looking for the **beta** builds?  [Download beta versions ↗️](https://voiden.md/download#beta)
+>Looking for the **beta** builds?  [Download beta versions ↗️](https://voiden.md/download#beta)
 
 ## Getting Started
 
