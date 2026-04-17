@@ -238,11 +238,11 @@ voiden/
 
 ## Why Electron?
 
-Voiden is built on Electron on purpose. We are building something closer to an IDE for APIs than a lightweight request sender, so we wanted a mature, cross-platform foundation that ships consistently on macOS, Windows, and Linux, gives us deep system access for things like Git and the terminal, and lets us keep a rich, custom editor experience.
+Voiden is built on [Electron](https://www.electronjs.org/). We are building something closer to an IDE for APIs than a lightweight request sender, so we wanted a mature, cross-platform foundation that ships consistently on macOS, Windows, and Linux, gives us deep system access for things like Git and the terminal, and lets us keep a rich, custom editor experience.
 
 We also know Electron gets a bad reputation, often inherited from other API tools. Our take is that footprint matters, but stability, reliability, and cross-platform predictability matter more when users feel them every day. We would rather be transparent about resource usage and keep optimizing it than chase a lighter stack that breaks in subtle ways.
 
-Read the full reasoning: [Why Voiden is Built on Electron?](https://docs.voiden.md/docs/getting-started-section/getting-started/why-electron).
+Read the full reasoning here: [Why Voiden is Built on Electron?](https://docs.voiden.md/docs/getting-started-section/getting-started/why-electron).
 
 ## Community
 
