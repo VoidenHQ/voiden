@@ -1,118 +1,233 @@
-
-<br/>
+  
 
 <p align="center">
-<a href="https://voiden.md">
-<img src="apps/electron/logo-dark.png" width="80"/>
-</a>
+  <a href="https://voiden.md">
+    <img src="apps/electron/logo-dark.png" width="96" alt="Voiden logo" />
+  </a>
 </p>
+
+<h1 align="center">Voiden : The offline, Git-native API workspace.</h1>
+
 <p align="center">
-  <a href="https://www.linkedin.com/showcase/voiden/">
-    <img src="https://img.shields.io/badge/LinkedIn-0077B5?style=for-the-badge&logo=linkedin&logoColor=white" alt="LinkedIn" width="70">
+  Build, test, document, and collaborate on APIs with plain-text <code>.void</code> files.
+</p>
+
+<p align="center">
+  No accounts. No required cloud sync. Just local files, reusable blocks, and Git.
+</p>
+
+<p align="center">
+  <a href="https://voiden.md/download">
+    <img src="https://img.shields.io/badge/Download-111827?style=for-the-badge&logo=apple&logoColor=white" alt="Download" />
+  </a>
+  <a href="https://docs.voiden.md/docs/getting-started-section/intro">
+    <img src="https://img.shields.io/badge/Docs-0EA5E9?style=for-the-badge&logo=readthedocs&logoColor=white" alt="Docs" />
+  </a>
+  <a href="https://voiden.md/changelog">
+    <img src="https://img.shields.io/badge/Changelog-6366F1?style=for-the-badge&logo=semanticrelease&logoColor=white" alt="Changelog" />
+  </a>
+  <a href="https://voiden.md/blog">
+    <img src="https://img.shields.io/badge/Blog-F59E0B?style=for-the-badge&logo=rss&logoColor=white" alt="Blog" />
+  </a>
+</p>
+
+<p align="center">
+  <a href="https://discord.com/invite/XSYCf7JF4F">
+    <img src="https://img.shields.io/badge/Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Discord" />
   </a>
   <a href="https://x.com/VoidenMD">
-    <img src="https://img.shields.io/badge/X-000000?style=for-the-badge&logo=x&logoColor=white" alt="X" width="40">
+    <img src="https://img.shields.io/badge/X-000000?style=for-the-badge&logo=x&logoColor=white" alt="X" />
   </a>
-  <a href="https://discord.com/invite/XSYCf7JF4F">
-    <img src="https://img.shields.io/badge/Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Discord" width="75">
+  <a href="https://www.linkedin.com/showcase/voiden/">
+    <img src="https://img.shields.io/badge/LinkedIn-0A66C2?style=for-the-badge&logo=linkedin&logoColor=white" alt="LinkedIn" />
   </a>
-  <a href="https://docs.voiden.md/docs/getting-started-section/intro" rel="nofollow"><img src="https://camo.githubusercontent.com/ae085ed78e2d78de6bf57bf725d555769e12e21bbfbf5ce461d55a567ccbbdfe/68747470733a2f2f696d672e736869656c64732e696f2f62616467652f446f63732d3065613565392e737667" alt="Documentation" data-canonical-src="https://img.shields.io/badge/Docs-0ea5e9.svg" style="max-width: 100%;" ></a>
 </p>
 
-                            
+<p align="center">
+  <a href="LICENSE">
+    <img src="https://img.shields.io/badge/License-Apache%202.0-0EA5E9?style=for-the-badge&logo=apache&logoColor=white" alt="License: Apache 2.0" />
+  </a>
+  <a href="https://github.com/VoidenHQ/voiden/releases">
+    <img src="https://img.shields.io/github/v/release/VoidenHQ/voiden?style=for-the-badge&logo=github&color=111827&label=release" alt="Latest release" />
+  </a>
+</p>
 
-**Voiden** is an offline-first API client for developers, Testers and Technical Writers who want their API work to feel like code, not a SaaS dashboard. In Voiden, API requests live as executable Markdown and are versioned in Git. 
+![Voiden workspace showing requests, docs, and response panels](apps/electron/public/start.png)
 
-The goal, when we set out to build Voiden, was to combine the power and flexibility of Obsidian-style files with the simplicity of curl. Instead of static forms, API requests can be composed with blocks (endpoint, auth, params, body). Blocks that you can add, reuse, override, and stitch together across files (more like functions than requests).
+## Why Voiden
 
-With our more recent updates, Voiden lets you also do define workflows, chain requests, script them, and structure everything in reusable .void files. 
+Voiden is for developers, testers, and technical writers who want API work to feel like code instead of a SaaS dashboard.
 
-The best part is that Voiden enables all this without ever needing the cloud. Voiden is your API lab: fast, transparent, versionable, and a bit opinionated.
+- Keep requests, notes, and reusable API building blocks in the same `.void` files.
+- Work in Markdown and structured blocks instead of opaque collections locked inside an app.
+- Reuse headers, auth, bodies, and whole sections across files with linked blocks and linked files.
+- Test and document APIs without leaving the editor.
+- Collaborate with Git branches and pull requests instead of proprietary team workspaces.
+- Stay local-first with no signup and no required cloud sync.
 
-No accounts, no sync, no cloud required.
+## Install
 
-![Video](apps/electron/public/start.png)
+**Current version:** `1.4.6`
 
+Download installers for macOS, Windows, and Linux from [voiden.md/download](https://voiden.md/download).
+Direct downloads are available for Apple Silicon and Intel macOS, Windows `.exe`, and Linux `.deb`, `.rpm`, and `.AppImage` builds.
+
+### Package managers
+
+
+| Platform | Stable                              | Early access                        |
+| -------- | ----------------------------------- | ----------------------------------- |
+| macOS    | `brew install voiden`               | `brew install voiden@beta`          |
+| Windows  | `winget` and Chocolatey coming soon | `winget` and Chocolatey coming soon |
+| Linux    | `apt` and `snap` support            | Beta `apt` and `snap` channels      |
+
+
+Homebrew
+
+```bash
+brew install voiden
+# beta
+brew install voiden@beta
+```
+
+
+
+APT (Ubuntu / Debian)
+
+```bash
+curl -fsSL https://voiden.md/apt/stable/voiden.gpg | sudo gpg --dearmor -o /etc/apt/keyrings/voiden.gpg
+echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/voiden.gpg] https://voiden.md/apt/stable stable main" | sudo tee /etc/apt/sources.list.d/voiden.list
+sudo apt update && sudo apt install voiden
+```
+
+```bash
+# beta
+curl -fsSL https://voiden.md/apt/beta/voiden.gpg | sudo gpg --dearmor -o /etc/apt/keyrings/voiden-beta.gpg
+echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/voiden-beta.gpg] https://voiden.md/apt/beta beta main" | sudo tee /etc/apt/sources.list.d/voiden-beta.list
+sudo apt update && sudo apt install voiden
+```
+
+
+
+Snap
+
+```bash
+sudo snap install voiden
+# beta
+sudo snap install voiden --channel=beta
+```
+
+
+
+Looking for newer builds? Check the early access section on [voiden.md/download](https://voiden.md/download).
+
+## Get started with Voiden
+
+1. Install Voiden and open it. No signup or login is required.
+2. Create a `.void` file in any folder and add your request, docs, and reusable blocks.
+3. Run the request with `Cmd+Enter` or `Ctrl+Enter`, then commit the file to Git.
+
+For a guided first run, see the [Voiden quick start](https://docs.voiden.md/docs/getting-started-section/getting-started/quick-start).
+
+### Coming from Postman
+
+If you already use Postman, you can bring your existing collections with you:
+
+1. In Postman, export your collection as JSON (v2.1 is recommended).
+2. Drag the exported JSON file into the Voiden file list on the left panel.
+3. Open the imported file and click **Generate Voiden Files** to create a folder of native `.void` files — one per request, with headers, auth, query params, path variables, bodies, and response examples preserved.
+
+Full walkthrough: [Postman Imports](https://docs.voiden.md/docs/getting-started-section/getting-started/postman-import). OpenAPI specs work the same way via [OpenAPI Imports](https://docs.voiden.md/docs/getting-started-section/getting-started/openapi-imports).
+
+## What you can do
+
+- Build REST and HTTP requests with headers, query params, JSON/XML/YAML/form bodies, file uploads, and cURL import/export.
+- Work with GraphQL using schema import, a visual query builder, variables, and subscriptions.
+- Use WebSocket and gRPC workflows in the same workspace.
+- Add pre-request and post-response scripts in JavaScript, Python, or shell.
+- Run assertions and stitch multiple `.void` files into batch runs with aggregated results.
+- Import OpenAPI specs and Postman  collections into native Voiden files.
+- Keep Git, terminal, docs, and API testing close together inside the desktop app.
+
+## What a `.void` file looks like
+
+Voiden files combine frontmatter, Markdown, and structured `void` request blocks so the request and the documentation live together.
+
+**Document frontmatter:**
+
+```yaml
 ---
-
-###  Download
-**Version 1.4.6 is now available!**
-
-**[Download Voiden ↗️](https://voiden.md/download)**
-
-The website will automatically detect your operating system and highlight the correct installer for you.
-(Windows, macOS Intel/Apple Silicon, and Linux).
-
-> Want to see what's new in this version? **[Check the changelog ↗️](https://voiden.md/changelog)**
-
->Looking for the **beta** builds?  [Download beta versions ↗️](https://voiden.md/download#beta)
-
-## Getting Started
-
-### 1. Found a bug?
-
-Head over to the [Issues](https://github.com/voidenhq/feedback/issues) tab and click **"New issue"**. Use the **Bug report** template to give us everything we need to fix it.
-
-### 2. Have a feature idea?
-
-We love hearing about new possibilities. Use the **Feature request** template to tell us what you have in mind.
-
-### 3. Just want to say something?
-
-Open a general issue or leave a note.
-
-### 4. Or join us in office hours every friday!
-
-We host weekly Voiden Office Hours on Discord. It’s meant to be a casual space to hang out and discuss about new  ideas, features, roadmap updates, and answer contributor and user questions.
-
-If you are using Voiden or thinking about contributing, come join the conversation: [https://discord.gg/kxnmsUDe?event=1473246419006656617](https://discord.gg/dsJjScpN3u?event=1473246419006656617)
-
+version: 1.4.6
+generatedBy: Voiden app
+generatedAt: 2026-04-16T10:24:00.000Z
 ---
+```
 
-Thanks for sharing your thoughts with us !
+**Markdown body:**
 
+```markdown
+# Hello, World
+
+A simple GET request you can run with Cmd/Ctrl+Enter.
+```
+
+**A `void` request block:**
+
+```yaml
 ---
+type: request
+content:
+  - type: method
+    content: GET
+  - type: url
+    content: https://echo.apyhub.com
+---
+```
 
-## Quick Start (Local Development)
+Voiden generates the document metadata and block IDs for you inside the app.
 
-### Prerequisites
+## Documentation
 
-- Node.js v21.x
-- Yarn v4.3.1
-- **Windows Only**: [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) with:
-  - "Desktop development with C++" workload
-  - MSVC (C++ compiler)
-  - Windows SDK
+### User docs
+
+- [Getting started](https://docs.voiden.md/docs/getting-started-section/intro)
+- [Download](https://voiden.md/download)
+- [Changelog](https://voiden.md/changelog)
+- [Blog](https://voiden.md/blog)
+
+### Contributor docs
+
+
+| Topic                                                    | Description                                  |
+| -------------------------------------------------------- | -------------------------------------------- |
+| [Fresh install](docs/getting-started/FRESH_INSTALL.md)   | Repository setup and local development       |
+| [Architecture overview](docs/architecture/OVERVIEW.md)   | Core app, extension system, and request flow |
+| [Extension guide](docs/extensions/HOW_TO_ADD.md)         | Build your own extension                     |
+| [Themes](docs/customization/THEMES.md)                   | Create custom themes                         |
+| [Troubleshooting](docs/troubleshooting/COMMON_ISSUES.md) | Common issues and fixes                      |
+
+
+See the [documentation index](docs/INDEX.md) for the full list.
+
+## Build from Source
+
+For platform-specific prerequisites and troubleshooting, start with [Fresh Install](docs/getting-started/FRESH_INSTALL.md).
 
 ```bash
 git clone https://github.com/VoidenHQ/voiden.git
 cd voiden
-yarn install 
+corepack enable
+yarn set version 4.3.1
+yarn install
 yarn workspace @voiden/core-extensions build
 cd apps/electron && yarn start
 ```
-> Note : `yarn install` may fail on Windows due to a non-PTY build issue.
-See the troubleshooting guide: [Build Errors (Windows)](/docs/troubleshooting/BUILD_ERRORS.md)
 
-See the [Full Installation Guide](docs/getting-started/FRESH_INSTALL.md) for detailed setup including Windows requirements.
-
-## Documentation
-
-All documentation is in the [docs/](docs/) folder:
-
-| Topic | Description |
-|-------|-------------|
-| [Getting Started](docs/getting-started/FRESH_INSTALL.md) | Installation and setup |
-| [Architecture](docs/architecture/OVERVIEW.md) | System design and structure |
-| [Extensions](docs/extensions/HOW_TO_ADD.md) | Build your own extensions |
-| [Themes](docs/customization/THEMES.md) | Create custom themes |
-| [Troubleshooting](docs/troubleshooting/COMMON_ISSUES.md) | Common issues and solutions |
-
-See the [Documentation Index](docs/INDEX.md) for the complete list.
+If you hit Windows build issues, see [Build Errors](docs/troubleshooting/BUILD_ERRORS.md).
 
 ## Project Structure
 
-```
+```text
 voiden/
 ├── apps/
 │   ├── electron/          # Electron main process
@@ -121,34 +236,28 @@ voiden/
 └── docs/                  # Documentation
 ```
 
+## Why Electron?
+
+Voiden is built on Electron on purpose. We are building something closer to an IDE for APIs than a lightweight request sender, so we wanted a mature, cross-platform foundation that ships consistently on macOS, Windows, and Linux, gives us deep system access for things like Git and the terminal, and lets us keep a rich, custom editor experience.
+
+We also know Electron gets a bad reputation, often inherited from other API tools. Our take is that footprint matters, but stability, reliability, and cross-platform predictability matter more when users feel them every day. We would rather be transparent about resource usage and keep optimizing it than chase a lighter stack that breaks in subtle ways.
+
+Read the full reasoning: [Why Voiden is Built on Electron?](https://docs.voiden.md/docs/getting-started-section/getting-started/why-electron).
+
+## Community
+
+- Report bugs and request features in [GitHub Issues](https://github.com/VoidenHQ/voiden/issues).
+- Join the [Voiden Discord](https://discord.com/invite/XSYCf7JF4F) for updates and office hours.
+- Track upcoming work in [GitHub Milestones](https://github.com/VoidenHQ/voiden/milestones).
+
 ## Contributing
 
-We welcome contributions! Please read:
+We welcome contributions. Start with:
 
-- [Contributing Guide](CONTRIBUTING.md) - How to contribute
-- [Code of Conduct](CODE_OF_CONDUCT.md) - Community guidelines
-- [Security Policy](SECURITY.md) - Reporting vulnerabilities
-
-## Milestones
-
-Track our progress and see what's coming next:
-
-### Current Sprint
-**[View active milestone →](https://github.com/voidenhq/voiden/milestones)**
-
-We organize our work into milestones that group related issues and features. Each milestone includes:
-- **Planned features** for the release
-- **Bug fixes** in progress
-- **Target release date**
-
----
+- [Contributing Guide](CONTRIBUTING.md)
+- [Code of Conduct](CODE_OF_CONDUCT.md)
+- [Security Policy](SECURITY.md)
 
 ## License
 
 This project is licensed under the [Apache License 2.0](LICENSE).
-
-## Links
-
-- [Changelog](https://voiden.md/changelog)
-- [Documentation](docs/INDEX.md)
-- [Report an Issue](https://github.com/VoidenHQ/voiden/issues)
