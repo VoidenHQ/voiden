@@ -58,7 +58,7 @@
 
 Voiden is for developers, testers, and technical writers who want API work to feel like code instead of a SaaS dashboard.
 
-- Keep requests, notes, and reusable API building blocks in the same `.void` files.
+- Keep requests, notes, and reusable API building blocks (endpoint, auth, params, body) in the same `.void` files.
 - Work in Markdown and structured blocks instead of opaque collections locked inside an app.
 - Reuse headers, auth, bodies, and whole sections across files with linked blocks and linked files.
 - Test and document APIs without leaving the editor.
