@@ -52,7 +52,7 @@
   </a>
 </p>
 
-![Voiden workspace showing requests, docs, and response panels](apps/electron/public/start.png)
+![Voiden workspace showing requests, docs, and response panels](apps/electron/public/start-april18-1.png)
 
 ## Why Voiden
 
