@@ -57,18 +57,15 @@ export const ElectronEventProvider: React.FC<{ children: React.ReactNode }> = ({
         handleEvent("file:newTab", data);
       },
       "file:new": (data: any) => {
-        // Debounce: during clone this fires for every file written to disk.
-        // Only refresh the file tree and env — new files on disk don't affect
-        // open tab content or the tab list (file:newTab handles that separately).
+        // FileSystemList handles this surgically via refreshDir(parentPath).
+        // No files:tree invalidation needed — that would reload the whole tree.
         if (fileNewDebounceRef.current) clearTimeout(fileNewDebounceRef.current);
         fileNewDebounceRef.current = setTimeout(() => {
-          queryClient.invalidateQueries({ queryKey: ["files:tree"] });
           queryClient.invalidateQueries({ queryKey: ["env"] });
           handleEvent("file:new", data);
         }, 100);
       },
       "file:duplicate": (event: any, data: any) => {
-        queryClient.invalidateQueries({ queryKey: ["files:tree"] });
         queryClient.invalidateQueries({ queryKey: ["environments"] });
         queryClient.invalidateQueries({ queryKey: ["env"] });
         handleEvent("file:duplicate", data);
@@ -85,10 +82,10 @@ export const ElectronEventProvider: React.FC<{ children: React.ReactNode }> = ({
           setActiveEnv(null);
         }
         handleEvent("file:delete", data);
-        // Debounce heavy invalidations — folder deletes fire this per-file
+        // FileSystemList removes the node surgically via removeNodeByPath.
+        // Debounce the side-effect invalidations — folder deletes fire per-file.
         if (fileDeleteDebounceRef.current) clearTimeout(fileDeleteDebounceRef.current);
         fileDeleteDebounceRef.current = setTimeout(() => {
-          queryClient.invalidateQueries({ queryKey: ["files:tree"] });
           queryClient.invalidateQueries({ queryKey: ["panel:tabs"], exact: false });
           queryClient.invalidateQueries({ queryKey: ["voiden-wrapper:blockContent"], exact: false });
           queryClient.invalidateQueries({ queryKey: ["env"] });
@@ -113,18 +110,18 @@ export const ElectronEventProvider: React.FC<{ children: React.ReactNode }> = ({
       },
       "file:rename": (event: any, data: any) => {
         handleEvent("file:rename", data);
-        // When a file is renamed, invalidate tab content queries as well
-        queryClient.invalidateQueries({ queryKey: ["files:tree"] });
+        // FileSystemList handles the tree update surgically (refreshDir on parent).
+        // Only invalidate tab/state queries that track the old path.
         queryClient.invalidateQueries({ queryKey: ["panel:tabs"], exact: false });
         queryClient.invalidateQueries({ queryKey: ["tab:content"], exact: false });
         queryClient.invalidateQueries({ queryKey: ["app:state"] });
         queryClient.invalidateQueries({ queryKey: ["env"] });
       },
       "files:tree:changed": () => {
-        // Debounce: during clone/bulk ops this fires per-file. Batch into one refresh.
+        // FileSystemList handles structural changes via per-event surgical updates.
+        // Only refresh env which may have changed (e.g. .env file created/deleted).
         if (fileTreeDebounceRef.current) clearTimeout(fileTreeDebounceRef.current);
         fileTreeDebounceRef.current = setTimeout(() => {
-          queryClient.invalidateQueries({ queryKey: ["files:tree"] });
           queryClient.invalidateQueries({ queryKey: ['env'] });
         }, 400);
       },
@@ -221,10 +218,10 @@ export const ElectronEventProvider: React.FC<{ children: React.ReactNode }> = ({
       },
       "directory:delete": (_event: any, data: any) => {
         handleEvent("directory:delete", data);
-        // Debounce — may arrive alongside many file:delete events for each child
+        // FileSystemList removes the node surgically via removeNodeByPath.
+        // Debounce the side-effect invalidations only.
         if (dirDeleteDebounceRef.current) clearTimeout(dirDeleteDebounceRef.current);
         dirDeleteDebounceRef.current = setTimeout(() => {
-          queryClient.invalidateQueries({ queryKey: ["files:tree"] });
           queryClient.invalidateQueries({ queryKey: ["panel:tabs"], exact: false });
           queryClient.invalidateQueries({ queryKey: ["voiden-wrapper:blockContent"], exact: false });
           queryClient.invalidateQueries({ queryKey: ["env"] });

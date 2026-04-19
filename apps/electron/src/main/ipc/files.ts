@@ -561,6 +561,62 @@ export function registerFileIpcHandlers() {
     }
   });
 
+  // Recursively scans ALL subdirectories under dirPath in one IPC call.
+  // Returns a flat map of dirPath → children[]. Used by expand-all so the
+  // renderer makes one round-trip instead of N (one per directory).
+  ipcMain.handle("files:expandDirAll", async (_event, dirPath: string) => {
+    const SKIP = new Set([
+      "node_modules", ".git", "dist", "build", ".next", ".nuxt", ".cache",
+      ".turbo", ".svelte-kit", "out", ".output", ".vercel", "__pycache__",
+      ".venv", "venv", ".tox", "vendor", "Pods", ".gradle", "target",
+    ]);
+    const result: Record<string, any[]> = {};
+
+    async function scan(dir: string): Promise<void> {
+      let items: fs.Dirent[];
+      try {
+        items = await fs.promises.readdir(dir, { withFileTypes: true });
+      } catch {
+        result[dir] = [];
+        return;
+      }
+
+      const children: any[] = [];
+      const subdirs: string[] = [];
+
+      for (const item of items) {
+        if (SKIP.has(item.name)) continue;
+        if (item.name.startsWith(".")) {
+          if (!item.isFile()) continue;
+          if (
+            item.name !== ".gitignore" &&
+            item.name !== ".env" &&
+            !item.name.startsWith(".env") &&
+            !item.name.endsWith(".env")
+          ) continue;
+        }
+        const fullPath = path.join(dir, item.name);
+        if (item.isDirectory()) {
+          children.push({ name: item.name, path: fullPath, type: "folder" as const, children: [], lazy: false });
+          subdirs.push(fullPath);
+        } else {
+          children.push({ name: item.name, path: fullPath, type: "file" as const });
+        }
+      }
+
+      children.sort((a, b) => {
+        if (a.type !== b.type) return a.type === "folder" ? -1 : 1;
+        return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+      });
+
+      result[dir] = children;
+      await Promise.all(subdirs.map(scan));
+    }
+
+    await scan(dirPath);
+    return result;
+  });
+
   // Flat file list for the '@' file-link feature.
   // Uses `rg --files` for near-instant listing; falls back to BFS if rg is unavailable.
   // Accepts an optional query to filter filenames (case-insensitive) and caps at 100 results.
