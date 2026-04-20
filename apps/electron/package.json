@@ -71,9 +71,6 @@
     "simple-git": "^3.32.3",
     "sudo-prompt": "^9.2.1"
   },
-  "comments": {
-    "removed-dependencies": "@voiden/core-extensions and @voiden/sdk are bundled by Vite into main.js and renderer, so they don't need to be runtime dependencies"
-  },
   "build": {
     "appId": "md.voiden.app",
     "productName": "voiden",
