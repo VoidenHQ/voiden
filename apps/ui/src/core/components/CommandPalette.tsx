@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, startTransition } from 'react';
 import { Search, File, Folder, FilePlus, Terminal, Settings, FolderPlus, HelpCircle, Sparkles } from 'lucide-react';
+import { MatchedFragment, highlightText } from '@/core/editors/voiden/extensions/MatchedFragment';
 import { useAddPanelTab } from '@/core/layout/hooks';
 import { cn } from '@/core/lib/utils';
 import { useGetActiveDocument } from '@/core/file-system/hooks/useFileSystem';
@@ -33,6 +34,9 @@ interface FileItem {
   path: string;
   name: string;
   directory: string;
+  relativePath: string;
+  pathFragments?: MatchedFragment[];
+  filenameFragments?: MatchedFragment[];
 }
 
 interface Command {
@@ -45,7 +49,7 @@ interface Command {
 
 export const CommandPalette: React.FC<CommandPaletteProps> = ({ isFocused, mode, onFocus, onBlur, onShowHelp }) => {
   const [searchQuery, setSearchQuery] = useState('');
-  const [allFiles, setAllFiles] = useState<FileItem[]>([]);
+  const [filteredFiles, setFilteredFiles] = useState<FileItem[]>([]);
   const [isLoadingFiles, setIsLoadingFiles] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [showDropdown, setShowDropdown] = useState(false);
@@ -164,53 +168,75 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isFocused, mode,
     return () => clearTimeout(t);
   }, [searchQuery]);
 
-  // Server fetch — runs on debounced query, merges new results into allFiles corpus.
+  // Session id regenerated each time the files picker opens so the main-process
+  // cache knows when to reload vs. reuse the previously-collected file list.
+  // Cleanup closes the server-side session so it can release its cached paths.
+  const sessionIdRef = useRef<string>('');
+  useEffect(() => {
+    if (!(isFocused && mode === 'files')) return;
+    const sessionId = crypto.randomUUID();
+    sessionIdRef.current = sessionId;
+    return () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (window.electron?.files as any)?.flatListCloseSession?.(sessionId);
+    };
+  }, [isFocused, mode]);
+
+  // Server fetch — runs on debounced query. Server fuzzy-scores the full file
+  // list and returns ranked results with matched fragments attached, so the
+  // client just maps into FileItem shape and renders.
   useEffect(() => {
     if (!isFocused || !activeDirectory || mode !== 'files') return;
 
     let cancelled = false;
     setIsLoadingFiles(true);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (window.electron?.files as any).flatList(activeDirectory, debouncedQuery || undefined).then((list: { name: string; path: string }[]) => {
-      if (cancelled) return;
-      setIsLoadingFiles(false);
-      if (!list) return;
-      const incoming: FileItem[] = list.map((f) => ({
-        path: f.path,
-        name: f.name,
-        directory: f.path.split('/').slice(0, -1).join('/') || '/',
-      }));
-      // Merge: add files not already in corpus so we accumulate across queries
-      setAllFiles((prev) => {
-        const existing = new Set(prev.map((f) => f.path));
-        const added = incoming.filter((f) => !existing.has(f.path));
-        return added.length ? [...prev, ...added] : prev;
-      });
-      // Update folder suggestions
-      const folderSet = new Set<string>();
-      for (const f of list) {
-        const relative = f.path.startsWith(activeDirectory)
-          ? f.path.slice(activeDirectory.length + 1)
-          : f.path;
-        const parts = relative.split('/');
-        for (let i = 1; i < parts.length; i++) {
-          folderSet.add(parts.slice(0, i).join('/') + '/');
-        }
-      }
-      setFolders((prev) => [...new Set([...prev, ...[...folderSet]])].sort());
-    });
+    (window.electron?.files as any)
+        .flatList(activeDirectory, sessionIdRef.current, debouncedQuery || undefined)
+        .then((list: {
+          name: string;
+          path: string;
+          pathFragments?: MatchedFragment[];
+          filenameFragments?: MatchedFragment[];
+        }[]) => {
+          if (cancelled) return;
+          setIsLoadingFiles(false);
+          if (!list) return;
+          const incoming: FileItem[] = list.map((f) => {
+            const normPath = f.path.replace(/\\/g, '/');
+            const normDir = activeDirectory.replace(/\\/g, '/');
+            const rel = normPath.startsWith(normDir)
+                ? normPath.slice(normDir.length).replace(/^\//, '')
+                : normPath;
+            return {
+              path: f.path,
+              name: f.name,
+              directory: normPath.split('/').slice(0, -1).join('/') || '/',
+              relativePath: rel,
+              pathFragments: f.pathFragments,
+              filenameFragments: f.filenameFragments,
+            };
+          });
+          startTransition(() => setFilteredFiles(incoming));
+
+          // Update folder suggestions
+          const folderSet = new Set<string>();
+          for (const f of list) {
+            const relative = f.path.startsWith(activeDirectory)
+                ? f.path.slice(activeDirectory.length + 1)
+                : f.path;
+            const parts = relative.split('/');
+            let prefix = '';
+            for (let i = 0; i < parts.length - 1; i++) {
+              prefix += parts[i] + '/';
+              folderSet.add(prefix);
+            }
+          }
+          setFolders((prev) => [...new Set([...prev, ...[...folderSet]])].sort());
+        });
 
     return () => { cancelled = true; };
   }, [isFocused, activeDirectory, debouncedQuery, mode]);
-
-  // Instant client-side filter on the accumulated corpus — no waiting for server
-  const filteredFiles = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return allFiles.slice(0, 50);
-    return allFiles
-      .filter((f) => f.name.toLowerCase().includes(q) || f.path.toLowerCase().includes(q))
-      .slice(0, 50);
-  }, [allFiles, searchQuery]);
 
   // Calculate autocomplete suggestion based on current input
   useEffect(() => {
@@ -987,11 +1013,18 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isFocused, mode,
                   >
                     <File size={16} className="text-comment flex-shrink-0" />
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm text-text truncate">{file.name}</div>
-                      <div className="text-xs text-comment truncate flex items-center gap-1">
-                        <Folder size={12} className="flex-shrink-0" />
-                        {file.directory}
-                      </div>
+                      <div className="text-sm text-text truncate">{highlightText(file.name, file.filenameFragments)}</div>
+                      {(() => {
+                        const relDir = file.relativePath.includes('/')
+                          ? file.relativePath.slice(0, file.relativePath.lastIndexOf('/'))
+                          : '';
+                        return relDir ? (
+                          <div className="text-xs text-comment truncate flex items-center gap-1">
+                            <Folder size={12} className="flex-shrink-0" />
+                            {highlightText(relDir, file.pathFragments)}
+                          </div>
+                        ) : null;
+                      })()}
                     </div>
                   </button>
                 ))}
