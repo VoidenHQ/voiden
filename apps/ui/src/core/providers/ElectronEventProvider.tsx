@@ -56,7 +56,7 @@ export const ElectronEventProvider: React.FC<{ children: React.ReactNode }> = ({
         });
         handleEvent("file:newTab", data);
       },
-      "file:new": (data: any) => {
+      "file:new": (_event: any, data: any) => {
         // FileSystemList handles this surgically via refreshDir(parentPath).
         // No files:tree invalidation needed — that would reload the whole tree.
         if (fileNewDebounceRef.current) clearTimeout(fileNewDebounceRef.current);
