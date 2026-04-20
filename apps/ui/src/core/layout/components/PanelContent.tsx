@@ -495,7 +495,8 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
   }
   if (!tabContent) return null;
 
-  
+  const panelActiveTabId = tabs?.activeTabId;
+
   const isDocumentActive = tabContent.type === "document";
   const activeDocTabContent = isDocumentActive ? tabContent : null;
   const visibleDocumentTabs = activeDocTabContent
@@ -561,7 +562,7 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
         ) : (
           visibleDocumentTabIds.map((docTabId: string) => {
             const docTab = visibleDocumentTabs[docTabId];
-            const isTabActive = docTab.tabId === activeDocTabContent?.tabId;
+            const isTabActive = docTab.tabId === panelActiveTabId;
             return (
               <div
                 key={docTab.tabId}
@@ -593,7 +594,7 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
                     source={docTab.source}
                     panelId={panelId}
                     hasSearch
-                    isActive={docTab.tabId === activeDocTabContent?.tabId}
+                    isActive={docTab.tabId === panelActiveTabId}
                   />
                 ) : isBinaryFile(docTab.source || docTab.title) ? (
                   <UnsupportedFile title={docTab.title} />
@@ -603,7 +604,7 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
                     content={docTab.content ?? ""}
                     source={docTab.source}
                     panelId={panelId}
-                    isActive={docTab.tabId === activeDocTabContent?.tabId}
+                    isActive={docTab.tabId === panelActiveTabId}
                     streamable={docTab.streamable}
                     fullSize={docTab.fullSize}
                   />
@@ -615,6 +616,11 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
       </div>
     </div>
   );
+
+
+  if (tabContent.tabId !== panelActiveTabId && tabContent.type !== "terminal" && tabContent.type !== "document") {
+    return <>{cachedEditorsBlock}</>;
+  }
 
   if (tabContent.type === "welcome") {
     editorActions.forEach((action) => {
