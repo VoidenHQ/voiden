@@ -25,6 +25,7 @@ import { createEmptyProject, createSampleProject } from "../projectUtils";
 import { getActiveStates, saveActiveStates } from "../tabs";
 import { getCachedGitStatus } from "../git";
 import { getActiveProject, findTabById, getAppState } from "../state";
+import { scoreFiles, type MatchedFragment } from "../fileSearch";
 import { saveState, deleteAutosaveFile } from "../persistState";
 import { FileTreeItem } from "../../types";
 import { PanelElement } from "../../../shared/types";
@@ -37,6 +38,127 @@ const TREE_RESULT_TTL = 3000; // ms — reuse a finished build for 3 s
 /** Bust the tree cache — called by fileWatcher when external files appear/disappear. */
 export function clearTreeResultCache() {
   treeResultCache.clear();
+}
+
+type FlatListSession = {
+  sessionId: string;
+  rootDir: string;
+  allPaths: string[];
+  firstBatchReady: Promise<void>;
+  completion: Promise<void>;
+  cancel: () => void;
+};
+
+let activeFlatListSession: FlatListSession | null = null;
+
+function startFlatListSession(sessionId: string, rootDir: string, topN: number): FlatListSession {
+  const allPaths: string[] = [];
+  let resolveFirstBatch: () => void = () => {};
+  const firstBatchReady = new Promise<void>((res) => { resolveFirstBatch = res; });
+  let cancelled = false;
+  let rgProc: ReturnType<typeof spawn> | null = null;
+
+  const completion = (async () => {
+    // Rely on PATH resolution — hardcoded homebrew paths don't work on every
+    // Mac and don't exist on Linux/Windows at all.
+    const rgPath = process.platform === "win32" ? "rg.exe" : "rg";
+
+    const DEADLINE_MS = 15_000;
+    let deadlineHit = false;
+    const deadline = setTimeout(() => {
+      deadlineHit = true;
+      cancelled = true;
+      try { rgProc?.kill(); } catch { /* already gone */ }
+      resolveFirstBatch();
+    }, DEADLINE_MS);
+    deadline.unref?.();
+
+    let rgFailed = false;
+    try {
+      await new Promise<void>((resolve, reject) => {
+        rgProc = spawn(rgPath, ["--files", rootDir], { stdio: ["ignore", "pipe", "ignore"] });
+        let tail = Buffer.alloc(0);
+        rgProc.stdout!.on("data", (chunk: Buffer) => {
+          if (cancelled) return;
+          let search = chunk;
+          if (tail.length > 0) {
+            search = Buffer.concat([tail, chunk]);
+            tail = Buffer.alloc(0);
+          }
+          let start = 0;
+          let idx: number;
+          while ((idx = search.indexOf(0x0a, start)) !== -1) {
+            const line = search.toString("utf8", start, idx).trim();
+            if (line.length > 0) {
+              allPaths.push(line);
+              if (allPaths.length >= topN) resolveFirstBatch();
+            }
+            start = idx + 1;
+          }
+          if (start < search.length) {
+            tail = search.subarray(start);
+          }
+        });
+        rgProc.on("close", (code) => {
+          if (!cancelled && tail.length > 0) {
+            const line = tail.toString("utf8").trim();
+            if (line.length > 0) allPaths.push(line);
+          }
+          if (code !== 0 && allPaths.length === 0 && !deadlineHit) rgFailed = true;
+          resolve();
+        });
+        rgProc.on("error", reject);
+      });
+    } catch {
+      rgFailed = true;
+    } finally {
+      clearTimeout(deadline);
+    }
+
+    if (rgFailed && !cancelled) {
+      logger.info('filesystem', 'files:flatList — rg unavailable or failed, falling back to BFS scan', { rootDir });
+      const SKIP = new Set([
+        "node_modules", ".git", "dist", "build", ".next", ".nuxt", ".cache",
+        ".turbo", ".svelte-kit", "out", ".output", ".vercel", "__pycache__",
+        ".venv", "venv", ".tox", "vendor", "Pods", ".gradle", "target",
+      ]);
+      const queue: string[] = [rootDir];
+      while (queue.length > 0 && !cancelled) {
+        const dir = queue.shift()!;
+        let entries: fs.Dirent[];
+        try { entries = await fs.promises.readdir(dir, { withFileTypes: true }); }
+        catch { continue; }
+        for (const entry of entries) {
+          if (entry.name.startsWith(".") && !entry.name.startsWith(".env")) continue;
+          const full = path.join(dir, entry.name);
+          if (entry.isDirectory()) {
+            if (!SKIP.has(entry.name)) queue.push(full);
+          } else {
+            allPaths.push(full);
+            if (allPaths.length >= topN) resolveFirstBatch();
+          }
+        }
+        await new Promise<void>((r) => setImmediate(r));
+      }
+    }
+
+    // Collection finished (or was cancelled) before reaching topN.
+    resolveFirstBatch();
+  })();
+
+  return {
+    sessionId,
+    rootDir,
+    allPaths,
+    firstBatchReady,
+    completion,
+    cancel: () => {
+      if (cancelled) return;
+      cancelled = true;
+      if (rgProc) { try { rgProc.kill(); } catch { /* already gone */ } }
+      resolveFirstBatch();
+    },
+  };
 }
 
 export function registerFileIpcHandlers() {
@@ -561,81 +683,91 @@ export function registerFileIpcHandlers() {
     }
   });
 
-  // Flat file list for the '@' file-link feature.
+  // Flat file list for the '@' file-link feature and the command palette.
   // Uses `rg --files` for near-instant listing; falls back to BFS if rg is unavailable.
-  // Accepts an optional query to filter filenames (case-insensitive) and caps at 100 results.
-  ipcMain.handle("files:flatList", async (_event, rootDir: string, query?: string) => {
-    const LIMIT = 100;
+  //
+  // Session cache: callers pass a sessionId (one per picker open). First call for
+  // a new sessionId kicks off collection. Empty query returns the first TOP_N
+  // paths as soon as they arrive while collection continues in the background;
+  // subsequent non-empty queries for the same session wait for collection to
+  // finish so they can score against the complete list. Only one session is
+  // active at a time — a new sessionId cancels the prior session's work.
+  ipcMain.handle("files:flatList", async (_event, rootDir: string, sessionId?: string | null, query?: string, currentFileDir?: string) => {
+    const TOP_N = 50;
+    const t0 = Date.now();
     const normalizedQuery = (query ?? "").toLowerCase();
+    const rootPrefix = rootDir.endsWith(path.sep) ? rootDir : rootDir + path.sep;
+    const rootPrefixLen = rootPrefix.length;
 
-    const rgCandidates = ["/opt/homebrew/bin/rg", "/usr/local/bin/rg", "rg"];
-    const rgPath = rgCandidates.find((p) => {
-      try { return p === "rg" || fs.existsSync(p); } catch { return false; }
-    }) ?? "rg";
-
-    const results: { name: string; path: string }[] = [];
-
-    try {
-      await new Promise<void>((resolve, reject) => {
-        const proc = spawn(rgPath, ["--files", rootDir], { stdio: ["ignore", "pipe", "ignore"] });
-        let buf = "";
-
-        proc.stdout.on("data", (chunk: Buffer) => {
-          buf += chunk.toString();
-          const lines = buf.split("\n");
-          buf = lines.pop() ?? "";
-          for (const line of lines) {
-            const trimmed = line.trim();
-            if (!trimmed) continue;
-            const name = path.basename(trimmed);
-            if (!normalizedQuery || name.toLowerCase().includes(normalizedQuery)) {
-              results.push({ name, path: trimmed });
-              if (results.length >= LIMIT) { proc.kill(); return; }
-            }
-          }
-        });
-
-        proc.on("close", () => {
-          if (buf.trim()) {
-            const name = path.basename(buf.trim());
-            if (results.length < LIMIT && (!normalizedQuery || name.toLowerCase().includes(normalizedQuery))) {
-              results.push({ name, path: buf.trim() });
-            }
-          }
-          resolve();
-        });
-        proc.on("error", reject);
-      });
-    } catch {
-      // rg not available — BFS fallback
-      const SKIP = new Set([
-        "node_modules", ".git", "dist", "build", ".next", ".nuxt", ".cache",
-        ".turbo", ".svelte-kit", "out", ".output", ".vercel", "__pycache__",
-        ".venv", "venv", ".tox", "vendor", "Pods", ".gradle", "target",
-      ]);
-      const queue: string[] = [rootDir];
-      while (queue.length > 0 && results.length < LIMIT) {
-        const dir = queue.shift()!;
-        let entries: fs.Dirent[];
-        try { entries = await fs.promises.readdir(dir, { withFileTypes: true }); }
-        catch { continue; }
-        for (const entry of entries) {
-          if (entry.name.startsWith(".") && !entry.name.startsWith(".env")) continue;
-          const full = path.join(dir, entry.name);
-          if (entry.isDirectory()) {
-            if (!SKIP.has(entry.name)) queue.push(full);
-          } else {
-            if (!normalizedQuery || entry.name.toLowerCase().includes(normalizedQuery)) {
-              results.push({ name: entry.name, path: full });
-              if (results.length >= LIMIT) break;
-            }
-          }
-        }
-        await new Promise<void>((r) => setImmediate(r));
+    let session: FlatListSession;
+    if (sessionId) {
+      if (!activeFlatListSession || activeFlatListSession.sessionId !== sessionId || activeFlatListSession.rootDir !== rootDir) {
+        activeFlatListSession?.cancel();
+        activeFlatListSession = startFlatListSession(sessionId, rootDir, TOP_N);
       }
+      session = activeFlatListSession;
+    } else {
+      // No session: one-off load, not cached. Always wait for the full list so
+      // the caller gets a deterministic result whether or not it has a query.
+      session = startFlatListSession("__transient__", rootDir, TOP_N);
     }
 
+    if (sessionId && !normalizedQuery) {
+      await session.firstBatchReady;
+    } else {
+      await session.completion;
+    }
+
+    const allPaths = session.allPaths;
+
+    type FragmentTuple = [number, number];
+    type Result = {
+      name: string;
+      path: string;
+      pathFragments?: FragmentTuple[];
+      filenameFragments?: FragmentTuple[];
+    };
+    const tuplize = (frags: MatchedFragment[]): FragmentTuple[] | undefined =>
+        frags.length === 0 ? undefined : frags.map((f) => [f.startOffset, f.endOffset]);
+    let results: Result[];
+
+    if (!normalizedQuery) {
+      results = allPaths.slice(0, TOP_N).map((p) => ({
+        name: path.basename(p),
+        path: p,
+      }));
+    } else {
+      // Score against the rootDir-relative path so the root prefix doesn't dominate matches
+      const normalize = (p: string) => p.replace(/\\/g, "/");
+      const relPaths = allPaths.map((p) => normalize(p.startsWith(rootPrefix) ? p.slice(rootPrefixLen) : p));
+      const relCurrentDir = currentFileDir
+        ? normalize(currentFileDir.startsWith(rootPrefix) ? currentFileDir.slice(rootPrefixLen) : currentFileDir)
+        : undefined;
+      const matches = scoreFiles(normalizedQuery, relPaths, relCurrentDir);
+      const scored = matches
+        .map((match, i) => ({ path: allPaths[i], match }))
+        .filter(({ match }) => match.score > 0);
+      scored.sort((a, b) => (b.match.score - a.match.score) || a.path.localeCompare(b.path));
+      results = scored.slice(0, TOP_N).map(({ path: p, match }) => ({
+        name: path.basename(p),
+        path: p,
+        pathFragments: tuplize(match.pathFragments),
+        filenameFragments: tuplize(match.filenameFragments),
+      }));
+    }
+
+    const ms = Date.now() - t0;
+    logger.debug('filesystem', 'files:flatList', { rootDir, sessionId, query: normalizedQuery, scanned: allPaths.length, returned: results.length, ms });
     return results;
+  });
+
+  // Callers invoke this when their picker closes so the main-process cache
+  // can release the collected path list. No-op if the session id doesn't
+  // match the currently-active session (late close after preemption).
+  ipcMain.handle("files:flatListCloseSession", (_event, sessionId: string) => {
+    if (!activeFlatListSession || activeFlatListSession.sessionId !== sessionId) return;
+    activeFlatListSession.cancel();
+    activeFlatListSession = null;
   });
 
   ipcMain.handle("files:listDir", async (_event, dirPath: string) => {
