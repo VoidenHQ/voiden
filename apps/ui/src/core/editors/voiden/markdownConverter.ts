@@ -204,7 +204,8 @@ const codeBlockSerializer = (state: MarkdownSerializerState, node: Node) => {
 const paragraphSerializer = (state: MarkdownSerializerState, node: Node) => {
   if (node.type.name !== "paragraph") return;
   if (node.content.size === 0) {
-    state.write("\n");
+    state.write(EMPTY_LINE_MARKER);
+    state.closeBlock(node);
   } else {
     state.renderInline(node);
     state.closeBlock(node);

@@ -6,6 +6,7 @@ export const filesApi = {
     ipcRenderer.invoke("files:getFiles", filePaths, isExternal),
   tree: (directory: string) => ipcRenderer.invoke("files:tree", directory),
   expandDir: (dirPath: string) => ipcRenderer.invoke("files:expandDir", dirPath),
+  expandDirAll: (dirPath: string): Promise<Record<string, any[]>> => ipcRenderer.invoke("files:expandDirAll", dirPath),
   flatList: (rootDir: string, query?: string): Promise<{ name: string; path: string }[]> =>
     ipcRenderer.invoke("files:flatList", rootDir, query),
   read: (path: string) => ipcRenderer.invoke("files:read", path),

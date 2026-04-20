@@ -135,6 +135,31 @@ import { useVoidVariables } from "@/core/runtimeVariables/hook/useVariableCaptur
 import { useQueryClient } from "@tanstack/react-query";
 import { matchesShortcut } from "@/core/shortcuts";
 
+// Remove uid attrs added by the UniqueID extension before JSON comparison.
+// parseMarkdown output never has uid attrs, so including them makes every
+// comparison unequal and marks the tab permanently dirty.
+const stripUidAttrs = (node: unknown): unknown => {
+  if (!node || typeof node !== "object") return node;
+  if (Array.isArray(node)) return node.map(stripUidAttrs);
+  const obj = node as Record<string, unknown>;
+  const result: Record<string, unknown> = {};
+  for (const key of Object.keys(obj)) {
+    if (key === "attrs") {
+      const attrs = obj[key] as Record<string, unknown> | null | undefined;
+      if (attrs && typeof attrs === "object" && !Array.isArray(attrs)) {
+        const stripped: Record<string, unknown> = {};
+        for (const ak of Object.keys(attrs)) {
+          if (ak !== "uid") stripped[ak] = attrs[ak];
+        }
+        if (Object.keys(stripped).length > 0) result[key] = stripped;
+      }
+    } else {
+      result[key] = stripUidAttrs(obj[key]);
+    }
+  }
+  return result;
+};
+
 interface VoidenEditorStore {
   editor: Editor | null;
   setEditor: (editor: Editor | null) => void;
@@ -825,9 +850,12 @@ const VoidenEditorInner = ({
         updateTimerRef.current = null;
         const updatedContent = editor.getJSON();
         const contentString = JSON.stringify(updatedContent);
+        // Strip uid attrs before comparing — parseMarkdown output has no uid attrs so a
+        // direct comparison was always unequal, marking the tab permanently dirty and
+        // triggering a continuous autosave loop.
+        const strippedString = JSON.stringify(stripUidAttrs(updatedContent));
 
-        // Compare against saved content to detect when edits restore the original
-        if (savedContentJSONRef.current && contentString === savedContentJSONRef.current) {
+        if (savedContentJSONRef.current && strippedString === savedContentJSONRef.current) {
           clearUnsaved(tabId);
         } else {
           setUnsaved(tabId, contentString);
@@ -917,7 +945,20 @@ const VoidenEditorInner = ({
       const parsed = parseMarkdown(freshContent, memoizedSchema);
       const sanitized = sanitizeDoc(parsed);
       const preserved = preserveUnknownNodesInJSON(sanitized, memoizedSchema);
+      // Preserve cursor position across the content replacement so typing
+      // position is not lost when a background file-change reload fires.
+      const savedSelection = editor.state.selection;
       editor.commands.setContent(preserved, false);
+      try {
+        const docSize = editor.state.doc.content.size;
+        const clamp = (pos: number) => Math.min(Math.max(1, pos), docSize - 1);
+        editor.commands.setTextSelection({
+          from: clamp(savedSelection.from),
+          to: clamp(savedSelection.to),
+        });
+      } catch {
+        // ignore — if the saved position is no longer valid just leave cursor where setContent placed it
+      }
       // Rebuild highlight decorations after setContent. A full document replace
       // collapses all mapped decoration positions, and if the content is identical
       // doc.eq() returns true in the view.update hook — so the debounced rebuild
@@ -974,8 +1015,11 @@ const VoidenEditorInner = ({
         const parsed = parseMarkdown(diskContent, memoizedSchema);
         const sanitized = sanitizeDoc(parsed);
         const diskJSON = JSON.stringify(sanitized);
-        const editorJSON = JSON.stringify(editor.getJSON());
-        if (diskJSON !== editorJSON) {
+        // Compare against savedContentJSONRef (also a parsed-markdown output) rather than
+        // editor.getJSON() which includes uid attributes added by UniqueID — those never
+        // appear in parseMarkdown output so the comparison was always unequal, causing
+        // setContent (and a cursor reset) to fire on every tab activation.
+        if (diskJSON !== savedContentJSONRef.current) {
           const preserved = preserveUnknownNodesInJSON(sanitized, memoizedSchema);
           editor.commands.setContent(preserved, false);
           if (!editor.isDestroyed) {
