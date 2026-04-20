@@ -1,4 +1,5 @@
-import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import React, { forwardRef, startTransition, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import { MatchedFragment, highlightText } from "./MatchedFragment";
 import { Editor, JSONContent, Node, NodeViewProps, Range, mergeAttributes } from "@tiptap/core";
 import { EditorState, PluginKey } from "@tiptap/pm/state";
 import Suggestion from "@tiptap/suggestion";
@@ -24,6 +25,8 @@ export interface FileLinkItem {
   isNew?: boolean;
   isExternal?: boolean;
   pmJSON?: JSONContent;
+  pathFragments?: MatchedFragment[];
+  filenameFragments?: MatchedFragment[];
 }
 
 export interface FileLinkListProps {
@@ -289,49 +292,78 @@ const FileLinkTippyContent = forwardRef((props: FileLinkListProps & { editor?: E
   const activeDir = queryClient.getQueryData<{ activeDirectory: string }>(["app:state"])?.activeDirectory;
   const activeProject = (queryClient.getQueryData<{ activeProject: string }>(["projects"]) as any)?.activeProject || "";
 
-  const [fileCorpus, setFileCorpus] = useState<FileLinkItem[]>([]);
+  const [scoredLinks, setScoredLinks] = useState<FileLinkItem[]>([]);
   const [isLoadingFiles, setIsLoadingFiles] = useState(false);
 
-  // Server fetch — keyed on debounced query; merges new results into corpus
+  // Server fetch — keyed on debounced query; scoring runs once per response
+  // using the query the IPC was issued for, producing the ranked list directly.
   const [debouncedQuery, setDebouncedQuery] = useState(props.query);
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQuery(props.query), 150);
     return () => clearTimeout(t);
   }, [props.query]);
 
+  // Session id per picker instance — main-process cache reloads on change.
+  // Close the session on unmount so the server can release its cached paths.
+  const sessionIdRef = useRef<string>(crypto.randomUUID());
+  useEffect(() => {
+    const sessionId = sessionIdRef.current;
+    return () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (window.electron?.files as any)?.flatListCloseSession?.(sessionId);
+    };
+  }, []);
+
   useEffect(() => {
     if (!activeDir) return;
     let cancelled = false;
     setIsLoadingFiles(true);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (window.electron?.files as any)?.flatList?.(activeDir, debouncedQuery || undefined).then((list: { name: string; path: string }[]) => {
-      if (cancelled || !list) return;
-      setIsLoadingFiles(false);
-      const normalizedProject = activeProject.replace(/\\/g, "/");
-      const incoming: FileLinkItem[] = list.map((f) => {
-        const normalizedPath = f.path.replace(/\\/g, "/");
-        return { filePath: normalizedPath.replace(normalizedProject, ""), filename: f.name };
-      });
-      setFileCorpus((prev) => {
-        const existing = new Set(prev.map((f) => f.filePath));
-        const added = incoming.filter((f) => !existing.has(f.filePath));
-        return added.length ? [...prev, ...added] : prev;
-      });
-    });
-    return () => { cancelled = true; };
-  }, [activeDir, debouncedQuery, activeProject]);
-
-  // Instant client-side filter on corpus — no wait for server
-  const allFileLinks = useMemo((): FileLinkItem[] => {
-    const q = props.query.toLowerCase();
-    // Derive the current file's relative path to exclude it from suggestions
     const currentSource = parentEditor?.storage?.source as string | undefined;
     const currentRelPath = currentSource
-      ? currentSource.replace(/\\/g, "/").replace(activeProject.replace(/\\/g, "/"), "")
+      ? (currentSource.startsWith(activeProject) ? currentSource.slice(activeProject.length).replace(/^[/\\]/, "") : currentSource)
+      : undefined;
+    const slashIdx = currentRelPath ? currentRelPath.lastIndexOf("/") : -1;
+    const currentDir = slashIdx > 0 ? currentRelPath!.slice(0, slashIdx) : undefined;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (window.electron?.files as any)
+        ?.flatList?.(activeDir, sessionIdRef.current, debouncedQuery || undefined, currentDir)
+        .then((list: {
+          name: string;
+          path: string;
+          pathFragments?: MatchedFragment[];
+          filenameFragments?: MatchedFragment[];
+        }[]) => {
+        if (cancelled || !list) return;
+          setIsLoadingFiles(false);
+          // Server returns already-scored-and-sorted results with fragments attached.
+          const ranked: FileLinkItem[] = list.map((f) => {
+            const rel = f.path.startsWith(activeProject)
+                ? f.path.slice(activeProject.length).replace(/^[/\\]/, "")
+                : f.path;
+            return {
+              filePath: rel,
+              filename: f.name,
+              pathFragments: f.pathFragments,
+              filenameFragments: f.filenameFragments,
+            };
+          });
+          startTransition(() => setScoredLinks(ranked));
+        });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeDir, debouncedQuery, activeProject]);
+
+  // Strip the current file from suggestions — cheap filter, no rescoring.
+  const allFileLinks = useMemo((): FileLinkItem[] => {
+    const currentSource = parentEditor?.storage?.source as string | undefined;
+    const currentRelPath = currentSource
+      ? (currentSource.startsWith(activeProject)
+          ? currentSource.slice(activeProject.length).replace(/^[/\\]/, "")
+          : currentSource)
       : null;
-    const base = q ? fileCorpus.filter((f) => f.filename.toLowerCase().includes(q)) : fileCorpus;
-    return currentRelPath ? base.filter((f) => f.filePath !== currentRelPath) : base;
-  }, [fileCorpus, props.query, parentEditor, activeProject]);
+    return currentRelPath ? scoredLinks.filter((f) => f.filePath !== currentRelPath) : scoredLinks;
+  }, [scoredLinks, parentEditor, activeProject]);
   
   // Use refs map to track all items
   const itemRefs = useRef<Map<number, HTMLDivElement>>(new Map());
@@ -896,12 +928,14 @@ const FileLinkTippyContent = forwardRef((props: FileLinkListProps & { editor?: E
                     <File className="text-comment" size={14} />
                   </div>
                   <div className="flex flex-col min-w-0 flex-1">
-                    <span className="truncate font-medium">{fileItem.filename}</span>
+                    <span className="truncate font-medium">{highlightText(fileItem.filename, fileItem.filenameFragments)}</span>
                     {folderPath && (
                       <Tooltip.Root delayDuration={300} disableHoverableContent>
                         <Tooltip.Trigger asChild>
                           <span className="truncate text-xs text-comment cursor-default">
-                            {truncatePath(folderPath, 50)}
+                            {fileItem.pathFragments?.length
+                              ? highlightText(folderPath, fileItem.pathFragments)
+                              : truncatePath(folderPath, 50)}
                           </span>
                         </Tooltip.Trigger>
                         {folderPath.length > 50 && (

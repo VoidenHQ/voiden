@@ -3,15 +3,10 @@ import { SlashCommand } from "./SlashCommand";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { EditorView } from "@tiptap/pm/view";
 import Image from "@tiptap/extension-image";
-
 import { CustomTable } from "./nodes/CustomTable";
-import { CustomTableCell } from "./nodes/CustomTableCell";
 import { CustomTableHeader } from "./nodes/CustomTableHeader";
 import { CustomTableRow } from "./nodes/CustomTableRow";
-import Table from "@tiptap/extension-table";
-import TableRow from "@tiptap/extension-table-row";
 import TableCell from "@tiptap/extension-table-cell";
-import TableHeader from "@tiptap/extension-table-header";
 import { CustomCodeBlock } from "./nodes/CustomCodeBlock";
 import { VariableCapture } from "./nodes/VariableCapture";
 import { CustomPlaceholder } from "./extensions/CustomPlaceholder";
@@ -64,39 +59,6 @@ const DisableMarkdownInTables = Extension.create({
               const tr = view.state.tr.insertText(text, from, to);
               view.dispatch(tr);
               return true; // Prevent further processing
-            }
-
-            return false;
-          },
-
-          // Intercept Enter key: navigate to next cell (or create a new row)
-          handleKeyDown(_view, event) {
-            if (event.key !== 'Enter') {
-              return false;
-            }
-
-            const editor = ext.editor;
-            if (!editor) return false;
-
-            const { $from } = editor.state.selection;
-
-            // Check if we're inside a table cell
-            let insideTableCell = false;
-            for (let d = $from.depth; d > 0; d--) {
-              const node = $from.node(d);
-              if (node.type.name === 'tableCell' || node.type.name === 'tableHeader') {
-                insideTableCell = true;
-                break;
-              }
-            }
-
-            if (insideTableCell) {
-              // Try to move to the next cell; if none exists, add a row first
-              const moved = editor.commands.goToNextCell();
-              if (!moved) {
-                editor.chain().addRowAfter().goToNextCell().run();
-              }
-              return true;
             }
 
             return false;
