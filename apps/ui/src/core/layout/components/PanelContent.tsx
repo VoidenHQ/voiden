@@ -692,7 +692,7 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
         action.predicate({ title: '' });
       }
     });
-    return <EnvironmentEditor />;
+    return <EnvironmentEditor tabId={tabContent.tabId} />;
   }
 
   if (tabContent.type === "extensionDetails") {

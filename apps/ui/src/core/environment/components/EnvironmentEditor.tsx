@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from "react";
 import { Plus, Settings2, ChevronsDownUp, ChevronsUpDown, ChevronDown, Trash2, Check, Search, X } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useYamlEnvironments, useEnvironments } from "@/core/environment/hooks";
@@ -9,6 +9,7 @@ import { useDeleteProfile } from "@/core/environment/hooks";
 import { EnvironmentNode, EditableEnvNode, ExpandSignal } from "./EnvironmentNode";
 import { Tip } from "@/core/components/ui/Tip";
 import { type EditableEnvTree, mergeToEditable, splitFromEditable, generateUniqueName, genVarId, renameKey, filterTree } from "./envTreeUtils";
+import { useEditorStore } from "@/core/editors/voiden/VoidenEditor";
 
 const DEBOUNCE_MS = 800;
 const PROFILE_NAME_REGEX = /^[a-z0-9][a-z0-9-]*$/;
@@ -210,7 +211,7 @@ const AddEnvironmentButton = ({ onClick }: { onClick: () => void }) => (
   </button>
 );
 
-export const EnvironmentEditor = () => {
+export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
   const queryClient = useQueryClient();
   const { data: envData } = useEnvironments();
   const [selectedProfile, setSelectedProfile] = useState<string>(
@@ -233,6 +234,77 @@ export const EnvironmentEditor = () => {
   const editorRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const setScrollPosition = useEditorStore((s) => s.setScrollPosition);
+  const getScrollPosition = useEditorStore((s) => s.getScrollPosition);
+
+  useLayoutEffect(() => {
+    const scrollEl = scrollRef.current;
+    if (!scrollEl) return;
+
+    let currentTarget = getScrollPosition(tabId);
+    let isUserScrolling = false;
+    let userScrollTimeout: number | null = null;
+
+    const setUserScrolling = () => {
+      isUserScrolling = true;
+      if (userScrollTimeout !== null) clearTimeout(userScrollTimeout);
+      userScrollTimeout = window.setTimeout(() => {
+        isUserScrolling = false;
+        userScrollTimeout = null;
+      }, 1000);
+    };
+
+    const applySavedScroll = () => {
+      if (isUserScrolling) return;
+      const maxScrollTop = Math.max(0, scrollEl.scrollHeight - scrollEl.clientHeight);
+      scrollEl.scrollTop = Math.min(currentTarget, maxScrollTop);
+    };
+
+    const handleScroll = () => {
+      if (isUserScrolling) {
+        currentTarget = scrollEl.scrollTop;
+        setScrollPosition(tabId, scrollEl.scrollTop);
+      } else {
+        applySavedScroll();
+      }
+    };
+
+    const handleUserInteraction = () => setUserScrolling();
+
+    scrollEl.addEventListener("scroll", handleScroll, { passive: true });
+    scrollEl.addEventListener("wheel", handleUserInteraction, { passive: true, capture: true });
+    scrollEl.addEventListener("touchmove", handleUserInteraction, { passive: true, capture: true });
+    scrollEl.addEventListener("keydown", handleUserInteraction, { capture: true });
+    scrollEl.addEventListener("mousedown", handleUserInteraction, { capture: true });
+
+    scrollEl.style.scrollBehavior = "auto";
+    applySavedScroll();
+
+    let rafId: number;
+    const timeoutIds: number[] = [];
+    rafId = requestAnimationFrame(() => {
+      rafId = requestAnimationFrame(() => {
+        scrollEl.style.scrollBehavior = "auto";
+        applySavedScroll();
+        timeoutIds.push(window.setTimeout(applySavedScroll, 0));
+        timeoutIds.push(window.setTimeout(applySavedScroll, 60));
+        timeoutIds.push(window.setTimeout(applySavedScroll, 140));
+      });
+    });
+
+    return () => {
+      scrollEl.removeEventListener("scroll", handleScroll);
+      scrollEl.removeEventListener("wheel", handleUserInteraction, { capture: true });
+      scrollEl.removeEventListener("touchmove", handleUserInteraction, { capture: true });
+      scrollEl.removeEventListener("keydown", handleUserInteraction, { capture: true });
+      scrollEl.removeEventListener("mousedown", handleUserInteraction, { capture: true });
+      if (userScrollTimeout !== null) clearTimeout(userScrollTimeout);
+      cancelAnimationFrame(rafId);
+      timeoutIds.forEach(clearTimeout);
+      setScrollPosition(tabId, currentTarget);
+    };
+  }, [tabId, isLoading, getScrollPosition, setScrollPosition]);
 
   const isSearching = searchTerm.trim().length > 0;
   const displayTree = useMemo(
@@ -503,7 +575,7 @@ export const EnvironmentEditor = () => {
       )}
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto px-5 py-4">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto px-5 py-4">
         {isEmpty ? (
           <div className="flex flex-col items-center justify-center h-full text-comment">
             <Settings2 size={32} className="mb-3 opacity-50" />
