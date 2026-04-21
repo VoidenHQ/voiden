@@ -35,21 +35,29 @@ export default function createGraphQLPlugin(context: PluginContext) {
         createGraphQLQueryNode,
         createGraphQLVariablesNode,
         createGraphQLSubscriptionEventsNode,
+        createGqlUrlNode,
+        createGqlBodyNode,
       } = await import('./nodes');
 
       // Create nodes with context components
       const GraphQLQueryNode = createGraphQLQueryNode(NodeViewWrapper, CodeEditor, RequestBlockHeader, useSendRestRequest);
       const GraphQLVariablesNode = createGraphQLVariablesNode(NodeViewWrapper, CodeEditor, RequestBlockHeader);
       const GraphQLSubscriptionEventsNode = createGraphQLSubscriptionEventsNode(NodeViewWrapper, context, CodeEditor);
+      const GqlUrlNode = createGqlUrlNode(NodeViewWrapper, useSendRestRequest);
+      const GqlBodyNode = createGqlBodyNode(NodeViewWrapper, CodeEditor);
 
       // Register nodes
       context.registerVoidenExtension(GraphQLQueryNode);
       context.registerVoidenExtension(GraphQLVariablesNode);
       context.registerVoidenExtension(GraphQLSubscriptionEventsNode);
+      context.registerVoidenExtension(GqlUrlNode);
+      context.registerVoidenExtension(GqlBodyNode);
 
       // Register linkable node types
       context.registerLinkableNodeTypes([
         'gqlquery',
+        'gqlbody',
+        'gqlurl',
         'gqlvariables',
         'gqlsubscriptionevents',
       ]);
@@ -60,23 +68,34 @@ export default function createGraphQLPlugin(context: PluginContext) {
           // Get the JSON from the editor (linked blocks are already expanded by the orchestrator)
           const editorJson = editor.getJSON();
 
+
+          // Dynamic import of getRequest function from app
+          // @ts-ignore - Path resolved at runtime in app context
+          const { getRequest } = await import(/* @vite-ignore */ '@/core/request-engine/getRequestFromJson');
+
+          // Build request WITHOUT environment variables
+          // Environment variables will be replaced securely in Electron (Stage 3)
+          // Faker variables will be replaced at Stage 5 (Pre-Send) by the faker extension
+          request = await getRequest(editorJson, undefined, undefined);
           // Only handle documents with a gqlquery node
           const gqlNode = editorJson.content?.find(
             (n: any) => n.type === 'gqlquery'
           );
           if (!gqlNode) return request; // Not a GraphQL doc, pass through
 
-          // Extract query and operation info
-          const query = gqlNode.attrs?.body || '';
-          let operationType = gqlNode.attrs?.operationType || 'query';
-          let operationName: string | undefined = gqlNode.attrs?.operationName;
+          // Support new format (gqlurl/gqlbody children) and old format (direct attrs)
+          const gqlBodyChild = gqlNode.content?.find((n: any) => n.type === 'gqlbody');
+          const gqlUrlChild = gqlNode.content?.find((n: any) => n.type === 'gqlurl');
 
-          if (!operationName) {
-            const match = query.match(/^\s*(query|mutation|subscription)\s+([\w]+)?/);
-            if (match) {
-              operationType = match[1];
-              operationName = match[2];
-            }
+          // Extract query and operation info
+          const query = gqlBodyChild?.attrs?.body || gqlNode.attrs?.body || '';
+          let operationType = gqlBodyChild?.attrs?.operationType || gqlNode.attrs?.operationType || 'query';
+          let operationName: string | undefined;
+
+          const match = query.match(/^\s*(query|mutation|subscription)\s+([\w]+)?/);
+          if (match) {
+            operationType = match[1];
+            operationName = match[2];
           }
 
           // Get variables from gqlvariables block
@@ -92,88 +111,115 @@ export default function createGraphQLPlugin(context: PluginContext) {
             }
           }
 
-          // Determine URL:
-          // 1. URL block (if present) overrides everything
-          // 2. endpoint attribute on gqlquery (dedicated endpoint URL)
-          // 3. schemaUrl as last fallback (introspection endpoint = query endpoint)
-          const apiNode = editorJson.content?.find(
-            (n: any) => n.type === 'api' || n.type === 'request'
-          );
-          const urlFromBlock = apiNode?.content?.find(
-            (n: any) => n.type === 'url'
-          )?.content?.[0]?.text || '';
-          const url = urlFromBlock || gqlNode.attrs?.endpoint || gqlNode.attrs?.schemaUrl || '';
+          // URL: from gqlurl child text, or legacy attrs.endpoint, or schemaUrl
+          const gqlUrlText = gqlUrlChild?.content?.[0]?.text || gqlUrlChild?.content || '';
+          const url = (typeof gqlUrlText === 'string' ? gqlUrlText : '') ||
+            gqlNode.attrs?.endpoint || gqlNode.attrs?.schemaUrl || '';
 
-          console.log('[GraphQL onBuildRequest]', {
-            endpoint: gqlNode.attrs?.endpoint,
-            schemaUrl: gqlNode.attrs?.schemaUrl,
-            urlFromBlock,
-            resolvedUrl: url,
-            allAttrs: gqlNode.attrs,
-          });
-
-          // Build headers: start with auto-generated defaults
-          const defaultHeaders = [
-            { key: 'Content-Type', value: 'application/json', enabled: true },
-          ];
-
-          // Merge user-defined headers on top (user values override defaults for same key)
-          const getTable = (type: string) => {
-            const nodes = editorJson.content?.filter((n: any) => n.type === type) || [];
-            const rows: any[] = [];
-            for (const node of nodes) {
-              const tableRows = node.attrs?.rows || node.content || [];
-              for (const row of tableRows) {
-                if (row.key && row.enabled !== false) {
-                  rows.push(row);
-                }
-              }
-            }
-            return rows;
+          // Read headers from the TipTap table structure (headers-table > table > tableRow > tableCell)
+          const readTableHeaders = (type: string) => {
+            const result: Array<{key: string, value: string, enabled: boolean}> = [];
+            editorJson.content?.forEach((rootNode: any) => {
+              if (rootNode.type !== type) return;
+              rootNode.content?.forEach((node: any) => {
+                if (node.type !== 'table') return;
+                node.content?.forEach((rowNode: any) => {
+                  if (rowNode.type !== 'tableRow' || rowNode.attrs?.disabled) return;
+                  let key = '', value = '';
+                  rowNode.content?.forEach((cellNode: any, cellIndex: number) => {
+                    if (cellNode.type === 'tableCell') {
+                      const text = (cellNode.content?.[0]?.content?.[0]?.text || '').trim();
+                      if (cellIndex === 0) key = text;
+                      else if (cellIndex === 1) value = text;
+                    }
+                  });
+                  if (key) result.push({ key, value, enabled: true });
+                });
+              });
+            });
+            return result;
           };
 
-          const userHeaders = getTable('headers-table');
-          const mergedHeaders = [...defaultHeaders];
-          for (const uh of userHeaders) {
-            const existingIdx = mergedHeaders.findIndex(
-              (h) => h.key.toLowerCase() === uh.key.toLowerCase()
-            );
-            if (existingIdx !== -1) {
-              mergedHeaders[existingIdx] = uh; // user overrides default
-            } else {
-              mergedHeaders.push(uh);
+          // Read auth node and map to orchestrator format
+          const readAuth = () => {
+            const authNode = editorJson.content?.find((n: any) => n.type === 'auth');
+            if (!authNode?.attrs) return undefined;
+            const authType = authNode.attrs.authType;
+            if (!authType || authType === 'inherit' || authType === 'none') return undefined;
+            const typeMapping: Record<string, string> = {
+              bearer: 'bearer-token', basic: 'basic-auth', apiKey: 'api-key',
+              oauth2: 'oauth2', oauth1: 'oauth1', digest: 'digest-auth',
+              ntlm: 'ntlm', awsSignature: 'aws-signature', hawk: 'hawk',
+            };
+            const mappedType = typeMapping[authType];
+            if (!mappedType) return undefined;
+            const config: Record<string, string> = {};
+            authNode.content?.forEach((node: any) => {
+              if (node.type === 'table') {
+                node.content?.forEach((rowNode: any) => {
+                  if (rowNode.type === 'tableRow') {
+                    let k = '', v = '';
+                    rowNode.content?.forEach((cellNode: any, idx: number) => {
+                      if (cellNode.type === 'tableCell') {
+                        const text = (cellNode.content?.[0]?.content?.[0]?.text || '').trim();
+                        if (idx === 0) k = text; else if (idx === 1) v = text;
+                      }
+                    });
+                    if (k) config[k] = v;
+                  }
+                });
+              }
+            });
+            let finalConfig: any = config;
+            if (authType === 'bearer') finalConfig = { token: config.token || '' };
+            else if (authType === 'basic') finalConfig = { username: config.username || '', password: config.password || '' };
+            else if (authType === 'apiKey') finalConfig = { key: config.key || '', value: config.value || '', in: config.add_to || 'header' };
+            else if (authType === 'oauth2') {
+              let oauth2Attrs: any = {};
+              try {
+                const raw = authNode.attrs?.oauth2Config;
+                if (raw) oauth2Attrs = typeof raw === 'string' ? JSON.parse(raw) : raw;
+              } catch {}
+              const varPrefix = oauth2Attrs.variablePrefix || 'oauth2';
+              finalConfig = {
+                accessToken: `{{process.${varPrefix}_access_token}}`,
+                tokenType: `{{process.${varPrefix}_token_type}}`,
+                headerPrefix: oauth2Attrs.headerPrefix || 'Bearer',
+                addTokenTo: oauth2Attrs.addTokenTo || 'header',
+                autoRefresh: oauth2Attrs.autoRefresh === true,
+                variablePrefix: varPrefix,
+                grantType: oauth2Attrs.grantType || 'authorization_code',
+                tokenUrl: config.token_url || oauth2Attrs.tokenUrl || '',
+                clientId: config.client_id || oauth2Attrs.clientId || '',
+                clientSecret: config.client_secret || oauth2Attrs.clientSecret || '',
+                scope: config.scope || '',
+                refreshToken: `{{process.${varPrefix}_refresh_token}}`,
+              };
             }
-          }
+            return { enabled: true, type: mappedType, config: finalConfig };
+          };
 
-          // Get cookies and merge into headers
-          const cookies = getTable('cookies-table');
+          // Merge user headers with required Content-Type default
+          const userHeaders = readTableHeaders('headers-table');
+          const cookies = readTableHeaders('cookies-table');
+          const mergedHeaders = [{ key: 'Content-Type', value: 'application/json', enabled: true }];
+          for (const uh of userHeaders) {
+            const idx = mergedHeaders.findIndex(h => h.key.toLowerCase() === uh.key.toLowerCase());
+            if (idx !== -1) mergedHeaders[idx] = uh;
+            else mergedHeaders.push(uh);
+          }
           if (cookies.length > 0) {
             const cookieString = cookies.map((c: any) => `${c.key}=${c.value}`).join('; ');
-            const existingCookieIdx = mergedHeaders.findIndex(
-              (h) => h.key.toLowerCase() === 'cookie'
-            );
-            if (existingCookieIdx !== -1) {
-              mergedHeaders[existingCookieIdx] = {
-                ...mergedHeaders[existingCookieIdx],
-                value: mergedHeaders[existingCookieIdx].value + '; ' + cookieString,
-              };
-            } else {
-              mergedHeaders.push({ key: 'Cookie', value: cookieString, enabled: true });
-            }
+            const cookieIdx = mergedHeaders.findIndex(h => h.key.toLowerCase() === 'cookie');
+            if (cookieIdx !== -1) mergedHeaders[cookieIdx].value += '; ' + cookieString;
+            else mergedHeaders.push({ key: 'Cookie', value: cookieString, enabled: true });
           }
 
-          // Get auth if present
-          const authNode = editorJson.content?.find(
-            (n: any) => n.type === 'auth'
-          );
+          const auth = readAuth();
 
-          // Get pre/post request scripts if present
-          const preRequestBlock = editorJson.content?.find(
-            (n: any) => n.type === 'pre_request_block'
-          );
-          const postRequestBlocks = editorJson.content?.filter(
-            (n: any) => n.type === 'post_request_block'
-          );
+          // Get pre/post request scripts
+          const preRequestBlock = editorJson.content?.find((n: any) => n.type === 'pre_request_block');
+          const postRequestBlocks = editorJson.content?.filter((n: any) => n.type === 'post_request_block');
 
           return {
             ...request,
@@ -190,7 +236,7 @@ export default function createGraphQLPlugin(context: PluginContext) {
             content_type: 'application/json',
             prescript: preRequestBlock?.attrs?.body,
             postscript: postRequestBlocks?.map((n: any) => n.attrs?.body).join('\n'),
-            auth: authNode?.attrs || request?.auth,
+            auth,
           };
         } catch (error) {
           console.error('GraphQL onBuildRequest error:', error);
@@ -219,10 +265,10 @@ export default function createGraphQLPlugin(context: PluginContext) {
                 .insertContent([
                   {
                     type: 'gqlquery',
-                    attrs: {
-                      body: '',
-                      operationType: 'query',
-                    },
+                    content: [
+                      { type: 'gqlurl', content: [] },
+                      { type: 'gqlbody', attrs: { body: '', operationType: 'query' } },
+                    ],
                   },
                   {
                     type: 'paragraph',

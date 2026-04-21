@@ -979,19 +979,16 @@ export const getRequest = async (
     const gqlQueryNode = findNode(editor, "gqlquery");
     if (!gqlQueryNode) return null;
 
-    const query = gqlQueryNode.attrs?.body || '';
-    let operationType = gqlQueryNode.attrs?.operationType || 'query';
-    
-    // Use operationName from node attributes if present, otherwise parse from query
-    let operationName: string | undefined = gqlQueryNode.attrs?.operationName;
-    
-    if (!operationName) {
-      // Parse operation details from query text as fallback
-      const operationMatch = query.match(/^\s*(query|mutation|subscription)\s+([\w]+)?/);
-      if (operationMatch) {
-        operationType = operationMatch[1];
-        operationName = operationMatch[2];
-      }
+    // Support new format (gqlbody child) and old format (direct attrs)
+    const gqlBodyChild = gqlQueryNode.content?.find((n: any) => n.type === 'gqlbody');
+    const query = gqlBodyChild?.attrs?.body || gqlQueryNode.attrs?.body || '';
+    let operationType = gqlBodyChild?.attrs?.operationType || gqlQueryNode.attrs?.operationType || 'query';
+
+    let operationName: string | undefined;
+    const operationMatch = query.match(/^\s*(query|mutation|subscription)\s+([\w]+)?/);
+    if (operationMatch) {
+      operationType = operationMatch[1];
+      operationName = operationMatch[2];
     }
 
     // Get variables

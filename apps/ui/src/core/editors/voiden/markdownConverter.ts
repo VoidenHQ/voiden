@@ -402,6 +402,32 @@ const processCubeBlockText = (text: string, schema: any): JSONContent => {
   // Recursively inflate the node (for both tables and collapsed text).
   nodeJson = inflateSimplifiedNode(nodeJson);
 
+  // Migrate old gqlquery format (has body attr, no content children) to new gqlurl+gqlbody format
+  if (nodeJson.type === 'gqlquery' && nodeJson.attrs?.body !== undefined && !(nodeJson.content?.length)) {
+    const endpointText = nodeJson.attrs.endpoint || '';
+    nodeJson = {
+      type: 'gqlquery',
+      attrs: { importedFrom: nodeJson.attrs.importedFrom },
+      content: [
+        {
+          type: 'gqlurl',
+          content: endpointText ? [{ type: 'text', text: endpointText }] : [],
+        },
+        {
+          type: 'gqlbody',
+          attrs: {
+            body: nodeJson.attrs.body || '',
+            operationType: nodeJson.attrs.operationType || 'query',
+            schemaFileName: nodeJson.attrs.schemaFileName ?? null,
+            schemaFilePath: nodeJson.attrs.schemaFilePath ?? null,
+            schemaUrl: nodeJson.attrs.schemaUrl ?? null,
+            importedFrom: nodeJson.attrs.importedFrom,
+          },
+        },
+      ],
+    };
+  }
+
   // If the node is an inline type (e.g. fileLink), wrap it in a paragraph
   // so it's valid as a direct child of doc (which requires block content).
   const nodeType = schema.nodes[nodeJson.type];
