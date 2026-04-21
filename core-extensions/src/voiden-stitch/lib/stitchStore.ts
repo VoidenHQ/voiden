@@ -156,6 +156,9 @@ export const stitchStore = {
       const path = tabIdToSourcePath[tabId];
       if (path && runs[path]) return runs[path];
     }
+    // If specific args were provided but no match found, return an empty run
+    // so other tabs don't inherit the last active stitch run.
+    if (sourceFilePath || tabId) return createEmptyRun();
     return getActiveRun();
   },
 

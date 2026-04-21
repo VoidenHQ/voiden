@@ -61,8 +61,11 @@ export async function runStitch(
   // @ts-ignore - Vite dynamic import
   const converterMod = import(/* @vite-ignore */ '@/core/editors/voiden/markdownConverter') as Promise<any>;
 
-  const [{ requestOrchestrator }, { voidenExtensions }, pluginsMod, { parseMarkdown }] = await Promise.all([
-    orchestratorMod, baseExtensionsMod, editorStoreMod, converterMod,
+  // @ts-ignore - Vite dynamic import
+  const responseStoreMod = import(/* @vite-ignore */ '@/core/request-engine/stores/responseStore') as Promise<any>;
+
+  const [{ requestOrchestrator }, { voidenExtensions }, pluginsMod, { parseMarkdown }, { useResponseStore }] = await Promise.all([
+    orchestratorMod, baseExtensionsMod, editorStoreMod, converterMod, responseStoreMod,
   ]);
 
   // Combine base extensions with plugin-registered extensions (method, url, headers-table, etc.)
@@ -225,6 +228,7 @@ export async function runStitch(
             let sectionResult: StitchSectionResult;
 
             try {
+              useResponseStore.getState().setCurrentRequestTabId('__stitch__');
               const response = await requestOrchestrator.executeRequest(
                 headlessEditor,
                 activeEnv,

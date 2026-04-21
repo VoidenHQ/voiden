@@ -110,6 +110,16 @@ function formatDuration(ms: number): string {
   return `${Math.floor(ms / 60000)}m ${Math.round((ms % 60000) / 1000)}s`;
 }
 
+/** Lightweight styled tooltip wrapper. */
+const Tip = ({ label, children }: { label: string; children: React.ReactNode }) => (
+  <div className="relative group/tip inline-flex">
+    {children}
+    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-1.5 py-0.5 bg-active border border-border rounded text-[10px] text-text whitespace-nowrap opacity-0 group-hover/tip:opacity-100 transition-opacity pointer-events-none z-50">
+      {label}
+    </div>
+  </div>
+);
+
 /** Small colored status dot matching the response panel style. */
 const StatusDot = ({ status, size = 8 }: { status: string; size?: number }) => {
   const color = status === 'passed'
@@ -176,7 +186,10 @@ const SectionRow = ({ section, defaultExpanded }: { section: StitchSectionResult
   }, [defaultExpanded]);
   const [showReqBody, setShowReqBody] = useState(false);
   const [showBody, setShowBody] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [copiedReqBody, setCopiedReqBody] = useState(false);
+  const [copiedResBody, setCopiedResBody] = useState(false);
+  const [copiedReqHeaders, setCopiedReqHeaders] = useState(false);
+  const [copiedResHeaders, setCopiedResHeaders] = useState(false);
   const hasAssertions = section.assertions.results.length > 0;
   const hasFailed = section.assertions.failed > 0 || !!section.error;
   const hasDetails = hasAssertions || !!section.error || !!section.requestInfo || !!section.responseInfo;
@@ -220,6 +233,25 @@ const SectionRow = ({ section, defaultExpanded }: { section: StitchSectionResult
         <span className="text-[10px] text-comment font-mono flex-shrink-0">
           {formatDuration(section.duration)}
         </span>
+
+        {section.requestInfo && (
+          <Tip label="Copy as cURL">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                const curl = toCurl(section.requestInfo!);
+                navigator.clipboard.writeText(curl).then(() => {
+                  setCopiedReqBody(true);
+                  setTimeout(() => setCopiedReqBody(false), 1500);
+                });
+              }}
+              className="text-comment hover:text-text transition-colors p-0.5 rounded flex-shrink-0"
+              style={{ cursor: 'pointer' }}
+            >
+              {copiedReqBody ? <Check size={10} className="text-green-400" /> : <Copy size={10} />}
+            </button>
+          </Tip>
+        )}
       </div>
 
       {expanded && (
@@ -231,21 +263,26 @@ const SectionRow = ({ section, defaultExpanded }: { section: StitchSectionResult
                 <span className="text-comment font-semibold uppercase">Request</span>
                 <span className="text-accent font-mono font-bold">{section.requestInfo.method}</span>
                 <span className="text-text font-mono truncate flex-1">{section.requestInfo.url}</span>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    const curl = toCurl(section.requestInfo!);
-                    navigator.clipboard.writeText(curl).then(() => {
-                      setCopied(true);
-                      setTimeout(() => setCopied(false), 1500);
-                    });
-                  }}
-                  className="text-comment hover:text-text transition-colors p-0.5 rounded flex-shrink-0"
-                  title="Copy as cURL"
-                  style={{ cursor: 'pointer' }}
-                >
-                  {copied ? <Check size={10} className="text-green-400" /> : <Copy size={10} />}
-                </button>
+                {section.requestInfo.headers && section.requestInfo.headers.length > 0 && (
+                  <Tip label="Copy request headers">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const text = section.requestInfo!.headers!
+                          .map((h: any) => `${h.key || h.k || ''}: ${h.value || h.v || ''}`)
+                          .join('\n');
+                        navigator.clipboard.writeText(text).then(() => {
+                          setCopiedReqHeaders(true);
+                          setTimeout(() => setCopiedReqHeaders(false), 1500);
+                        });
+                      }}
+                      className="text-comment hover:text-text transition-colors p-0.5 rounded flex-shrink-0"
+                      style={{ cursor: 'pointer' }}
+                    >
+                      {copiedReqHeaders ? <Check size={10} className="text-green-400" /> : <Copy size={10} />}
+                    </button>
+                  </Tip>
+                )}
               </div>
               {section.requestInfo.headers && section.requestInfo.headers.length > 0 && (
                 <div className="mt-1 space-y-0.5">
@@ -271,9 +308,25 @@ const SectionRow = ({ section, defaultExpanded }: { section: StitchSectionResult
                     Body {section.requestInfo.bodySize != null && <span className="text-comment">({formatBytes(section.requestInfo.bodySize)})</span>}
                   </button>
                   {showReqBody && (
-                    <pre className="mt-1 p-2 bg-bg rounded border border-border text-[10px] text-text font-mono overflow-x-auto max-h-48 overflow-y-auto whitespace-pre-wrap break-all">
-                      {section.requestInfo.body}
-                    </pre>
+                    <div className="relative mt-1 group/reqbody">
+                      <pre className="p-2 bg-bg rounded border border-border text-[10px] text-text font-mono overflow-x-auto max-h-48 overflow-y-auto whitespace-pre-wrap break-all">
+                        {section.requestInfo.body}
+                      </pre>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigator.clipboard.writeText(section.requestInfo!.body!).then(() => {
+                            setCopiedReqBody(true);
+                            setTimeout(() => setCopiedReqBody(false), 1500);
+                          });
+                        }}
+                        className="absolute top-1 right-1 p-1 rounded bg-active opacity-0 group-hover/reqbody:opacity-100 transition-opacity text-comment hover:text-text"
+                        title="Copy request body"
+                        style={{ cursor: 'pointer' }}
+                      >
+                        {copiedReqBody ? <Check size={10} className="text-green-400" /> : <Copy size={10} />}
+                      </button>
+                    </div>
                   )}
                 </div>
               )}
@@ -292,6 +345,27 @@ const SectionRow = ({ section, defaultExpanded }: { section: StitchSectionResult
                 {section.responseInfo.bodySize != null && (
                   <span className="text-comment font-mono">{formatBytes(section.responseInfo.bodySize)}</span>
                 )}
+                <span className="flex-1" />
+                {section.responseInfo.headers && section.responseInfo.headers.length > 0 && (
+                  <Tip label="Copy response headers">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const text = section.responseInfo!.headers!
+                          .map((h: any) => `${h.key || h.k || ''}: ${h.value || h.v || String(h)}`)
+                          .join('\n');
+                        navigator.clipboard.writeText(text).then(() => {
+                          setCopiedResHeaders(true);
+                          setTimeout(() => setCopiedResHeaders(false), 1500);
+                        });
+                      }}
+                      className="text-comment hover:text-text transition-colors p-0.5 rounded flex-shrink-0"
+                      style={{ cursor: 'pointer' }}
+                    >
+                      {copiedResHeaders ? <Check size={10} className="text-green-400" /> : <Copy size={10} />}
+                    </button>
+                  </Tip>
+                )}
               </div>
               {section.responseInfo.headers && section.responseInfo.headers.length > 0 && (
                 <div className="mt-1 space-y-0.5">
@@ -305,18 +379,51 @@ const SectionRow = ({ section, defaultExpanded }: { section: StitchSectionResult
               )}
               {section.responseInfo.body && (
                 <div className="mt-1">
-                  <button
-                    onClick={(e) => { e.stopPropagation(); setShowBody(!showBody); }}
-                    className="text-[10px] text-accent hover:text-text transition-colors flex items-center gap-1"
-                    style={{ cursor: 'pointer' }}
-                  >
-                    {showBody ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
-                    Body
-                  </button>
+                  <div className="flex items-center justify-between gap-1">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setShowBody(!showBody); }}
+                      className="text-[10px] text-accent hover:text-text transition-colors flex items-center gap-1"
+                      style={{ cursor: 'pointer' }}
+                    >
+                      {showBody ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+                      Body
+                    </button>
+                    <Tip label="Copy response body">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigator.clipboard.writeText(section.responseInfo!.body!).then(() => {
+                            setCopiedResBody(true);
+                            setTimeout(() => setCopiedResBody(false), 1500);
+                          });
+                        }}
+                        className="text-comment hover:text-text transition-colors p-0.5 rounded flex-shrink-0"
+                        style={{ cursor: 'pointer' }}
+                      >
+                        {copiedResBody ? <Check size={10} className="text-green-400" /> : <Copy size={10} />}
+                      </button>
+                    </Tip>
+                  </div>
                   {showBody && (
-                    <pre className="mt-1 p-2 bg-bg rounded border border-border text-[10px] text-text font-mono overflow-x-auto max-h-48 overflow-y-auto whitespace-pre-wrap break-all">
-                      {section.responseInfo.body}
-                    </pre>
+                    <div className="relative mt-1 group/resbody">
+                      <pre className="p-2 bg-bg rounded border border-border text-[10px] text-text font-mono overflow-x-auto max-h-48 overflow-y-auto whitespace-pre-wrap break-all">
+                        {section.responseInfo.body}
+                      </pre>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigator.clipboard.writeText(section.responseInfo!.body!).then(() => {
+                            setCopiedResBody(true);
+                            setTimeout(() => setCopiedResBody(false), 1500);
+                          });
+                        }}
+                        className="absolute top-1 right-1 p-1 rounded bg-active opacity-0 group-hover/resbody:opacity-100 transition-opacity text-comment hover:text-text"
+                        title="Copy response body"
+                        style={{ cursor: 'pointer' }}
+                      >
+                        {copiedResBody ? <Check size={10} className="text-green-400" /> : <Copy size={10} />}
+                      </button>
+                    </div>
                   )}
                 </div>
               )}
