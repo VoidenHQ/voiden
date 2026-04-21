@@ -8964,6 +8964,14 @@ __metadata:
   languageName: unknown
   linkType: soft
 
+"@voiden/fuzzy-search@workspace:*, @voiden/fuzzy-search@workspace:packages/fuzzy-search":
+  version: 0.0.0-use.local
+  resolution: "@voiden/fuzzy-search@workspace:packages/fuzzy-search"
+  dependencies:
+    typescript: "npm:^5.5.3"
+  languageName: unknown
+  linkType: soft
+
 "@voiden/sdk@npm:^1.0.8":
   version: 1.0.8
   resolution: "@voiden/sdk@npm:1.0.8"
@@ -21853,6 +21861,7 @@ __metadata:
     "@vitejs/plugin-react": "npm:^4.0.3"
     "@vitest/ui": "npm:2.1.9"
     "@voiden/core-extensions": "workspace:*"
+    "@voiden/fuzzy-search": "workspace:*"
     "@voiden/sdk": "npm:^1.0.8"
     "@xterm/addon-fit": "npm:^0.10.0"
     "@xterm/addon-webgl": "npm:^0.18.0"
@@ -21942,6 +21951,7 @@ __metadata:
     "@types/adm-zip": "npm:^0"
     "@types/js-yaml": "npm:^4"
     "@types/mime-types": "npm:^2"
+    "@voiden/fuzzy-search": "workspace:*"
     adm-zip: "npm:^0.5.16"
     aws-sdk: "npm:2.1692.0"
     dotenv: "npm:^16.4.5"

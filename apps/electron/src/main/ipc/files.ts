@@ -25,7 +25,7 @@ import { createEmptyProject, createSampleProject } from "../projectUtils";
 import { getActiveStates, saveActiveStates } from "../tabs";
 import { getCachedGitStatus } from "../git";
 import { getActiveProject, findTabById, getAppState } from "../state";
-import { scoreFiles, type MatchedFragment } from "../fileSearch";
+import { scoreFiles, type MatchedFragment } from "@voiden/fuzzy-search";
 import { saveState, deleteAutosaveFile } from "../persistState";
 import { FileTreeItem } from "../../types";
 import { PanelElement } from "../../../shared/types";
@@ -720,15 +720,14 @@ export function registerFileIpcHandlers() {
 
     const allPaths = session.allPaths;
 
-    type FragmentTuple = [number, number];
     type Result = {
       name: string;
       path: string;
-      pathFragments?: FragmentTuple[];
-      filenameFragments?: FragmentTuple[];
+      pathFragments?: MatchedFragment[];
+      filenameFragments?: MatchedFragment[];
     };
-    const tuplize = (frags: MatchedFragment[]): FragmentTuple[] | undefined =>
-        frags.length === 0 ? undefined : frags.map((f) => [f.startOffset, f.endOffset]);
+    const orUndefined = (frags: MatchedFragment[]): MatchedFragment[] | undefined =>
+        frags.length === 0 ? undefined : frags;
     let results: Result[];
 
     if (!normalizedQuery) {
@@ -751,8 +750,8 @@ export function registerFileIpcHandlers() {
       results = scored.slice(0, TOP_N).map(({ path: p, match }) => ({
         name: path.basename(p),
         path: p,
-        pathFragments: tuplize(match.pathFragments),
-        filenameFragments: tuplize(match.filenameFragments),
+        pathFragments: orUndefined(match.pathFragments),
+        filenameFragments: orUndefined(match.filenameFragments),
       }));
     }
 

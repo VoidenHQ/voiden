@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, startTransition } from 'react';
 import { Search, File, Folder, FilePlus, Terminal, Settings, FolderPlus, HelpCircle, Sparkles } from 'lucide-react';
-import { MatchedFragment, highlightText } from '@/core/editors/voiden/extensions/MatchedFragment';
+import type { MatchedFragment } from '@voiden/fuzzy-search';
+import { highlightText } from '@/core/editors/voiden/extensions/MatchedFragment';
 import { useAddPanelTab } from '@/core/layout/hooks';
 import { cn } from '@/core/lib/utils';
 import { useGetActiveDocument } from '@/core/file-system/hooks/useFileSystem';

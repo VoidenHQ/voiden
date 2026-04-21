@@ -1,6 +1,8 @@
 import { cn } from "@/core/lib/utils";
 import { Command } from "cmdk";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { MinusculeMatcher, MatchingMode } from "@voiden/fuzzy-search";
+import { highlightText } from "@/core/editors/voiden/extensions/MatchedFragment";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEnvironments, useSetActiveEnvironment, useProfiles, useSetActiveProfile } from "@/core/environment/hooks";
 import { useAddPanelTab, useActivateTab, useGetPanelTabs } from "@/core/layout/hooks";
@@ -73,6 +75,37 @@ export const EnvSelector = () => {
   };
   const [search, setSearch] = useState("");
 
+  const matcherCache = useRef<{ key: string; matcher: MinusculeMatcher | null }>({ key: "", matcher: null });
+  const getMatcher = useCallback((query: string) => {
+    if (matcherCache.current.key !== query) {
+      matcherCache.current = {
+        key: query,
+        matcher: query ? new MinusculeMatcher("* " + query, MatchingMode.IGNORE_CASE, "") : null,
+      };
+    }
+    return matcherCache.current.matcher;
+  }, []);
+
+  const filter = useCallback(
+    (value: string, query: string, keywords?: string[]): number => {
+      const matcher = getMatcher(query);
+      if (!matcher) return 1;
+      const candidates = [value, ...(keywords ?? [])];
+      let best = 0;
+      for (const c of candidates) {
+        const m = matcher.match(c);
+        if (m) {
+          const s = matcher.matchingDegree(c, false, m);
+          if (s > best) best = s;
+        }
+      }
+      return best;
+    },
+    [getMatcher]
+  );
+
+  const matchFragments = (text: string) => getMatcher(search)?.match(text) ?? undefined;
+
   if (!envs) return null;
   return (
     <>
@@ -104,6 +137,7 @@ export const EnvSelector = () => {
 
               <Command
                 label="Select Environment"
+                filter={filter}
                 className="bg-editor border border-border rounded-lg shadow-lg overflow-hidden"
               >
                 {/* Header */}
@@ -150,7 +184,7 @@ export const EnvSelector = () => {
                           }}
                         >
                           <div className="flex-1 min-w-0">
-                            <div className="text-sm font-medium">{profile}</div>
+                            <div className="text-sm font-medium">{highlightText(profile, matchFragments(profile))}</div>
                           </div>
                           {profile === activeProfile && (
                             <Check size={16} className="flex-shrink-0" style={{ color: 'var(--icon-success)' }} />
@@ -190,10 +224,7 @@ export const EnvSelector = () => {
                         const fallbackName = fileName.replace(/\\/g, "/").split("/").pop() || fileName;
                         const displayName = customName || fallbackName;
                         return { fileName, displayName, fallbackName, hasCustomName: !!customName };
-                      }).filter(({ displayName, fallbackName }) =>
-                        displayName.toLowerCase().includes(search.toLowerCase()) ||
-                        fallbackName.toLowerCase().includes(search.toLowerCase())
-                      ).map(({ fileName, displayName, fallbackName, hasCustomName }) => {
+                      }).map(({ fileName, displayName, fallbackName, hasCustomName }) => {
                         const isActive = fileName === envs.activeEnv;
 
                         return (
@@ -206,9 +237,9 @@ export const EnvSelector = () => {
                           >
                             <FileText size={16} className="flex-shrink-0" style={{ color: 'var(--icon-primary)' }} />
                             <div className="flex-1 min-w-0">
-                              <div className="text-sm font-medium truncate">{displayName}</div>
+                              <div className="text-sm font-medium truncate">{highlightText(displayName, matchFragments(displayName))}</div>
                               {hasCustomName && (
-                                <div className="text-xs text-comment truncate">{fileName}</div>
+                                <div className="text-xs text-comment truncate">{highlightText(fileName, matchFragments(fileName))}</div>
                               )}
                             </div>
                             {isActive && (

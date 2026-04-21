@@ -1,5 +1,6 @@
 import React, { forwardRef, startTransition, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
-import { MatchedFragment, highlightText } from "./MatchedFragment";
+import type { MatchedFragment } from '@voiden/fuzzy-search';
+import { highlightText } from "./MatchedFragment";
 import { Editor, JSONContent, Node, NodeViewProps, Range, mergeAttributes } from "@tiptap/core";
 import { EditorState, PluginKey } from "@tiptap/pm/state";
 import Suggestion from "@tiptap/suggestion";

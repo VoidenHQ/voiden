@@ -60,6 +60,7 @@
   "keywords": [],
   "dependencies": {
     "@grpc/grpc-js": "1.14.1",
+    "@voiden/fuzzy-search": "workspace:*",
     "adm-zip": "^0.5.16",
     "fast-glob": "^3.3.3",
     "graphql": "^16.12.0",

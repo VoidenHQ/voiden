@@ -90,6 +90,7 @@
     "@uiw/codemirror-theme-quietlight": "^4.22.2",
     "@uiw/react-codemirror": "^4.21.18",
     "@voiden/core-extensions": "workspace:*",
+    "@voiden/fuzzy-search": "workspace:*",
     "@voiden/sdk": "^1.0.8",
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/addon-webgl": "^0.18.0",
