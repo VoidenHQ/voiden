@@ -92,7 +92,7 @@ export const SeamlessNavigation = Extension.create({
 
           // Define block types
           const codeBlockTypes = [
-            'codeBlock', 'json_body', 'xml_body',"gqlquery", "gqlvariables"
+            'codeBlock', 'json_body', 'xml_body', "gqlquery", "gqlbody", "gqlvariables"
           ];
 
           // Helper function to check if a node is a table block
@@ -595,7 +595,7 @@ export const SeamlessNavigation = Extension.create({
 
               // Check if we're right before or after a CodeMirror block
               const codeBlockTypes = [
-                'codeBlock', 'json_body', 'xml_body', "gqlquery", "gqlvariables",
+                'codeBlock', 'json_body', 'xml_body', "gqlquery", "gqlbody", "gqlvariables",
                 'request-headers', 'response-headers', 'response-body'
               ];
 

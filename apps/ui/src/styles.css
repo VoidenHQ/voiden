@@ -814,19 +814,42 @@ input[type="week"]::-webkit-datetime-edit-year-field:focus {
 }
 
 /* Variable Highlighting Classes - Theme-aware */
+/* box-shadow replaces px-1 padding to avoid phantom cursor gap in table cells */
 .variable-highlight-valid {
   background-color: var(--variable-valid-bg);
   color: var(--variable-valid-fg);
+  box-shadow: 4px 0 0 0 var(--variable-valid-bg), -4px 0 0 0 var(--variable-valid-bg);
 }
 
 .variable-highlight-invalid {
   background-color: var(--variable-invalid-bg);
   color: var(--variable-invalid-fg);
+  box-shadow: 4px 0 0 0 var(--variable-invalid-bg), -4px 0 0 0 var(--variable-invalid-bg);
 }
 
 .variable-highlight-faker {
   background-color: var(--variable-faker-bg);
   color: var(--variable-faker-fg);
+  box-shadow: 4px 0 0 0 var(--variable-faker-bg), -4px 0 0 0 var(--variable-faker-bg);
+}
+
+/* Process/capture variable classes for variableHighlighter */
+.pm-var-capture {
+  background-color: rgba(34, 211, 238, 0.2);
+  color: #67e8f9;
+  box-shadow: 4px 0 0 0 rgba(34, 211, 238, 0.2), -4px 0 0 0 rgba(34, 211, 238, 0.2);
+}
+
+.pm-var-highlight {
+  background-color: rgba(52, 211, 153, 0.2);
+  color: #6ee7b7;
+  box-shadow: 4px 0 0 0 rgba(52, 211, 153, 0.2), -4px 0 0 0 rgba(52, 211, 153, 0.2);
+}
+
+.pm-var-invalid {
+  background-color: rgba(251, 113, 133, 0.2);
+  color: #fda4af;
+  box-shadow: 4px 0 0 0 rgba(251, 113, 133, 0.2), -4px 0 0 0 rgba(251, 113, 133, 0.2);
 }
 
 /* Websocket Send Button Cursor Styles */

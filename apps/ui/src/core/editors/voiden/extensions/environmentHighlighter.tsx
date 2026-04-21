@@ -46,18 +46,18 @@ function findVariable(doc: Node): DecorationSet {
       };
 
       if (isFakerVariable || isVariableCapture) {
-        decorationClass = "font-mono rounded-sm font-medium px-1 text-base variable-highlight-faker";
+        decorationClass = "font-mono rounded-sm font-medium text-base variable-highlight-faker";
         attrs.class = decorationClass;
       } else {
         const isVariableInEnv = currentEnvMap.has(variableName);
         if (isVariableInEnv) {
           const envValue = currentEnvMap.get(variableName) ?? '';
-          decorationClass = "font-mono rounded-sm font-medium px-1 text-base variable-highlight-valid pm-env-highlight";
+          decorationClass = "font-mono rounded-sm font-medium text-base variable-highlight-valid pm-env-highlight";
           attrs.class = decorationClass;
           attrs["data-var"] = variableName;
           attrs["data-var-value"] = envValue;
         } else {
-          decorationClass = "font-mono rounded-sm font-medium px-1 text-base variable-highlight-invalid";
+          decorationClass = "font-mono rounded-sm font-medium text-base variable-highlight-invalid";
           attrs.class = decorationClass;
         }
       }
