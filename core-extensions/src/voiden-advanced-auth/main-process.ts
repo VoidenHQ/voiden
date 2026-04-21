@@ -180,40 +180,44 @@ export default function createOAuth2MainPlugin(ctx: ElectronExtensionContext): E
     onload() {
       // ── OIDC Discovery ──────────────────────────────────────────
       ctx.ipc.handle("oauth2:discover", async (event, params) => {
-        const projectPath = await ctx.project.getActive(event);
-        if (!projectPath) throw new Error("No active project");
-
-        let issuerUrl: string = params.issuerUrl || "";
-        if (issuerUrl.includes("{{")) {
-          issuerUrl = await ctx.env.replaceVariables(issuerUrl, event);
-        }
-
-        issuerUrl = issuerUrl.replace(/\/+$/, "");
-        issuerUrl = issuerUrl.replace(/\/(authorize|auth|oauth2?\/authorize|oauth2?\/auth)(\/.*)?$/i, "");
-
-        const discoveryUrl = `${issuerUrl}/.well-known/openid-configuration`;
-        const { request } = await import("undici");
-
-        const res = await request(discoveryUrl, {
-          method: "GET",
-          headers: { Accept: "application/json" },
-          headersTimeout: 10_000,
-          bodyTimeout: 10_000,
-        });
-
-        const text = await res.body.text();
-        let json: Record<string, unknown>;
         try {
-          json = JSON.parse(text);
-        } catch {
-          throw new Error(`Discovery endpoint returned non-JSON: ${text.slice(0, 200)}`);
-        }
+          const projectPath = await ctx.project.getActive(event);
+          if (!projectPath) throw new Error("No active project");
 
-        if (!json.authorization_endpoint && !json.token_endpoint) {
-          throw new Error("Discovery response missing authorization_endpoint and token_endpoint");
-        }
+          let issuerUrl: string = params.issuerUrl || "";
+          if (issuerUrl.includes("{{")) {
+            issuerUrl = await ctx.env.replaceVariables(issuerUrl, event);
+          }
 
-        return json;
+          issuerUrl = issuerUrl.replace(/\/+$/, "");
+          issuerUrl = issuerUrl.replace(/\/(authorize|auth|oauth2?\/authorize|oauth2?\/auth)(\/.*)?$/i, "");
+
+          const discoveryUrl = `${issuerUrl}/.well-known/openid-configuration`;
+          const { request } = await import("undici");
+
+          const res = await request(discoveryUrl, {
+            method: "GET",
+            headers: { Accept: "application/json" },
+            headersTimeout: 10_000,
+            bodyTimeout: 10_000,
+          });
+
+          const text = await res.body.text();
+          let json: Record<string, unknown>;
+          try {
+            json = JSON.parse(text);
+          } catch {
+            throw new Error(`Discovery endpoint returned non-JSON: ${text.slice(0, 200)}`);
+          }
+
+          if (!json.authorization_endpoint && !json.token_endpoint) {
+            throw new Error("Discovery response missing authorization_endpoint and token_endpoint");
+          }
+
+          return json;
+        } catch (err: any) {
+          throw new Error(err?.message || "OIDC discovery failed");
+        }
       });
 
       // ── Authorization Code (PKCE) ──────────────────────────────
@@ -244,132 +248,163 @@ export default function createOAuth2MainPlugin(ctx: ElectronExtensionContext): E
           const server = http.createServer();
           activeServer = server;
 
+          server.on("error", (err) => {
+            server.close();
+            activeServer = null;
+            activeReject = null;
+            reject(err);
+          });
+
           server.listen(listenPort, "127.0.0.1", () => {
-            const addr = server.address() as { port: number };
-            const port = addr.port;
-            const redirectUri = callbackUrl || `http://127.0.0.1:${port}/callback`;
+            try {
+              const addr = server.address() as { port: number };
+              const port = addr.port;
+              const redirectUri = callbackUrl || `http://127.0.0.1:${port}/callback`;
 
-            const authUrlObj = new URL(authUrl);
-            authUrlObj.searchParams.set("response_type", "code");
-            authUrlObj.searchParams.set("client_id", clientId);
-            authUrlObj.searchParams.set("redirect_uri", redirectUri);
-            if (scope) authUrlObj.searchParams.set("scope", scope);
-            if (state) authUrlObj.searchParams.set("state", state);
-            if (codeChallenge) {
-              authUrlObj.searchParams.set("code_challenge", codeChallenge);
-              authUrlObj.searchParams.set("code_challenge_method", codeChallengeMethod || "S256");
-            }
+              let authUrlObj: URL;
+              try {
+                authUrlObj = new URL(authUrl);
+              } catch {
+                server.close();
+                activeServer = null;
+                activeReject = null;
+                reject(new Error(`Invalid Authorization URL: "${authUrl}"`));
+                return;
+              }
+              authUrlObj.searchParams.set("response_type", "code");
+              authUrlObj.searchParams.set("client_id", clientId);
+              authUrlObj.searchParams.set("redirect_uri", redirectUri);
+              if (scope) authUrlObj.searchParams.set("scope", scope);
+              if (state) authUrlObj.searchParams.set("state", state);
+              if (codeChallenge) {
+                authUrlObj.searchParams.set("code_challenge", codeChallenge);
+                authUrlObj.searchParams.set("code_challenge_method", codeChallengeMethod || "S256");
+              }
 
-            ctx.shell.openExternal(authUrlObj.toString());
+              ctx.shell.openExternal(authUrlObj.toString()).catch(() => {});
 
-            const timeout = setTimeout(() => {
-              shutdownServer("OAuth2 flow timed out (120s)");
-            }, 120_000);
+              const timeout = setTimeout(() => {
+                shutdownServer("OAuth2 flow timed out (120s)");
+              }, 120_000);
 
-            let handled = false;
-            let exchangedCode: string | null = null;
+              let handled = false;
+              let exchangedCode: string | null = null;
 
-            server.on("request", async (req, res) => {
-              const url = new URL(req.url || "/", `http://127.0.0.1:${port}`);
+              server.on("request", (req, res) => {
+                (async () => {
+                  const url = new URL(req.url || "/", `http://127.0.0.1:${port}`);
 
-              if (url.pathname === "/callback") {
-                // Browsers may send duplicate requests (favicon, retries) — only handle once
-                if (handled) {
-                  res.writeHead(200, { "Content-Type": "text/html" });
-                  res.end(SUCCESS_HTML);
-                  return;
-                }
+                  if (url.pathname === "/callback") {
+                    // Browsers may send duplicate requests (favicon, retries) — only handle once
+                    if (handled) {
+                      res.writeHead(200, { "Content-Type": "text/html" });
+                      res.end(SUCCESS_HTML);
+                      return;
+                    }
 
-                const code = url.searchParams.get("code");
-                const returnedState = url.searchParams.get("state");
-                const error = url.searchParams.get("error");
+                    const code = url.searchParams.get("code");
+                    const returnedState = url.searchParams.get("state");
+                    const error = url.searchParams.get("error");
 
-                if (error) {
-                  handled = true;
-                  res.writeHead(200, { "Content-Type": "text/html" });
-                  res.end(
-                    `<html><body><h2>Error: ${escapeHtml(error)}</h2><p>${escapeHtml(url.searchParams.get("error_description") || "")}</p></body></html>`,
-                  );
-                  clearTimeout(timeout);
-                  server.close();
-                  activeServer = null;
-                  activeReject = null;
-                  reject(new Error(`OAuth2 error: ${error} - ${url.searchParams.get("error_description") || ""}`));
-                  return;
-                }
+                    if (error) {
+                      handled = true;
+                      res.writeHead(200, { "Content-Type": "text/html" });
+                      res.end(
+                        `<html><body><h2>Error: ${escapeHtml(error)}</h2><p>${escapeHtml(url.searchParams.get("error_description") || "")}</p></body></html>`,
+                      );
+                      clearTimeout(timeout);
+                      server.close();
+                      activeServer = null;
+                      activeReject = null;
+                      reject(new Error(`OAuth2 error: ${error} - ${url.searchParams.get("error_description") || ""}`));
+                      return;
+                    }
 
-                if (state && returnedState !== state) {
-                  handled = true;
-                  res.writeHead(200, { "Content-Type": "text/html" });
-                  res.end("<html><body><h2>State mismatch</h2><p>Possible CSRF attack. Please try again.</p></body></html>");
-                  clearTimeout(timeout);
-                  server.close();
-                  activeServer = null;
-                  activeReject = null;
-                  reject(new Error("OAuth2 state mismatch"));
-                  return;
-                }
+                    if (state && returnedState !== state) {
+                      handled = true;
+                      res.writeHead(200, { "Content-Type": "text/html" });
+                      res.end("<html><body><h2>State mismatch</h2><p>Possible CSRF attack. Please try again.</p></body></html>");
+                      clearTimeout(timeout);
+                      server.close();
+                      activeServer = null;
+                      activeReject = null;
+                      reject(new Error("OAuth2 state mismatch"));
+                      return;
+                    }
 
-                if (!code) {
-                  handled = true;
-                  res.writeHead(200, { "Content-Type": "text/html" });
-                  res.end("<html><body><h2>No authorization code received</h2></body></html>");
-                  clearTimeout(timeout);
-                  server.close();
-                  activeServer = null;
-                  activeReject = null;
-                  reject(new Error("No authorization code received"));
-                  return;
-                }
+                    if (!code) {
+                      handled = true;
+                      res.writeHead(200, { "Content-Type": "text/html" });
+                      res.end("<html><body><h2>No authorization code received</h2></body></html>");
+                      clearTimeout(timeout);
+                      server.close();
+                      activeServer = null;
+                      activeReject = null;
+                      reject(new Error("No authorization code received"));
+                      return;
+                    }
 
-                // Defensive guard: never exchange the same code twice in one flow.
-                if (exchangedCode === code) {
-                  res.writeHead(200, { "Content-Type": "text/html" });
-                  res.end(SUCCESS_HTML);
-                  return;
-                }
+                    // Defensive guard: never exchange the same code twice in one flow.
+                    if (exchangedCode === code) {
+                      res.writeHead(200, { "Content-Type": "text/html" });
+                      res.end(SUCCESS_HTML);
+                      return;
+                    }
 
-                handled = true;
-                exchangedCode = code;
-                res.writeHead(200, { "Content-Type": "text/html" });
-                res.end(SUCCESS_HTML);
-                clearTimeout(timeout);
+                    handled = true;
+                    exchangedCode = code;
+                    res.writeHead(200, { "Content-Type": "text/html" });
+                    res.end(SUCCESS_HTML);
+                    clearTimeout(timeout);
 
-                try {
-                  const tokenBody: Record<string, string> = {
-                    grant_type: "authorization_code",
-                    code,
-                    redirect_uri: redirectUri,
-                    client_id: clientId,
-                  };
-                  if (clientSecret) tokenBody.client_secret = clientSecret;
-                  if (codeVerifier) tokenBody.code_verifier = codeVerifier;
+                    try {
+                      const tokenBody: Record<string, string> = {
+                        grant_type: "authorization_code",
+                        code,
+                        redirect_uri: redirectUri,
+                        client_id: clientId,
+                      };
+                      if (clientSecret) tokenBody.client_secret = clientSecret;
+                      if (codeVerifier) tokenBody.code_verifier = codeVerifier;
 
-                  let authHeader: string | undefined;
-                  if (p.clientAuthMethod === "client_secret_basic" && clientId) {
-                    authHeader = buildBasicAuthHeader(clientId, clientSecret || "");
-                    delete tokenBody.client_id;
-                    delete tokenBody.client_secret;
+                      let authHeader: string | undefined;
+                      if (p.clientAuthMethod === "client_secret_basic" && clientId) {
+                        authHeader = buildBasicAuthHeader(clientId, clientSecret || "");
+                        delete tokenBody.client_id;
+                        delete tokenBody.client_secret;
+                      }
+
+                      const custom = await parseCustomParams(p.customParams || "", ctx, event);
+                      Object.assign(tokenBody, custom);
+
+                      const raw = await postTokenRequest(tokenUrl, tokenBody, authHeader);
+                      const result = normalizeTokenResponse(raw);
+
+                      server.close();
+                      activeServer = null;
+                      activeReject = null;
+                      resolve(result);
+                    } catch (err: any) {
+                      server.close();
+                      activeServer = null;
+                      activeReject = null;
+                      reject(err);
+                    }
                   }
-
-                  const custom = await parseCustomParams(p.customParams || "", ctx, event);
-                  Object.assign(tokenBody, custom);
-
-                  const raw = await postTokenRequest(tokenUrl, tokenBody, authHeader);
-                  const result = normalizeTokenResponse(raw);
-
-                  server.close();
-                  activeServer = null;
-                  activeReject = null;
-                  resolve(result);
-                } catch (err: any) {
+                })().catch((err) => {
+                  try { res.writeHead(500); res.end(); } catch { /* ignore */ }
                   server.close();
                   activeServer = null;
                   activeReject = null;
                   reject(err);
-                }
-              }
-            });
+                });
+              });
+            } catch (err: any) {
+              server.close();
+              activeServer = null;
+              activeReject = null;
+              reject(err);
+            }
           });
         });
       });
@@ -398,168 +433,211 @@ export default function createOAuth2MainPlugin(ctx: ElectronExtensionContext): E
           const server = http.createServer();
           activeServer = server;
 
+          server.on("error", (err) => {
+            server.close();
+            activeServer = null;
+            activeReject = null;
+            reject(err);
+          });
+
           server.listen(listenPort, "127.0.0.1", () => {
-            const addr = server.address() as { port: number };
-            const port = addr.port;
-            const redirectUri = callbackUrl || `http://127.0.0.1:${port}/callback`;
+            try {
+              const addr = server.address() as { port: number };
+              const port = addr.port;
+              const redirectUri = callbackUrl || `http://127.0.0.1:${port}/callback`;
 
-            const authUrlObj = new URL(authUrl);
-            authUrlObj.searchParams.set("response_type", "token");
-            authUrlObj.searchParams.set("client_id", clientId);
-            authUrlObj.searchParams.set("redirect_uri", redirectUri);
-            if (scope) authUrlObj.searchParams.set("scope", scope);
-            if (state) authUrlObj.searchParams.set("state", state);
-
-            ctx.shell.openExternal(authUrlObj.toString());
-
-            const timeout = setTimeout(() => {
-              shutdownServer("OAuth2 implicit flow timed out (120s)");
-            }, 120_000);
-
-            server.on("request", (req, res) => {
-              const url = new URL(req.url || "/", `http://127.0.0.1:${port}`);
-
-              if (url.pathname === "/callback") {
-                res.writeHead(200, { "Content-Type": "text/html" });
-                res.end(IMPLICIT_EXTRACTOR_HTML);
-              } else if (url.pathname === "/callback/receive") {
-                const accessToken = url.searchParams.get("access_token");
-                const tokenType = url.searchParams.get("token_type") || "Bearer";
-                const expiresIn = url.searchParams.get("expires_in");
-                const error = url.searchParams.get("error");
-                const returnedState = url.searchParams.get("state");
-
-                res.writeHead(200, { "Content-Type": "text/html" });
-                res.end(SUCCESS_HTML);
-                clearTimeout(timeout);
-
-                if (error) {
-                  server.close();
-                  activeServer = null;
-                  activeReject = null;
-                  reject(new Error(`OAuth2 error: ${error} - ${url.searchParams.get("error_description") || ""}`));
-                  return;
-                }
-
-                if (state && returnedState !== state) {
-                  server.close();
-                  activeServer = null;
-                  activeReject = null;
-                  reject(new Error("OAuth2 state mismatch"));
-                  return;
-                }
-
-                if (!accessToken) {
-                  server.close();
-                  activeServer = null;
-                  activeReject = null;
-                  reject(new Error("No access token received"));
-                  return;
-                }
-
-                const raw: Record<string, unknown> = {};
-                url.searchParams.forEach((v, k) => { raw[k] = v; });
-
+              let authUrlObj: URL;
+              try {
+                authUrlObj = new URL(authUrl);
+              } catch {
                 server.close();
                 activeServer = null;
                 activeReject = null;
-                resolve({
-                  accessToken,
-                  tokenType,
-                  expiresIn: expiresIn ? Number(expiresIn) : undefined,
-                  raw,
-                });
+                reject(new Error(`Invalid Authorization URL: "${authUrl}"`));
+                return;
               }
-            });
+              authUrlObj.searchParams.set("response_type", "token");
+              authUrlObj.searchParams.set("client_id", clientId);
+              authUrlObj.searchParams.set("redirect_uri", redirectUri);
+              if (scope) authUrlObj.searchParams.set("scope", scope);
+              if (state) authUrlObj.searchParams.set("state", state);
+
+              ctx.shell.openExternal(authUrlObj.toString()).catch(() => {});
+
+              const timeout = setTimeout(() => {
+                shutdownServer("OAuth2 implicit flow timed out (120s)");
+              }, 120_000);
+
+              server.on("request", (req, res) => {
+                try {
+                  const url = new URL(req.url || "/", `http://127.0.0.1:${port}`);
+
+                  if (url.pathname === "/callback") {
+                    res.writeHead(200, { "Content-Type": "text/html" });
+                    res.end(IMPLICIT_EXTRACTOR_HTML);
+                  } else if (url.pathname === "/callback/receive") {
+                    const accessToken = url.searchParams.get("access_token");
+                    const tokenType = url.searchParams.get("token_type") || "Bearer";
+                    const expiresIn = url.searchParams.get("expires_in");
+                    const error = url.searchParams.get("error");
+                    const returnedState = url.searchParams.get("state");
+
+                    res.writeHead(200, { "Content-Type": "text/html" });
+                    res.end(SUCCESS_HTML);
+                    clearTimeout(timeout);
+
+                    if (error) {
+                      server.close();
+                      activeServer = null;
+                      activeReject = null;
+                      reject(new Error(`OAuth2 error: ${error} - ${url.searchParams.get("error_description") || ""}`));
+                      return;
+                    }
+
+                    if (state && returnedState !== state) {
+                      server.close();
+                      activeServer = null;
+                      activeReject = null;
+                      reject(new Error("OAuth2 state mismatch"));
+                      return;
+                    }
+
+                    if (!accessToken) {
+                      server.close();
+                      activeServer = null;
+                      activeReject = null;
+                      reject(new Error("No access token received"));
+                      return;
+                    }
+
+                    const raw: Record<string, unknown> = {};
+                    url.searchParams.forEach((v, k) => { raw[k] = v; });
+
+                    server.close();
+                    activeServer = null;
+                    activeReject = null;
+                    resolve({
+                      accessToken,
+                      tokenType,
+                      expiresIn: expiresIn ? Number(expiresIn) : undefined,
+                      raw,
+                    });
+                  }
+                } catch (err: any) {
+                  try { res.writeHead(500); res.end(); } catch { /* ignore */ }
+                  server.close();
+                  activeServer = null;
+                  activeReject = null;
+                  reject(err);
+                }
+              });
+            } catch (err: any) {
+              server.close();
+              activeServer = null;
+              activeReject = null;
+              reject(err);
+            }
           });
         });
       });
 
       // ── Password Grant ─────────────────────────────────────────
       ctx.ipc.handle("oauth2:passwordGrant", async (event, params) => {
-        const projectPath = await ctx.project.getActive(event);
-        if (!projectPath) throw new Error("No active project");
+        try {
+          const projectPath = await ctx.project.getActive(event);
+          if (!projectPath) throw new Error("No active project");
 
-        const p = await replaceVarsInParams(params, ctx, event);
+          const p = await replaceVarsInParams(params, ctx, event);
 
-        const body: Record<string, string> = {
-          grant_type: "password",
-          client_id: p.clientId,
-          username: p.username,
-          password: p.password,
-        };
-        if (p.clientSecret) body.client_secret = p.clientSecret;
-        if (p.scope) body.scope = p.scope;
+          const body: Record<string, string> = {
+            grant_type: "password",
+            client_id: p.clientId,
+            username: p.username,
+            password: p.password,
+          };
+          if (p.clientSecret) body.client_secret = p.clientSecret;
+          if (p.scope) body.scope = p.scope;
 
-        let authHeader: string | undefined;
-        if (p.clientAuthMethod === "client_secret_basic" && p.clientId) {
-          authHeader = buildBasicAuthHeader(p.clientId, p.clientSecret || "");
-          delete body.client_id;
-          delete body.client_secret;
+          let authHeader: string | undefined;
+          if (p.clientAuthMethod === "client_secret_basic" && p.clientId) {
+            authHeader = buildBasicAuthHeader(p.clientId, p.clientSecret || "");
+            delete body.client_id;
+            delete body.client_secret;
+          }
+
+          const custom = await parseCustomParams(p.customParams || "", ctx, event);
+          Object.assign(body, custom);
+
+          const raw = await postTokenRequest(p.tokenUrl, body, authHeader);
+          return normalizeTokenResponse(raw);
+        } catch (err: any) {
+          throw new Error(err?.message || "Password grant failed");
         }
-
-        const custom = await parseCustomParams(p.customParams || "", ctx, event);
-        Object.assign(body, custom);
-
-        const raw = await postTokenRequest(p.tokenUrl, body, authHeader);
-        return normalizeTokenResponse(raw);
       });
 
       // ── Client Credentials Grant ───────────────────────────────
       ctx.ipc.handle("oauth2:clientCredentialsGrant", async (event, params) => {
-        const projectPath = await ctx.project.getActive(event);
-        if (!projectPath) throw new Error("No active project");
+        try {
+          const projectPath = await ctx.project.getActive(event);
+          if (!projectPath) throw new Error("No active project");
 
-        const p = await replaceVarsInParams(params, ctx, event);
+          const p = await replaceVarsInParams(params, ctx, event);
 
-        const body: Record<string, string> = {
-          grant_type: "client_credentials",
-          client_id: p.clientId,
-          client_secret: p.clientSecret,
-        };
-        if (p.scope) body.scope = p.scope;
+          const body: Record<string, string> = {
+            grant_type: "client_credentials",
+            client_id: p.clientId,
+            client_secret: p.clientSecret,
+          };
+          if (p.scope) body.scope = p.scope;
 
-        let authHeader: string | undefined;
-        if (p.clientAuthMethod === "client_secret_basic" && p.clientId) {
-          authHeader = buildBasicAuthHeader(p.clientId, p.clientSecret || "");
-          delete body.client_id;
-          delete body.client_secret;
+          let authHeader: string | undefined;
+          if (p.clientAuthMethod === "client_secret_basic" && p.clientId) {
+            authHeader = buildBasicAuthHeader(p.clientId, p.clientSecret || "");
+            delete body.client_id;
+            delete body.client_secret;
+          }
+
+          const custom = await parseCustomParams(p.customParams || "", ctx, event);
+          Object.assign(body, custom);
+
+          const raw = await postTokenRequest(p.tokenUrl, body, authHeader);
+          return normalizeTokenResponse(raw);
+        } catch (err: any) {
+          throw new Error(err?.message || "Client credentials grant failed");
         }
-
-        const custom = await parseCustomParams(p.customParams || "", ctx, event);
-        Object.assign(body, custom);
-
-        const raw = await postTokenRequest(p.tokenUrl, body, authHeader);
-        return normalizeTokenResponse(raw);
       });
 
       // ── Refresh Token ──────────────────────────────────────────
       ctx.ipc.handle("oauth2:refreshToken", async (event, params) => {
-        const projectPath = await ctx.project.getActive(event);
-        if (!projectPath) throw new Error("No active project");
+        try {
+          const projectPath = await ctx.project.getActive(event);
+          if (!projectPath) throw new Error("No active project");
 
-        const p = await replaceVarsInParams(params, ctx, event);
+          const p = await replaceVarsInParams(params, ctx, event);
 
-        const body: Record<string, string> = {
-          grant_type: "refresh_token",
-          client_id: p.clientId,
-          refresh_token: p.refreshToken,
-        };
-        if (p.clientSecret) body.client_secret = p.clientSecret;
-        if (p.scope) body.scope = p.scope;
+          const body: Record<string, string> = {
+            grant_type: "refresh_token",
+            client_id: p.clientId,
+            refresh_token: p.refreshToken,
+          };
+          if (p.clientSecret) body.client_secret = p.clientSecret;
+          if (p.scope) body.scope = p.scope;
 
-        let authHeader: string | undefined;
-        if (p.clientAuthMethod === "client_secret_basic" && p.clientId) {
-          authHeader = buildBasicAuthHeader(p.clientId, p.clientSecret || "");
-          delete body.client_id;
-          delete body.client_secret;
+          let authHeader: string | undefined;
+          if (p.clientAuthMethod === "client_secret_basic" && p.clientId) {
+            authHeader = buildBasicAuthHeader(p.clientId, p.clientSecret || "");
+            delete body.client_id;
+            delete body.client_secret;
+          }
+
+          const custom = await parseCustomParams(p.customParams || "", ctx, event);
+          Object.assign(body, custom);
+
+          const raw = await postTokenRequest(p.tokenUrl, body, authHeader);
+          return normalizeTokenResponse(raw);
+        } catch (err: any) {
+          throw new Error(err?.message || "Refresh token grant failed");
         }
-
-        const custom = await parseCustomParams(p.customParams || "", ctx, event);
-        Object.assign(body, custom);
-
-        const raw = await postTokenRequest(p.tokenUrl, body, authHeader);
-        return normalizeTokenResponse(raw);
       });
 
       // ── Cancel Flow ────────────────────────────────────────────
