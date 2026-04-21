@@ -274,7 +274,9 @@ export const createFileTreeContextMenu = (mainWindow: BrowserWindow) => {
               try {
                 await shell.trashItem(item.path);
               } finally {
-                setDeleting(item.path, false);
+                // Keep the guard alive briefly so chokidar's async unlink event
+                // (which fires after trashItem resolves) is still suppressed.
+                setTimeout(() => setDeleting(item.path, false), 500);
               }
               logger.info('filesystem', `Bulk: folder trashed: ${item.name}`, { path: item.path });
 
@@ -307,7 +309,9 @@ export const createFileTreeContextMenu = (mainWindow: BrowserWindow) => {
               try {
                 await shell.trashItem(item.path);
               } finally {
-                setDeleting(item.path, false);
+                // Keep the guard alive briefly so chokidar's async unlink event
+                // (which fires after trashItem resolves) is still suppressed.
+                setTimeout(() => setDeleting(item.path, false), 500);
               }
               logger.info('filesystem', `Bulk: file trashed: ${item.name}`, { path: item.path });
 
@@ -331,6 +335,7 @@ export const createFileTreeContextMenu = (mainWindow: BrowserWindow) => {
           }
 
           logger.info('filesystem', `Bulk delete complete: ${data.length} items`);
+          safeSend(bulkSenderWindow, "file:bulk-delete-complete", { count: data.length });
         },
       },
     ];

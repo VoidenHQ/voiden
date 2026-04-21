@@ -711,7 +711,7 @@ function TreeNode({ node, style, dragHandle, activeFile, removeTemporaryNode, on
         node.isSelected && node.tree.selectedNodes.length > 1 && activeFile?.source !== node.data.path && !isDragOver && "bg-accent/20",
         node.isFocused && !isDragOver && "ring-0",
         (isDragOver || isInternalDropTargetFolder) && "bg-accent/30 border-l-2 border-accent",
-        isSiblingHighlight && !isDragOver && !isInternalDropTargetFolder && "bg-accent/30 border-l-2 border-accent",
+        isSiblingHighlight && !isDragOver && !isInternalDropTargetFolder && "bg-accent/30 ",
       )}
       onClick={handleSelect}
       onContextMenu={handleContextMenu}
@@ -863,9 +863,11 @@ export const FileSystemList = () => {
   useElectronEvent("file:delete-start", () => {
     setShowDeleteProgress(true);
   });
+  useElectronEvent("file:bulk-delete-complete", () => {
+    setShowDeleteProgress(false);
+  });
   useElectronEvent<{ path: string }>("file:delete", (eventData) => {
     if (!eventData?.path) return;
-    // Surgically remove the node — loading stays on until the tree refetch completes
     setTreeData((prev) => removeNodeByPath(prev, eventData.path));
     queryClient.invalidateQueries({ queryKey: ["panel:tabs"] });
     queryClient.invalidateQueries({ queryKey: ["app:state"] });
@@ -873,15 +875,13 @@ export const FileSystemList = () => {
 
   useElectronEvent<{ path: string }>("directory:delete", (eventData) => {
     if (!eventData?.path) return;
-    // Surgically remove the node — loading stays on until the tree refetch completes
     setTreeData((prev) => removeNodeByPath(prev, eventData.path));
     expandedDirsRef.current.delete(eventData.path);
     queryClient.invalidateQueries({ queryKey: ["panel:tabs"] });
     queryClient.invalidateQueries({ queryKey: ["app:state"] });
   });
   useEffect(() => {
-    // Clear the delete progress bar only after the tree finishes refetching,
-    // so it stays visible while the server catches up on large projects.
+    // Fallback: also clear if the tree finishes a refetch (e.g. single-file delete via context menu).
     if (!isFetching) setShowDeleteProgress(false);
   }, [isFetching]);
 

@@ -216,6 +216,9 @@ export const ElectronEventProvider: React.FC<{ children: React.ReactNode }> = ({
           }
         }
       },
+      "file:bulk-delete-complete": (_event: any, data: any) => {
+        handleEvent("file:bulk-delete-complete", data);
+      },
       "directory:delete": (_event: any, data: any) => {
         handleEvent("directory:delete", data);
         // FileSystemList removes the node surgically via removeNodeByPath.
