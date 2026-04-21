@@ -156,6 +156,8 @@ export function registerSearchIpcHandler() {
   const ARCHIVE_EXT = ["zip", "rar", "7z", "tar", "gz", "bz2", "xz", "tgz", "tbz2", "txz"];
   const BINARY_EXT = ["exe", "msi", "dll", "bin", "iso", "img", "dmg", "so"];
   const SKIP_EXT = [...IMAGE_EXT, ...ARCHIVE_EXT, ...BINARY_EXT, "pdf"];
+  const SKIP_DIR = [".git", ".idea", ".vscode"]
+  const SKIP_FILES = [".DS_Store"]
 
   function makeSnippet(line: string, matchStartCol: number, matchLen: number, maxLen = 160) {
     const totalLen = line.length;
@@ -186,8 +188,8 @@ export function registerSearchIpcHandler() {
   });
 
   // Streaming search: sends results one-by-one as they are found.
-  ipcMain.on("search-files:start", async (event, args: { query: string; matchCase: boolean; matchWholeWord: boolean; searchId: number }) => {
-    const { query, matchCase, matchWholeWord, searchId } = args;
+  ipcMain.on("search-files:start", async (event, args: { query: string; matchCase: boolean; matchWholeWord: boolean; useRegex: boolean; useMultiline: boolean; searchId: number }) => {
+    const { query, matchCase, matchWholeWord, useRegex, useMultiline, searchId } = args;
     const key = `${event.sender.id}:${searchId}`;
 
     const state: { proc?: ReturnType<typeof spawn>; cancelled: boolean } = { cancelled: false };
@@ -213,26 +215,40 @@ export function registerSearchIpcHandler() {
     }
     if (!projectRoot) { done("No active project"); return; }
 
+    if (useRegex) {
+      try {
+        new RegExp(query);
+      } catch (err) {
+        done(`Invalid regular expression: ${err instanceof Error ? err.message : String(err)}`);
+        return;
+      }
+    }
+
     // ── rg path ────────────────────────────────────────────────────────────────
     const rgCandidates = ["/opt/homebrew/bin/rg", "/usr/local/bin/rg", "rg"];
     const rgPath = rgCandidates.find((p) => p === "rg" || fs.existsSync(p)) ?? "rg";
 
     const rgArgs = [
       "--vimgrep", "--with-filename", "--line-number", "--column",
-      "--hidden", "--no-ignore", "--text", "--fixed-strings",
-      "--glob", "!**/.git/**",
+      "--hidden", "--no-ignore", "--text",
     ];
+    if (useMultiline) rgArgs.push("--multiline");
+    if (!useRegex) rgArgs.push("--fixed-strings");
     for (const ext of SKIP_EXT) rgArgs.push("--glob", `!**/*.${ext}`);
+    for (const dir of SKIP_DIR) rgArgs.push("--glob", `!**/${dir}/**`)
+    for (const file of SKIP_FILES) rgArgs.push("--glob", `!**/${file}`)
     if (!matchCase) rgArgs.push("--ignore-case");
     if (matchWholeWord) rgArgs.push("--word-regexp");
     rgArgs.push("--", query, ".");
 
     let count = 0;
+    let rgRuntimeError: string | null = null;
     try {
       await new Promise<void>((resolve, reject) => {
         const proc = spawn(rgPath, rgArgs, { cwd: projectRoot! });
         state.proc = proc;
         let buf = "";
+        let stderrBuf = "";
 
         proc.stdout.on("data", (d: Buffer) => {
           if (state.cancelled) return;
@@ -264,9 +280,14 @@ export function registerSearchIpcHandler() {
           }
         });
 
+        proc.stderr.on("data", (d: Buffer) => { stderrBuf += d.toString(); });
+
         proc.on("error", reject);
         proc.on("close", (code) => {
-          if (code === 2) return reject(new Error(`rg exited with status ${code}`));
+          if (code === 2) {
+            rgRuntimeError = stderrBuf.trim() || `rg exited with status ${code}`;
+            return reject(new Error(rgRuntimeError));
+          }
           resolve();
         });
       });
@@ -274,13 +295,20 @@ export function registerSearchIpcHandler() {
       done();
     } catch {
       if (state.cancelled) { done(); return; }
+      if (rgRuntimeError) { done(rgRuntimeError); return; }
 
       // ── JS fallback — rg not available ───────────────────────────────────────
-      const escapedRaw = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const pattern = matchWholeWord
-        ? `\\b${escapedRaw.replace(/\s+/g, "\\s+")}\\b`
-        : escapedRaw.replace(/\s+/g, "\\s+");
-      const regex = new RegExp(pattern, matchCase ? "" : "i");
+      const rawPattern = useRegex
+        ? query
+        : query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
+      const pattern = matchWholeWord ? `\\b(?:${rawPattern})\\b` : rawPattern;
+      let regex: RegExp;
+      try {
+        regex = new RegExp(pattern, matchCase ? "" : "i");
+      } catch (err) {
+        done(`Invalid regular expression: ${err instanceof Error ? err.message : String(err)}`);
+        return;
+      }
 
       const sem = new ReadSemaphore(16);
       let files: string[] = [];
@@ -288,7 +316,11 @@ export function registerSearchIpcHandler() {
         files = await fg("**/*.*", {
           cwd: projectRoot,
           dot: true,
-          ignore: ["**/.git/**", ...SKIP_EXT.map((e) => `**/*.${e}`)],
+          ignore: [
+            ...SKIP_EXT.map((e) => `**/*.${e}`),
+            ...SKIP_DIR.map((d) => `**/${d}/**`),
+            ...SKIP_FILES.map((f) => `**/${f}`),
+          ],
         });
       } catch {
         done();

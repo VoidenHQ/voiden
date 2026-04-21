@@ -1,18 +1,16 @@
 import { useRef, useEffect } from "react";
-import { defaultKeymap, toggleComment, indentMore, indentLess } from "@codemirror/commands";
+import { isValidRegex } from "@/core/file-system/components/RegexHighlightOverlay";
+import { defaultKeymap, toggleComment, } from "@codemirror/commands";
 import {
-  SearchCursor,
-  RegExpCursor,
+  SearchQuery,
   setSearchQuery,
-  findNext,
   search,
   highlightSelectionMatches,
-  searchKeymap,
-  closeSearchPanel,
+  findNext,
+  findPrevious,
 } from "@codemirror/search";
 import { indentOnInput, indentUnit } from "@codemirror/language";
 import { linter, lintGutter } from "@codemirror/lint";
-import { createCustomSearchPanel, customSearchPanelStyles } from "../extensions/customSearchPanel";
 import { StateEffect, StateField, RangeSetBuilder } from "@codemirror/state";
 import { Decoration, DecorationSet, EditorView } from "@codemirror/view";
 import { prettifyJSONC } from "@/utils/jsonc.ts";
@@ -24,7 +22,6 @@ import { renderLang, toggleComment as toggleCommentJSON } from "../extensions/re
 import { CodeNodeViewRendererProps } from "./TiptapCodeEditorWrapper.tsx";
 import { voidenTheme } from "@/core/editors/code/CodeEditor.tsx";
 import { globalSaveFile } from "@/core/file-system/hooks";
-import { useFocusStore } from "@/core/stores/focusStore";
 import { useSearchStore } from "@/core/stores/searchParamsStore";
 import { useEditorEnhancementStore } from "@/plugins";
 import { unifiedSearchField } from "@/core/editors/voiden/search/cmHighlightEffect";
@@ -49,7 +46,7 @@ const searchField = StateField.define<DecorationSet>({
     const spec = tr.effects.find((e) => e.is(searchEffect))?.value;
     if (!spec) return decos;
     if (!spec.term) return Decoration.none;
-    let { term, matchCase, matchWholeWord, useRegex } = spec;
+    const { term, matchCase, matchWholeWord, useRegex } = spec;
     let source = useRegex ? term : term.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&");
     if (!useRegex && matchWholeWord) source = `\\b${source}\\b`;
     const flags = matchCase ? "g" : "gi";
@@ -158,7 +155,6 @@ interface CodeEditorProps {
   readOnly?: boolean;
   onChange?: (value: string) => void;
   autofocus?: boolean;
-  showReplace?: boolean;
   /** Optional lint function — called with editor content, returns diagnostics shown inline. */
   validateFn?: (content: string) => ScriptDiagnostic[];
   /** Force syntax highlighting even when content exceeds the very-large threshold. */
@@ -172,12 +168,9 @@ export const CodeEditor = ({
   readOnly = false,
   onChange,
   autofocus = false,
-  showReplace = true,
   validateFn,
   forceHighlight = false,
 }: CodeEditorProps) => {
-  const isRenaming = useFocusStore((state) => state.isRenaming);
-
   // Check if the parent Tiptap editor is editable
   const isParentEditable = tiptapProps?.editor?.isEditable ?? true;
   const effectiveReadOnly = readOnly || !isParentEditable;
@@ -225,27 +218,18 @@ export const CodeEditor = ({
     initialValueRef.current = displayValue;
   }
 
-  // Inject custom search panel styles once
-  useEffect(() => {
-    const styleId = 'custom-search-panel-styles';
-    if (!document.getElementById(styleId)) {
-      const style = document.createElement('style');
-      style.id = styleId;
-      style.textContent = customSearchPanelStyles;
-      document.head.appendChild(style);
-    }
-  }, []);
-
   const searchTerm = useSearchStore((s) => s.term);
   const matchCase = useSearchStore((s) => s.matchCase);
   const matchWholeWord = useSearchStore((s) => s.matchWholeWord);
   const useRegex = useSearchStore((s) => s.useRegex);
   const isUnifiedSearchActive = useSearchStore((s) => s.isUnifiedSearchActive);
+  const openPanelTick = useSearchStore((s) => s.openPanelTick);
+  const handledOpenTickRef = useRef(0);
 
   useEffect(() => {
     const view = editorRef.current;
     if (!view) return;
-    const dom = (view as any).dom;
+    const dom = view.dom;
 
     // Ensure dom exists before adding listeners
     if (!dom) return;
@@ -335,6 +319,25 @@ export const CodeEditor = ({
     });
   }, [searchTerm, matchCase, matchWholeWord, useRegex, isUnifiedSearchActive]);
 
+  // For standalone use (no tiptapProps): sync query into CM when openPanelTick fires.
+  // The persistent panel is already open via the store tick.
+  useEffect(() => {
+    if (openPanelTick === handledOpenTickRef.current) return;
+    if (tiptapProps) return;
+    const view = editorRef.current;
+    if (!view) return;
+    if (!view.dom.offsetParent) return;
+    handledOpenTickRef.current = openPanelTick;
+    view.dispatch({
+      effects: setSearchQuery.of(new SearchQuery({
+        search: searchTerm,
+        caseSensitive: matchCase,
+        wholeWord: matchWholeWord,
+        regexp: useRegex && isValidRegex(searchTerm),
+      })),
+    });
+  }, [openPanelTick, searchTerm, matchCase, matchWholeWord, useRegex, tiptapProps]);
+
   // Get dynamic CodeMirror extensions from plugin store
   const codemirrorExtensionsFromStore = useEditorEnhancementStore((state) => state.codemirrorExtensions);
 
@@ -347,7 +350,7 @@ export const CodeEditor = ({
     unifiedSearchField,
     // When embedded in TipTap, skip CM's search extension entirely —
     // the unified search panel handles find/replace
-    ...(tiptapProps ? [] : [search({ top: true, createPanel: (view) => createCustomSearchPanel(view) })]),
+    ...(tiptapProps ? [] : [search({ top: true, createPanel: () => ({ dom: document.createElement("div") }) })]),
     // Disable selection matching for large content — it scans the full doc on every selection
     ...(isLargeContent ? [] : [highlightSelectionMatches()]),
     EditorView.theme({
@@ -401,18 +404,41 @@ export const CodeEditor = ({
     keymap.of(defaultKeymap.filter(binding => {
       return binding.key !== "Ctrl-w" && binding.key !== "Mod-w";
     })),
-    keymap.of([
-      // When embedded in TipTap, filter out find/replace keybindings
-      // so they bubble up to the unified search panel
-      ...(tiptapProps
-        ? searchKeymap.filter((binding) => {
-            const key = binding.key ?? '';
-            return !key.includes('Mod-f') && !key.includes('Mod-h') &&
-                   !key.includes('Mod-g') && !key.includes('Mod-G');
-          })
-        : searchKeymap),
-      { key: "Escape", run: closeSearchPanel }
-    ]),
+    Prec.highest(keymap.of([
+      // For standalone use, override Mod-f/h to open the persistent panel.
+      // For tiptap-embedded use, these bubble up to the VoidenEditor handler.
+      ...(tiptapProps ? [] : [
+        {
+          key: "Mod-f", preventDefault: true, run: () => {
+            useSearchStore.getState().setShowReplace(false);
+            useSearchStore.getState().setIsOpen(true);
+            useSearchStore.getState().setUnifiedSearchActive(true);
+            return true;
+          }
+        },
+        {
+          key: "Mod-h", preventDefault: true, run: () => {
+            useSearchStore.getState().setShowReplace(true);
+            useSearchStore.getState().setIsOpen(true);
+            useSearchStore.getState().setUnifiedSearchActive(true);
+            return true;
+          }
+        },
+        { key: "F3", run: findNext },
+        { key: "Mod-g", run: findNext },
+        { key: "Shift-F3", run: findPrevious },
+        { key: "Shift-Mod-g", run: findPrevious },
+      ]),
+      {
+        key: "Escape", run: () => {
+          const store = useSearchStore.getState();
+          if (!store.isOpen) return false;
+          store.setIsOpen(false);
+          store.setUnifiedSearchActive(false);
+          return true;
+        }
+      }
+    ])),
   ];
 
   // Only add codemirrorKeymap for editable editors

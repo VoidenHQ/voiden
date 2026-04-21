@@ -102,11 +102,8 @@ import { ReqSuggestion } from "./extensions/VariableReqSuggesion";
 import { ResSuggestion } from "./extensions/VariableResSuggestion";
 import { useContentStore } from "@/core/stores/ContentStore";
 import { saveFileUtil } from "@/core/file-system/hooks";
-import { ArrowDownIcon, ArrowUpIcon, X } from "lucide-react";
-import { Input } from "@/core/components/ui/input";
-import { cn } from "@/core/lib/utils";
 import { variableHighlighter, updateVariableData, updateVariableKeys } from "./extensions/variableHighlighter";
-import { useSearchStore } from "@/core/stores/searchParamsStore";
+import { useSearchStore, type SearchCallbacks } from "@/core/stores/searchParamsStore";
 import { usePanelStore } from "@/core/stores/panelStore";
 import { useGetActiveDocument } from "@/core/documents/hooks";
 import { useVoidVariables } from "@/core/runtimeVariables/hook/useVariableCapture";
@@ -397,38 +394,38 @@ const VoidenEditorInner = ({
     useContentStore.getState().updateContent(content || "");
   }, [content, isActive]);
 
-  // Find & Replace state
-  const [showFind, setShowFind] = useState(false);
-  const [findTerm, setFindTerm] = useState("");
-  const [replaceTerm, setReplaceTerm] = useState("");
+  // Find & Replace state — shared fields live in the store so all editor types stay in sync
+  const showFind = useSearchStore((s) => s.isOpen);
+  const setShowFind = useSearchStore((s) => s.setIsOpen);
+  const findTerm = useSearchStore((s) => s.term);
+  const setFindTerm = useSearchStore((s) => s.setTerm);
+  const replaceTerm = useSearchStore((s) => s.replaceTerm);
+  const setReplaceTerm = useSearchStore((s) => s.setReplaceTerm);
+  const matchCase = useSearchStore((s) => s.matchCase);
+  const matchWholeWord = useSearchStore((s) => s.matchWholeWord);
+  const useRegex = useSearchStore((s) => s.useRegex);
+  const setUseMultiline = useSearchStore((s) => s.setUseMultiline);
+  const setShowReplaceSection = useSearchStore((s) => s.setShowReplace);
   const [matchPositions, setMatchPositions] = useState<UnifiedMatch[]>([]);
   const [currentMatch, setCurrentMatch] = useState(-1);
-  const findInputRef = useRef<HTMLInputElement>(null);
-  const [matchCase, setMatchCase] = useState(false);
-  const [matchWholeWord, setMatchWholeWord] = useState(false);
-  const [useRegex] = useState(false);
-  const [showReplaceSection, setShowReplaceSection] = useState(true);
-
-  // Sync search state to global store
-  const setGlobalTerm = useSearchStore((state) => state.setTerm);
-  const setGlobalMatchCase = useSearchStore((state) => state.setMatchCase);
   const setUnifiedSearchActive = useSearchStore((state) => state.setUnifiedSearchActive);
+
+  // Auto-enable multiline when a literal newline is pasted/entered.
   useEffect(() => {
-    setGlobalTerm(findTerm);
-  }, [findTerm]);
+    if (findTerm.includes("\n") || replaceTerm.includes("\n")) setUseMultiline(true);
+  }, [findTerm, replaceTerm]);
+
+  // Open the find panel in response to an external request (e.g. clicking a
+  // file-system search result). Store already has the correct term/options.
+  const openPanelTick = useSearchStore((s) => s.openPanelTick);
+  const handledOpenTickRef = useRef(0);
   useEffect(() => {
-    setGlobalMatchCase(matchCase);
-  }, [matchCase]);
-  // Sync matchWholeWord to global store
-  const setGlobalMatchWholeWord = useSearchStore((state) => state.setMatchWholeWord);
-  useEffect(() => {
-    setGlobalMatchWholeWord(matchWholeWord);
-  }, [matchWholeWord]);
-  // Sync useRegex to global store (if you need it)
-  const setGlobalUseRegex = useSearchStore((state) => state.setUseRegex);
-  useEffect(() => {
-    setGlobalUseRegex(useRegex);
-  }, [useRegex]);
+    if (openPanelTick === handledOpenTickRef.current) return;
+    handledOpenTickRef.current = openPanelTick;
+    if (!isActive || !hasSearch) return;
+    setShowFind(true);
+    setUnifiedSearchActive(true);
+  }, [openPanelTick]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Platform-aware shortcuts for find and replace
   const isMac = typeof navigator !== "undefined" && /Mac|iPod|iPhone|iPad/.test(navigator.platform);
@@ -446,8 +443,8 @@ const VoidenEditorInner = ({
       // Cmd/Ctrl+F: Open find (without replace)
       if (matchesShortcut("Find", e) && hasSearch) {
         e.preventDefault();
-        setShowFind(true);
         setShowReplaceSection(false);
+        useSearchStore.getState().requestOpenSearchPanel();
         setUnifiedSearchActive(true);
         return;
       }
@@ -455,8 +452,8 @@ const VoidenEditorInner = ({
       // Cmd/Ctrl+H: Open find and replace
       if (matchesShortcut("FindAndReplace", e) && hasSearch) {
         e.preventDefault();
-        setShowFind(true);
         setShowReplaceSection(true);
+        useSearchStore.getState().requestOpenSearchPanel();
         setUnifiedSearchActive(true);
         return;
       }
@@ -540,12 +537,6 @@ const VoidenEditorInner = ({
     };
   }, [isMac, isActive, source, panelId, tabId]);
 
-  // Focus input when toolbar opens or search term changes
-  useEffect(() => {
-    if (showFind && findInputRef.current) {
-      findInputRef.current.focus();
-    }
-  }, [showFind, findTerm]);
 
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1483,6 +1474,54 @@ const VoidenEditorInner = ({
     }
   };
 
+  // Register callbacks with the persistent panel when this tab is active.
+  // Use refs so the stable callbacks always call the latest handlers.
+  const handleFindNextRef = useRef(handleFindNext);
+  const handleFindPreviousRef = useRef(handleFindPrevious);
+  const handleReplaceRef = useRef(handleReplace);
+  const handleReplaceAllRef = useRef(handleReplaceAll);
+  const matchPositionsRef = useRef(matchPositions);
+  const currentMatchRef = useRef(currentMatch);
+  handleFindNextRef.current = handleFindNext;
+  handleFindPreviousRef.current = handleFindPrevious;
+  handleReplaceRef.current = handleReplace;
+  handleReplaceAllRef.current = handleReplaceAll;
+  matchPositionsRef.current = matchPositions;
+  currentMatchRef.current = currentMatch;
+
+  useEffect(() => {
+    if (!isActive) return;
+    const { registerSearchCallbacks, unregisterSearchCallbacks } = useSearchStore.getState();
+    const callbacks: SearchCallbacks = {
+      onFindNext: () => handleFindNextRef.current(),
+      onFindPrevious: () => handleFindPreviousRef.current(),
+      onReplace: () => handleReplaceRef.current(),
+      onReplaceAll: () => handleReplaceAllRef.current(),
+      onClose: () => {
+        useSearchStore.getState().setIsOpen(false);
+        useSearchStore.getState().setShowReplace(false);
+        useSearchStore.getState().setUnifiedSearchActive(false);
+        clearCmHighlights();
+      },
+      getStatus: () => {
+        const positions = matchPositionsRef.current;
+        const current = currentMatchRef.current;
+        const term = useSearchStore.getState().term;
+        if (!term || positions.length === 0) return term ? "No results" : "";
+        if (current >= 0) return `${current + 1} of ${positions.length}`;
+        return `${positions.length} result${positions.length > 1 ? "s" : ""}`;
+      },
+    };
+    registerSearchCallbacks(callbacks);
+    return () => { unregisterSearchCallbacks(); };
+  }, [isActive]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Keep status fresh in the panel when match state changes.
+  useEffect(() => {
+    if (!isActive || !showFind) return;
+    useSearchStore.getState().bumpStatusTick();
+  }, [matchPositions, currentMatch, isActive, showFind]);
+
   const handleClick = useCallback(() => {
     if (!editor || !isActive) return;
     const { state } = editor;
@@ -1498,7 +1537,9 @@ const VoidenEditorInner = ({
     if (!editor || !isActive) return;
 
     function handleClickOutside(event: MouseEvent) {
-      if (editorRef.current && !editorRef.current.contains(event.target as Node)) {
+      const slot = document.getElementById("editor-toolbar-search-slot");
+      if (editorRef.current && !editorRef.current.contains(event.target as Node) &&
+          !slot?.contains(event.target as Node)) {
         editor.commands.blur();
       }
     }
@@ -1557,196 +1598,6 @@ const VoidenEditorInner = ({
 
   return (
     <div ref={editorRef} className="h-full w-full flex flex-col relative">
-      {showFind && (
-        <div className="fixed top-[70px] right-2 z-50">
-          <div className="bg-panel border border-border rounded-md shadow-[0_4px_12px_rgba(0,0,0,0.3)] overflow-hidden min-w-[550px] max-w-[550px]">
-            {/* Find Section */}
-            <div className="flex items-center gap-1.5 p-2.5">
-              <Input
-                ref={findInputRef}
-                type="text"
-                placeholder="Find"
-                value={findTerm}
-                onChange={(e) => setFindTerm(e.target.value)}
-                className="flex-1 h-7 text-[13px] min-w-[150px] max-w-[250px] px-2 bg-editor border-panel-border focus-visible:ring-1 focus-visible:ring-accent focus-visible:border-accent"
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    handleFindNext();
-                  } else if (e.key === 'Enter' && e.shiftKey) {
-                    e.preventDefault();
-                    handleFindPrevious();
-                  }
-                }}
-              />
-
-              {/* Options */}
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={() => setMatchCase(!matchCase)}
-                  className={cn(
-                    "px-2 py-1.5 rounded text-[11px] font-mono font-semibold transition-all min-w-[32px] h-7 flex items-center justify-center border",
-                    matchCase
-                      ? "bg-accent text-bg border-accent"
-                      : "bg-active text-comment border-panel-border hover:bg-active hover:text-text hover:border-accent active:scale-[0.96]"
-                  )}
-                  title="Match Case"
-                >
-                  Aa
-                </button>
-                <button
-                  onClick={() => setMatchWholeWord(!matchWholeWord)}
-                  className={cn(
-                    "px-2 py-1.5 rounded text-[11px] font-mono font-semibold transition-all min-w-[32px] h-7 flex items-center justify-center border",
-                    matchWholeWord
-                      ? "bg-accent text-bg border-accent"
-                      : "bg-active text-comment border-panel-border hover:bg-active hover:text-text hover:border-accent active:scale-[0.96]"
-                  )}
-                  title="Match Whole Word"
-                >
-                  ab|
-                </button>
-              </div>
-
-              {/* Navigation */}
-              <div className="flex items-center gap-1">
-                <button
-                  disabled={!findTerm || matchPositions.length === 0}
-                  onClick={handleFindPrevious}
-                  className={cn(
-                    "p-1.5 rounded transition-all w-7 h-7 flex items-center justify-center border",
-                    findTerm && matchPositions.length > 0
-                      ? "bg-active text-comment border-panel-border hover:bg-active hover:text-text hover:border-accent active:scale-[0.96]"
-                      : "bg-active text-comment border-panel-border cursor-not-allowed opacity-50"
-                  )}
-                  title={`Previous ${isMac ? '(⇧⌘G)' : '(Shift+Ctrl+G)'}`}
-                >
-                  <ArrowUpIcon size={14} strokeWidth={2} />
-                </button>
-                <button
-                  disabled={!findTerm || matchPositions.length === 0}
-                  onClick={handleFindNext}
-                  className={cn(
-                    "p-1.5 rounded transition-all w-7 h-7 flex items-center justify-center border",
-                    findTerm && matchPositions.length > 0
-                      ? "bg-active text-comment border-panel-border hover:bg-active hover:text-text hover:border-accent active:scale-[0.96]"
-                      : "bg-active text-comment border-panel-border cursor-not-allowed opacity-50"
-                  )}
-                  title={`Next ${isMac ? '(⌘G)' : '(Ctrl+G)'}`}
-                >
-                  <ArrowDownIcon size={14} strokeWidth={2} />
-                </button>
-                <button
-                  onClick={() => {
-                    setShowFind(false);
-                    setShowReplaceSection(false);
-                    setFindTerm(""); // Clear search term
-                    setReplaceTerm(""); // Clear replace term
-                    setUnifiedSearchActive(false);
-                    clearCmHighlights();
-                  }}
-                  className="p-1.5 rounded transition-all w-7 h-7 flex items-center justify-center border bg-active text-comment border-panel-border hover:bg-active hover:text-text hover:border-accent active:scale-[0.96]"
-                  title="Close (Esc)"
-                >
-                  <X size={14} strokeWidth={2} />
-                </button>
-              </div>
-
-              {/* Results Count */}
-              <span className="text-[11px] text-comment font-normal ml-auto min-w-[70px] text-right px-1 whitespace-nowrap">
-                {findTerm && matchPositions.length > 0
-                  ? `${currentMatch + 1} of ${matchPositions.length}`
-                  : findTerm
-                    ? "No results"
-                    : ""}
-              </span>
-            </div>
-
-            {/* Replace Section */}
-            {showReplaceSection && (
-              <div className="flex items-center gap-1.5 p-2.5 pt-0">
-                <Input
-                  type="text"
-                  placeholder="Replace"
-                  value={replaceTerm}
-                  onChange={(e) => setReplaceTerm(e.target.value)}
-                  className="flex-1 h-7 text-[13px] min-w-[150px] max-w-[250px] px-2 bg-editor border-panel-border focus-visible:ring-1 focus-visible:ring-accent focus-visible:border-accent"
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-                      e.preventDefault();
-                      handleReplaceAll();
-                    } else if (e.key === 'Enter') {
-                      e.preventDefault();
-                      handleReplace();
-                    }
-                  }}
-                />
-                <button
-                  disabled={!findTerm || matchPositions.length === 0}
-                  onClick={handleReplace}
-                  className={cn(
-                    "p-1.5 rounded transition-all w-7 h-7 flex items-center justify-center border",
-                    findTerm && matchPositions.length > 0
-                      ? "bg-active text-comment border-panel-border hover:bg-active hover:text-text hover:border-accent active:scale-[0.96]"
-                      : "bg-active text-comment border-panel-border cursor-not-allowed opacity-50"
-                  )}
-                  title="Replace (Enter)"
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M5 12l5 5l10 -10" />
-                  </svg>
-                </button>
-                <button
-                  disabled={!findTerm || matchPositions.length === 0}
-                  onClick={handleReplaceAll}
-                  className={cn(
-                    "p-1.5 rounded transition-all w-7 h-7 flex items-center justify-center border",
-                    findTerm && matchPositions.length > 0
-                      ? "bg-active text-comment border-panel-border hover:bg-active hover:text-text hover:border-accent active:scale-[0.96]"
-                      : "bg-active text-comment border-panel-border cursor-not-allowed opacity-50"
-                  )}
-                  title={`Replace All ${isMac ? '(⌘Enter)' : '(Ctrl+Enter)'}`}
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M5 3l5 5l10 -10M5 10l5 5l10 -10M5 17l5 5l10 -10" />
-                  </svg>
-                </button>
-
-                <div className="flex-1 flex items-center gap-1 ml-1">
-                  <button
-                    onClick={() => setShowReplaceSection(!showReplaceSection)}
-                    className={cn(
-                      "px-2 py-1 rounded text-[11px] transition-all border flex items-center gap-1 h-7 ml-auto",
-                      "bg-active border-panel-border text-comment hover:border-accent hover:text-text active:scale-[0.96]"
-                    )}
-                    title={`Toggle Replace ${isMac ? '(⌘H)' : '(Ctrl+H)'}`}
-                  >
-                    <span className="text-[10px]">{showReplaceSection ? '▼' : '▶'}</span>
-                    <span className="font-medium">Replace</span>
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Replace Toggle Button (when collapsed) */}
-            {!showReplaceSection && (
-              <div className="flex items-center gap-1.5 px-2.5 pb-2.5">
-                <button
-                  onClick={() => setShowReplaceSection(true)}
-                  className={cn(
-                    "px-2 py-1 rounded text-[11px] transition-all border flex items-center gap-1 h-7 ml-auto",
-                    "bg-active border-panel-border text-comment hover:border-accent hover:text-text active:scale-[0.96]"
-                  )}
-                  title={`Toggle Replace ${isMac ? '(⌘H)' : '(Ctrl+H)'}`}
-                >
-                  <span className="text-[10px]">▶</span>
-                  <span className="font-medium">Replace</span>
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
 
       {isLoadingContent && (
         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-4 bg-editor pointer-events-none select-none">

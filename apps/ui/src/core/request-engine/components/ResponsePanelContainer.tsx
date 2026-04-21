@@ -12,15 +12,15 @@ import type { ResponseNodeType } from "../stores/responseStore";
 import { SendRequestButton } from "./SendRequestButton";
 import { ResponseViewer, type ResponseViewerHandle } from "./ResponseViewer";
 import { useMemo, useEffect, useCallback, useState, useRef, useSyncExternalStore } from "react";
-import { Search, ArrowUpIcon, ArrowDownIcon, X, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown } from "lucide-react";
+import { Search, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown } from "lucide-react";
 import { useGetPanelTabs } from "@/core/layout/hooks";
 import { parseMarkdown } from "@/core/editors/voiden/markdownConverter";
 import { getSchema } from "@tiptap/core";
 import { voidenExtensions } from "@/core/editors/voiden/extensions";
-import { Input } from "@/core/components/ui/input";
 import { escapeRegExp } from "@/core/editors/voiden/search/unifiedSearch";
 import { getSectionBorderColor } from "@/core/editors/voiden/extensions/sectionIndicator";
 import { Tip } from "@/core/components/ui/Tip";
+import { SearchPanelView } from "@/core/editors/code/lib/components/SearchPanelView";
 
 /** Format relative time: "just now", "2m ago", "1h ago", etc. */
 function formatRelativeTime(ts: number): string {
@@ -342,11 +342,6 @@ export function ResponsePanelContainer() {
     };
   }, [responseDoc]);
 
-  const formatTime = (ms: number) => {
-    if (ms < 1000) return `${Math.round(ms)}ms`;
-    return `${(ms / 1000).toFixed(2)}s`;
-  };
-
   const isWssOrGrpc = statusInfo && (statusInfo.protocol === "wss" || statusInfo.protocol === "grpc");
 
   // Track live WSS connection state for the top bar status tag
@@ -383,8 +378,11 @@ export function ResponsePanelContainer() {
   const [showResponseFind, setShowResponseFind] = useState(false);
   const [responseFindTerm, setResponseFindTerm] = useState("");
   const [responseMatchCase, setResponseMatchCase] = useState(false);
+  const [responseMatchWholeWord, setResponseMatchWholeWord] = useState(false);
+  const [responseUseRegex, setResponseUseRegex] = useState(false);
+  const [responseMultiline, setResponseMultiline] = useState(false);
   const [responseCurrentMatch, setResponseCurrentMatch] = useState(-1);
-  const responseFindInputRef = useRef<HTMLInputElement>(null);
+  const responseFindInputRef = useRef<HTMLTextAreaElement>(null);
 
   type ResponseMatch = { cmView: CMEditorView; from: number; to: number };
   const [responseMatches, setResponseMatches] = useState<ResponseMatch[]>([]);
@@ -417,11 +415,12 @@ export function ResponsePanelContainer() {
       return;
     }
 
-    const pattern = escapeRegExp(responseFindTerm);
-    const flags = responseMatchCase ? "g" : "gi";
+    let rawPattern = responseUseRegex ? responseFindTerm : escapeRegExp(responseFindTerm);
+    if (responseMatchWholeWord) rawPattern = `\\b${rawPattern}\\b`;
+    const flags = (responseMatchCase ? "g" : "gi") + (responseMultiline ? "m" : "");
     let regex: RegExp;
     try {
-      regex = new RegExp(pattern, flags);
+      regex = new RegExp(rawPattern, flags);
     } catch {
       setResponseMatches([]);
       setResponseCurrentMatch(-1);
@@ -467,11 +466,11 @@ export function ResponsePanelContainer() {
         });
       }
     }
-  }, [responseFindTerm, responseMatchCase, getResponseCmViews]);
+  }, [responseFindTerm, responseMatchCase, responseMatchWholeWord, responseUseRegex, responseMultiline, getResponseCmViews]);
 
   useEffect(() => {
     recalcResponseMatches();
-  }, [responseFindTerm, responseMatchCase]);
+  }, [responseFindTerm, responseMatchCase, responseMatchWholeWord, responseUseRegex, responseMultiline]);
 
   const navigateResponseMatch = useCallback((matchIndex: number) => {
     if (matchIndex < 0 || matchIndex >= responseMatches.length) return;
@@ -587,76 +586,44 @@ export function ResponsePanelContainer() {
 
       {/* Find bar */}
       {showResponseFind && (
-        <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-border bg-panel flex-shrink-0">
-          <Input
-            ref={responseFindInputRef}
-            type="text"
-            placeholder="Find in response"
-            value={responseFindTerm}
-            onChange={(e) => setResponseFindTerm(e.target.value)}
-            className="flex-1 h-7 text-[13px] max-w-[250px] px-2 bg-editor border-panel-border focus-visible:ring-1 focus-visible:ring-accent focus-visible:border-accent"
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                if (responseMatches.length > 0) {
-                  navigateResponseMatch((responseCurrentMatch + 1) % responseMatches.length);
-                }
-              } else if (e.key === 'Enter' && e.shiftKey) {
-                e.preventDefault();
-                if (responseMatches.length > 0) {
-                  navigateResponseMatch((responseCurrentMatch - 1 + responseMatches.length) % responseMatches.length);
-                }
-              } else if (e.key === 'Escape') {
-                closeResponseFind();
-              }
-            }}
-          />
-          <Tip label="Match Case" side="bottom">
-            <button
-              className={`p-1 rounded text-xs font-mono w-6 h-6 flex items-center justify-center border ${responseMatchCase
-                ? "bg-accent text-white border-accent"
-                : "bg-active text-comment border-panel-border hover:text-text hover:border-accent"
-                }`}
-              onClick={() => setResponseMatchCase(!responseMatchCase)}
-            >
-              Aa
-            </button>
-          </Tip>
-          <button
-            onClick={() => {
-              if (responseMatches.length > 0) {
-                navigateResponseMatch((responseCurrentMatch - 1 + responseMatches.length) % responseMatches.length);
-              }
-            }}
-            disabled={responseMatches.length === 0}
-            className="p-1 rounded w-6 h-6 flex items-center justify-center border bg-active text-comment border-panel-border hover:text-text hover:border-accent disabled:opacity-40"
-          >
-            <ArrowUpIcon size={12} strokeWidth={2} />
-          </button>
-          <button
-            onClick={() => {
-              if (responseMatches.length > 0) {
+        <div className="px-2 py-1 border-b border-border bg-panel flex-shrink-0">
+          <SearchPanelView
+            findValue={responseFindTerm}
+            replaceValue=""
+            matchCase={responseMatchCase}
+            matchWholeWord={responseMatchWholeWord}
+            useRegex={responseUseRegex}
+            multiline={responseMultiline}
+            showReplace={false}
+            navDisabled={responseMatches.length === 0}
+            replaceDisabled={true}
+            autoFocus
+            findInputRef={responseFindInputRef}
+            status={
+              responseFindTerm && responseMatches.length > 0
+                ? `${responseCurrentMatch + 1} of ${responseMatches.length}`
+                : responseFindTerm
+                  ? "No results"
+                  : undefined
+            }
+            onFindChange={setResponseFindTerm}
+            onReplaceChange={() => {}}
+            onToggleMatchCase={() => setResponseMatchCase(v => !v)}
+            onToggleMatchWholeWord={() => setResponseMatchWholeWord(v => !v)}
+            onToggleRegex={() => setResponseUseRegex(v => !v)}
+            onToggleMultiline={() => setResponseMultiline(v => !v)}
+            onFindNext={() => {
+              if (responseMatches.length > 0)
                 navigateResponseMatch((responseCurrentMatch + 1) % responseMatches.length);
-              }
             }}
-            disabled={responseMatches.length === 0}
-            className="p-1 rounded w-6 h-6 flex items-center justify-center border bg-active text-comment border-panel-border hover:text-text hover:border-accent disabled:opacity-40"
-          >
-            <ArrowDownIcon size={12} strokeWidth={2} />
-          </button>
-          <span className="text-xs text-comment min-w-[60px] text-center">
-            {responseFindTerm && responseMatches.length > 0
-              ? `${responseCurrentMatch + 1} of ${responseMatches.length}`
-              : responseFindTerm
-                ? "No results"
-                : ""}
-          </span>
-          <button
-            onClick={closeResponseFind}
-            className="p-1 rounded w-6 h-6 flex items-center justify-center border bg-active text-comment border-panel-border hover:text-text hover:border-accent"
-          >
-            <X size={12} strokeWidth={2} />
-          </button>
+            onFindPrevious={() => {
+              if (responseMatches.length > 0)
+                navigateResponseMatch((responseCurrentMatch - 1 + responseMatches.length) % responseMatches.length);
+            }}
+            onClose={closeResponseFind}
+            onReplace={() => {}}
+            onReplaceAll={() => {}}
+          />
         </div>
       )}
 
