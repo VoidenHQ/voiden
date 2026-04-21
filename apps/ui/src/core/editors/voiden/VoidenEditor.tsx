@@ -90,29 +90,7 @@ const FindHighlightExtension = Extension.create({
   },
 });
 import { voidenExtensions } from "./extensions";
-import Code from "@tiptap/extension-code";
-import { InputRule } from "@tiptap/core";
 import { preserveUnknownNodesInJSON, DocumentPreserver } from "./extensions/DocumentPreserver";
-
-// Trigger code mark on typing two backticks
-const CustomCode = Code.extend({
-  name: "customCode",
-  addInputRules() {
-    return [
-      new InputRule({
-        find: /``$/,
-        handler: ({ state, range }) => {
-          const { tr } = state;
-          const markType = state.schema.marks.code;
-          // Remove the two backticks
-          tr.delete(range.from, range.to);
-          // Activate code mark for new input
-          tr.setStoredMarks([markType.create()]);
-        },
-      }),
-    ];
-  },
-});
 import { create } from "zustand";
 import { useEditorEnhancementStore } from "@/plugins";
 import { parseMarkdown } from "./markdownConverter";
@@ -229,7 +207,6 @@ export const useVoidenExtensionsAndSchema = () => {
     const baseExtensions = [
       ...memoizedExtensions,
       uniqueIdExtension,
-      CustomCode,
       ReqSuggestion,
       ResSuggestion,
       environmentHighlighter(envData ?? {}),
@@ -264,7 +241,7 @@ export const proseClasses = [
 
   // Code - mono font stays for code blocks
   "prose-pre:bg-bg prose-pre:border prose-pre:border-border prose-pre:mb-3 prose-pre:px-4 prose-pre:py-3 prose-pre:rounded-md",
-  "prose-code:text-accent prose-code:font-mono prose-code:text-sm",
+  "prose-code:text-accent prose-code:font-mono ",
 
   // Links
   "prose-a:text-accent prose-a:no-underline hover:prose-a:text-orange-400 prose-a:cursor-pointer",
@@ -690,13 +667,16 @@ const VoidenEditorInner = ({
             if (unsaved) {
               const parsedUnsaved = JSON.parse(unsaved);
               if (JSON.stringify(parsedUnsaved) !== JSON.stringify(santizedContent)) {
+                console.log('[VoidenEditor] setContent — applyContent: restoring unsaved draft', { tabId, source });
                 editor.commands.setContent(parsedUnsaved, false);
               }
             } else {
+              console.log('[VoidenEditor] setContent — applyContent: loading saved content', { tabId, source });
               editor.commands.setContent(santizedContent, false);
             }
           } catch {
             const fallbackContent = { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: content }] }] };
+            console.log('[VoidenEditor] setContent — applyContent: fallback (parse error)', { tabId, source });
             editor.commands.setContent(fallbackContent, false);
           }
 
@@ -748,6 +728,7 @@ const VoidenEditorInner = ({
             applyContent(santizedContent);
           } catch {
             const fallbackContent = { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: content }] }] };
+            console.log('[VoidenEditor] setContent — doLoad: fallback (parse error)', { tabId, source });
             if (!editor.isDestroyed) editor.commands.setContent(fallbackContent, false);
             setIsLoadingContent(false);
           }
@@ -770,6 +751,7 @@ const VoidenEditorInner = ({
 
             // Mount the first chunk immediately so content appears right away.
             if (!editor.isDestroyed) {
+              console.log('[VoidenEditor] setContent — doLoadChunked: first chunk', { tabId, source, totalNodes: allNodes.length });
               editor.commands.setContent({ type: "doc", content: allNodes.slice(0, CHUNK_SIZE) }, false);
             }
 
@@ -821,6 +803,7 @@ const VoidenEditorInner = ({
             requestAnimationFrame(loadNextChunk);
           } catch {
             const fallbackContent = { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: content }] }] };
+            console.log('[VoidenEditor] setContent — doLoadChunked: fallback (parse error)', { tabId, source });
             if (!editor.isDestroyed) editor.commands.setContent(fallbackContent, false);
             setIsLoadingContent(false);
           }
@@ -836,6 +819,7 @@ const VoidenEditorInner = ({
       } catch (e) {
         setIsLoadingContent(false);
         const fallbackContent = { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: content }] }] };
+        console.log('[VoidenEditor] setContent — handleEditorCreate outer catch: fallback', { tabId, source, error: e });
         if (!editor.isDestroyed) editor.commands.setContent(fallbackContent, false);
       }
     },
@@ -948,6 +932,7 @@ const VoidenEditorInner = ({
       // Preserve cursor position across the content replacement so typing
       // position is not lost when a background file-change reload fires.
       const savedSelection = editor.state.selection;
+      console.log('[VoidenEditor] setContent — applyDiskContent: reloading from disk (file-watcher or forceReload)', { tabId, source });
       editor.commands.setContent(preserved, false);
       try {
         const docSize = editor.state.doc.content.size;
@@ -1021,6 +1006,7 @@ const VoidenEditorInner = ({
         // setContent (and a cursor reset) to fire on every tab activation.
         if (diskJSON !== savedContentJSONRef.current) {
           const preserved = preserveUnknownNodesInJSON(sanitized, memoizedSchema);
+          console.log('[VoidenEditor] setContent — tab activation: disk differs from savedContentJSONRef, reloading', { tabId, source });
           editor.commands.setContent(preserved, false);
           if (!editor.isDestroyed) {
             editor.view.dispatch(

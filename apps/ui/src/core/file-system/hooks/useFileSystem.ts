@@ -22,8 +22,9 @@ const notifyLockedSave = () => {
 // import type { Tab } from "../../../electron/src/shared/types";
 
 // Tracks paths currently being written by the app so apy:changed events triggered
-// by our own autosave can be ignored (otherwise the editor reloads and resets cursor).
-export const pendingAutoSavePaths = new Set<string>();
+// by our own autosave can be ignored. Stored as path → expiry timestamp so that
+// multiple OS change events (e.g. truncate + write) are all suppressed within the window.
+export const pendingAutoSavePaths = new Map<string, number>();
 
 // Write a file in 512 KB IPC chunks to avoid freezing the main process for large
 // files (streamable files can be 5 MB–100 MB+). Falls back to a single write for
@@ -543,7 +544,7 @@ export const saveTabById = async (tabId: string, options?: { silent?: boolean })
         }
         const markdown = prosemirrorToMarkdown(content, voidenEditor.schema);
         const normalizedSource = tab.source.replace(/\\/g, "/");
-        pendingAutoSavePaths.add(normalizedSource);
+        pendingAutoSavePaths.set(normalizedSource, Date.now() + 3000);
         const filePath = await window.electron?.files.write(tab.source, markdown, tabId);
         if (!filePath) {
           pendingAutoSavePaths.delete(normalizedSource);
@@ -585,7 +586,7 @@ export const saveTabById = async (tabId: string, options?: { silent?: boolean })
         }
 
         const normalizedSource2 = tab.source.replace(/\\/g, "/");
-        pendingAutoSavePaths.add(normalizedSource2);
+        pendingAutoSavePaths.set(normalizedSource2, Date.now() + 3000);
         const filePath = await window.electron?.files.write(tab.source, unsavedMarkdown, tabId);
         if (!filePath) {
           pendingAutoSavePaths.delete(normalizedSource2);

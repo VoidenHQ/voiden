@@ -192,9 +192,10 @@ export const ElectronEventProvider: React.FC<{ children: React.ReactNode }> = ({
         for (const [, panelData] of panelQueries) {
           for (const tab of panelData?.tabs ?? []) {
             if (tab.source?.replace(/\\/g, "/") !== changedPath) continue;
-            // Skip reload if this change was caused by our own autosave
-            if (pendingAutoSavePaths.has(changedPath)) {
-              pendingAutoSavePaths.delete(changedPath);
+            // Skip reload if this change was caused by our own autosave.
+            // Use expiry timestamp so multiple OS events for one write are all suppressed.
+            const dateNow = Date.now();
+            if ((pendingAutoSavePaths.get(changedPath) ?? 0) > dateNow) {
               continue;
             }
             const isDirty = !!useEditorStore.getState().unsaved[tab.id];
