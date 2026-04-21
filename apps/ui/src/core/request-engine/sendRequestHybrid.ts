@@ -295,8 +295,15 @@ export async function sendRequestHybrid(
     console.log('[sendRequestHybrid] input method:', request.method, 'protocolType:', request.protocolType);
     // Convert Request to RestApiRequestState
     if (request.protocolType === 'rest') {
-      requestState =await  convertToRestApiRequestState(request);
+      requestState = await convertToRestApiRequestState(request);
       console.log('[sendRequestHybrid] after convert method:', requestState.method);
+    } else if (request.protocolType === 'graphql') {
+      // Merge auth into headers for GraphQL (same logic as REST via getHeaders)
+      const mergedHeaders = await getHeaders(request.headers || [], request.auth);
+      const headersArray = Object.entries(mergedHeaders).map(([key, value]) => ({
+        key, value, enabled: true,
+      }));
+      requestState = { ...request, headers: headersArray };
     }
 
     const url = requestState.url.toLowerCase();

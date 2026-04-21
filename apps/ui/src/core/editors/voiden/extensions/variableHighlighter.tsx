@@ -41,11 +41,11 @@ function findProcessVariables(doc: Node): DecorationSet {
 
             let decorationClass: string;
             if (isVariableCapture) {
-                decorationClass = "font-mono bg-cyan-400/20 text-cyan-300 rounded-sm font-medium px-1 text-base";
+                decorationClass = "font-mono rounded-sm font-medium text-base pm-var-capture";
             } else {
                 decorationClass = isValidProcessVar
-                    ? "font-mono bg-emerald-400/20 text-emerald-300 rounded-sm font-medium px-1 text-base pm-var-highlight"
-                    : "font-mono bg-rose-400/20 text-rose-300 rounded-sm font-medium px-1 text-base";
+                    ? "font-mono rounded-sm font-medium text-base pm-var-highlight"
+                    : "font-mono rounded-sm font-medium text-base pm-var-invalid";
             }
 
             const variableType = isVariableCapture ? "capture" : "process";
