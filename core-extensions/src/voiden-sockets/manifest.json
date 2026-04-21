@@ -2,7 +2,7 @@
   "id": "voiden-sockets-grpcs",
   "name": "Sockets & gRPC APIs",
   "description": "Voiden Sockets provide comprehensive support for WebSocket (WSS) and gRPC communication with unary, server streaming, client streaming, and bidirectional streaming patterns",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "author": "Voiden Team",
   "enabled": true,
   "priority": 20,
