@@ -129,7 +129,7 @@ function filterNode(name: string, node: EditableEnvNode, term: string): Editable
     (node.displayName?.toLowerCase().includes(term) ?? false);
 
   const matchingVars = node.variables.filter(
-    (v) => v.key.toLowerCase().includes(term) || v.value.toLowerCase().includes(term)
+    (v) => String(v.key ?? "").toLowerCase().includes(term) || String(v.value ?? "").toLowerCase().includes(term.toLowerCase())
   );
 
   // Recurse into children
@@ -185,19 +185,19 @@ function splitNode(node: EditableEnvNode): { pub: YamlEnvNode | null; priv: Yaml
   const pub: YamlEnvNode | null =
     hasPubVars || hasPubChildren || hasMetadata || (!hasPrivVars && !hasPrivChildren)
       ? {
-          ...(hasPubVars ? { variables: pubVars } : {}),
-          ...(hasPubChildren ? { children: pubChildren } : {}),
-          ...(node.intermediate ? { intermediate: true } : {}),
-          ...(node.displayName ? { displayName: node.displayName } : {}),
-        }
+        ...(hasPubVars ? { variables: pubVars } : {}),
+        ...(hasPubChildren ? { children: pubChildren } : {}),
+        ...(node.intermediate ? { intermediate: true } : {}),
+        ...(node.displayName ? { displayName: node.displayName } : {}),
+      }
       : null;
 
   const priv: YamlEnvNode | null =
     hasPrivVars || hasPrivChildren
       ? {
-          ...(hasPrivVars ? { variables: privVars } : {}),
-          ...(hasPrivChildren ? { children: privChildren } : {}),
-        }
+        ...(hasPrivVars ? { variables: privVars } : {}),
+        ...(hasPrivChildren ? { children: privChildren } : {}),
+      }
       : null;
 
   return { pub, priv };
