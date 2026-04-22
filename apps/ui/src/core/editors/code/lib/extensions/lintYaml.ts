@@ -113,6 +113,12 @@ export async function lintYaml(
             to: to,
             message: result.message,
             severity: "error",
+            renderMessage: () => {
+              const box = document.createElement('div');
+              box.style.cssText = 'color:var(--fg-primary)';
+              box.textContent = result.message;
+              return box;
+            },
           });
         });
       });
