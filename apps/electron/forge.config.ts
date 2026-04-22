@@ -313,10 +313,8 @@ const config: ForgeConfig = {
     extraResource: ["src/sample-project", "splash.html", "logo-dark.png", "background.png", "default.settings.json", "public/fonts", "themes", "bin", "src/images/icon.png", "skills"],
     extendInfo: "./info.plist",
     asar: {
-      // *.node and spawn-helper: required for node-pty on Unix platforms
-      // fileWatcher.worker.js: utilityProcess.fork() cannot reliably load scripts
-      // from inside an ASAR on Windows/Linux — must be unpacked
-      unpack: "**/{*.node,spawn-helper,fileWatcher.worker.js}",
+      // Required for node-pty: ensures both `pty.node` and `spawn-helper` are unpacked for Unix platforms
+      unpack: "**/{*.node,spawn-helper}",
     },
     osxSign: {},
     osxNotarize: isMac && process.env.APPLE_ID
@@ -354,7 +352,6 @@ const config: ForgeConfig = {
       build: [
         { entry: "src/main.ts", config: "vite.main.config.ts" },
         { entry: "src/preload.ts", config: "vite.preload.config.ts" },
-        { entry: "src/fileWatcher.worker.ts", config: "vite.watcher.config.ts" },
       ],
       renderer: [{ name: "main_window", config: "vite.renderer.config.ts" }],
     }),
