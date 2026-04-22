@@ -16,11 +16,9 @@ export const CustomCode = Code.extend({
 
         if (isInCode) {
           this.editor.commands.unsetMark("code");
-          this.editor.commands.insertContent("`");
           return true;
         }
 
-        this.editor.commands.setMark("code");
         return false;
       },
 

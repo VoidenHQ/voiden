@@ -160,7 +160,7 @@ export const createFileTreeContextMenu = (mainWindow: BrowserWindow) => {
     } else {
       menu = Menu.buildFromTemplate([
         {
-          label: "Reveal in Finder",
+          label: process.platform==='darwin'?"Reveal in Finder":(process.platform==='win32'?"Reveal in Explorer":"Reveal Containing Folder"),
           accelerator: "Option+Cmd+R",
           click: () => {
             shell.showItemInFolder(data.path);
