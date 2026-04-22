@@ -21,11 +21,6 @@ const notifyLockedSave = () => {
 };
 // import type { Tab } from "../../../electron/src/shared/types";
 
-// Tracks paths currently being written by the app so apy:changed events triggered
-// by our own autosave can be ignored. Stored as path → expiry timestamp so that
-// multiple OS change events (e.g. truncate + write) are all suppressed within the window.
-export const pendingAutoSavePaths = new Map<string, number>();
-
 // Write a file in 512 KB IPC chunks to avoid freezing the main process for large
 // files (streamable files can be 5 MB–100 MB+). Falls back to a single write for
 // small content to keep the fast path fast.
@@ -543,20 +538,13 @@ export const saveTabById = async (tabId: string, options?: { silent?: boolean })
           return await saveFileUtil(path, content, panelId, tabId, voidenEditor.schema);
         }
         const markdown = prosemirrorToMarkdown(content, voidenEditor.schema);
-        const normalizedSource = tab.source.replace(/\\/g, "/");
-        pendingAutoSavePaths.set(normalizedSource, Date.now() + 3000);
         const filePath = await window.electron?.files.write(tab.source, markdown, tabId);
-        if (!filePath) {
-          pendingAutoSavePaths.delete(normalizedSource);
-          return false;
-        }
+        if (!filePath) return false;
         syncTabContentCache(markdown);
         // Only clear if no new changes arrived during the async write
         if (useEditorStore.getState().unsaved[tabId] === unsavedContent) {
           useEditorStore.getState().clearUnsaved(tabId);
         }
-        // Safety cleanup in case apy:changed never arrives
-        setTimeout(() => pendingAutoSavePaths.delete(normalizedSource), 3000);
         return true;
       } else {
         // Tab is not active
@@ -585,20 +573,13 @@ export const saveTabById = async (tabId: string, options?: { silent?: boolean })
           return await saveFileUtil(tab.source, unsavedContent, "main", tabId, schema);
         }
 
-        const normalizedSource2 = tab.source.replace(/\\/g, "/");
-        pendingAutoSavePaths.set(normalizedSource2, Date.now() + 3000);
         const filePath = await window.electron?.files.write(tab.source, unsavedMarkdown, tabId);
-        if (!filePath) {
-          pendingAutoSavePaths.delete(normalizedSource2);
-          return false;
-        }
+        if (!filePath) return false;
         syncTabContentCache(unsavedMarkdown);
         // Only clear if no new changes arrived during the async write
         if (useEditorStore.getState().unsaved[tabId] === unsavedContent) {
           useEditorStore.getState().clearUnsaved(tabId);
         }
-        // Safety cleanup in case apy:changed never arrives
-        setTimeout(() => pendingAutoSavePaths.delete(normalizedSource2), 3000);
         return true;
       }
     } else {
@@ -633,6 +614,46 @@ export const saveTabById = async (tabId: string, options?: { silent?: boolean })
   }
   
   return false;
+};
+
+export const useFileExists = (filePath?: string) => {
+  return useQuery({
+    queryKey: ["files:exists", filePath],
+    enabled: !!filePath,
+    queryFn: async () => {
+      if (!filePath) return false;
+      return window.electron?.files.exists?.(filePath) ?? false;
+    },
+  });
+};
+
+export const useCreateDirectory = () => {
+  const { data: activeDirectory } = useGetActiveDirectory();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (dirPath: string) => {
+      if (!activeDirectory) throw new Error("No active directory");
+      return window.electron?.files.createDirectory?.(dirPath);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["files:tree", activeDirectory] });
+    },
+  });
+};
+
+export const useCopyFile = () => {
+  const { data: activeDirectory } = useGetActiveDirectory();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ sourcePath, destPath }: { sourcePath: string; destPath: string }) => {
+      return window.electron?.files.copy?.(sourcePath, destPath);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["files:tree", activeDirectory] });
+    },
+  });
 };
 
 // Global save function that works regardless of editor focus

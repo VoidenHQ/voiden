@@ -106,3 +106,12 @@ export function setCloning(dir: string, active: boolean) {
 export function setDeleting(dir: string, active: boolean) {
   send({ type: "setDeleting", path: dir, active });
 }
+
+/**
+ * Suppress the next apy:changed event for a .void file being written by Voiden.
+ * Call this immediately before fs.writeFile so the message is queued before
+ * chokidar fires.
+ */
+export function setWriting(filePath: string) {
+  send({ type: "setWriting", path: filePath });
+}

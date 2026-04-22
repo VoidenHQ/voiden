@@ -32,6 +32,9 @@ interface WatcherEntry {
 const watchers = new Map<string, WatcherEntry>();
 const cloningPaths = new Set<string>();
 const deletingPaths = new Set<string>();
+// Tracks files being written by Voiden so the resulting change event is suppressed.
+// Value is the auto-cleanup timeout handle.
+const writingPaths = new Map<string, ReturnType<typeof setTimeout>>();
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const parentPort = (process as any).parentPort as {
@@ -59,6 +62,10 @@ function isDeletingActive(filePath: string): boolean {
     if (filePath === dir || filePath.startsWith(dir + path.sep)) return true;
   }
   return false;
+}
+
+function isWritingActive(filePath: string): boolean {
+  return writingPaths.has(filePath);
 }
 
 function debounce(func: (...args: any[]) => void, wait: number) {
@@ -148,8 +155,10 @@ function startWatching(projectPath: string, watcherId: string) {
       else send("event", { channel: "file:new", data: { path: dirPath, project: projectPath, watcherId } });
     })
     .on("change", (filePath) => {
-      if (isVoidFile(filePath)) send("event", { channel: "apy:changed", data: { path: filePath, project: projectPath, watcherId } });
-      else if (isEnvFile(filePath)) send("event", { channel: "env:changed", data: { path: filePath, project: projectPath, watcherId } });
+      if (isVoidFile(filePath)) {
+        if (isWritingActive(filePath)) { writingPaths.delete(filePath); return; }
+        send("event", { channel: "apy:changed", data: { path: filePath, project: projectPath, watcherId } });
+      } else if (isEnvFile(filePath)) send("event", { channel: "env:changed", data: { path: filePath, project: projectPath, watcherId } });
       else if (isGitRelated(filePath)) emitGitChangedDebounced({ path: filePath });
       else send("event", { channel: "file:changed", data: { path: filePath, project: projectPath, watcherId } });
     })
@@ -197,6 +206,14 @@ parentPort.on("message", ({ data }: { data: any }) => {
       if (data.active) deletingPaths.add(data.path);
       else deletingPaths.delete(data.path);
       break;
+    case "setWriting": {
+      const existing = writingPaths.get(data.path);
+      if (existing) clearTimeout(existing);
+      // Auto-clear after 2s as a safety net if the change event never arrives.
+      const timer = setTimeout(() => writingPaths.delete(data.path), 2000);
+      writingPaths.set(data.path, timer);
+      break;
+    }
     case "closeAll":
       for (const id of [...watchers.keys()]) stopWatching(id);
       break;

@@ -3,7 +3,7 @@ import React, { createContext, useContext, useEffect, useRef } from "react";
 import { EventEmitter } from "events";
 import { useQueryClient } from "@tanstack/react-query";
 
-import { globalSaveFile, saveTabById, pendingAutoSavePaths } from "@/core/file-system/hooks";
+import { globalSaveFile, saveTabById } from "@/core/file-system/hooks";
 import { reloadVoidenEditor, useEditorStore } from "@/core/editors/voiden/VoidenEditor";
 import { useLoadEnv, useSetActiveEnv } from "@/core/environment/hooks";
 import { toast } from "@/core/components/ui/sonner";
@@ -182,22 +182,17 @@ export const ElectronEventProvider: React.FC<{ children: React.ReactNode }> = ({
         }
       },
       "apy:changed": (_event: any, data: any) => {
+        const changedPath = data?.path?.replace(/\\/g, "/");
+
         queryClient.invalidateQueries({ queryKey: ["voiden-wrapper:blockContent", data?.path], exact: false });
         handleEvent("apy:changed", data);
 
-        const changedPath = data?.path?.replace(/\\/g, "/");
         if (!changedPath) return;
 
         const panelQueries = queryClient.getQueriesData<any>({ queryKey: ["panel:tabs"] });
         for (const [, panelData] of panelQueries) {
           for (const tab of panelData?.tabs ?? []) {
             if (tab.source?.replace(/\\/g, "/") !== changedPath) continue;
-            // Skip reload if this change was caused by our own autosave.
-            // Use expiry timestamp so multiple OS events for one write are all suppressed.
-            const dateNow = Date.now();
-            if ((pendingAutoSavePaths.get(changedPath) ?? 0) > dateNow) {
-              continue;
-            }
             const isDirty = !!useEditorStore.getState().unsaved[tab.id];
             if (isDirty) {
               toast.warning(`${tab.title} was modified on disk`, {

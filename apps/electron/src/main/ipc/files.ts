@@ -27,6 +27,7 @@ import { getCachedGitStatus } from "../git";
 import { getActiveProject, findTabById, getAppState } from "../state";
 import { scoreFiles, type MatchedFragment } from "../fileSearch";
 import { saveState, deleteAutosaveFile } from "../persistState";
+import { setWriting } from "../fileWatcher";
 import { FileTreeItem } from "../../types";
 import { PanelElement } from "../../../shared/types";
 import { fold } from "fp-ts/lib/Tree";
@@ -313,6 +314,7 @@ export function registerFileIpcHandlers() {
       filePath = chosenFilePath;
     }
 
+    if (filePath.endsWith(".void")) setWriting(filePath);
     await fs.promises.writeFile(filePath, content, "utf8");
     treeResultCache.clear();
 
@@ -345,6 +347,7 @@ export function registerFileIpcHandlers() {
     "files:appendChunk",
     async (_event, filePath: string, chunk: string, isFirst: boolean, isLast: boolean) => {
       if (isFirst) {
+        if (filePath.endsWith(".void")) setWriting(filePath);
         await fs.promises.writeFile(filePath, chunk, "utf8");
       } else {
         await fs.promises.appendFile(filePath, chunk, "utf8");
