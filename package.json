@@ -90,7 +90,6 @@
     "@babel/runtime": ">=7.26.10",
     "@babel/runtime-corejs3": ">=7.26.10",
     "mdast-util-to-hast": ">=13.2.1",
-    "@tootallnate/once": ">=3.0.1",
     "@smithy/config-resolver": ">=4.4.0",
     "diff@^4": "4.0.4",
     "bn.js@^4": "4.12.3",

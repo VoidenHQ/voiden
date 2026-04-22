@@ -51,3 +51,6 @@ tokensInfo.json# Font files
 
 # Generated at build time — do not commit
 apps/electron/skills/core/
+
+# Local Windows native module patches (not needed on CI/macOS/Linux)
+patches/win-native-fixes/

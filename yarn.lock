@@ -6562,7 +6562,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@smithy/util-endpoints@npm:^3.4.2":
+"@smithy/util-endpoints@npm:^3.4.1, @smithy/util-endpoints@npm:^3.4.2":
   version: 3.4.2
   resolution: "@smithy/util-endpoints@npm:3.4.2"
   dependencies:
@@ -8075,10 +8075,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@tootallnate/once@npm:>=3.0.1":
-  version: 3.0.1
-  resolution: "@tootallnate/once@npm:3.0.1"
-  checksum: 10c0/a66a5be492a19337be450056f0225f34abb7e88845bd1f5899211134827a0d90937d8ef161f8ce663aa8fc1505d39ad016e497963f2780d8199ce2067d2b1317
+"@tootallnate/once@npm:2":
+  version: 2.0.0
+  resolution: "@tootallnate/once@npm:2.0.0"
+  checksum: 10c0/073bfa548026b1ebaf1659eb8961e526be22fa77139b10d60e712f46d2f0f05f4e6c8bec62a087d41088ee9e29faa7f54838568e475ab2f776171003c3920858
   languageName: node
   linkType: hard
 
