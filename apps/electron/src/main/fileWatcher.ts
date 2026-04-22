@@ -7,6 +7,7 @@
  */
 
 import path from "node:path";
+import fs from "node:fs";
 import { utilityProcess } from "electron";
 import type { UtilityProcess } from "electron";
 import eventBus from "./eventBus";
@@ -18,7 +19,9 @@ import { logger } from "./logger";
 let watcherProc: UtilityProcess | null = null;
 
 function getWorkerPath(): string {
-  return path.join(__dirname, "fileWatcher.worker.js");
+  const packed = path.join(__dirname, "fileWatcher.worker.js");
+  const unpacked = packed.replace("app.asar", "app.asar.unpacked");
+  return fs.existsSync(unpacked) ? unpacked : packed;
 }
 
 function spawnWorker() {
