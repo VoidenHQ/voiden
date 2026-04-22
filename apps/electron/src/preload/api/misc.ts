@@ -208,6 +208,8 @@ export const projectApi = {
     ipcRenderer.invoke("project:getLocked", projectRoot),
   setLocked: (projectRoot: string, locked: boolean): Promise<boolean> =>
     ipcRenderer.invoke("project:setLocked", projectRoot, locked),
+  isPathInsideLocked: (filePath: string): Promise<boolean> =>
+    ipcRenderer.invoke("project:isPathInsideLocked", filePath),
   onLockedChanged: (
     cb: (payload: { projectRoot: string; locked: boolean }) => void,
   ) => {

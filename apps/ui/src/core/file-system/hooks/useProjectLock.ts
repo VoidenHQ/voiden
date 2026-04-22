@@ -1,38 +1,21 @@
 import { useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useGetAppState } from "@/core/state/hooks";
-import { getQueryClient } from "@/main";
 
 export const projectLockQueryKey = (projectRoot: string | null | undefined) =>
   ["project:locked", projectRoot ?? ""] as const;
-
-function normalize(p: string) {
-  return p.replace(/\\/g, "/").replace(/\/+$/, "");
-}
 
 /**
  * True when the given file path belongs to a project whose lock is on AND
  * the path is not inside the project's own `.voiden/` internals (which must
  * keep writing for history, runtime variables, and the lock file itself).
+ *
+ * Delegates to the electron layer so the check runs against authoritative
+ * main-process state rather than a UI query-cache snapshot.
  */
-export function isPathInsideLockedProject(filePath: string | null | undefined): boolean {
+export async function isPathInsideLockedProject(filePath: string | null | undefined): Promise<boolean> {
   if (!filePath) return false;
-  const queryClient = getQueryClient();
-  const appState = queryClient.getQueryData<any>(["app:state"]);
-  const activeDirectory: string | null = appState?.activeDirectory ?? null;
-  if (!activeDirectory) return false;
-
-  const root = normalize(activeDirectory);
-  const path = normalize(filePath);
-  if (path !== root && !path.startsWith(root + "/")) return false;
-
-  const locked = queryClient.getQueryData<boolean>(projectLockQueryKey(activeDirectory));
-  if (!locked) return false;
-
-  const voidenDir = root + "/.voiden";
-  if (path === voidenDir || path.startsWith(voidenDir + "/")) return false;
-
-  return true;
+  return (await window.electron?.project.isPathInsideLocked(filePath)) ?? false;
 }
 
 export const useProjectLock = () => {

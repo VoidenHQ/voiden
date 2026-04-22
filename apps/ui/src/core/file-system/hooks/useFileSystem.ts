@@ -109,7 +109,7 @@ export const invalidateOnFileSave = (path: string, panelId: string, tabId: strin
 };
 
 export const saveFileUtil = async (path: string | null, content: string, panelId: string, tabId: string, schema: Schema) => {
-  if (isPathInsideLockedProject(path)) {
+  if (await isPathInsideLockedProject(path)) {
     notifyLockedSave();
     return;
   }
@@ -514,7 +514,7 @@ export const saveTabById = async (tabId: string, options?: { silent?: boolean })
     return false; // Tab not found or not persisted
   }
 
-  if (isPathInsideLockedProject(tab.source)) {
+  if (await isPathInsideLockedProject(tab.source)) {
     // Project is locked — keep in-memory edits but do not persist to disk.
     // Autosave (silent) stays silent; manual callers see a non-blocking no-op.
     if (!options?.silent) notifyLockedSave();
@@ -683,7 +683,7 @@ export const globalSaveFile = async () => {
       const { activeEditor, editorViews } = useCodeEditorStore.getState();
 
       if (activeEditor.tabId && activeEditor.source) {
-        if (isPathInsideLockedProject(activeEditor.source)) {
+        if (await isPathInsideLockedProject(activeEditor.source)) {
           notifyLockedSave();
           return true;
         }
@@ -736,7 +736,7 @@ export const globalSaveFile = async () => {
     // If no editor found, try to get the active document as fallback
     const activePath = await window.electron?.active.getDocument();
     if (activePath) {
-      if (isPathInsideLockedProject(activePath)) {
+      if (await isPathInsideLockedProject(activePath)) {
         notifyLockedSave();
         return false;
       }
