@@ -710,8 +710,8 @@ function TreeNode({ node, style, dragHandle, activeFile, removeTemporaryNode, on
         activeFile?.source === node.data.path && !isDragOver && "bg-active",
         node.isSelected && node.tree.selectedNodes.length > 1 && activeFile?.source !== node.data.path && !isDragOver && "bg-accent/20",
         node.isFocused && !isDragOver && "ring-0",
-        (isDragOver || isInternalDropTargetFolder) && "bg-accent/30 border-l-2 border-accent",
-        isSiblingHighlight && !isDragOver && !isInternalDropTargetFolder && "bg-accent/30 ",
+        (isDragOver  || isInternalDropTargetFolder) && `bg-accent/30 ${node.data.type ==='folder' ? 'border-l-2 border-accent' : ''}`,
+        isSiblingHighlight && !isDragOver && !isInternalDropTargetFolder && "bg-accent/30 hover:bg-accent/30",
       )}
       onClick={handleSelect}
       onContextMenu={handleContextMenu}
