@@ -1,7 +1,7 @@
 {
   "name": "voiden",
   "productName": "Voiden",
-  "version": "1.4.6",
+  "version": "1.5.0",
   "private": true,
   "author": {
     "name": "Voiden",
@@ -60,7 +60,6 @@
   "keywords": [],
   "dependencies": {
     "@grpc/grpc-js": "1.14.1",
-    "@voiden/fuzzy-search": "workspace:*",
     "adm-zip": "^0.5.16",
     "fast-glob": "^3.3.3",
     "graphql": "^16.12.0",

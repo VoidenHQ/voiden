@@ -1,5 +1,34 @@
 [
   {
+    "version": "v1.5.0",
+    "date": "22/04/2026",
+    "title": "Smarter Search, Editor Stability & GraphQL Polish",
+    "description": "Feature release with a path-aware fuzzy search algorithm across file search, file links, and environment selectors, alongside a suite of editor reliability fixes covering content reloading, inline code rendering, file tree stability, and GraphQL variable highlighting.",
+    "icon": "Sparkles",
+    "iconColor": "text-violet-400",
+    "bgColor": "bg-gradient-to-br from-violet-900 to-slate-900",
+    "changes": {
+      "Added": [
+        "Stitch Runner now persists its response to the tab it was originally executed from, rather than broadcasting to every open response panel — contributed by a community contributor",
+        "Copy buttons for response headers, request headers, request body, and the equivalent cURL command — quickly grab any part of a request or response directly from the response panel"
+      ],
+      "Improved": [
+        "File search, file link suggestions, and the environment selector now use a fuzzy matching algorithm that scores against both filename and full path, making it much easier to find files when you remember part of a folder name or nested path — contributed by a community contributor",
+        "Drag-and-drop target highlight in the file tree is now more precise and visually consistent, making it clearer which folder a file will be dropped into",
+        "GraphQL request blocks now highlight environment and runtime variables directly in the URL field, and correctly forward auth and custom headers when executing requests"
+      ],
+      "Fixed": [
+        "Voiden editor no longer reloads file content when changes are triggered internally (e.g. saving, formatting); content now only refreshes when a change originates from outside the editor, preventing unnecessary cursor jumps and scroll resets",
+        "Newline behaviour on save in the Voiden editor is now consistent — the final newline is preserved without duplication",
+        "File tree no longer reloads or collapses when creating a new file or renaming an existing one, keeping your current folder state intact",
+        "Environment editor panel now restores its scroll position correctly after switching tabs or refreshing the panel",
+        "Environment variable search now correctly matches variables whose values are numbers, previously they were excluded from results",
+        "Inline code spans (backtick content) now inherit the font size of the surrounding text instead of always rendering at a fixed size",
+        "OAuth2 token auto-fetch no longer throws a JavaScript runtime error dialog when an incorrect or unreachable URL is provided — the error is now handled gracefully"
+      ]
+    }
+  },
+  {
     "version": "v1.4.6",
     "date": "16/04/2026",
     "title": "Shell Scripting Fixes, Lock Mode & Shortcut Refactor",

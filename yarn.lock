@@ -21951,7 +21951,6 @@ __metadata:
     "@types/adm-zip": "npm:^0"
     "@types/js-yaml": "npm:^4"
     "@types/mime-types": "npm:^2"
-    "@voiden/fuzzy-search": "workspace:*"
     adm-zip: "npm:^0.5.16"
     aws-sdk: "npm:2.1692.0"
     dotenv: "npm:^16.4.5"
