@@ -67,7 +67,7 @@ Voiden is for developers, testers, and technical writers who want API work to fe
 
 ## Install
 
-**Current version:** `1.4.6`
+**Current version:** `1.5.0`
 
 Download installers for macOS, Windows, and Linux from [voiden.md/download](https://voiden.md/download).
 Direct downloads are available for Apple Silicon and Intel macOS, Windows `.exe`, and Linux `.deb`, `.rpm`, and `.AppImage` builds.
