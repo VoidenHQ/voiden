@@ -6562,7 +6562,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@smithy/util-endpoints@npm:^3.4.2":
+"@smithy/util-endpoints@npm:^3.4.1, @smithy/util-endpoints@npm:^3.4.2":
   version: 3.4.2
   resolution: "@smithy/util-endpoints@npm:3.4.2"
   dependencies:

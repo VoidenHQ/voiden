@@ -9,6 +9,7 @@ import path from "path";
 import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
 import { createClient, Client } from "graphql-ws";
+import { isAbsolute } from "node:path";
 
 
 const lastByWcAndKey = new Map<string, number>();
@@ -907,8 +908,11 @@ export function registerRequestIpcHandler() {
                 // Handle file - param.value is now a file path string
                 let filePath = param.value as string;
 
+                if(isAbsolute(filePath)){
+                  filePath = filePath
+                }
                 // If the path is relative (starts with /), resolve it relative to activeProject
-                if (filePath.startsWith("/") && activeProject && !filePath.startsWith(activeProject)) {
+                else if (activeProject && !filePath.startsWith(activeProject)) {
                   filePath = path.join(activeProject, filePath);
                 }
 
