@@ -18,7 +18,7 @@
 
 <p align="center">
   <a href="https://voiden.md/download">
-    <img src="https://img.shields.io/badge/Download-111827?style=for-the-badge&logo=apple&logoColor=white" alt="Download" />
+    <img src="https://img.shields.io/badge/Download-111827?style=for-the-badge&logoColor=white" alt="Download" />
   </a>
   <a href="https://docs.voiden.md/docs/getting-started-section/intro">
     <img src="https://img.shields.io/badge/Docs-0EA5E9?style=for-the-badge&logo=readthedocs&logoColor=white" alt="Docs" />
