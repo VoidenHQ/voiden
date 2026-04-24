@@ -1,5 +1,8 @@
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useContext, createContext } from "react";
 import { isValidRegex } from "@/core/file-system/components/RegexHighlightOverlay";
+
+/** Editors rendered inside this context will not react to the global searchParamsStore. */
+export const NoGlobalSearchContext = createContext(false);
 import { defaultKeymap, toggleComment, } from "@codemirror/commands";
 import {
   SearchQuery,
@@ -218,6 +221,7 @@ export const CodeEditor = ({
     initialValueRef.current = displayValue;
   }
 
+  const noGlobalSearch = useContext(NoGlobalSearchContext);
   const searchTerm = useSearchStore((s) => s.term);
   const matchCase = useSearchStore((s) => s.matchCase);
   const matchWholeWord = useSearchStore((s) => s.matchWholeWord);
@@ -305,10 +309,9 @@ export const CodeEditor = ({
   useEffect(() => {
     const view = editorRef.current;
     if (!view) return;
-    // When unified search is active and this editor is embedded in TipTap,
-    // skip store-driven highlights to avoid double-highlighting.
-    // The unified search system handles highlighting via unifiedSearchField.
-    if (isUnifiedSearchActive && tiptapProps) return;
+    // Embedded TipTap editors and response-panel viewers are highlighted by their
+    // own search — never by the global searchParamsStore.
+    if (tiptapProps || noGlobalSearch) return;
     view.dispatch({
       effects: searchEffect.of({
         term: searchTerm,
@@ -317,13 +320,13 @@ export const CodeEditor = ({
         useRegex,
       }),
     });
-  }, [searchTerm, matchCase, matchWholeWord, useRegex, isUnifiedSearchActive]);
+  }, [searchTerm, matchCase, matchWholeWord, useRegex, noGlobalSearch]);
 
   // For standalone use (no tiptapProps): sync query into CM when openPanelTick fires.
   // The persistent panel is already open via the store tick.
   useEffect(() => {
     if (openPanelTick === handledOpenTickRef.current) return;
-    if (tiptapProps) return;
+    if (tiptapProps || noGlobalSearch) return;
     const view = editorRef.current;
     if (!view) return;
     if (!view.dom.offsetParent) return;

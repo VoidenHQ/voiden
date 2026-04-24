@@ -21,6 +21,7 @@ import { escapeRegExp } from "@/core/editors/voiden/search/unifiedSearch";
 import { getSectionBorderColor } from "@/core/editors/voiden/extensions/sectionIndicator";
 import { Tip } from "@/core/components/ui/Tip";
 import { SearchPanelView } from "@/core/editors/code/lib/components/SearchPanelView";
+import { NoGlobalSearchContext } from "@/core/editors/code/lib/components/CodeEditor";
 
 /** Format relative time: "just now", "2m ago", "1h ago", etc. */
 function formatRelativeTime(ts: number): string {
@@ -555,6 +556,7 @@ export function ResponsePanelContainer() {
   }, [showResponseFind, closeResponseFind]);
 
   return (
+    <NoGlobalSearchContext.Provider value={true}>
     <div
       ref={containerRef}
       className="h-full bg-bg flex flex-col response-panel-root"
@@ -1007,5 +1009,6 @@ export function ResponsePanelContainer() {
         </div>
       </div>
     </div>
+    </NoGlobalSearchContext.Provider>
   );
 }
