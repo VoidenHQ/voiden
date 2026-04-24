@@ -1280,44 +1280,47 @@ const VoidenEditorInner = ({
     };
   }, [editor, findTerm, matchCase, matchWholeWord, useRegex, currentMatch]);
 
-  // Navigate to a specific match (PM or CM)
-  const navigateToMatch = (matchIndex: number, shouldFocus: boolean = true) => {
+  // Navigate to a specific match (PM or CM).
+  // scroll=true: physically scroll + select (explicit next/prev/replace).
+  // scroll=false: update highlights and currentMatch only, no scroll.
+  const navigateToMatch = (matchIndex: number, shouldFocus: boolean = true, scroll: boolean = true) => {
     if (!editor || matchIndex < 0 || matchIndex >= matchPositions.length) return;
     const match = matchPositions[matchIndex];
     const { source } = match;
 
-    const scrollContainerEl = document.getElementById("code-editor-container") as HTMLElement | null;
+    if (scroll) {
+      const scrollContainerEl = document.getElementById("code-editor-container") as HTMLElement | null;
 
-    const scrollMatchIntoView = (domNode: HTMLElement) => {
-      if (!scrollContainerEl) {
-        domNode.scrollIntoView({ block: "nearest", behavior: "smooth" });
-        return;
-      }
-      const containerRect = scrollContainerEl.getBoundingClientRect();
-      const nodeRect = domNode.getBoundingClientRect();
-      const relTop = nodeRect.top - containerRect.top + scrollContainerEl.scrollTop;
-      const target = relTop - scrollContainerEl.clientHeight / 2 + nodeRect.height / 2;
-      searchNavScrollRef.current = true;
-      scrollContainerEl.scrollTop = Math.max(0, target);
-    };
+      const scrollMatchIntoView = (domNode: HTMLElement) => {
+        if (!scrollContainerEl) {
+          domNode.scrollIntoView({ block: "nearest", behavior: "smooth" });
+          return;
+        }
+        const containerRect = scrollContainerEl.getBoundingClientRect();
+        const nodeRect = domNode.getBoundingClientRect();
+        const relTop = nodeRect.top - containerRect.top + scrollContainerEl.scrollTop;
+        const target = relTop - scrollContainerEl.clientHeight / 2 + nodeRect.height / 2;
+        searchNavScrollRef.current = true;
+        scrollContainerEl.scrollTop = Math.max(0, target);
+      };
 
-    if (source.type === "prosemirror") {
-      editor.commands.setTextSelection({ from: source.from, to: source.to });
-      const domInfo = editor.view.domAtPos(source.from);
-      const node = domInfo.node instanceof HTMLElement ? domInfo.node : domInfo.node.parentElement;
-      if (node) scrollMatchIntoView(node);
-      if (shouldFocus) editor.commands.focus();
-    } else {
-      // CodeMirror match: scroll PM to show the code block, then select in CM
-      const cmView = findCmViewAtPos(editor.view, source.pmNodePos);
-      if (cmView) {
-        const domNode = editor.view.nodeDOM(source.pmNodePos) as HTMLElement | null;
-        if (domNode) scrollMatchIntoView(domNode);
-        if (shouldFocus) cmView.focus();
-        cmView.dispatch({
-          selection: { anchor: source.cmFrom, head: source.cmTo },
-          scrollIntoView: true,
-        });
+      if (source.type === "prosemirror") {
+        editor.commands.setTextSelection({ from: source.from, to: source.to });
+        const domInfo = editor.view.domAtPos(source.from);
+        const node = domInfo.node instanceof HTMLElement ? domInfo.node : domInfo.node.parentElement;
+        if (node) scrollMatchIntoView(node);
+        if (shouldFocus) editor.commands.focus();
+      } else {
+        const cmView = findCmViewAtPos(editor.view, source.pmNodePos);
+        if (cmView) {
+          const domNode = editor.view.nodeDOM(source.pmNodePos) as HTMLElement | null;
+          if (domNode) scrollMatchIntoView(domNode);
+          if (shouldFocus) cmView.focus();
+          cmView.dispatch({
+            selection: { anchor: source.cmFrom, head: source.cmTo },
+            scrollIntoView: true,
+          });
+        }
       }
     }
 
@@ -1335,17 +1338,17 @@ const VoidenEditorInner = ({
     dispatchCmHighlights(matchPositions, match.index);
   };
 
-  // Auto-select first match on new search term, without focusing editor
+  // Sync highlight state when options change or matches rebuild — no scroll.
   useEffect(() => {
     if (showFind && editor && findTerm && matchPositions.length > 0 && currentMatch < 0) {
-      navigateToMatch(0, false);
+      navigateToMatch(0, false, false);
     }
   }, [editor, showFind, findTerm, matchPositions]);
 
-  // Select first match by default when opening the find toolbar
+  // Sync highlight state when opening the find toolbar — no scroll.
   useEffect(() => {
     if (!showFind || !editor || matchPositions.length === 0) return;
-    navigateToMatch(0, false);
+    navigateToMatch(0, false, false);
   }, [showFind, editor]);
 
   const handleFindPrevious = () => {
