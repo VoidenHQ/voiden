@@ -55,9 +55,9 @@ function hasAnyResponse(tabSections: Record<number, any> | undefined): boolean {
 }
 
 /** Hook to subscribe to stitch store for the active file or tab */
-function useStitchResults(activeFilePath: string | undefined, activeTabId: string | undefined) {
+function useStitchResults(activeTabId: string | undefined) {
   const [hasResults, setHasResults] = useState(false);
-  const [StitchComponent, setStitchComponent] = useState<React.ComponentType<{ sourceFilePath?: string }> | null>(null);
+  const [StitchComponent, setStitchComponent] = useState<React.ComponentType<{ tabId?: string }> | null>(null);
 
   useEffect(() => {
     const helpers = (window as any).__voidenHelpers__?.['voiden-stitch'];
@@ -65,14 +65,13 @@ function useStitchResults(activeFilePath: string | undefined, activeTabId: strin
 
     const store = helpers.stitchStore;
     const update = () => {
-      // Try by file path first; for temp/unsaved files fall back to tab ID
-      const fileRun = store.getRun(activeFilePath, activeTabId);
+      const fileRun = store.getRun(activeTabId);
       setHasResults(fileRun?.status !== 'idle' && !!fileRun?.id);
     };
     update();
     const unsub = store.subscribe(update);
     return unsub;
-  }, [activeFilePath, activeTabId]);
+  }, [activeTabId]);
 
   useEffect(() => {
     const helpers = (window as any).__voidenHelpers__?.['voiden-stitch'];
@@ -95,7 +94,7 @@ export function ResponsePanelContainer() {
   const activeFilePath = (activeTab as any)?.source || undefined;
 
   // Subscribe to stitch results — passes tabId as fallback for unsaved temp files
-  const { hasResults: hasStitchResults, StitchComponent } = useStitchResults(activeFilePath, activeTabId);
+  const { hasResults: hasStitchResults, StitchComponent } = useStitchResults(activeTabId);
 
   const {
     isLoading,
@@ -739,7 +738,7 @@ export function ResponsePanelContainer() {
             {/* Stitch component content — hidden when collapsed */}
             {!collapsedSections.has(`${activeTabId}:stitch`) && (
               <div className="ml-2 bg-editor">
-                <StitchComponent sourceFilePath={activeFilePath} />
+                <StitchComponent tabId={activeTabId} />
               </div>
             )}
           </div>
