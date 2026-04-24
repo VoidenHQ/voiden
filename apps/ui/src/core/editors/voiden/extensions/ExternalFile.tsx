@@ -1,4 +1,4 @@
-import React, { forwardRef, startTransition, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import React, { forwardRef, startTransition, useContext, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import type { MatchedFragment } from '@voiden/fuzzy-search';
 import { highlightText } from "./MatchedFragment";
 import { Editor, JSONContent, Node, NodeViewProps, Range, mergeAttributes } from "@tiptap/core";
@@ -11,6 +11,10 @@ import { cn } from "@/core/lib/utils";
 import { getQueryClient } from "@/main";
 import { useGetApyFiles } from "@/core/documents/hooks";
 import { proseClasses, useVoidenExtensionsAndSchema } from "@/core/editors/voiden/VoidenEditor";
+import { FindHighlightExtension, findHighlightPluginKey } from "@/core/editors/voiden/search/findHighlight";
+import { useSearchStore } from "@/core/stores/searchParamsStore";
+import { useShallow } from "zustand/react/shallow";
+import { LinkedFilePmNodePosContext } from "./linkedFileContext";
 import { useBlockContentStore } from "@/core/stores/blockContentStore";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import { useElectronEvent } from "@/core/providers";
@@ -248,11 +252,24 @@ export async function computeAbsolutePath(nodeAttrs: FileLinkItem) {
 
 // Read-only preview of a block. Uses `inert` to prevent any element inside
 // (CodeMirror, contentEditable, etc.) from ever receiving focus.
-export function BlockPreviewEditor({ block }: { block: JSONContent }) {
+export function BlockPreviewEditor({ block, pmNodePos: ownPmNodePos, blockUid }: { block: JSONContent; pmNodePos?: number; blockUid?: string }) {
   const { finalExtensions } = useVoidenExtensionsAndSchema();
+  const { term, matchCase, matchWholeWord, useRegex, currentLinkedPmNodePos, currentLinkedBlockUid, currentLinkedLocalIndex } = useSearchStore(useShallow((s) => ({
+    term: s.term,
+    matchCase: s.matchCase,
+    matchWholeWord: s.matchWholeWord,
+    useRegex: s.useRegex,
+    currentLinkedPmNodePos: s.currentLinkedPmNodePos,
+    currentLinkedBlockUid: s.currentLinkedBlockUid,
+    currentLinkedLocalIndex: s.currentLinkedLocalIndex,
+  })));
+  const parentFilePmNodePos = useContext(LinkedFilePmNodePosContext);
+  const effectivePmNodePos = parentFilePmNodePos ?? ownPmNodePos;
+  const isCurrent = effectivePmNodePos !== undefined && currentLinkedPmNodePos === effectivePmNodePos
+    && (blockUid !== undefined ? currentLinkedBlockUid === blockUid : currentLinkedBlockUid === null);
 
   const previewExtensions = useMemo(
-    () => finalExtensions.filter(ext => ext?.name !== 'seamlessNavigation'),
+    () => [...finalExtensions.filter(ext => ext?.name !== 'seamlessNavigation'), FindHighlightExtension],
     [finalExtensions]
   );
 
@@ -265,6 +282,19 @@ export function BlockPreviewEditor({ block }: { block: JSONContent }) {
     },
     [block, previewExtensions],
   );
+
+  useEffect(() => {
+    if (!editor || editor.isDestroyed) return;
+    editor.view.dispatch(
+      editor.state.tr.setMeta(findHighlightPluginKey, {
+        term,
+        matchCase,
+        matchWholeWord,
+        useRegex,
+        currentMatch: isCurrent ? currentLinkedLocalIndex : -1,
+      }),
+    );
+  }, [editor, term, matchCase, matchWholeWord, useRegex, isCurrent, currentLinkedLocalIndex]);
 
   useEffect(() => {
     return () => {

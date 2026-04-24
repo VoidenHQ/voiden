@@ -338,7 +338,7 @@ const TabComponent = ({
         </div>
       </ContextMenu.Trigger>
       <ContextMenu.Portal>
-        <ContextMenu.Content align="end" sideOffset={5} className="bg-bg border border-border rounded-sm shadow-lg py-1 text-sm text-text">
+        <ContextMenu.Content align="end" sideOffset={5} className="z-[110] bg-bg border border-border rounded-sm shadow-lg py-1 text-sm text-text">
           <ContextMenu.Item
             onSelect={handleClose}
             className="flex items-center justify-between px-3 py-1 hover:bg-active cursor-pointer focus:outline-none"

@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Editor, Node, NodeViewWrapper, ReactNodeViewRenderer, mergeAttributes } from "@tiptap/react";
 import { JSONContent } from "@tiptap/core";
 import { EditorContent, useEditor } from "@tiptap/react";
@@ -6,17 +6,31 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight, Link2, Play, Unlink } from "lucide-react";
 import { parseMarkdown } from "@/core/editors/voiden/markdownConverter";
 import { proseClasses, useVoidenExtensionsAndSchema } from "@/core/editors/voiden/VoidenEditor";
+import { FindHighlightExtension, findHighlightPluginKey } from "@/core/editors/voiden/search/findHighlight";
+import { useSearchStore } from "@/core/stores/searchParamsStore";
+import { useShallow } from "zustand/react/shallow";
 import { openFile } from "./ExternalFile";
+import { LinkedFilePmNodePosContext } from "./linkedFileContext";
 import { getBlocksForSection } from "@/core/editors/voiden/utils/expandLinkedBlocks";
 import { Tip } from "@/core/components/ui/Tip";
 import { useSendRestRequest } from "@/core/request-engine/hooks";
 
 // Read-only editor that renders an entire file's worth of blocks.
-function FilePreviewEditor({ blocks }: { blocks: JSONContent[] }) {
+function FilePreviewEditor({ blocks, pmNodePos }: { blocks: JSONContent[]; pmNodePos?: number }) {
   const { finalExtensions } = useVoidenExtensionsAndSchema();
+  const { term, matchCase, matchWholeWord, useRegex, currentLinkedPmNodePos, currentLinkedBlockUid, currentLinkedLocalIndex } = useSearchStore(useShallow((s) => ({
+    term: s.term,
+    matchCase: s.matchCase,
+    matchWholeWord: s.matchWholeWord,
+    useRegex: s.useRegex,
+    currentLinkedPmNodePos: s.currentLinkedPmNodePos,
+    currentLinkedBlockUid: s.currentLinkedBlockUid,
+    currentLinkedLocalIndex: s.currentLinkedLocalIndex,
+  })));
+  const isCurrent = pmNodePos !== undefined && currentLinkedPmNodePos === pmNodePos && currentLinkedBlockUid === null;
 
   const previewExtensions = useMemo(
-    () => finalExtensions.filter((ext) => ext?.name !== "seamlessNavigation"),
+    () => [...finalExtensions.filter((ext) => ext?.name !== "seamlessNavigation"), FindHighlightExtension],
     [finalExtensions],
   );
 
@@ -30,10 +44,25 @@ function FilePreviewEditor({ blocks }: { blocks: JSONContent[] }) {
     [blocks, previewExtensions],
   );
 
+  useEffect(() => {
+    if (!editor || editor.isDestroyed) return;
+    editor.view.dispatch(
+      editor.state.tr.setMeta(findHighlightPluginKey, {
+        term,
+        matchCase,
+        matchWholeWord,
+        useRegex,
+        currentMatch: isCurrent ? currentLinkedLocalIndex : -1,
+      }),
+    );
+  }, [editor, term, matchCase, matchWholeWord, useRegex, isCurrent, currentLinkedLocalIndex]);
+
   return (
-    <div className="w-full">
-      <EditorContent editor={editor} />
-    </div>
+    <LinkedFilePmNodePosContext.Provider value={pmNodePos}>
+      <div className="w-full">
+        <EditorContent editor={editor} />
+      </div>
+    </LinkedFilePmNodePosContext.Provider>
   );
 }
 
@@ -200,7 +229,7 @@ const LinkedFileNodeView = ({ node, editor, getPos }: any) => {
                 Loading {fileName}…
               </div>
             ) : blocks && blocks.length > 0 ? (
-              <FilePreviewEditor blocks={blocks} />
+              <FilePreviewEditor blocks={blocks} pmNodePos={getPos()} />
             ) : null}
           </div>
         )}
