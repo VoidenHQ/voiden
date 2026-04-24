@@ -1,5 +1,22 @@
 [
   {
+    "version": "v1.5.1",
+    "date": "24/04/2026",
+    "title": "Binary File Execution, StitchRunner Temp Tab & Editor Find/Replace Fixes",
+    "description": "Patch release addressing binary file attachments being skipped during request execution, StitchRunner results not appearing on untitled temp tabs, and Voiden editor find/replace panel positioning and scroll behaviour.",
+    "icon": "Bug",
+    "iconColor": "text-red-400",
+    "bgColor": "bg-gradient-to-br from-slate-900 to-red-950",
+    "changes": {
+      "Fixed": [
+        "Binary file attachments were silently skipped during request execution — attached binary files are now correctly accessed and forwarded when a request is sent",
+        "StitchRunner results were not appearing on untitled (temp) tabs — the run result lookup was using file path, which temp tabs do not have; lookup now uses tab ID, consistent with how the response panel store already resolves results",
+        "cURL paste with a binary file path now correctly parses and maps the file reference, bringing parity with manual binary file attachment behaviour",
+        "Voiden editor find/replace panel was positioned fixed to the top of the viewport instead of the editor container — it now stays anchored within the editor bounds; find next, find previous, and the associated scroll behaviour are also corrected"
+      ]
+    }
+  },
+  {
     "version": "v1.5.0",
     "date": "22/04/2026",
     "title": "Smarter Search, Editor Stability & GraphQL Polish",
@@ -78,70 +95,70 @@
     }
   },
   {
-  "version": "v1.4.4",
-  "date": "09/04/2026",
-  "title": "OAuth2 Auto-Fire, File Tree Reflection & Large File Import",
-  "description": "Release adding automatic OAuth2 flow execution on request run, instant file tree updates when files are created externally or by generators, and significant improvements to importing and working with large OpenAPI and Postman JSON/YAML files.",
-  "icon": "Zap",
-  "iconColor": "text-yellow-400",
-  "bgColor": "bg-gradient-to-br from-yellow-900 to-orange-900",
-  "changes": {
-    "Added": [
-      "OAuth2 auto-fire — when an OAuth2 block is configured, the authorization flow now triggers automatically on request execution without requiring a manual step",
-      "Cancel generation — a cancel button now appears beside the Generate Voiden Files button while a Postman import is in progress, letting you stop mid-run without waiting for it to complete"
-    ],
-    "Improved": [
-      "File tree reflects instantly — files created by AI agents, code generators, or any external process now appear in the file explorer immediately instead of after a multi-second delay; fixed by busting the server-side tree cache on every file system event and reducing chokidar write-finish thresholds from 300 ms to 50 ms",
-      "Generate Voiden Files button now appears on large OpenAPI and Postman files — the button predicate correctly evaluates after streaming completes by storing a per-tab content snapshot, and survives tab switches without re-evaluating from scratch",
-      "Generate Voiden Files progress survives tab switches — import state is persisted per tab so switching away and back no longer resets the progress display or the in-flight generation"
-    ],
-    "Fixed": [
-      "Postman and OpenAPI import buttons were not shown on large files loaded via streaming because tab.content was always empty until fully loaded",
-      "Saving a streamable file wrote an empty string or a 512 KB truncated snapshot to disk, resulting in an empty file on reopen",
-      "Large file save froze the app by serialising the entire file content in a single IPC message; now split into sequential 512 KB chunks",
-      "Generate Voiden Files showed a 'Postman collection is empty' error on large JSON files because tab.content was not populated for streamable tabs; now falls back to reading from disk"
-    ]
-  }
-},
+    "version": "v1.4.4",
+    "date": "09/04/2026",
+    "title": "OAuth2 Auto-Fire, File Tree Reflection & Large File Import",
+    "description": "Release adding automatic OAuth2 flow execution on request run, instant file tree updates when files are created externally or by generators, and significant improvements to importing and working with large OpenAPI and Postman JSON/YAML files.",
+    "icon": "Zap",
+    "iconColor": "text-yellow-400",
+    "bgColor": "bg-gradient-to-br from-yellow-900 to-orange-900",
+    "changes": {
+      "Added": [
+        "OAuth2 auto-fire — when an OAuth2 block is configured, the authorization flow now triggers automatically on request execution without requiring a manual step",
+        "Cancel generation — a cancel button now appears beside the Generate Voiden Files button while a Postman import is in progress, letting you stop mid-run without waiting for it to complete"
+      ],
+      "Improved": [
+        "File tree reflects instantly — files created by AI agents, code generators, or any external process now appear in the file explorer immediately instead of after a multi-second delay; fixed by busting the server-side tree cache on every file system event and reducing chokidar write-finish thresholds from 300 ms to 50 ms",
+        "Generate Voiden Files button now appears on large OpenAPI and Postman files — the button predicate correctly evaluates after streaming completes by storing a per-tab content snapshot, and survives tab switches without re-evaluating from scratch",
+        "Generate Voiden Files progress survives tab switches — import state is persisted per tab so switching away and back no longer resets the progress display or the in-flight generation"
+      ],
+      "Fixed": [
+        "Postman and OpenAPI import buttons were not shown on large files loaded via streaming because tab.content was always empty until fully loaded",
+        "Saving a streamable file wrote an empty string or a 512 KB truncated snapshot to disk, resulting in an empty file on reopen",
+        "Large file save froze the app by serialising the entire file content in a single IPC message; now split into sequential 512 KB chunks",
+        "Generate Voiden Files showed a 'Postman collection is empty' error on large JSON files because tab.content was not populated for streamable tabs; now falls back to reading from disk"
+      ]
+    }
+  },
   {
-  "version": "v1.4.3",
-  "date": "08/04/2026",
-  "title": "Multi-Request, Stitch Runner & Large Response Handling",
-  "description": "Stable release introducing multi-request support, the Stitch workflow runner for batch-executing .void files, a redesigned streaming UI for WebSocket and gRPC, chunked large JSON response handling, file explorer performance improvements, and a range of editor and stability fixes.",
-  "icon": "Sparkles",
-  "iconColor": "text-violet-400",
-  "bgColor": "bg-gradient-to-br from-violet-900 to-indigo-900",
-  "changes": {
-    "Added": [
-      "Stitch — workflow runner for batch-executing multiple .void files sequentially via the /stitch slash command, with glob include/exclude patterns, stop-on-failure, variable isolation, configurable delay between files, environment selection, and Excel export for run results",
-      "Multi-request in a single file — multiple requests can coexist in one .void file using visual separators with color-coded borders; Cmd+Enter runs the focused section, Cmd+Shift+Enter runs all sections sequentially, with headers, body, and auth fully scoped per section",
-      "Unified streaming UI — WebSocket and gRPC now share a common layout with a collapsible header showing protocol label, connection status and message stats, a compact message input toolbar at the bottom, and Cmd+Enter to send",
-      "Cross-panel search — Cmd+F now searches across both the editor and response panel simultaneously, with highlights synced inside embedded CodeMirror editors",
-      "Bottom panel layout for response viewer — move the response panel below the editor via the panel toggle; the right panel spans the full editor height while the bottom panel shares space with the terminal",
-      "Open with Voiden — open .void, .json, .yaml, and other supported file types directly in Voiden via the OS \"Open with\" dialog",
-      "Inline rename on duplicate — duplicating a file now immediately opens an inline rename input so you can name it in one step without needing to right-click and rename separately",
-      "Developer settings — a new Developer section in settings with a toggle to show system logs, giving a real-time view of internal process timings for diagnosing slow operations",
-      "Table cell autocomplete — header and query parameter table cells now show autocomplete suggestions for common header names and content types",
-      "Request options block — new /options slash command for configuring per-request settings such as timeout and follow redirects"
-    ],
-    "Improved": [
-      "Large JSON response handling — huge JSON responses are now loaded in chunks instead of all at once to prevent UI freezes; syntax highlighting for large responses is opt-in and must be triggered manually to keep scrolling fast",
-      "Code block max-height setting — a new setting lets you control how tall code blocks can grow before they scroll, so large responses don't push other content off screen",
-      "File explorer lazy loading to handle large projects without performance degradation",
-      "File link and search now load results progressively at a threshold to avoid overwhelming and hanging Voiden on large codebases",
-      "Git panel reliability — the git panel no longer incorrectly refreshes on project change or window close events and now consistently reflects the correct repository state"
-    ],
-    "Fixed": [
-      "Editor highlight on file open — syntax highlighting for environment and runtime variables now applies correctly when a file is first opened, without requiring an edit or cursor movement",
-      "Stitch runner not showing on unsaved or temporary tabs — Stitch is now accessible from any tab, not just saved .void files",
-      "Files could not be attached and sent in FormData or Binary request bodies",
-      "Renaming a file or block now triggers the update references dialog to keep all linked files in sync",
-      "Downloads now use the filename from the server's Content-Disposition header instead of a random UUID",
-      "Comments inside JSON blocks now parse correctly without causing errors",
-      "Git clone now shows a progress indicator during the clone operation"
-    ]
-  }
-},
+    "version": "v1.4.3",
+    "date": "08/04/2026",
+    "title": "Multi-Request, Stitch Runner & Large Response Handling",
+    "description": "Stable release introducing multi-request support, the Stitch workflow runner for batch-executing .void files, a redesigned streaming UI for WebSocket and gRPC, chunked large JSON response handling, file explorer performance improvements, and a range of editor and stability fixes.",
+    "icon": "Sparkles",
+    "iconColor": "text-violet-400",
+    "bgColor": "bg-gradient-to-br from-violet-900 to-indigo-900",
+    "changes": {
+      "Added": [
+        "Stitch — workflow runner for batch-executing multiple .void files sequentially via the /stitch slash command, with glob include/exclude patterns, stop-on-failure, variable isolation, configurable delay between files, environment selection, and Excel export for run results",
+        "Multi-request in a single file — multiple requests can coexist in one .void file using visual separators with color-coded borders; Cmd+Enter runs the focused section, Cmd+Shift+Enter runs all sections sequentially, with headers, body, and auth fully scoped per section",
+        "Unified streaming UI — WebSocket and gRPC now share a common layout with a collapsible header showing protocol label, connection status and message stats, a compact message input toolbar at the bottom, and Cmd+Enter to send",
+        "Cross-panel search — Cmd+F now searches across both the editor and response panel simultaneously, with highlights synced inside embedded CodeMirror editors",
+        "Bottom panel layout for response viewer — move the response panel below the editor via the panel toggle; the right panel spans the full editor height while the bottom panel shares space with the terminal",
+        "Open with Voiden — open .void, .json, .yaml, and other supported file types directly in Voiden via the OS \"Open with\" dialog",
+        "Inline rename on duplicate — duplicating a file now immediately opens an inline rename input so you can name it in one step without needing to right-click and rename separately",
+        "Developer settings — a new Developer section in settings with a toggle to show system logs, giving a real-time view of internal process timings for diagnosing slow operations",
+        "Table cell autocomplete — header and query parameter table cells now show autocomplete suggestions for common header names and content types",
+        "Request options block — new /options slash command for configuring per-request settings such as timeout and follow redirects"
+      ],
+      "Improved": [
+        "Large JSON response handling — huge JSON responses are now loaded in chunks instead of all at once to prevent UI freezes; syntax highlighting for large responses is opt-in and must be triggered manually to keep scrolling fast",
+        "Code block max-height setting — a new setting lets you control how tall code blocks can grow before they scroll, so large responses don't push other content off screen",
+        "File explorer lazy loading to handle large projects without performance degradation",
+        "File link and search now load results progressively at a threshold to avoid overwhelming and hanging Voiden on large codebases",
+        "Git panel reliability — the git panel no longer incorrectly refreshes on project change or window close events and now consistently reflects the correct repository state"
+      ],
+      "Fixed": [
+        "Editor highlight on file open — syntax highlighting for environment and runtime variables now applies correctly when a file is first opened, without requiring an edit or cursor movement",
+        "Stitch runner not showing on unsaved or temporary tabs — Stitch is now accessible from any tab, not just saved .void files",
+        "Files could not be attached and sent in FormData or Binary request bodies",
+        "Renaming a file or block now triggers the update references dialog to keep all linked files in sync",
+        "Downloads now use the filename from the server's Content-Disposition header instead of a random UUID",
+        "Comments inside JSON blocks now parse correctly without causing errors",
+        "Git clone now shows a progress indicator during the clone operation"
+      ]
+    }
+  },
   {
     "version": "v1.4.3-beta.1",
     "date": "02/04/2026",
