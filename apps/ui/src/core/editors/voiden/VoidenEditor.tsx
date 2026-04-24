@@ -1537,11 +1537,11 @@ const VoidenEditorInner = ({
     if (!editor || !isActive) return;
 
     function handleClickOutside(event: MouseEvent) {
-      const slot = document.getElementById("editor-toolbar-search-slot");
-      if (editorRef.current && !editorRef.current.contains(event.target as Node) &&
-          !slot?.contains(event.target as Node)) {
-        editor.commands.blur();
-      }
+      const target = event.target as Node;
+      if (!editorRef.current || editorRef.current.contains(target)) return;
+      const el = target as Element;
+      if (el.closest('input, textarea, select, [contenteditable]')) return;
+      editor.commands.blur();
     }
 
     document.addEventListener("mousedown", handleClickOutside);

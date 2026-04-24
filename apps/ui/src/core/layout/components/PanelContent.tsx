@@ -562,7 +562,7 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
           )}
         </div>}
         {isSearchOpen && (
-          <div id="editor-toolbar-search-slot" className="px-2 pt-[5px] pb-1"><PersistentSearchPanel /></div>
+          <div className="px-2 pt-[5px] pb-1"><PersistentSearchPanel /></div>
         )}
       </div>}
       <div className="flex-1 bg-editor relative" id="code-editor-container" data-editor-scroll-container="true">
