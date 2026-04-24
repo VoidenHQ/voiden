@@ -75,7 +75,9 @@ export interface StitchFileResult {
 /** Overall stitch run state */
 export interface StitchRunState {
   id: string;
-  /** The source file path that triggered this stitch run */
+  /** The tab that triggered this stitch run (preferred identity for lookup/storage) */
+  tabId: string;
+  /** The source file path that triggered this stitch run; metadata only */
   sourceFilePath: string;
   status: 'idle' | 'running' | 'completed' | 'cancelled' | 'error';
   startedAt: number | null;
@@ -100,6 +102,7 @@ export interface StitchSummary {
 export function createEmptyRun(): StitchRunState {
   return {
     id: '',
+    tabId: '',
     sourceFilePath: '',
     status: 'idle',
     startedAt: null,

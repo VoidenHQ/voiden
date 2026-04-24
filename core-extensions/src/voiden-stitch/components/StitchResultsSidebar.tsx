@@ -47,53 +47,23 @@ function toCurl(req: NonNullable<StitchSectionResult['requestInfo']>): string {
   return parts.join(' \\\n  ');
 }
 
-/** Get the active editor file path reactively */
-function useEditorFilePath(): string | null {
-  const [path, setPath] = useState<string | null>(null);
-  const storeRef = useRef<any>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        // @ts-ignore - Vite dynamic import
-        const mod = await import(/* @vite-ignore */ '@/core/editors/voiden/VoidenEditor');
-        if (cancelled) return;
-        storeRef.current = mod.useVoidenEditorStore;
-        setPath(mod.useVoidenEditorStore.getState().filePath);
-        const unsub = mod.useVoidenEditorStore.subscribe((state: any) => {
-          if (!cancelled) setPath(state.filePath);
-        });
-        return () => { cancelled = true; unsub(); };
-      } catch { /* ignore */ }
-    })();
-    return () => { cancelled = true; };
-  }, []);
-
-  return path;
-}
-
-function useStitchRun(overridePath?: string): StitchRunState {
-  const editorPath = useEditorFilePath();
-  const effectivePath = overridePath || editorPath;
+function useStitchRun(tabId?: string): StitchRunState {
   const [run, setRun] = useState<StitchRunState>(stitchStore.getRun());
 
   useEffect(() => {
-    // When editor file changes, switch to that file's results
-    if (effectivePath) {
-      stitchStore.setActiveSource(effectivePath);
+    if (tabId) {
+      stitchStore.setActiveRun(tabId);
     }
-  }, [effectivePath]);
+  }, [tabId]);
 
   useEffect(() => {
     const update = () => {
-      // Show results for the effective file path, or the last active run
-      const fileRun = effectivePath ? stitchStore.getRun(effectivePath) : stitchStore.getRun();
+      const fileRun = tabId ? stitchStore.getRun(tabId) : stitchStore.getRun();
       setRun(fileRun);
     };
     update();
     return stitchStore.subscribe(update);
-  }, [effectivePath]);
+  }, [tabId]);
 
   return run;
 }
@@ -536,8 +506,8 @@ const FileRow = ({ file, defaultExpanded, onOpenFile }: { file: StitchFileResult
   );
 };
 
-export const StitchResultsSidebar = ({ sourceFilePath }: { sourceFilePath?: string }) => {
-  const run = useStitchRun(sourceFilePath);
+export const StitchResultsSidebar = ({ tabId }: { tabId?: string }) => {
+  const run = useStitchRun(tabId);
   const bottomRef = useRef<HTMLDivElement>(null);
   const [allExpanded, setAllExpanded] = useState(false);
   const [filterText, setFilterText] = useState('');
