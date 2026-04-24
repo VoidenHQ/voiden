@@ -1,5 +1,5 @@
 import { useSettings, ProxyConfig } from "@/core/settings/hooks/useSettings";
-import { Check, RefreshCw, Plus, Trash2, Edit2, Palette, FileText, Network, Search, Keyboard, ChevronUp, ChevronDown, Settings, Plug, Code2 } from "lucide-react";
+import { Check, RefreshCw, Plus, Trash2, Edit2, Palette, FileText, Network, Search, Keyboard, ChevronUp, ChevronDown, Settings, Plug, Code2, Sparkles } from "lucide-react";
 import { useEffect, useMemo, useState, useRef } from "react";
 import { loadThemeById, getAvailableThemes } from "@/utils/themeLoader";
 import { Kbd } from "@/core/components/ui/kbd";
@@ -126,6 +126,7 @@ export const SettingsScreen = () => {
   const editorRef = useRef<HTMLElement>(null);
   const networkRef = useRef<HTMLElement>(null);
   const integrationsRef = useRef<HTMLElement>(null);
+  const aiSkillsRef = useRef<HTMLElement>(null);
   const developerRef = useRef<HTMLElement>(null);
   const keyboardRef = useRef<HTMLElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -139,6 +140,7 @@ export const SettingsScreen = () => {
     { id: "editor", label: "Editor", icon: <FileText className="w-4 h-4" />, ref: editorRef },
     { id: "network", label: "Network", icon: <Network className="w-4 h-4" />, ref: networkRef },
     { id: "integrations", label: "Integrations", icon: <Plug className="w-4 h-4" />, ref: integrationsRef },
+    { id: "ai-skills", label: "AI Skills", icon: <Sparkles className="w-4 h-4" />, ref: aiSkillsRef },
     { id: "developer", label: "Developer", icon: <Code2 className="w-4 h-4" />, ref: developerRef },
     { id: "keyboard", label: "Keyboard", icon: <Keyboard className="w-4 h-4" />, ref: keyboardRef },
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -251,8 +253,12 @@ export const SettingsScreen = () => {
 
   const scrollToSection = (sectionId: string) => {
     const section = sections.find(s => s.id === sectionId);
-    if (section?.ref.current) {
-      section.ref.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (section?.ref.current && contentRef.current) {
+      const container = contentRef.current;
+      const containerRect = container.getBoundingClientRect();
+      const elementRect = section.ref.current.getBoundingClientRect();
+      const offset = elementRect.top - containerRect.top + container.scrollTop - 24;
+      container.scrollTo({ top: offset, behavior: 'smooth' });
       setActiveSection(sectionId);
     }
   };
@@ -1262,36 +1268,38 @@ export const SettingsScreen = () => {
               )}
             </Card>
 
-            {/* AI Skills */}
+          </section>
+
+          {/* ── AI Skills ────────────────────────────────────────── */}
+          <section ref={aiSkillsRef} data-section="ai-skills" className="mb-10">
+            <h2 className="text-lg font-semibold text-text mb-4">AI Skills</h2>
+
             {matchesSearch("AI skills claude codex voiden skill enable") && (
-              <>
-                <GroupLabel>AI Skills</GroupLabel>
-                <Card>
-                  <Row
-                    title="Claude Code"
-                    description="Install skill so Claude agents understand .void files."
-                    control={
-                      <Toggle
-                        checked={settings.skills?.claude ?? false}
-                        onChange={handleClaudeSkillToggle}
-                        disabled={claudeSkillToggling}
-                      />
-                    }
-                  />
-                  <Row
-                    title="Codex"
-                    description="Install skill so Codex agents understand .void files."
-                    border={false}
-                    control={
-                      <Toggle
-                        checked={settings.skills?.codex ?? false}
-                        onChange={handleCodexSkillToggle}
-                        disabled={codexSkillToggling}
-                      />
-                    }
-                  />
-                </Card>
-              </>
+              <Card>
+                <Row
+                  title="Claude Code"
+                  description="Install skill so Claude agents understand .void files."
+                  control={
+                    <Toggle
+                      checked={settings.skills?.claude ?? false}
+                      onChange={handleClaudeSkillToggle}
+                      disabled={claudeSkillToggling}
+                    />
+                  }
+                />
+                <Row
+                  title="Codex"
+                  description="Install skill so Codex agents understand .void files."
+                  border={false}
+                  control={
+                    <Toggle
+                      checked={settings.skills?.codex ?? false}
+                      onChange={handleCodexSkillToggle}
+                      disabled={codexSkillToggling}
+                    />
+                  }
+                />
+              </Card>
             )}
           </section>
 
