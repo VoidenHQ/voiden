@@ -1,6 +1,6 @@
 /**
  * Reactive store for stitch run state.
- * Stores results per source file path (like responseStore stores per tab).
+ * Stores results per triggering tab ID.
  */
 
 import {
@@ -12,12 +12,10 @@ import {
 
 type Listener = () => void;
 
-/** All stitch runs keyed by source file path */
+/** All stitch runs keyed by tab ID when available, otherwise source file path */
 let runs: Record<string, StitchRunState> = {};
-/** Secondary index: maps tabId → sourceFilePath for temp/unsaved file lookup */
-let tabIdToSourcePath: Record<string, string> = {};
-/** Currently active source file path (last run or last viewed) */
-let activeSourcePath: string = '';
+/** Currently active run key (tabId-first, source path fallback) */
+let activeRunKey: string = '';
 
 const listeners = new Set<Listener>();
 
@@ -26,22 +24,30 @@ function notify() {
 }
 
 function getActiveRun(): StitchRunState {
-  return runs[activeSourcePath] || createEmptyRun();
+  return runs[activeRunKey] || createEmptyRun();
+}
+
+function resolveRunKey(tabId?: string, sourceFilePath?: string): string {
+  return tabId || sourceFilePath || '';
 }
 
 export const stitchStore = {
-  /** Start a new stitch run for the given source file.
-   *  Pass `tabId` for unsaved (temp) files so results can be found by tab. */
-  startRun(filePaths: { filePath: string; fileName: string }[], sourceFilePath: string, tabId?: string) {
-    activeSourcePath = sourceFilePath;
-    // Clear any previous run results for this source file
-    delete runs[sourceFilePath];
-    if (tabId) tabIdToSourcePath[tabId] = sourceFilePath;
+  /** Start a new stitch run keyed by tab ID, falling back to source path when needed. */
+  startRun(
+    filePaths: { filePath: string; fileName: string }[],
+    options: { sourceFilePath?: string; tabId?: string } = {},
+  ) {
+    const runKey = resolveRunKey(options.tabId, options.sourceFilePath);
+    if (!runKey) return;
 
-    runs[sourceFilePath] = {
+    activeRunKey = runKey;
+    delete runs[runKey];
+
+    runs[runKey] = {
       ...createEmptyRun(),
       id: `stitch-${Date.now()}`,
-      sourceFilePath,
+      tabId: options.tabId || '',
+      sourceFilePath: options.sourceFilePath || '',
       status: 'running',
       startedAt: Date.now(),
       files: filePaths.map((f) => ({
@@ -68,9 +74,9 @@ export const stitchStore = {
 
   /** Mark a file as currently running. */
   setFileRunning(index: number) {
-    const run = runs[activeSourcePath];
+    const run = runs[activeRunKey];
     if (!run || index < 0 || index >= run.files.length) return;
-    runs[activeSourcePath] = {
+    runs[activeRunKey] = {
       ...run,
       currentFileIndex: index,
       files: run.files.map((f, i) =>
@@ -82,12 +88,12 @@ export const stitchStore = {
 
   /** Update a file's result after execution. */
   updateFileResult(index: number, result: Partial<StitchFileResult>) {
-    const run = runs[activeSourcePath];
+    const run = runs[activeRunKey];
     if (!run || index < 0 || index >= run.files.length) return;
     const updatedFiles = run.files.map((f, i) =>
       i === index ? { ...f, ...result } : f
     );
-    runs[activeSourcePath] = {
+    runs[activeRunKey] = {
       ...run,
       files: updatedFiles,
       summary: computeSummary(updatedFiles),
@@ -97,10 +103,10 @@ export const stitchStore = {
 
   /** Complete the run. */
   completeRun() {
-    const run = runs[activeSourcePath];
+    const run = runs[activeRunKey];
     if (!run) return;
     const now = Date.now();
-    runs[activeSourcePath] = {
+    runs[activeRunKey] = {
       ...run,
       status: 'completed',
       completedAt: now,
@@ -112,7 +118,7 @@ export const stitchStore = {
 
   /** Cancel the run and mark remaining files as skipped. */
   cancelRun() {
-    const run = runs[activeSourcePath];
+    const run = runs[activeRunKey];
     if (!run) return;
     const now = Date.now();
     const updatedFiles = run.files.map((f) =>
@@ -120,7 +126,7 @@ export const stitchStore = {
         ? { ...f, status: 'skipped' as const }
         : f
     );
-    runs[activeSourcePath] = {
+    runs[activeRunKey] = {
       ...run,
       status: 'cancelled',
       completedAt: now,
@@ -133,10 +139,10 @@ export const stitchStore = {
 
   /** Mark run as errored. */
   errorRun(error: string) {
-    const run = runs[activeSourcePath];
+    const run = runs[activeRunKey];
     if (!run) return;
     const now = Date.now();
-    runs[activeSourcePath] = {
+    runs[activeRunKey] = {
       ...run,
       status: 'error',
       completedAt: now,
@@ -146,19 +152,12 @@ export const stitchStore = {
     notify();
   },
 
-  /** Get run for a source file path, or fall back to tab ID for unsaved files. */
-  getRun(sourceFilePath?: string, tabId?: string): StitchRunState {
-    if (sourceFilePath) {
-      const byPath = runs[sourceFilePath];
-      if (byPath) return byPath;
+  /** Get run for a tab ID, falling back to source path only if explicitly provided. */
+  getRun(tabId?: string, sourceFilePath?: string): StitchRunState {
+    const runKey = resolveRunKey(tabId, sourceFilePath);
+    if (runKey) {
+      return runs[runKey] || createEmptyRun();
     }
-    if (tabId) {
-      const path = tabIdToSourcePath[tabId];
-      if (path && runs[path]) return runs[path];
-    }
-    // If specific args were provided but no match found, return an empty run
-    // so other tabs don't inherit the last active stitch run.
-    if (sourceFilePath || tabId) return createEmptyRun();
     return getActiveRun();
   },
 
@@ -167,30 +166,30 @@ export const stitchStore = {
     return runs;
   },
 
-  /** Get the active source path. */
-  getActiveSourcePath(): string {
-    return activeSourcePath;
+  /** Get the active run key. */
+  getActiveRunKey(): string {
+    return activeRunKey;
   },
 
-  /** Set active source path (when user switches tabs). */
-  setActiveSource(path: string) {
-    if (activeSourcePath !== path && runs[path]) {
-      activeSourcePath = path;
+  /** Set active run using tab ID first and source path as fallback. */
+  setActiveRun(tabId?: string, sourceFilePath?: string) {
+    const runKey = resolveRunKey(tabId, sourceFilePath);
+    if (runKey && activeRunKey !== runKey && runs[runKey]) {
+      activeRunKey = runKey;
       notify();
     }
   },
 
   /** Clear results for the active source. */
   clear() {
-    delete runs[activeSourcePath];
+    delete runs[activeRunKey];
     notify();
   },
 
   /** Clear all results. */
   clearAll() {
     runs = {};
-    tabIdToSourcePath = {};
-    activeSourcePath = '';
+    activeRunKey = '';
     notify();
   },
 

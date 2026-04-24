@@ -356,6 +356,7 @@ const VoidenEditorInner = ({
   const editorRef = useRef<HTMLDivElement | null>(null);
   const updateTimerRef = useRef<number | null>(null);
   const autoSaveTimerRef = useRef<number | null>(null);
+  const searchNavScrollRef = useRef(false);
   const setUnsaved = useEditorStore((state) => state.setUnsaved);
   const clearUnsaved = useEditorStore((state) => state.clearUnsaved);
   const setScrollPosition = useEditorStore((state) => state.setScrollPosition);
@@ -1089,7 +1090,8 @@ const VoidenEditorInner = ({
     };
 
     const handleScroll = () => {
-      if (isUserScrolling) {
+      if (isUserScrolling || searchNavScrollRef.current) {
+        searchNavScrollRef.current = false;
         currentTarget = scrollContainer.scrollTop;
         // Throttle Zustand writes to every 200ms
         if (scrollSaveTimer === null) {
@@ -1293,19 +1295,33 @@ const VoidenEditorInner = ({
     const match = matchPositions[matchIndex];
     const { source } = match;
 
+    const scrollContainerEl = document.getElementById("code-editor-container") as HTMLElement | null;
+
+    const scrollMatchIntoView = (domNode: HTMLElement) => {
+      if (!scrollContainerEl) {
+        domNode.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        return;
+      }
+      const containerRect = scrollContainerEl.getBoundingClientRect();
+      const nodeRect = domNode.getBoundingClientRect();
+      const relTop = nodeRect.top - containerRect.top + scrollContainerEl.scrollTop;
+      const target = relTop - scrollContainerEl.clientHeight / 2 + nodeRect.height / 2;
+      searchNavScrollRef.current = true;
+      scrollContainerEl.scrollTop = Math.max(0, target);
+    };
+
     if (source.type === "prosemirror") {
       editor.commands.setTextSelection({ from: source.from, to: source.to });
+      const domInfo = editor.view.domAtPos(source.from);
+      const node = domInfo.node instanceof HTMLElement ? domInfo.node : domInfo.node.parentElement;
+      if (node) scrollMatchIntoView(node);
       if (shouldFocus) editor.commands.focus();
     } else {
       // CodeMirror match: scroll PM to show the code block, then select in CM
       const cmView = findCmViewAtPos(editor.view, source.pmNodePos);
       if (cmView) {
-        // Scroll PM so the code block is visible
         const domNode = editor.view.nodeDOM(source.pmNodePos) as HTMLElement | null;
-        if (domNode) {
-          domNode.scrollIntoView({ block: "nearest", behavior: "smooth" });
-        }
-        // Select the match range in CM
+        if (domNode) scrollMatchIntoView(domNode);
         if (shouldFocus) cmView.focus();
         cmView.dispatch({
           selection: { anchor: source.cmFrom, head: source.cmTo },
@@ -1542,7 +1558,7 @@ const VoidenEditorInner = ({
   return (
     <div ref={editorRef} className="h-full w-full flex flex-col relative">
       {showFind && (
-        <div className="absolute top-2 right-2 z-50">
+        <div className="fixed top-[70px] right-2 z-50">
           <div className="bg-panel border border-border rounded-md shadow-[0_4px_12px_rgba(0,0,0,0.3)] overflow-hidden min-w-[550px] max-w-[550px]">
             {/* Find Section */}
             <div className="flex items-center gap-1.5 p-2.5">
