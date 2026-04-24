@@ -185,6 +185,97 @@ function insertParagraphNodes(view: EditorView, lines: string[]): void {
 const isAbsolutePath = (p: string) =>
   p.startsWith('/') || /^[A-Za-z]:[\\/]/.test(p);
 
+const normalizeMultipartValue = (value: unknown): string => String(value ?? "").trim().replace(/^"|"$/g, '');
+
+const isLikelyFilePathValue = (value: unknown): boolean => {
+  const v = normalizeMultipartValue(value);
+  if (!v || v.includes('://')) return false;
+  if (isAbsolutePath(v)) return true;
+  if (v.startsWith('./') || v.startsWith('../') || v.startsWith('~/')) return true;
+  if ((v.includes('/') || v.includes('\\')) && !v.endsWith('/') && !v.endsWith('\\')) return true;
+  return false;
+};
+
+async function getActiveProjectPath(): Promise<string | undefined> {
+  try {
+    // @ts-ignore
+    const { getQueryClient } = await import(/* @vite-ignore */ '@/main');
+    const qc = getQueryClient();
+    const projects = qc.getQueryData(["projects"]) as any;
+    return projects?.activeProject;
+  } catch {
+    return undefined;
+  }
+}
+
+async function buildMultipartRows(params: any[]): Promise<any[]> {
+  const activeProject = await getActiveProjectPath();
+
+  const makeCell = (content: any[]) => ({
+    type: 'tableCell',
+    attrs: { colspan: 1, rowspan: 1, colwidth: null },
+    content: [{ type: 'paragraph', content }],
+  });
+
+  return Promise.all(
+    params.map(async (param: any) => {
+      const keyCell = makeCell(param.name ? [{ type: 'text', text: param.name }] : []);
+
+      const rawFile = param.fileName
+        ? normalizeMultipartValue(param.fileName).replace(/^@/, '')
+        : null;
+
+      const rawPathFromValue = !rawFile && isLikelyFilePathValue(param.value)
+        ? normalizeMultipartValue(param.value)
+        : null;
+
+      const filePath = rawFile ?? rawPathFromValue;
+      const hasFileCandidate = !!filePath;
+
+      let resolvedPath = filePath;
+      let isExternalFile = false;
+      let hasValidFile = false;
+
+      if (filePath) {
+        if (!isAbsolutePath(filePath) && activeProject) {
+          try {
+            const joined = await (window as any).electron?.utils?.pathJoin?.(activeProject, filePath);
+            if (joined) {
+              const result = await (window as any).electron?.files?.hash?.(joined);
+              if (result?.exists) {
+                resolvedPath = joined;
+                isExternalFile = true;
+                hasValidFile = true;
+              }
+            }
+          } catch { /* best-effort */ }
+        } else if (isAbsolutePath(filePath)) {
+          try {
+            const result = await (window as any).electron?.files?.hash?.(filePath);
+            hasValidFile = !!result?.exists;
+            isExternalFile = hasValidFile;
+          } catch { /* best-effort */ }
+        }
+      }
+
+      const valCell = hasValidFile && resolvedPath
+        ? makeCell([{
+            type: 'fileLink',
+            attrs: {
+              filePath: resolvedPath,
+              filename: resolvedPath.split(/[\\/]/).pop() ?? resolvedPath,
+              isExternal: isExternalFile,
+            },
+          }])
+        : hasFileCandidate
+          ? makeCell([])
+          : makeCell(param.value ? [{ type: 'text', text: param.value }] : []);
+
+      return { type: 'tableRow', attrs: { disabled: false }, content: [keyCell, valCell] };
+    }),
+  );
+}
+
 /**
  * Show a themed dialog with Cancel / Replace / Append options for curl paste.
  * `sectionLabel` describes which section the cursor is in (for the replace option).
@@ -268,6 +359,9 @@ export function showCurlPasteDialog(sectionLabel?: string): Promise<"cancel" | "
  */
 export async function appendCurlAsNewSection(editor: Editor, request: ImportRequest) {
   const endPos = editor.state.doc.content.size;
+  const multipartRows = request.body?.mimeType === 'multipart/form-data' && request.body.params
+    ? await buildMultipartRows(request.body.params)
+    : null;
 
   // Build the request blocks as JSON
   const blocks: any[] = [
@@ -301,6 +395,11 @@ export async function appendCurlAsNewSection(editor: Editor, request: ImportRequ
       blocks.push(convertToYmlNode(request.body.text, ct));
     } else if (ct === "application/x-www-form-urlencoded" && request.body.params) {
       blocks.push(convertToUrlTableNode(request.body.params.map((p) => [p.name, p.value || ""])));
+    } else if (ct === "multipart/form-data" && multipartRows?.length) {
+      blocks.push({
+        type: "multipart-table",
+        content: [{ type: "table", content: multipartRows }],
+      });
     }
   }
 
@@ -313,77 +412,7 @@ export const pasteCurl = async (editor: Editor, request: ImportRequest) => {
   // Pre-resolve multipart file paths to absolute before the sync editor update.
   let multipartRows: any[] | null = null;
   if (request.body?.mimeType === 'multipart/form-data' && request.body.params) {
-    let activeProject: string | undefined;
-    try {
-      // @ts-ignore
-      const { getQueryClient } = await import(/* @vite-ignore */ '@/main');
-      const qc = getQueryClient();
-      const projects = (qc.getQueryData(["projects"]) as any);
-      activeProject = projects?.activeProject;
-    } catch { /* ignore */ }
-
-    const makeCell = (content: any[]) => ({
-      type: 'tableCell',
-      attrs: { colspan: 1, rowspan: 1, colwidth: null },
-      content: [{ type: 'paragraph', content }],
-    });
-
-    multipartRows = await Promise.all(
-      request.body.params.map(async (param: any) => {
-        const keyCell = makeCell(param.name ? [{ type: 'text', text: param.name }] : []);
-
-        // File path — from @path notation or a value that looks like a project-relative path
-        const rawFile = param.fileName
-          ? param.fileName.replace(/^"|"$/g, '').replace(/^@/, '')
-          : null;
-
-        // Treat param.value as a file path if it starts with / or \ and isn't a URL
-        const rawPathFromValue = !rawFile && param.value
-          ? (() => {
-              const v = String(param.value).trim();
-              return (v.startsWith('/') || v.startsWith('\\')) && !v.includes('://') ? v : null;
-            })()
-          : null;
-
-        const filePath = rawFile ?? rawPathFromValue;
-
-        let resolvedPath = filePath;
-        let isExternalFile = false;
-
-        if (rawFile) {
-          if (!isAbsolutePath(rawFile) && activeProject) {
-            // Relative @path → try to resolve to absolute
-            try {
-              const joined = await (window as any).electron?.utils?.pathJoin?.(activeProject, rawFile);
-              if (joined) {
-                const result = await (window as any).electron?.files?.hash?.(joined);
-                if (result?.exists) { resolvedPath = joined; isExternalFile = true; }
-              }
-            } catch { /* best-effort */ }
-          } else {
-            // Looks absolute — confirm it actually exists on the filesystem
-            try {
-              const result = await (window as any).electron?.files?.hash?.(rawFile);
-              isExternalFile = !!result?.exists;
-            } catch { /* best-effort */ }
-          }
-        }
-        // rawPathFromValue: always project-relative → isExternalFile stays false
-
-        const valCell = resolvedPath
-          ? makeCell([{
-              type: 'fileLink',
-              attrs: {
-                filePath: resolvedPath,
-                filename: resolvedPath.split(/[\\/]/).pop() ?? resolvedPath,
-                isExternal: isExternalFile,
-              },
-            }])
-          : makeCell(param.value ? [{ type: 'text', text: param.value }] : []);
-
-        return { type: 'tableRow', attrs: { disabled: false }, content: [keyCell, valCell] };
-      }),
-    );
+    multipartRows = await buildMultipartRows(request.body.params);
   }
 
   updateEditorContent(editor, (editorJsonContent) => {

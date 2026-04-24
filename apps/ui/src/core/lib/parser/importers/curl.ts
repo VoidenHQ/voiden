@@ -35,6 +35,14 @@ interface PairsByName {
   [name: string]: Pair[];
 }
 
+const isLikelyFilePathValue = (value: string): boolean => {
+  if (!value || value.includes("://")) return false;
+  if (value.startsWith("/") || value.startsWith("\\") || /^[A-Za-z]:[\\/]/.test(value)) return true;
+  if (value.startsWith("./") || value.startsWith("../") || value.startsWith("~/")) return true;
+  if ((value.includes("/") || value.includes("\\")) && !value.endsWith("/") && !value.endsWith("\\")) return true;
+  return false;
+};
+
 const importCommand = (parseEntries: ParseEntry[], rawData?: string): ImportRequest => {
   parseEntries = parseEntries
     .filter((i) => {
@@ -191,8 +199,13 @@ const importCommand = (parseEntries: ParseEntry[], rawData?: string): ImportRequ
       name,
     };
 
-    if (value.indexOf("@") === 0) {
-      item.fileName = value.slice(1);
+    const normalizedValue = value?.trim().replace(/^"|"$/g, "") || "";
+
+    if (normalizedValue.indexOf("@") === 0) {
+      item.fileName = normalizedValue.slice(1);
+      item.type = "file";
+    } else if (isLikelyFilePathValue(normalizedValue)) {
+      item.fileName = normalizedValue;
       item.type = "file";
     } else {
       item.value = value;
