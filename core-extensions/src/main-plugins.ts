@@ -1,7 +1,7 @@
 /**
  * Auto-generated main-process plugin map
  * DO NOT EDIT MANUALLY - run 'yarn generate-registry' to update
- * Generated on: 2026-03-23T00:49:29.617Z
+ * Generated on: 2026-04-28T10:47:34.638Z
  */
 
 import voiden_advanced_authMainPlugin from './voiden-advanced-auth/main-process';

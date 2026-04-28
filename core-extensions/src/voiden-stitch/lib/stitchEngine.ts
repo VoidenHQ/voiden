@@ -360,6 +360,16 @@ export async function runStitch(
     }
   }
 
+  // Persist this run to .voiden/stitch-runner/ history
+  if (currentFilePath) {
+    const completedRun = stitchStore.getRun(ctx.tabId, currentFilePath);
+    if (completedRun.id && completedRun.status !== 'idle' && completedRun.status !== 'running') {
+      import('./stitchHistory').then(({ saveStitchHistory }) => {
+        saveStitchHistory(currentFilePath, completedRun).catch(() => {});
+      });
+    }
+  }
+
   return { matchedCount: matchedFiles.length };
 }
 
