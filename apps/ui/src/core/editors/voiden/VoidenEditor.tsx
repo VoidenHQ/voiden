@@ -100,6 +100,7 @@ import { useActiveEnvironment, useEnvironmentKeys, useEnvironments } from "@/cor
 import { environmentHighlighter, updateEnvironmentData, updateEnvironmentKeys } from "./extensions/environmentHighlighter";
 import { ReqSuggestion } from "./extensions/VariableReqSuggesion";
 import { ResSuggestion } from "./extensions/VariableResSuggestion";
+import { InlineVarSuggestion, updateInlineEnvKeys, updateInlineProcessKeys } from "./extensions/InlineVarSuggestion";
 import { useContentStore } from "@/core/stores/ContentStore";
 import { saveFileUtil } from "@/core/file-system/hooks";
 import { ArrowDownIcon, ArrowUpIcon, X } from "lucide-react";
@@ -209,6 +210,7 @@ export const useVoidenExtensionsAndSchema = () => {
       uniqueIdExtension,
       ReqSuggestion,
       ResSuggestion,
+      InlineVarSuggestion,
       environmentHighlighter(envData ?? {}),
       variableHighlighter(voidVariableData ?? {}),
       DocumentPreserver, // Preserves unknown nodes from disabled plugins
@@ -1047,6 +1049,15 @@ const VoidenEditorInner = ({
     updateVariableData(voidVariableData ?? {});
     editor.view.dispatch(editor.state.tr.setMeta("forceVariableHighlightUpdate", true));
   }, [editor, voidVariableData, isActive]);
+
+  // Feed env and runtime keys into the inline ghost-text suggestion.
+  useEffect(() => {
+    updateInlineEnvKeys(envKeys ?? []);
+  }, [envKeys]);
+
+  useEffect(() => {
+    updateInlineProcessKeys(voidVariableKeys ?? []);
+  }, [voidVariableKeys]);
 
   // When this tab becomes active, refresh environment keys, file-link existence
   // checks, and block-link content so stale data from when the tab was hidden
