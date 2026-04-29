@@ -1,94 +1,21 @@
 import { useCallback, useMemo, useState, useEffect, useRef, useLayoutEffect, memo } from "react";
-import { AnyExtension, Editor, EditorContent, Extension, getSchema, useEditor } from "@tiptap/react";
-import { Plugin, PluginKey, TextSelection } from "prosemirror-state";
-import { Decoration, DecorationSet } from "prosemirror-view";
+import { AnyExtension, Editor, EditorContent, Extension, JSONContent, getSchema, useEditor } from "@tiptap/react";
+import { TextSelection } from "prosemirror-state";
+import type { Node as ProseMirrorNode } from "prosemirror-model";
 import { useVoidVariableData } from "@/core/runtimeVariables/hook/useVariableCapture.tsx";
 import {
   buildUnifiedMatches,
-  escapeRegExp,
+  extractTextFromJson,
   getPmMatches,
   getCmMatchesByNode,
   type UnifiedMatch,
+  type LinkedChunk,
 } from "@/core/editors/voiden/search/unifiedSearch";
+import { FindHighlightExtension, findHighlightPluginKey } from "@/core/editors/voiden/search/findHighlight";
+import { useBlockContentStore } from "@/core/stores/blockContentStore";
 import { unifiedSearchHighlight } from "@/core/editors/voiden/search/cmHighlightEffect";
 import { findCmViewAtPos, findAllCmViews } from "@/core/editors/voiden/search/cmViewLookup";
 import { SectionIndicatorExtension } from "./extensions/sectionIndicator";
-// Plugin to highlight all findTerm matches, with special highlight for current match
-const findHighlightPluginKey = new PluginKey("findHighlight");
-const findHighlightPlugin = new Plugin({
-  key: findHighlightPluginKey,
-  state: {
-    init() {
-      return DecorationSet.empty;
-    },
-    apply(tr, old, _oldState, newState) {
-      const meta = tr.getMeta(findHighlightPluginKey);
-      if (!meta || typeof meta !== "object") {
-        return old.map(tr.mapping, newState.doc);
-      }
-      // Accept currentMatch in meta, default to -1 if not present
-      const { term, matchCase, matchWholeWord, useRegex, currentMatch = -1 } = meta;
-      if (!term) {
-        return DecorationSet.empty;
-      }
-      // Build regex for finding all matches
-      const rawPattern = useRegex ? term : escapeRegExp(term);
-      const flags = matchCase ? "g" : "gi";
-      let regex: RegExp;
-      try {
-        regex = new RegExp(rawPattern, flags);
-      } catch {
-        return DecorationSet.empty;
-      }
-      const decorations: Decoration[] = [];
-      let matchIndex = 0;
-      // Scan each text node for matches
-      newState.doc.descendants((node, pos) => {
-        if (node.isText && node.text) {
-          let m: RegExpExecArray | null;
-          while ((m = regex.exec(node.text)) !== null) {
-            const start = pos + m.index;
-            const end = start + m[0].length;
-            let valid = true;
-            if (matchWholeWord) {
-              // Check left boundary
-              const before = start > 0 ? newState.doc.textBetween(start - 1, start) : "";
-              const after = end < newState.doc.content.size ? newState.doc.textBetween(end, end + 1) : "";
-              const wordChar = /\w/;
-              if ((before && wordChar.test(before)) || (after && wordChar.test(after))) {
-                valid = false;
-              }
-            }
-            if (valid) {
-              decorations.push(
-                Decoration.inline(start, end, {
-                  style: matchIndex === currentMatch ? "background-color: rgba(255, 165, 0, 0.7);" : "background-color: rgba(255, 255, 0, 0.4);",
-                }),
-              );
-              matchIndex++;
-            }
-            if (m.index === regex.lastIndex) regex.lastIndex++;
-          }
-        }
-        return true;
-      });
-      return DecorationSet.create(newState.doc, decorations);
-    },
-  },
-  props: {
-    decorations(state) {
-      return this.getState(state);
-    },
-  },
-});
-
-// Tiptap extension that adds our highlight plugin
-const FindHighlightExtension = Extension.create({
-  name: "findHighlight",
-  addProseMirrorPlugins() {
-    return [findHighlightPlugin];
-  },
-});
 import { voidenExtensions } from "./extensions";
 import { preserveUnknownNodesInJSON, DocumentPreserver } from "./extensions/DocumentPreserver";
 import { create } from "zustand";
@@ -103,11 +30,9 @@ import { ResSuggestion } from "./extensions/VariableResSuggestion";
 import { InlineVarSuggestion, updateInlineEnvKeys, updateInlineProcessKeys } from "./extensions/InlineVarSuggestion";
 import { useContentStore } from "@/core/stores/ContentStore";
 import { saveFileUtil } from "@/core/file-system/hooks";
-import { ArrowDownIcon, ArrowUpIcon, X } from "lucide-react";
-import { Input } from "@/core/components/ui/input";
-import { cn } from "@/core/lib/utils";
 import { variableHighlighter, updateVariableData, updateVariableKeys } from "./extensions/variableHighlighter";
-import { useSearchStore } from "@/core/stores/searchParamsStore";
+import { useSearchStore, type SearchCallbacks } from "@/core/stores/searchParamsStore";
+import { useShallow } from "zustand/react/shallow";
 import { usePanelStore } from "@/core/stores/panelStore";
 import { useGetActiveDocument } from "@/core/documents/hooks";
 import { useVoidVariables } from "@/core/runtimeVariables/hook/useVariableCapture";
@@ -399,38 +324,40 @@ const VoidenEditorInner = ({
     useContentStore.getState().updateContent(content || "");
   }, [content, isActive]);
 
-  // Find & Replace state
-  const [showFind, setShowFind] = useState(false);
-  const [findTerm, setFindTerm] = useState("");
-  const [replaceTerm, setReplaceTerm] = useState("");
+  // Find & Replace state — shared fields live in the store so all editor types stay in sync
+  const { showFind, findTerm, replaceTerm, matchCase, matchWholeWord, useRegex, openPanelTick } = useSearchStore(useShallow((s) => ({
+    showFind: s.isOpen,
+    findTerm: s.term,
+    replaceTerm: s.replaceTerm,
+    matchCase: s.matchCase,
+    matchWholeWord: s.matchWholeWord,
+    useRegex: s.useRegex,
+    openPanelTick: s.openPanelTick,
+  })));
+  const setShowFind = useSearchStore((s) => s.setIsOpen);
+  const setFindTerm = useSearchStore((s) => s.setTerm);
+  const setReplaceTerm = useSearchStore((s) => s.setReplaceTerm);
+  const setUseMultiline = useSearchStore((s) => s.setUseMultiline);
+  const setShowReplaceSection = useSearchStore((s) => s.setShowReplace);
+  const setUnifiedSearchActive = useSearchStore((s) => s.setUnifiedSearchActive);
   const [matchPositions, setMatchPositions] = useState<UnifiedMatch[]>([]);
   const [currentMatch, setCurrentMatch] = useState(-1);
-  const findInputRef = useRef<HTMLInputElement>(null);
-  const [matchCase, setMatchCase] = useState(false);
-  const [matchWholeWord, setMatchWholeWord] = useState(false);
-  const [useRegex] = useState(false);
-  const [showReplaceSection, setShowReplaceSection] = useState(true);
 
-  // Sync search state to global store
-  const setGlobalTerm = useSearchStore((state) => state.setTerm);
-  const setGlobalMatchCase = useSearchStore((state) => state.setMatchCase);
-  const setUnifiedSearchActive = useSearchStore((state) => state.setUnifiedSearchActive);
+  // Auto-enable multiline when a literal newline is pasted/entered.
   useEffect(() => {
-    setGlobalTerm(findTerm);
-  }, [findTerm]);
+    if (findTerm.includes("\n") || replaceTerm.includes("\n")) setUseMultiline(true);
+  }, [findTerm, replaceTerm]);
+
+  // Open the find panel in response to an external request (e.g. clicking a
+  // file-system search result). Store already has the correct term/options.
+  const handledOpenTickRef = useRef(useSearchStore.getState().openPanelTick);
   useEffect(() => {
-    setGlobalMatchCase(matchCase);
-  }, [matchCase]);
-  // Sync matchWholeWord to global store
-  const setGlobalMatchWholeWord = useSearchStore((state) => state.setMatchWholeWord);
-  useEffect(() => {
-    setGlobalMatchWholeWord(matchWholeWord);
-  }, [matchWholeWord]);
-  // Sync useRegex to global store (if you need it)
-  const setGlobalUseRegex = useSearchStore((state) => state.setUseRegex);
-  useEffect(() => {
-    setGlobalUseRegex(useRegex);
-  }, [useRegex]);
+    if (openPanelTick === handledOpenTickRef.current) return;
+    handledOpenTickRef.current = openPanelTick;
+    if (!isActive || !hasSearch) return;
+    setShowFind(true);
+    setUnifiedSearchActive(true);
+  }, [openPanelTick]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Platform-aware shortcuts for find and replace
   const isMac = typeof navigator !== "undefined" && /Mac|iPod|iPhone|iPad/.test(navigator.platform);
@@ -448,8 +375,8 @@ const VoidenEditorInner = ({
       // Cmd/Ctrl+F: Open find (without replace)
       if (matchesShortcut("Find", e) && hasSearch) {
         e.preventDefault();
-        setShowFind(true);
         setShowReplaceSection(false);
+        useSearchStore.getState().requestOpenSearchPanel();
         setUnifiedSearchActive(true);
         return;
       }
@@ -457,8 +384,8 @@ const VoidenEditorInner = ({
       // Cmd/Ctrl+H: Open find and replace
       if (matchesShortcut("FindAndReplace", e) && hasSearch) {
         e.preventDefault();
-        setShowFind(true);
         setShowReplaceSection(true);
+        useSearchStore.getState().requestOpenSearchPanel();
         setUnifiedSearchActive(true);
         return;
       }
@@ -542,12 +469,6 @@ const VoidenEditorInner = ({
     };
   }, [isMac, isActive, source, panelId, tabId]);
 
-  // Focus input when toolbar opens or search term changes
-  useEffect(() => {
-    if (showFind && findInputRef.current) {
-      findInputRef.current.focus();
-    }
-  }, [showFind, findTerm]);
 
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1027,6 +948,44 @@ const VoidenEditorInner = ({
   }, [isActive]);
 
   const queryClient = useQueryClient();
+
+  const linkedContentResolver = useCallback((node: ProseMirrorNode): LinkedChunk[] | null => {
+    if (node.type.name === "linkedBlock") {
+      const block = useBlockContentStore.getState().getBlock(node.attrs.blockUid);
+      if (!block) return null;
+      return [{ text: extractTextFromJson(block), blockUid: node.attrs.blockUid }];
+    }
+    if (node.type.name === "linkedFile") {
+      const cached = queryClient.getQueryData<JSONContent[]>([
+        "voiden-wrapper:linkedFileContent",
+        node.attrs.originalFile,
+        node.attrs.sectionUid ?? null,
+      ]);
+      if (!cached) return null;
+      const chunks: LinkedChunk[] = [];
+      const collectChunks = (n: unknown) => {
+        if (!n || typeof n !== "object") return;
+        const obj = n as Record<string, unknown>;
+        if (obj.type === "linkedBlock" && obj.attrs) {
+          const uid = (obj.attrs as Record<string, unknown>).blockUid as string | undefined;
+          if (uid) {
+            const block = useBlockContentStore.getState().getBlock(uid);
+            if (block) chunks.push({ text: extractTextFromJson(block), blockUid: uid });
+          }
+          return;
+        }
+        const text = extractTextFromJson({ ...obj, content: undefined });
+        if (text) chunks.push({ text });
+        if (Array.isArray(obj.content)) {
+          for (const child of obj.content) collectChunks(child);
+        }
+      };
+      for (const block of cached) collectChunks(block);
+      return chunks.length > 0 ? chunks : null;
+    }
+    return null;
+  }, [queryClient]);
+
   useEffect(() => {
     if (!editor || !isActive) return;
 
@@ -1245,25 +1204,25 @@ const VoidenEditorInner = ({
       return;
     }
 
+    // Build unified matches across PM text, CM code blocks, and linked nodes
+    const matches = buildUnifiedMatches(editor.state.doc, findTerm, {
+      matchCase,
+      matchWholeWord,
+      useRegex,
+    }, linkedContentResolver);
+
+    setMatchPositions(matches);
+    setCurrentMatch(-1);
+
     // Dispatch PM highlight plugin meta
     const tr = editor.state.tr.setMeta(findHighlightPluginKey, {
       term: findTerm,
       matchCase,
       matchWholeWord,
       useRegex,
-      currentMatch,
+      currentMatch: -1,
     });
     editor.view.dispatch(tr);
-
-    // Build unified matches across PM text and CM code blocks
-    const matches = buildUnifiedMatches(editor.state.doc, findTerm, {
-      matchCase,
-      matchWholeWord,
-      useRegex,
-    });
-
-    setMatchPositions(matches);
-    setCurrentMatch(-1);
 
     // Dispatch highlights to CM instances
     dispatchCmHighlights(matches, -1);
@@ -1300,48 +1259,96 @@ const VoidenEditorInner = ({
     };
   }, [editor, findTerm, matchCase, matchWholeWord, useRegex, currentMatch]);
 
-  // Navigate to a specific match (PM or CM)
-  const navigateToMatch = (matchIndex: number, shouldFocus: boolean = true) => {
+  // Navigate to a specific match (PM or CM).
+  // scroll=true: physically scroll + select (explicit next/prev/replace).
+  // scroll=false: update highlights and currentMatch only, no scroll.
+  const navigateToMatch = (matchIndex: number, shouldFocus: boolean = true, scroll: boolean = true) => {
     if (!editor || matchIndex < 0 || matchIndex >= matchPositions.length) return;
     const match = matchPositions[matchIndex];
     const { source } = match;
 
-    const scrollContainerEl = document.getElementById("code-editor-container") as HTMLElement | null;
+    if (scroll) {
+      const scrollContainerEl = document.getElementById("code-editor-container") as HTMLElement | null;
 
-    const scrollMatchIntoView = (domNode: HTMLElement) => {
-      if (!scrollContainerEl) {
-        domNode.scrollIntoView({ block: "nearest", behavior: "smooth" });
-        return;
-      }
-      const containerRect = scrollContainerEl.getBoundingClientRect();
-      const nodeRect = domNode.getBoundingClientRect();
-      const relTop = nodeRect.top - containerRect.top + scrollContainerEl.scrollTop;
-      const target = relTop - scrollContainerEl.clientHeight / 2 + nodeRect.height / 2;
-      searchNavScrollRef.current = true;
-      scrollContainerEl.scrollTop = Math.max(0, target);
-    };
+      const scrollMatchIntoView = (domNode: HTMLElement) => {
+        if (!scrollContainerEl) {
+          domNode.scrollIntoView({ block: "nearest", behavior: "smooth" });
+          return;
+        }
+        const containerRect = scrollContainerEl.getBoundingClientRect();
+        const nodeRect = domNode.getBoundingClientRect();
+        const relTop = nodeRect.top - containerRect.top + scrollContainerEl.scrollTop;
+        const target = relTop - scrollContainerEl.clientHeight / 2 + nodeRect.height / 2;
+        searchNavScrollRef.current = true;
+        scrollContainerEl.scrollTop = Math.max(0, target);
+      };
 
-    if (source.type === "prosemirror") {
-      editor.commands.setTextSelection({ from: source.from, to: source.to });
-      const domInfo = editor.view.domAtPos(source.from);
-      const node = domInfo.node instanceof HTMLElement ? domInfo.node : domInfo.node.parentElement;
-      if (node) scrollMatchIntoView(node);
-      if (shouldFocus) editor.commands.focus();
-    } else {
-      // CodeMirror match: scroll PM to show the code block, then select in CM
-      const cmView = findCmViewAtPos(editor.view, source.pmNodePos);
-      if (cmView) {
+      if (source.type === "prosemirror") {
+        editor.commands.setTextSelection({ from: source.from, to: source.to });
+        const domInfo = editor.view.domAtPos(source.from);
+        const node = domInfo.node instanceof HTMLElement ? domInfo.node : domInfo.node.parentElement;
+        if (node) scrollMatchIntoView(node);
+        if (shouldFocus) editor.commands.focus();
+      } else if (source.type === "codemirror") {
+        const cmView = findCmViewAtPos(editor.view, source.pmNodePos);
+        if (cmView) {
+          const domNode = editor.view.nodeDOM(source.pmNodePos) as HTMLElement | null;
+          if (domNode) scrollMatchIntoView(domNode);
+          if (shouldFocus) cmView.focus();
+          cmView.dispatch({
+            selection: { anchor: source.cmFrom, head: source.cmTo },
+            scrollIntoView: true,
+          });
+        }
+      } else if (source.type === "linked") {
         const domNode = editor.view.nodeDOM(source.pmNodePos) as HTMLElement | null;
-        if (domNode) scrollMatchIntoView(domNode);
-        if (shouldFocus) cmView.focus();
-        cmView.dispatch({
-          selection: { anchor: source.cmFrom, head: source.cmTo },
-          scrollIntoView: true,
-        });
+        if (domNode) {
+          const scrollToHighlight = (el: HTMLElement) => {
+            if (!scrollContainerEl) {
+              el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+              return;
+            }
+            const containerRect = scrollContainerEl.getBoundingClientRect();
+            const nodeRect = el.getBoundingClientRect();
+            if (nodeRect.top >= containerRect.top && nodeRect.bottom <= containerRect.bottom) return;
+            scrollMatchIntoView(el);
+          };
+          const observer = new MutationObserver(() => {
+            const el = domNode.querySelector<HTMLElement>(".find-current-match");
+            if (el) {
+              observer.disconnect();
+              scrollToHighlight(el);
+            }
+          });
+          observer.observe(domNode, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "style"] });
+          setTimeout(() => {
+            observer.disconnect();
+            const el = domNode.querySelector<HTMLElement>(".find-current-match");
+            scrollToHighlight(el ?? domNode);
+          }, 200);
+        }
       }
     }
 
     setCurrentMatch(matchIndex);
+    if (source.type === "linked") {
+      const blockUid = source.blockUid ?? null;
+      const localIndex = matchPositions
+        .slice(0, matchIndex)
+        .filter((m) => {
+          if (m.source.type !== "linked") return false;
+          if (m.source.pmNodePos !== source.pmNodePos) return false;
+          return (m.source.blockUid ?? null) === blockUid;
+        })
+        .length;
+      useSearchStore.getState().setCurrentLinkedPmNodePos(source.pmNodePos);
+      useSearchStore.getState().setCurrentLinkedBlockUid(blockUid);
+      useSearchStore.getState().setCurrentLinkedLocalIndex(localIndex);
+    } else {
+      useSearchStore.getState().setCurrentLinkedPmNodePos(null);
+      useSearchStore.getState().setCurrentLinkedBlockUid(null);
+      useSearchStore.getState().setCurrentLinkedLocalIndex(0);
+    }
 
     // Update PM highlight to show current match
     const pmMatches = getPmMatches(matchPositions);
@@ -1355,17 +1362,17 @@ const VoidenEditorInner = ({
     dispatchCmHighlights(matchPositions, match.index);
   };
 
-  // Auto-select first match on new search term, without focusing editor
+  // Sync highlight state when options change or matches rebuild — no scroll.
   useEffect(() => {
     if (showFind && editor && findTerm && matchPositions.length > 0 && currentMatch < 0) {
-      navigateToMatch(0, false);
+      navigateToMatch(0, false, false);
     }
   }, [editor, showFind, findTerm, matchPositions]);
 
-  // Select first match by default when opening the find toolbar
+  // Sync highlight state when opening the find toolbar — no scroll.
   useEffect(() => {
     if (!showFind || !editor || matchPositions.length === 0) return;
-    navigateToMatch(0, false);
+    navigateToMatch(0, false, false);
   }, [showFind, editor]);
 
   const handleFindPrevious = () => {
@@ -1389,7 +1396,7 @@ const VoidenEditorInner = ({
     if (source.type === "prosemirror") {
       // PM replacement — goes through PM undo stack
       editor.commands.insertContentAt({ from: source.from, to: source.to }, replaceTerm);
-    } else {
+    } else if (source.type === "codemirror") {
       // CM replacement — all through PM transaction for undo support
       const node = editor.state.doc.nodeAt(source.pmNodePos);
       if (node && typeof node.attrs.body === "string") {
@@ -1403,13 +1410,14 @@ const VoidenEditorInner = ({
         editor.view.dispatch(tr);
       }
     }
+    // linked matches are read-only — skip replace
 
     // Recompute unified matches after replacement
     const newMatches = buildUnifiedMatches(editor.state.doc, findTerm, {
       matchCase,
       matchWholeWord,
       useRegex,
-    });
+    }, linkedContentResolver);
     setMatchPositions(newMatches);
 
     // Navigate to next match
@@ -1423,12 +1431,13 @@ const VoidenEditorInner = ({
     }
 
     // Refresh PM highlights
+    const nextCurrent = newMatches.length > 0 ? (replaceIndex >= newMatches.length ? 0 : replaceIndex) : -1;
     const tr2 = editor.state.tr.setMeta(findHighlightPluginKey, {
       term: findTerm,
       matchCase,
       matchWholeWord,
       useRegex,
-      currentMatch: newMatches.length > 0 ? (replaceIndex >= newMatches.length ? 0 : replaceIndex) : -1,
+      currentMatch: nextCurrent,
     });
     editor.view.dispatch(tr2);
   };
@@ -1471,7 +1480,7 @@ const VoidenEditorInner = ({
       matchCase,
       matchWholeWord,
       useRegex,
-    });
+    }, linkedContentResolver);
     setMatchPositions(newMatches);
     setCurrentMatch(-1);
 
@@ -1494,6 +1503,54 @@ const VoidenEditorInner = ({
     }
   };
 
+  // Register callbacks with the persistent panel when this tab is active.
+  // Use refs so the stable callbacks always call the latest handlers.
+  const handleFindNextRef = useRef(handleFindNext);
+  const handleFindPreviousRef = useRef(handleFindPrevious);
+  const handleReplaceRef = useRef(handleReplace);
+  const handleReplaceAllRef = useRef(handleReplaceAll);
+  const matchPositionsRef = useRef(matchPositions);
+  const currentMatchRef = useRef(currentMatch);
+  handleFindNextRef.current = handleFindNext;
+  handleFindPreviousRef.current = handleFindPrevious;
+  handleReplaceRef.current = handleReplace;
+  handleReplaceAllRef.current = handleReplaceAll;
+  matchPositionsRef.current = matchPositions;
+  currentMatchRef.current = currentMatch;
+
+  useEffect(() => {
+    if (!isActive) return;
+    const { registerSearchCallbacks, unregisterSearchCallbacks } = useSearchStore.getState();
+    const callbacks: SearchCallbacks = {
+      onFindNext: () => handleFindNextRef.current(),
+      onFindPrevious: () => handleFindPreviousRef.current(),
+      onReplace: () => handleReplaceRef.current(),
+      onReplaceAll: () => handleReplaceAllRef.current(),
+      onClose: () => {
+        useSearchStore.getState().setIsOpen(false);
+        useSearchStore.getState().setShowReplace(false);
+        useSearchStore.getState().setUnifiedSearchActive(false);
+        clearCmHighlights();
+      },
+      getStatus: () => {
+        const positions = matchPositionsRef.current;
+        const current = currentMatchRef.current;
+        const term = useSearchStore.getState().term;
+        if (!term || positions.length === 0) return term ? "No results" : "";
+        if (current >= 0) return `${current + 1} of ${positions.length}`;
+        return `${positions.length} result${positions.length > 1 ? "s" : ""}`;
+      },
+    };
+    registerSearchCallbacks(callbacks);
+    return () => { unregisterSearchCallbacks(); };
+  }, [isActive]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Keep status fresh in the panel when match state changes.
+  useEffect(() => {
+    if (!isActive || !showFind) return;
+    useSearchStore.getState().bumpStatusTick();
+  }, [matchPositions, currentMatch, isActive, showFind]);
+
   const handleClick = useCallback(() => {
     if (!editor || !isActive) return;
     const { state } = editor;
@@ -1509,9 +1566,11 @@ const VoidenEditorInner = ({
     if (!editor || !isActive) return;
 
     function handleClickOutside(event: MouseEvent) {
-      if (editorRef.current && !editorRef.current.contains(event.target as Node)) {
-        editor.commands.blur();
-      }
+      const target = event.target as Node;
+      if (!editorRef.current || editorRef.current.contains(target)) return;
+      const el = target as Element;
+      if (el.closest('input, textarea, select, [contenteditable]')) return;
+      editor.commands.blur();
     }
 
     document.addEventListener("mousedown", handleClickOutside);
@@ -1568,196 +1627,6 @@ const VoidenEditorInner = ({
 
   return (
     <div ref={editorRef} className="h-full w-full flex flex-col relative">
-      {showFind && (
-        <div className="fixed top-[70px] right-2 z-50">
-          <div className="bg-panel border border-border rounded-md shadow-[0_4px_12px_rgba(0,0,0,0.3)] overflow-hidden min-w-[550px] max-w-[550px]">
-            {/* Find Section */}
-            <div className="flex items-center gap-1.5 p-2.5">
-              <Input
-                ref={findInputRef}
-                type="text"
-                placeholder="Find"
-                value={findTerm}
-                onChange={(e) => setFindTerm(e.target.value)}
-                className="flex-1 h-7 text-[13px] min-w-[150px] max-w-[250px] px-2 bg-editor border-panel-border focus-visible:ring-1 focus-visible:ring-accent focus-visible:border-accent"
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    handleFindNext();
-                  } else if (e.key === 'Enter' && e.shiftKey) {
-                    e.preventDefault();
-                    handleFindPrevious();
-                  }
-                }}
-              />
-
-              {/* Options */}
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={() => setMatchCase(!matchCase)}
-                  className={cn(
-                    "px-2 py-1.5 rounded text-[11px] font-mono font-semibold transition-all min-w-[32px] h-7 flex items-center justify-center border",
-                    matchCase
-                      ? "bg-accent text-bg border-accent"
-                      : "bg-active text-comment border-panel-border hover:bg-active hover:text-text hover:border-accent active:scale-[0.96]"
-                  )}
-                  title="Match Case"
-                >
-                  Aa
-                </button>
-                <button
-                  onClick={() => setMatchWholeWord(!matchWholeWord)}
-                  className={cn(
-                    "px-2 py-1.5 rounded text-[11px] font-mono font-semibold transition-all min-w-[32px] h-7 flex items-center justify-center border",
-                    matchWholeWord
-                      ? "bg-accent text-bg border-accent"
-                      : "bg-active text-comment border-panel-border hover:bg-active hover:text-text hover:border-accent active:scale-[0.96]"
-                  )}
-                  title="Match Whole Word"
-                >
-                  ab|
-                </button>
-              </div>
-
-              {/* Navigation */}
-              <div className="flex items-center gap-1">
-                <button
-                  disabled={!findTerm || matchPositions.length === 0}
-                  onClick={handleFindPrevious}
-                  className={cn(
-                    "p-1.5 rounded transition-all w-7 h-7 flex items-center justify-center border",
-                    findTerm && matchPositions.length > 0
-                      ? "bg-active text-comment border-panel-border hover:bg-active hover:text-text hover:border-accent active:scale-[0.96]"
-                      : "bg-active text-comment border-panel-border cursor-not-allowed opacity-50"
-                  )}
-                  title={`Previous ${isMac ? '(⇧⌘G)' : '(Shift+Ctrl+G)'}`}
-                >
-                  <ArrowUpIcon size={14} strokeWidth={2} />
-                </button>
-                <button
-                  disabled={!findTerm || matchPositions.length === 0}
-                  onClick={handleFindNext}
-                  className={cn(
-                    "p-1.5 rounded transition-all w-7 h-7 flex items-center justify-center border",
-                    findTerm && matchPositions.length > 0
-                      ? "bg-active text-comment border-panel-border hover:bg-active hover:text-text hover:border-accent active:scale-[0.96]"
-                      : "bg-active text-comment border-panel-border cursor-not-allowed opacity-50"
-                  )}
-                  title={`Next ${isMac ? '(⌘G)' : '(Ctrl+G)'}`}
-                >
-                  <ArrowDownIcon size={14} strokeWidth={2} />
-                </button>
-                <button
-                  onClick={() => {
-                    setShowFind(false);
-                    setShowReplaceSection(false);
-                    setFindTerm(""); // Clear search term
-                    setReplaceTerm(""); // Clear replace term
-                    setUnifiedSearchActive(false);
-                    clearCmHighlights();
-                  }}
-                  className="p-1.5 rounded transition-all w-7 h-7 flex items-center justify-center border bg-active text-comment border-panel-border hover:bg-active hover:text-text hover:border-accent active:scale-[0.96]"
-                  title="Close (Esc)"
-                >
-                  <X size={14} strokeWidth={2} />
-                </button>
-              </div>
-
-              {/* Results Count */}
-              <span className="text-[11px] text-comment font-normal ml-auto min-w-[70px] text-right px-1 whitespace-nowrap">
-                {findTerm && matchPositions.length > 0
-                  ? `${currentMatch + 1} of ${matchPositions.length}`
-                  : findTerm
-                    ? "No results"
-                    : ""}
-              </span>
-            </div>
-
-            {/* Replace Section */}
-            {showReplaceSection && (
-              <div className="flex items-center gap-1.5 p-2.5 pt-0">
-                <Input
-                  type="text"
-                  placeholder="Replace"
-                  value={replaceTerm}
-                  onChange={(e) => setReplaceTerm(e.target.value)}
-                  className="flex-1 h-7 text-[13px] min-w-[150px] max-w-[250px] px-2 bg-editor border-panel-border focus-visible:ring-1 focus-visible:ring-accent focus-visible:border-accent"
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-                      e.preventDefault();
-                      handleReplaceAll();
-                    } else if (e.key === 'Enter') {
-                      e.preventDefault();
-                      handleReplace();
-                    }
-                  }}
-                />
-                <button
-                  disabled={!findTerm || matchPositions.length === 0}
-                  onClick={handleReplace}
-                  className={cn(
-                    "p-1.5 rounded transition-all w-7 h-7 flex items-center justify-center border",
-                    findTerm && matchPositions.length > 0
-                      ? "bg-active text-comment border-panel-border hover:bg-active hover:text-text hover:border-accent active:scale-[0.96]"
-                      : "bg-active text-comment border-panel-border cursor-not-allowed opacity-50"
-                  )}
-                  title="Replace (Enter)"
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M5 12l5 5l10 -10" />
-                  </svg>
-                </button>
-                <button
-                  disabled={!findTerm || matchPositions.length === 0}
-                  onClick={handleReplaceAll}
-                  className={cn(
-                    "p-1.5 rounded transition-all w-7 h-7 flex items-center justify-center border",
-                    findTerm && matchPositions.length > 0
-                      ? "bg-active text-comment border-panel-border hover:bg-active hover:text-text hover:border-accent active:scale-[0.96]"
-                      : "bg-active text-comment border-panel-border cursor-not-allowed opacity-50"
-                  )}
-                  title={`Replace All ${isMac ? '(⌘Enter)' : '(Ctrl+Enter)'}`}
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M5 3l5 5l10 -10M5 10l5 5l10 -10M5 17l5 5l10 -10" />
-                  </svg>
-                </button>
-
-                <div className="flex-1 flex items-center gap-1 ml-1">
-                  <button
-                    onClick={() => setShowReplaceSection(!showReplaceSection)}
-                    className={cn(
-                      "px-2 py-1 rounded text-[11px] transition-all border flex items-center gap-1 h-7 ml-auto",
-                      "bg-active border-panel-border text-comment hover:border-accent hover:text-text active:scale-[0.96]"
-                    )}
-                    title={`Toggle Replace ${isMac ? '(⌘H)' : '(Ctrl+H)'}`}
-                  >
-                    <span className="text-[10px]">{showReplaceSection ? '▼' : '▶'}</span>
-                    <span className="font-medium">Replace</span>
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Replace Toggle Button (when collapsed) */}
-            {!showReplaceSection && (
-              <div className="flex items-center gap-1.5 px-2.5 pb-2.5">
-                <button
-                  onClick={() => setShowReplaceSection(true)}
-                  className={cn(
-                    "px-2 py-1 rounded text-[11px] transition-all border flex items-center gap-1 h-7 ml-auto",
-                    "bg-active border-panel-border text-comment hover:border-accent hover:text-text active:scale-[0.96]"
-                  )}
-                  title={`Toggle Replace ${isMac ? '(⌘H)' : '(Ctrl+H)'}`}
-                >
-                  <span className="text-[10px]">▶</span>
-                  <span className="font-medium">Replace</span>
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
 
       {isLoadingContent && (
         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-4 bg-editor pointer-events-none select-none">

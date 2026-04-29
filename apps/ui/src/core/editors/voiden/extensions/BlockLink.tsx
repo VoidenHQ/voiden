@@ -202,7 +202,7 @@ const LinkedBlockNodeView = ({ node, editor, getPos }: any) => {
         </div>
 
         {/* Block content */}
-        <BlockPreviewEditor block={content!} />
+        <BlockPreviewEditor block={content!} pmNodePos={getPos()} blockUid={blockUid} />
       </div>
     </NodeViewWrapper>
   );

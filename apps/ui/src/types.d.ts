@@ -193,31 +193,11 @@ declare global {
         ) => () => void;
         acknowledgeUnsavedSaved: (requestId: string) => void;
       };
-      startSearch: (args: { query: string; matchCase: boolean; matchWholeWord: boolean; searchId: number }) => void;
+      startSearch: (args: { query: string; matchCase: boolean; matchWholeWord: boolean; useRegex: boolean; useMultiline: boolean; searchId: number }) => void;
       cancelSearch: (searchId: number) => void;
       onSearchResult: (cb: (data: { searchId: number; result: SearchResult }) => void) => () => void;
       onSearchDone: (cb: (data: { searchId: number; error?: string }) => void) => () => void;
       git: {
-        getBranches: () => Promise<{
-          branches: string[];
-          activeBranch: string;
-        }>;
-        checkout: (
-          projectPath: string,
-          branch: string,
-        ) => Promise<{ activeBranch: string; branches: string[] }>;
-        createBranch: (
-          projectPath: string,
-          branch: string,
-        ) => Promise<{ activeBranch: string; branches: string[] }>;
-        updateGitignore: (
-          filePatterns: string | string[],
-          rootDir?: string,
-        ) => Promise<void>;
-        diffBranches: (
-          baseBranch: string,
-          compareBranch: string,
-        ) => Promise<{
         getBranches: () => Promise<{ branches: string[]; activeBranch: string }>;
         checkout: (projectPath: string, branch: string) => Promise<{ activeBranch: string; branches: string[] }>;
         createBranch: (projectPath: string, branch: string) => Promise<{ activeBranch: string; branches: string[] }>;
@@ -267,14 +247,6 @@ declare global {
           }[];
           latest: any;
         }>;
-        getCommitFiles: (commitHash: string) => Promise<
-          {
-            path: string;
-            changes: number;
-            insertions: number;
-            deletions: number;
-          }[]
-        >;
         getCommitFiles: (commitHash: string) => Promise<{
           path: string;
           changes: number;
