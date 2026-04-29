@@ -150,55 +150,72 @@ function flattenYamlEnvironments(
   return { data, displayNames };
 }
 
+const VOIDEN_DIR = ".voiden";
+
 /**
- * Return the public/private filenames for a given profile.
- * Default profile (undefined/null/"default") uses env-public.yaml / env-private.yaml.
- * Named profiles use env-{name}-public.yaml / env-{name}-private.yaml.
+ * Return the public/private file paths (relative to project root) for a given profile.
+ * All env YAML files live inside .voiden/.
+ * Default profile → .voiden/env-public.yaml / .voiden/env-private.yaml
+ * Named profiles  → .voiden/env-{name}-public.yaml / .voiden/env-{name}-private.yaml
  */
 function profileFileNames(profile?: string | null): { publicFile: string; privateFile: string } {
   if (!profile || profile === "default") {
-    return { publicFile: "env-public.yaml", privateFile: "env-private.yaml" };
+    return {
+      publicFile: `${VOIDEN_DIR}/env-public.yaml`,
+      privateFile: `${VOIDEN_DIR}/env-private.yaml`,
+    };
   }
   return {
-    publicFile: `env-${profile}-public.yaml`,
-    privateFile: `env-${profile}-private.yaml`,
+    publicFile: `${VOIDEN_DIR}/env-${profile}-public.yaml`,
+    privateFile: `${VOIDEN_DIR}/env-${profile}-private.yaml`,
   };
 }
 
 /**
  * Discover all environment profiles in a project directory.
- * Scans for env-*-public.yaml / env-*-private.yaml files and extracts profile names.
+ * Scans .voiden/ for env-*-public.yaml / env-*-private.yaml files and extracts profile names.
+ * Falls back to the project root for backward compatibility with old file locations.
  * Always includes "default".
  */
 async function discoverProfiles(projectPath: string): Promise<string[]> {
   const profiles = new Set<string>(["default"]);
-  try {
-    const entries = await fs.readdir(projectPath, { withFileTypes: true });
-    for (const entry of entries) {
-      if (!entry.isFile()) continue;
-      // Match env-{name}-public.yaml or env-{name}-private.yaml
-      const match = entry.name.match(/^env-([a-z0-9-]+)-(public|private)\.yaml$/);
-      if (match) {
-        profiles.add(match[1]);
+  const scanDir = async (dir: string) => {
+    try {
+      const entries = await fs.readdir(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry.isFile()) continue;
+        const match = entry.name.match(/^env-([a-z0-9-]+)-(public|private)\.yaml$/);
+        if (match) profiles.add(match[1]);
       }
-    }
-  } catch {
-    // Directory not readable, return just default
-  }
+    } catch { /* not readable */ }
+  };
+  await scanDir(path.join(projectPath, VOIDEN_DIR));
+  // Legacy fallback: also scan project root so old files are discoverable
+  await scanDir(projectPath);
   return Array.from(profiles);
 }
 
 /**
  * Load and parse a single YAML environment file.
- * @return empty object if the file doesn't exist or is invalid
+ * Tries the given path first; if not found, falls back to the root-level filename
+ * so projects that haven't been migrated yet still load correctly.
  */
 async function loadYamlEnvironment(projectPath: string, envPath: string): Promise<YamlEnvTree> {
   const envFilePath = path.join(projectPath, envPath);
   try {
     const content = await fs.readFile(envFilePath, 'utf8');
     return (YAML.parse(content) as YamlEnvTree) || {};
-  } catch {
-    return {};
+  } catch (e: any) {
+    if (e.code !== 'ENOENT') return {};
+    // Migration: try the old root-level location (e.g. "env-public.yaml" at project root)
+    const rootFallback = path.join(projectPath, path.basename(envPath));
+    if (rootFallback === envFilePath) return {};
+    try {
+      const content = await fs.readFile(rootFallback, 'utf8');
+      return (YAML.parse(content) as YamlEnvTree) || {};
+    } catch {
+      return {};
+    }
   }
 }
 
@@ -305,12 +322,24 @@ export async function replaceVariablesSecure(text: string, projectPath: string):
     }
   }
 
-  // Load process/runtime variables from .voiden/.process.env.json
+  // Load process/runtime variables from .voiden/.process.env.json (env-scoped)
   let processVars: Record<string, any> = {};
   try {
     const processEnvPath = path.join(projectPath, '.voiden', '.process.env.json');
     const data = await fs.readFile(processEnvPath, 'utf-8');
-    processVars = JSON.parse(data) || {};
+    const raw = JSON.parse(data) || {};
+    // Detect old flat format (any root value is not a plain object)
+    const isOldFlat = Object.values(raw).some(
+      (v: any) => typeof v !== 'object' || v === null || Array.isArray(v)
+    );
+    if (isOldFlat) {
+      processVars = raw;
+    } else {
+      // New env-scoped format: merge __global__ + active env
+      const globalVars: Record<string, any> = raw['__global__'] ?? {};
+      const envVars: Record<string, any> = activeEnvPath ? (raw[activeEnvPath] ?? {}) : {};
+      processVars = { ...globalVars, ...envVars };
+    }
   } catch { /* file may not exist */ }
 
   // Replace {{VAR_NAME}} and {{process.xxx}} patterns
@@ -399,20 +428,43 @@ ipcMain.handle("env:getYamlTrees", async (event, params?: { profile?: string }) 
 ipcMain.handle("env:saveYamlTrees", async (event, { publicTree, privateTree, profile }: { publicTree: YamlEnvTree; privateTree: YamlEnvTree; profile?: string }) => {
   const activeProject = await getActiveProject(event);
   if (!activeProject) return;
+
+  // Ensure .voiden/ directory exists
+  const voidenDir = path.join(activeProject, VOIDEN_DIR);
+  await fs.mkdir(voidenDir, { recursive: true });
+
   const { publicFile, privateFile } = profileFileNames(profile);
   const publicPath = path.join(activeProject, publicFile);
   const privatePath = path.join(activeProject, privateFile);
+
   const yamlSettings: YAML.ToStringOptions = {
-    lineWidth: 0, // Don't wrap lines
+    lineWidth: 0,
     defaultStringType: 'QUOTE_DOUBLE',
     defaultKeyType: 'PLAIN',
   };
+
   try {
     await fs.writeFile(publicPath, YAML.stringify(publicTree, yamlSettings), 'utf8');
     await fs.writeFile(privatePath, YAML.stringify(privateTree, yamlSettings), 'utf8');
   } catch (err) {
     console.error('Failed to save environment YAML files:', err);
     throw err;
+  }
+
+  // Keep .gitignore up-to-date: private files + process vars must be ignored,
+  // public files are intentionally left trackable by git.
+  try {
+    const { ensureVoidenGitignore } = await import('./git');
+    await ensureVoidenGitignore(activeProject);
+  } catch { /* git module may not be available in all contexts */ }
+
+  // Migration: remove old root-level YAML files if they existed before the move to .voiden/
+  const rootPublic = path.join(activeProject, path.basename(publicFile));
+  const rootPrivate = path.join(activeProject, path.basename(privateFile));
+  for (const oldPath of [rootPublic, rootPrivate]) {
+    if (oldPath !== publicPath && oldPath !== privatePath) {
+      fs.unlink(oldPath).catch(() => {});
+    }
   }
 });
 
@@ -438,12 +490,15 @@ ipcMain.handle("env:createProfile", async (event, profile: string) => {
   if (!PROFILE_NAME_REGEX.test(profile)) {
     throw new Error(`Invalid profile name: "${profile}". Must match ${PROFILE_NAME_REGEX}`);
   }
+  // Ensure .voiden/ exists before writing
+  await fs.mkdir(path.join(activeProject, VOIDEN_DIR), { recursive: true });
   const { publicFile, privateFile } = profileFileNames(profile);
   const publicPath = path.join(activeProject, publicFile);
   const privatePath = path.join(activeProject, privateFile);
-  // Create empty YAML files if they don't exist
   try { await fs.access(publicPath); } catch { await fs.writeFile(publicPath, "", "utf8"); }
   try { await fs.access(privatePath); } catch { await fs.writeFile(privatePath, "", "utf8"); }
+  // Keep gitignore up-to-date
+  try { const { ensureVoidenGitignore } = await import('./git'); await ensureVoidenGitignore(activeProject); } catch { }
 });
 
 ipcMain.handle("env:deleteProfile", async (event, profile: string) => {

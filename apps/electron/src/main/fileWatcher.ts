@@ -1,7 +1,7 @@
 import chokidar from "chokidar";
 import path from "node:path";
 import eventBus from "./eventBus";
-import { invalidateGitCache } from "./git";
+import { invalidateGitCache, ensureVoidenGitignore } from "./git";
 import { clearTreeResultCache } from "./ipc/files";
 import { logger } from "./logger";
 
@@ -105,13 +105,19 @@ function startWatching(projectPath: string, watcherId: string) {
   const isEnvFile = (f: string) => { const b = path.basename(f); return b === ".env" || b.startsWith(".env."); };
   const isGitRelated = (f: string) => f.includes(`${path.sep}.git${path.sep}`);
   const isVoidFile = (f: string) => f.endsWith(".void");
+  const isVoidenYaml = (f: string) => f.includes(`${path.sep}.voiden${path.sep}`) && f.endsWith(".yaml");
 
   watcher
     .on("add", (filePath) => {
       logger.info("system", "FileWatcher: add", { filePath });
       if (isCloningActive(filePath)) return;
       if (isGitRelated(filePath)) emitGitChangedDebounced({ path: filePath });
-      else emit("file:new", { path: filePath, project: projectPath, watcherId });
+      else {
+        if (path.basename(filePath) === ".gitignore" && path.dirname(filePath) === projectPath) {
+          ensureVoidenGitignore(projectPath).catch(() => {});
+        }
+        emit("file:new", { path: filePath, project: projectPath, watcherId });
+      }
     })
     .on("addDir", (dirPath) => {
       logger.info("system", "FileWatcher: addDir", { dirPath });
@@ -124,6 +130,8 @@ function startWatching(projectPath: string, watcherId: string) {
       if (isVoidFile(filePath)) {
         if (isWritingActive(filePath)) { writingPaths.delete(filePath); return; }
         emit("apy:changed", { path: filePath, project: projectPath, watcherId });
+      } else if (isVoidenYaml(filePath)) {
+        emit("voiden:yaml-changed", { path: filePath, project: projectPath, watcherId });
       } else if (isEnvFile(filePath)) {
         emit("env:changed", { path: filePath, project: projectPath, watcherId });
       } else if (isGitRelated(filePath)) {

@@ -446,6 +446,26 @@ export const aggregateGitStatus = (nodes: TreeNode[]): any => {
   return aggregatedStatus;
 };
 
+export async function ensureVoidenGitignore(rootDir: string): Promise<void> {
+  const gitignorePath = path.join(rootDir, '.gitignore');
+
+  let existing = '';
+  try {
+    existing = await fs.promises.readFile(gitignorePath, 'utf8');
+  } catch {
+    // file doesn't exist yet — create it
+  }
+
+  const lines = existing.split('\n').map((l) => l.trim());
+  if (lines.includes('.voiden/')) return; // already covered
+
+  let content = existing;
+  if (content && !content.endsWith('\n')) content += '\n';
+  content += '\n# Voiden\n.voiden/\n!.voiden/env-public.yaml\n!.voiden/env-*-public.yaml\n';
+
+  await fs.promises.writeFile(gitignorePath, content, 'utf8');
+}
+
 export async function updateGitignore(filePatterns: string | string[], rootDir = '.') {
   const gitignorePath = path.join(rootDir, '.gitignore');
 
