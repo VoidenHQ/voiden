@@ -55,25 +55,21 @@ export const SidePanelTabs = ({ side, wrapperClassName, onTabClick, forceInactiv
 
   useEffect(() => {
     const handleShortcut = (e: KeyboardEvent) => {
-      // Don't trigger if focus is in a CodeMirror editor
-      const target = e.target as HTMLElement;
-      if (target?.closest('.cm-editor, .txt-editor')) {
-        return;
-      }
-
       // Shift + Cmd/Ctrl + F
       if (e.shiftKey && (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") {
-        // toggle the search state
-        setStoreIsSearching((prev) => !prev);
-        // activate the first tab (where the search button lives)
+        // Capture phase runs before CodeMirror's own keymap, so preventDefault
+        // here stops the editor's built-in replace panel from also opening.
+        e.preventDefault();
+        e.stopPropagation();
+        setStoreIsSearching(true);
         if (sidebarTabs?.tabs?.length) {
           activateTab.mutate({ sidebarId: side, tabId: sidebarTabs.tabs[0].id });
         }
       }
     };
-    window.addEventListener("keydown", handleShortcut);
+    window.addEventListener("keydown", handleShortcut, true);
     return () => {
-      window.removeEventListener("keydown", handleShortcut);
+      window.removeEventListener("keydown", handleShortcut, true);
     };
   }, [activateTab, setStoreIsSearching, side, sidebarTabs]);
 

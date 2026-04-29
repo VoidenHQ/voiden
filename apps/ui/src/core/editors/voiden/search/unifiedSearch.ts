@@ -4,7 +4,8 @@ import type { Node as ProseMirrorNode } from "prosemirror-model";
 
 export type MatchSource =
   | { type: "prosemirror"; from: number; to: number }
-  | { type: "codemirror"; pmNodePos: number; cmFrom: number; cmTo: number };
+  | { type: "codemirror"; pmNodePos: number; cmFrom: number; cmTo: number }
+  | { type: "linked"; pmNodePos: number; blockUid?: string };
 
 export type UnifiedMatch = {
   index: number;
@@ -42,15 +43,34 @@ export function buildRegex(
 
 // --- Core ---
 
+export function extractTextFromJson(node: unknown): string {
+  if (!node || typeof node !== "object") return "";
+  const n = node as Record<string, unknown>;
+  let text = "";
+  if (typeof n.text === "string") text += n.text;
+  if (typeof n.attrs === "object" && n.attrs !== null) {
+    const attrs = n.attrs as Record<string, unknown>;
+    if (typeof attrs.body === "string") text += "\n" + attrs.body;
+    if (typeof attrs.title === "string") text += " " + attrs.title;
+  }
+  if (Array.isArray(n.content)) {
+    for (const child of n.content) text += extractTextFromJson(child);
+  }
+  return text;
+}
+
 /**
  * Builds a unified list of matches across both ProseMirror text nodes
  * and CodeMirror code blocks (nodes with attrs.body and empty content).
  * Results are in document order.
  */
+export type LinkedChunk = { text: string; blockUid?: string };
+
 export function buildUnifiedMatches(
   doc: ProseMirrorNode,
   term: string,
-  options: SearchOptions
+  options: SearchOptions,
+  linkedContentResolver?: (node: ProseMirrorNode, pos: number) => LinkedChunk[] | null
 ): UnifiedMatch[] {
   const regex = buildRegex(term, options);
   if (!regex) return [];
@@ -115,6 +135,28 @@ export function buildUnifiedMatches(
         if (m.index === regex.lastIndex) regex.lastIndex++;
       }
       return false; // No children to visit
+    }
+
+    // Linked block/file nodes: search external content via resolver
+    if (
+      linkedContentResolver &&
+      (node.type.name === "linkedBlock" || node.type.name === "linkedFile")
+    ) {
+      const chunks = linkedContentResolver(node, pos);
+      if (chunks) {
+        for (const chunk of chunks) {
+          regex.lastIndex = 0;
+          let m: RegExpExecArray | null;
+          while ((m = regex.exec(chunk.text)) !== null) {
+            matches.push({
+              index: index++,
+              source: { type: "linked", pmNodePos: pos, blockUid: chunk.blockUid },
+            });
+            if (m.index === regex.lastIndex) regex.lastIndex++;
+          }
+        }
+      }
+      return false;
     }
 
     return true; // Continue descending
