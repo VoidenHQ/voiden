@@ -1,6 +1,7 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from "react";
 import { cn } from "@/core/lib/utils";
-import { Plus, ChevronDown, Trash2, Check, Search, X, Globe, Lock, Eye, EyeOff, Copy, Clock, RefreshCw, Settings2 } from "lucide-react";
+import { Plus, ChevronDown, Trash2, Check, Search, X, Globe, Lock, Eye, EyeOff, Copy, Clock, RefreshCw, Settings2, AlertTriangle, CornerDownRight, MoreHorizontal } from "lucide-react";
+import { MinusculeMatcher, MatchingMode } from "@voiden/fuzzy-search";
 import { useQueryClient } from "@tanstack/react-query";
 import { useYamlEnvironments, useEnvironments } from "@/core/environment/hooks";
 import { useSaveYamlEnvironments } from "@/core/environment/hooks";
@@ -43,6 +44,7 @@ interface FlatEnvEntry {
   depth: number;
   varCount: number;
   privateCount: number;
+  hasChildren: boolean;
   intermediate?: boolean;
 }
 
@@ -50,6 +52,7 @@ function flattenTree(tree: EditableEnvTree, parentPath = "", depth = 0): FlatEnv
   const entries: FlatEnvEntry[] = [];
   for (const [name, node] of Object.entries(tree)) {
     const path = parentPath ? `${parentPath}.${name}` : name;
+    const hasChildren = Object.keys(node.children).length > 0;
     entries.push({
       path,
       name,
@@ -57,9 +60,10 @@ function flattenTree(tree: EditableEnvTree, parentPath = "", depth = 0): FlatEnv
       depth,
       varCount: node.variables.length,
       privateCount: node.variables.filter((v) => v.isPrivate).length,
+      hasChildren,
       intermediate: node.intermediate,
     });
-    if (Object.keys(node.children).length > 0) {
+    if (hasChildren) {
       entries.push(...flattenTree(node.children, path, depth + 1));
     }
   }
@@ -229,24 +233,105 @@ const ProfileSelector = ({
   );
 };
 
+// ─── Shared dialog ────────────────────────────────────────────────────────────
+
+const Dialog = ({
+  title,
+  message,
+  confirmLabel = "OK",
+  cancelLabel = "Cancel",
+  variant = "accent",
+  onConfirm,
+  onCancel,
+}: {
+  title?: string;
+  message: string;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  variant?: "accent" | "danger";
+  onConfirm: () => void;
+  onCancel: () => void;
+}) => (
+  <div
+    className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50"
+    onMouseDown={(e) => { if (e.target === e.currentTarget) onCancel(); }}
+  >
+    <div className="bg-panel border border-border rounded-xl shadow-2xl w-[320px] flex flex-col overflow-hidden">
+      {/* Header */}
+      <div className="flex items-start gap-3 px-5 pt-5 pb-3">
+        {variant === "danger" && (
+          <AlertTriangle size={18} style={{ color: "var(--icon-danger)" }} className="flex-shrink-0 mt-0.5" />
+        )}
+        <div className="flex flex-col gap-1">
+          {title && <p className="text-sm font-semibold text-text">{title}</p>}
+          <p className={cn("text-sm text-comment", title ? "" : "text-text")}>{message}</p>
+        </div>
+      </div>
+      {/* Footer */}
+      <div className="flex justify-end gap-2 px-5 py-4 border-t border-border mt-1">
+        <button
+          onClick={onCancel}
+          className="px-4 py-1.5 text-sm rounded-md border border-border text-comment hover:bg-active hover:text-text transition-colors"
+        >
+          {cancelLabel}
+        </button>
+        <button
+          onClick={onConfirm}
+          className={cn(
+            "px-4 py-1.5 text-sm rounded-md font-medium bg-accent text-text transition-colors hover:opacity-90"
+          )}
+        >
+          {confirmLabel}
+        </button>
+      </div>
+    </div>
+  </div>
+);
+
+// Convenience alias for destructive actions
+const ConfirmDialog = ({
+  message,
+  onConfirm,
+  onCancel,
+}: {
+  message: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) => (
+  <Dialog
+    title="Confirm deletion"
+    message={message}
+    confirmLabel="Delete"
+    cancelLabel="Cancel"
+    variant="danger"
+    onConfirm={onConfirm}
+    onCancel={onCancel}
+  />
+);
+
 // ─── Variable table row ───────────────────────────────────────────────────────
 
 const VariableTableRow = ({
   variable,
   highlighted,
+  isSelected,
   onChange,
   onDelete,
   onAddNext,
+  onToggleSelect,
 }: {
   index: number;
   variable: EditableVariable;
   highlighted: boolean;
+  isSelected: boolean;
   onChange: (updates: Partial<EditableVariable>) => void;
   onDelete: () => void;
   onAddNext: () => void;
+  onToggleSelect: () => void;
 }) => {
   const [revealed, setRevealed] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const rowRef = useRef<HTMLTableRowElement>(null);
 
   useEffect(() => {
@@ -258,7 +343,7 @@ const VariableTableRow = ({
       await navigator.clipboard.writeText(variable.value);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
-    } catch {}
+    } catch { }
   };
 
   const displayValue = variable.isPrivate && !revealed
@@ -268,9 +353,17 @@ const VariableTableRow = ({
   return (
     <tr
       ref={rowRef}
-      className={`group border-b border-border hover:bg-active/30 transition-colors${highlighted ? " ring-1 ring-inset" : ""}`}
+      className={cn("group border-b border-border transition-colors", isSelected ? "bg-accent/10" : "hover:bg-active/30", highlighted ? "ring-1 ring-inset" : "")}
       style={highlighted ? { "--tw-ring-color": "var(--icon-primary)" } as React.CSSProperties : undefined}
     >
+      <td className="pl-2 w-7 flex-shrink-0">
+        <input
+          type="checkbox"
+          checked={isSelected}
+          onChange={onToggleSelect}
+          className={cn("w-3.5 h-3.5 rounded cursor-pointer accent-[var(--color-accent)]", isSelected ? "opacity-100" : "opacity-0 group-hover:opacity-100")}
+        />
+      </td>
       <td className="px-2 py-1.5 w-[200px]">
         <input
           type="text"
@@ -282,15 +375,15 @@ const VariableTableRow = ({
           style={{ "--tw-ring-color": "var(--icon-primary)" } as React.CSSProperties}
         />
       </td>
-      <td className="px-2 py-1.5">
-        <div className="flex items-center gap-1">
+      <td className="px-2 py-1.5 max-w-[280px]">
+        <div className="flex items-center gap-1 min-w-0">
           <input
             type="text"
             value={variable.isPrivate && !revealed ? displayValue : variable.value}
             onChange={(e) => { if (!(variable.isPrivate && !revealed)) onChange({ value: e.target.value }); }}
             readOnly={variable.isPrivate && !revealed}
             placeholder="value"
-            className="flex-1 font-mono text-sm bg-transparent text-text placeholder:text-comment/50 focus:outline-none px-1 py-0.5 rounded focus:bg-editor focus:ring-1"
+            className="min-w-0 w-full font-mono text-sm bg-transparent text-text placeholder:text-comment/50 focus:outline-none px-1 py-0.5 rounded focus:bg-editor focus:ring-1 truncate"
             style={{ "--tw-ring-color": "var(--icon-primary)" } as React.CSSProperties}
           />
           {variable.isPrivate && (
@@ -320,12 +413,19 @@ const VariableTableRow = ({
       </td>
       <td className="pr-3 py-1.5 w-8">
         <button
-          onClick={onDelete}
+          onClick={() => setConfirmDelete(true)}
           className="p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-active transition-opacity"
         >
           <Trash2 size={13} style={{ color: "var(--icon-error)" }} />
         </button>
       </td>
+      {confirmDelete && (
+        <ConfirmDialog
+          message={`Delete variable "${variable.key}"?`}
+          onConfirm={() => { setConfirmDelete(false); onDelete(); }}
+          onCancel={() => setConfirmDelete(false)}
+        />
+      )}
     </tr>
   );
 };
@@ -389,17 +489,53 @@ const AddVariableRow = ({ onAdd }: { onAdd: (key: string, value: string, isPriva
 const VariablesPanel = ({
   node,
   envPath,
+  tree,
   highlightTarget,
   onUpdateNode,
 }: {
   node: EditableEnvNode;
   envPath: string;
+  tree: EditableEnvTree;
   highlightTarget: { varKey: string; envPath: string } | null;
   onUpdateNode: (updated: EditableEnvNode) => void;
 }) => {
   const [search, setSearch] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
   const privateCount = node.variables.filter((v) => v.isPrivate).length;
+
+  // Cmd+F / Ctrl+F focuses the search bar
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "f") {
+        e.preventDefault();
+        e.stopPropagation();
+        searchRef.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+
+  // Collect inherited variables from ancestor nodes (grayed out, non-editable)
+  const inheritedVars = useMemo(() => {
+    const segments = envPath.split(".");
+    const ownKeys = new Set(node.variables.map((v) => v.key));
+    const result: Array<{ key: string; value: string; fromPath: string }> = [];
+    for (let i = 0; i < segments.length - 1; i++) {
+      const parentPath = segments.slice(0, i + 1).join(".");
+      const parentNode = getNodeAtPath(tree, parentPath);
+      if (parentNode) {
+        for (const v of parentNode.variables) {
+          if (!ownKeys.has(v.key) && !result.some((r) => r.key === v.key)) {
+            result.push({ key: v.key, value: v.value, fromPath: segments[i] });
+          }
+        }
+      }
+    }
+    return result;
+  }, [tree, envPath, node.variables]);
 
   const filteredVars = useMemo(() => {
     const t = search.trim().toLowerCase();
@@ -408,6 +544,19 @@ const VariablesPanel = ({
       (v) => v.key.toLowerCase().includes(t) || String(v.value ?? "").toLowerCase().includes(t)
     );
   }, [node.variables, search]);
+
+  // Selection helpers — must come after filteredVars
+  const toggleSelect = (id: string) =>
+    setSelectedIds((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const allFilteredSelected = filteredVars.length > 0 && filteredVars.every((v) => selectedIds.has(v.id));
+  const someSelected = selectedIds.size > 0;
+  const toggleSelectAll = () =>
+    setSelectedIds(allFilteredSelected ? new Set() : new Set(filteredVars.map((v) => v.id)));
+  const handleBulkDeleteVars = () => {
+    onUpdateNode({ ...node, variables: node.variables.filter((v) => !selectedIds.has(v.id)) });
+    setSelectedIds(new Set());
+    setConfirmBulkDelete(false);
+  };
 
   const handleUpdateVariable = (index: number, updates: Partial<EditableVariable>) => {
     const realIndex = node.variables.indexOf(filteredVars[index]);
@@ -464,12 +613,44 @@ const VariablesPanel = ({
       {/* Add row */}
       <AddVariableRow onAdd={handleAddVariable} />
 
+      {/* Bulk action bar */}
+      {someSelected && (
+        <div className="flex items-center gap-3 px-4 py-2 border-b border-border bg-accent/10 flex-shrink-0">
+          <span className="text-xs text-text font-medium">{selectedIds.size} selected</span>
+          <button onClick={() => setSelectedIds(new Set())} className=" text-xs text-comment hover:text-text ml-auto">Clear</button>
+          <button
+            onClick={() => setConfirmBulkDelete(true)}
+            className="flex items-center gap-1 text-xs px-2.5 py-1 text-accent border border-accent rounded-md font-medium transition-colors hover:opacity-90"
+          >
+            <Trash2 size={11} /> Delete selected
+          </button>
+        </div>
+      )}
+      {confirmBulkDelete && (
+        <Dialog
+          title="Delete variables"
+          message={`Delete ${selectedIds.size} selected variable${selectedIds.size > 1 ? "s" : ""}?`}
+          confirmLabel="Delete"
+          variant="danger"
+          onConfirm={handleBulkDeleteVars}
+          onCancel={() => setConfirmBulkDelete(false)}
+        />
+      )}
+
       {/* Table */}
       <div className="flex-1 overflow-y-auto">
-        {filteredVars.length > 0 ? (
+        {filteredVars.length > 0 || inheritedVars.length > 0 ? (
           <table className="w-full border-collapse">
             <thead>
               <tr className="border-b border-border">
+                <th className="pl-2 w-7">
+                  <input
+                    type="checkbox"
+                    checked={allFilteredSelected}
+                    onChange={toggleSelectAll}
+                    className="w-3.5 h-3.5 rounded cursor-pointer accent-[var(--color-accent)]"
+                  />
+                </th>
                 <th className="px-2 py-2 text-left text-xs font-semibold text-comment uppercase tracking-wider">Key</th>
                 <th className="px-2 py-2 text-left text-xs font-semibold text-comment uppercase tracking-wider">Value</th>
                 <th className="px-2 py-2 text-left text-xs font-semibold text-comment uppercase tracking-wider">Visibility</th>
@@ -477,17 +658,40 @@ const VariablesPanel = ({
               </tr>
             </thead>
             <tbody>
+              {inheritedVars.length > 0 && (
+                <>
+                  {inheritedVars.map((v) => (
+                    <tr key={v.key} className="border-b border-border bg-panel/20">
+                      <td className="pr-3 py-1.5" />
+                      <td className="px-2 py-1.5 w-[200px]">
+                        <div className="flex items-center gap-1.5">
+                          <span title={`Inherited from "${v.fromPath}"`} className="flex-shrink-0 cursor-default">
+                            <CornerDownRight size={11} className="text-comment" />
+                          </span>
+                          <span className="font-mono text-xs text-comment">{v.key}</span>
+                        </div>
+                      </td>
+                      <td className="px-2 py-1.5 max-w-[280px]"><span className="font-mono text-xs text-comment truncate block">{v.value}</span></td>
+                      <td className="px-2 py-1.5 text-comment" />
+                      <td className="pr-3 py-1.5" />
+                    </tr>
+                  ))}
+                </>
+              )}
               {filteredVars.map((v, i) => (
                 <VariableTableRow
                   key={v.id}
                   index={i}
                   variable={v}
                   highlighted={!!highlightTarget && v.key === highlightTarget.varKey && (highlightTarget.envPath === "" || highlightTarget.envPath === envPath)}
+                  isSelected={selectedIds.has(v.id)}
+                  onToggleSelect={() => toggleSelect(v.id)}
                   onChange={(updates) => handleUpdateVariable(i, updates)}
                   onDelete={() => handleDeleteVariable(i)}
                   onAddNext={handleAddNext}
                 />
               ))}
+
             </tbody>
           </table>
         ) : search ? (
@@ -516,23 +720,80 @@ const RuntimePanel = ({
   onRefresh: () => void;
   onDelete: (key: string) => void;
 }) => {
-  const entries = Object.entries(vars);
+  const [search, setSearch] = useState("");
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
+  const allEntries = Object.entries(vars);
+  const entries = search.trim()
+    ? allEntries.filter(([k, v]) =>
+      k.toLowerCase().includes(search.toLowerCase()) ||
+      String(v ?? "").toLowerCase().includes(search.toLowerCase())
+    )
+    : allEntries;
+
+  const toggleKey = (k: string) =>
+    setSelectedKeys((prev) => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n; });
+  const allSelected = entries.length > 0 && entries.every(([k]) => selectedKeys.has(k));
+  const toggleAll = () =>
+    setSelectedKeys(allSelected ? new Set() : new Set(entries.map(([k]) => k)));
+  const handleBulkDelete = () => {
+    selectedKeys.forEach((k) => onDelete(k));
+    setSelectedKeys(new Set());
+    setConfirmBulkDelete(false);
+  };
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
       <div className="flex items-center justify-between px-4 py-2 border-b border-border flex-shrink-0">
         <p className="text-xs text-comment">
-          Set by variable capture during request execution · use <code className="font-mono">{"{{process.KEY}}"}</code>
+          Set by variable capture · use <code className="font-mono">{"{{process.KEY}}"}</code>
         </p>
         <button onClick={onRefresh} className="p-1 rounded hover:bg-active transition-colors">
           <RefreshCw size={13} className="text-comment hover:text-text" />
         </button>
       </div>
+      {allEntries.length > 0 && (
+        <div className="px-3 py-2 border-b border-border flex-shrink-0 relative">
+          <Search size={12} className="absolute left-5 top-1/2 -translate-y-1/2 text-comment pointer-events-none" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search runtime vars..."
+            className="w-full pl-7 pr-2 py-1 text-xs bg-panel border border-border rounded text-text placeholder:text-comment focus:outline-none focus:ring-1"
+            style={{ "--tw-ring-color": "var(--icon-primary)" } as React.CSSProperties}
+          />
+        </div>
+      )}
+      {selectedKeys.size > 0 && (
+        <div className="flex items-center gap-3 px-4 py-2 border-b border-border bg-accent/10 flex-shrink-0">
+          <span className="text-xs text-text font-medium">{selectedKeys.size} selected</span>
+          <button onClick={() => setSelectedKeys(new Set())} className="text-xs text-comment hover:text-text ml-auto">Clear</button>
+          <button
+            onClick={() => setConfirmBulkDelete(true)}
+            className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-md font-medium transition-colors text-accent border border-accent hover:bg-accent/10"
+          ><Trash2 size={11} /> Delete selected</button>
+        </div>
+      )}
+      {confirmBulkDelete && (
+        <Dialog
+          title="Delete runtime variables"
+          message={`Delete ${selectedKeys.size} selected variable${selectedKeys.size > 1 ? "s" : ""}?`}
+          confirmLabel="Delete"
+          variant="danger"
+          onConfirm={handleBulkDelete}
+          onCancel={() => setConfirmBulkDelete(false)}
+        />
+      )}
       <div className="flex-1 overflow-y-auto">
         {entries.length > 0 ? (
           <table className="w-full border-collapse">
             <thead>
               <tr className="border-b border-border">
+                <th className="pl-2 w-7">
+                  <input type="checkbox" checked={allSelected} onChange={toggleAll}
+                    className="w-3.5 h-3.5 rounded cursor-pointer accent-[var(--color-accent)]" />
+                </th>
                 <th className="px-2 py-2 text-left text-xs font-semibold text-comment uppercase tracking-wider">Key</th>
                 <th className="px-2 py-2 text-left text-xs font-semibold text-comment uppercase tracking-wider">Value</th>
                 <th className="pr-3 py-2"></th>
@@ -540,7 +801,9 @@ const RuntimePanel = ({
             </thead>
             <tbody>
               {entries.map(([k, v], i) => (
-                <RuntimeRow key={k} index={i} varKey={k} value={v} onDelete={() => onDelete(k)} />
+                <RuntimeRow key={k} index={i} varKey={k} value={v}
+                  isSelected={selectedKeys.has(k)} onToggleSelect={() => toggleKey(k)}
+                  onDelete={() => onDelete(k)} />
               ))}
             </tbody>
           </table>
@@ -559,36 +822,51 @@ const RuntimePanel = ({
 const RuntimeRow = ({
   varKey,
   value,
+  isSelected,
+  onToggleSelect,
   onDelete,
 }: {
   index: number;
   varKey: string;
   value: any;
+  isSelected: boolean;
+  onToggleSelect: () => void;
   onDelete: () => void;
 }) => {
   const [copied, setCopied] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const displayValue = typeof value === "object" ? JSON.stringify(value) : String(value ?? "");
 
   const handleCopy = async () => {
-    try { await navigator.clipboard.writeText(displayValue); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch {}
+    try { await navigator.clipboard.writeText(displayValue); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { }
   };
 
   return (
-    <tr className="group border-b border-border hover:bg-active/30 transition-colors">
+    <tr className={cn("group border-b border-border transition-colors", isSelected ? "bg-accent/10" : "hover:bg-active/30")}>
+      <td className="pl-2 w-7">
+        <input type="checkbox" checked={isSelected} onChange={onToggleSelect}
+          className={cn("w-3.5 h-3.5 rounded cursor-pointer accent-[var(--color-accent)]", isSelected ? "opacity-100" : "opacity-0 group-hover:opacity-100")} />
+      </td>
       <td className="px-2 py-2 w-[200px] font-mono text-sm text-text">{varKey}</td>
       <td className="px-2 py-2">
-          <span className="font-mono text-sm text-comment flex-1 truncate max-w-xs">{displayValue}</span>
+        <span className="font-mono text-sm text-comment flex-1 truncate max-w-xs">{displayValue}</span>
       </td>
       <td className="pr-3 py-1.5 w-8">
-         <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1">
           <button onClick={handleCopy} className="p-0.5 rounded hover:bg-active opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
             {copied ? <Check size={13} style={{ color: "var(--icon-success)" }} /> : <Copy size={13} className="text-comment" />}
           </button>
-          <button onClick={onDelete} className="p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-active transition-opacity">
-          <Trash2 size={13} style={{ color: "var(--icon-error)" }} />
-        </button>
+          <button onClick={() => setConfirmDelete(true)} className="p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-active transition-opacity">
+            <Trash2 size={13} style={{ color: "var(--icon-error)" }} />
+          </button>
         </div>
-        
+        {confirmDelete && (
+          <ConfirmDialog
+            message={`Delete runtime variable "${varKey}"?`}
+            onConfirm={() => { setConfirmDelete(false); onDelete(); }}
+            onCancel={() => setConfirmDelete(false)}
+          />
+        )}
       </td>
     </tr>
   );
@@ -599,38 +877,93 @@ const RuntimeRow = ({
 const EnvSidebarItem = ({
   entry,
   isSelected,
+  isEnvSelected,
+  isCollapsed,
+  selectMode,
   onClick,
   onDelete,
   onRename,
+  onAddChild,
+  onToggleCollapse,
+  onToggleEnvSelect,
 }: {
   entry: FlatEnvEntry;
   isSelected: boolean;
+  isEnvSelected: boolean;
+  isCollapsed: boolean;
+  selectMode: boolean;
   onClick: () => void;
   onDelete: () => void;
   onRename: () => void;
-}) => (
-  <div
-    role="button"
-    onClick={onClick}
-    onDoubleClick={onRename}
-    className={`w-full flex items-center border-b border-border gap-1 py-1.5 text-sm text-left transition-colors rounded-md cursor-pointer group/item ${
-      isSelected ? "bg-active text-text" : "text-comment hover:bg-active/50 hover:text-text"
-    }`}
-    style={{ paddingLeft: `${10 + entry.depth * 14}px`, paddingRight: "6px" }}
-  >
-    <span className="flex-1 truncate font-mono text-xs">{entry.displayName || entry.name}</span>
-    {/* count + delete — always reserve space, show on hover */}
-    <span className="flex items-center gap-0.5 flex-shrink-0 opacity-0 group-hover/item:opacity-100 transition-opacity">
-      <span className="text-xs text-comment/60 tabular-nums">{entry.varCount}</span>
-      <button
-        onClick={(e) => { e.stopPropagation(); onDelete(); }}
-        className="p-0.5 rounded hover:bg-border transition-colors"
+  onAddChild: () => void;
+  onToggleCollapse: () => void;
+  onToggleEnvSelect: () => void;
+}) => {
+  const [confirming, setConfirming] = useState(false);
+
+  return (
+    <>
+      {confirming && (
+        <ConfirmDialog
+          message={`Delete environment "${entry.displayName || entry.name}"?`}
+          onConfirm={() => { setConfirming(false); onDelete(); }}
+          onCancel={() => setConfirming(false)}
+        />
+      )}
+      <div
+        role="button"
+        onClick={onClick}
+        onDoubleClick={onRename}
+        className={cn("w-full flex items-center gap-1 py-1.5 text-sm text-left transition-colors rounded-md cursor-pointer group/item",
+          isEnvSelected ? "bg-accent/10 text-text" : isSelected ? "bg-active text-text" : "text-comment hover:bg-active/50 hover:text-text"
+        )}
+        style={{ paddingLeft: `${6 + entry.depth * 14}px`, paddingRight: "6px" }}
       >
-        <Trash2 size={11} className="text-comment/60 hover:text-comment" />
-      </button>
-    </span>
-  </div>
-);
+        {/* Multi-select checkbox — always visible in selectMode */}
+        {
+          selectMode && (
+            <input
+              type="checkbox"
+              checked={isEnvSelected}
+              onChange={(e) => { e.stopPropagation(); onToggleEnvSelect(); }}
+              onClick={(e) => e.stopPropagation()}
+              className={cn("w-3.5 h-3.5 rounded cursor-pointer accent-[var(--color-accent)] flex-shrink-0",
+                selectMode ? "opacity-100" : "opacity-0 pointer-events-none")}
+            />
+          )
+        }
+        {/* Collapse/expand chevron */}
+        <button
+          onClick={(e) => { e.stopPropagation(); if (entry.hasChildren) onToggleCollapse(); }}
+          className={cn("p-0.5 rounded flex-shrink-0 transition-colors", entry.hasChildren ? "hover:bg-border" : "opacity-0 pointer-events-none")}
+        >
+          <ChevronDown
+            size={11}
+            className={cn("text-comment/60 transition-transform", isCollapsed && entry.hasChildren ? "-rotate-90" : "")}
+          />
+        </button>
+        <span className="flex-1 truncate font-mono text-xs">{entry.displayName || entry.name}</span>
+        {/* Actions shown on hover */}
+        <span className="flex items-center gap-0.5 flex-shrink-0 opacity-0 group-hover/item:opacity-100 transition-opacity">
+          <span className="text-xs text-comment/60 tabular-nums">{entry.varCount}</span>
+          <button
+            title="Add child environment"
+            onClick={(e) => { e.stopPropagation(); onAddChild(); }}
+            className="p-0.5 rounded hover:bg-border transition-colors"
+          >
+            <Plus size={11} className="text-comment/60 hover:text-comment" />
+          </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); setConfirming(true); }}
+            className="p-0.5 rounded hover:bg-border transition-colors"
+          >
+            <Trash2 size={11} className="text-comment/60 hover:text-comment" />
+          </button>
+        </span>
+      </div>
+    </>
+  );
+};
 
 // ─── Main EnvironmentEditor ───────────────────────────────────────────────────
 
@@ -893,9 +1226,97 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
     setRenameValue("");
   };
 
-  const flatEnvs = useMemo(() => flattenTree(tree), [tree]);
+  const [sidebarSearch, setSidebarSearch] = useState("");
+  const [confirmClearRuntime, setConfirmClearRuntime] = useState(false);
+  const [collapsedPaths, setCollapsedPaths] = useState<Set<string>>(new Set());
+  const [selectedEnvPaths, setSelectedEnvPaths] = useState<Set<string>>(new Set());
+  const [confirmBulkDeleteEnvs, setConfirmBulkDeleteEnvs] = useState(false);
+  const [envSelectMode, setEnvSelectMode] = useState(false);
+  const [sidebarMenuOpen, setSidebarMenuOpen] = useState(false);
+  const sidebarMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!sidebarMenuOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (sidebarMenuRef.current && !sidebarMenuRef.current.contains(e.target as Node)) setSidebarMenuOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [sidebarMenuOpen]);
+
+  const toggleEnvSelect = useCallback((path: string) => {
+    setSelectedEnvPaths((prev) => { const n = new Set(prev); n.has(path) ? n.delete(path) : n.add(path); return n; });
+  }, []);
+
+  const handleBulkDeleteEnvs = useCallback(() => {
+    // Only delete top-level selected paths; skip children of already-selected parents
+    const sorted = Array.from(selectedEnvPaths).sort((a, b) => a.length - b.length);
+    const toDelete = sorted.filter((p) => !sorted.some((o) => o !== p && p.startsWith(o + ".")));
+    let newTree = tree;
+    for (const p of toDelete) newTree = deleteNodeAtPath(newTree, p);
+    handleUpdateTree(newTree);
+    if (selectedEnvPath && selectedEnvPaths.has(selectedEnvPath)) setSelectedEnvPath(null);
+    setSelectedEnvPaths(new Set());
+    setConfirmBulkDeleteEnvs(false);
+  }, [selectedEnvPaths, tree, handleUpdateTree, selectedEnvPath]);
+
+  const toggleCollapsed = useCallback((path: string) => {
+    setCollapsedPaths((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  }, []);
+
+  const handleAddChild = useCallback((parentPath: string) => {
+    const parentNode = getNodeAtPath(tree, parentPath);
+    if (!parentNode) return;
+    const childName = generateUniqueName(parentNode.children);
+    const newParent: typeof parentNode = {
+      ...parentNode,
+      children: { ...parentNode.children, [childName]: { variables: [], children: {} } },
+    };
+    const newTree = updateNodeAtPath(tree, parentPath, newParent);
+    handleUpdateTree(newTree);
+    const childPath = `${parentPath}.${childName}`;
+    // Auto-expand parent and open rename for child
+    setCollapsedPaths((prev) => { const next = new Set(prev); next.delete(parentPath); return next; });
+    setSelectedEnvPath(childPath);
+    setRenamingPath(childPath);
+    setRenameValue("");
+  }, [tree, handleUpdateTree]);
+
+  const flatEnvs = useMemo(() => {
+    const all = flattenTree(tree);
+    // Filter by sidebar search
+    const searched = sidebarSearch.trim()
+      ? (() => {
+        const matcher = new MinusculeMatcher("* " + sidebarSearch, MatchingMode.IGNORE_CASE, "");
+        return all.filter((e) => matcher.match(e.displayName || e.name));
+      })()
+      : all;
+    // Filter out children of collapsed nodes
+    return searched.filter((entry) => {
+      const segments = entry.path.split(".");
+      for (let i = 1; i < segments.length; i++) {
+        if (collapsedPaths.has(segments.slice(0, i).join("."))) return false;
+      }
+      return true;
+    });
+  }, [tree, sidebarSearch, collapsedPaths]);
+
   const selectedNode = selectedEnvPath ? getNodeAtPath(tree, selectedEnvPath) : null;
   const runtimeCount = Object.keys(runtimeVars).length;
+
+  // Reload YAML when external file changes detected (git pull, external editor, etc.)
+  useEffect(() => {
+    const handler = () => {
+      queryClient.invalidateQueries({ queryKey: ["yaml-environments"] });
+    };
+    (window as any).electron?.ipc?.on("voiden:yaml-changed", handler);
+    return () => (window as any).electron?.ipc?.removeListener("voiden:yaml-changed", handler);
+  }, [queryClient]);
 
   if (isLoading) {
     return (
@@ -925,8 +1346,39 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
           className="border-r border-border flex flex-col flex-shrink-0"
           style={{ width: sidebarWidth }}
         >
-          <div className="px-3 py-2 text-xs font-semibold text-comment/70 uppercase tracking-wider border-b border-border flex-shrink-0">
-            Environments
+          <div className="px-2 py-2 border-b border-border flex-shrink-0">
+            <div className="flex items-center gap-1">
+              <div className="relative flex-1">
+                <Search size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-comment pointer-events-none" />
+                <input
+                  type="text"
+                  value={sidebarSearch}
+                  onChange={(e) => setSidebarSearch(e.target.value)}
+                  placeholder="Filter environments..."
+                  className="w-full pl-7 pr-2 py-1 text-xs bg-panel border border-border rounded text-text placeholder:text-comment focus:outline-none focus:ring-1"
+                  style={{ "--tw-ring-color": "var(--icon-primary)" } as React.CSSProperties}
+                />
+              </div>
+              {/* Context menu */}
+              <div className="relative flex-shrink-0" ref={sidebarMenuRef}>
+                <button
+                  onClick={() => setSidebarMenuOpen((v) => !v)}
+                  className="p-1 rounded hover:bg-active transition-colors text-comment hover:text-text"
+                >
+                  <MoreHorizontal size={13} />
+                </button>
+                {sidebarMenuOpen && (
+                  <div className="absolute right-0 top-full mt-1 w-40 bg-panel border border-border rounded-lg shadow-lg z-50 py-1 overflow-hidden">
+                    <button
+                      onClick={() => { setEnvSelectMode((v) => !v); setSidebarMenuOpen(false); if (envSelectMode) setSelectedEnvPaths(new Set()); }}
+                      className="w-full text-left px-3 py-1.5 text-xs hover:bg-active text-text transition-colors"
+                    >
+                      Select
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
 
           {/* Pinned Global entry */}
@@ -947,6 +1399,20 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
           </button>
 
           <div ref={scrollRef} className="flex-1 overflow-y-auto px-2 py-2 space-y-0.5">
+            {envSelectMode && flatEnvs.length > 0 && (
+              <div className="flex items-center gap-2  rounded-md  bg-active/30 mb-1" style={{ paddingLeft: `${6}px` }}>
+                <input
+                  type="checkbox"
+                  checked={flatEnvs.every((e) => selectedEnvPaths.has(e.path))}
+                  onChange={() => {
+                    const allSelected = flatEnvs.every((e) => selectedEnvPaths.has(e.path));
+                    setSelectedEnvPaths(allSelected ? new Set() : new Set(flatEnvs.map((e) => e.path)));
+                  }}
+                  className="w-3.5 h-3.5 rounded cursor-pointer accent-[var(--color-accent)]"
+                />
+                <span className="text-xs text-comment">Select all</span>
+              </div>
+            )}
             {flatEnvs.length === 0 ? (
               <div className="text-xs text-comment/50 text-center py-4">No environments</div>
             ) : (
@@ -970,18 +1436,45 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
                     <EnvSidebarItem
                       entry={entry}
                       isSelected={selectedEnvPath === entry.path}
+                      isEnvSelected={selectedEnvPaths.has(entry.path)}
+                      isCollapsed={collapsedPaths.has(entry.path)}
+                      selectMode={envSelectMode}
                       onClick={() => { setSelectedEnvPath(entry.path); }}
                       onDelete={() => {
                         handleUpdateTree(deleteNodeAtPath(tree, entry.path));
                         if (selectedEnvPath === entry.path) setSelectedEnvPath(null);
                       }}
                       onRename={() => { setRenamingPath(entry.path); setRenameValue(entry.name); }}
+                      onAddChild={() => handleAddChild(entry.path)}
+                      onToggleCollapse={() => toggleCollapsed(entry.path)}
+                      onToggleEnvSelect={() => toggleEnvSelect(entry.path)}
                     />
                   )}
                 </div>
               ))
             )}
           </div>
+          {/* Env bulk delete bar */}
+          {selectedEnvPaths.size > 0 && (
+            <div className="flex items-center gap-2 mx-2 mb-1 px-3 py-2 rounded-md bg-accent/10 border border-border flex-shrink-0">
+              <span className="text-xs text-comment font-sm flex-1">{selectedEnvPaths.size} selected</span>
+              <button
+                onClick={() => setConfirmBulkDeleteEnvs(true)}
+                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md font-medium transition-colors text-accent border border-accent hover:bg-accent/10"
+              ><Trash2 size={12} /> Delete</button>
+              <button onClick={() => { setSelectedEnvPaths(new Set()); setEnvSelectMode(false); }} className="text-sm text-comment hover:text-text leading-none px-1"><X size={14}></X></button>
+            </div>
+          )}
+          {confirmBulkDeleteEnvs && (
+            <Dialog
+              title="Delete environments"
+              message={`Delete ${selectedEnvPaths.size} selected environment${selectedEnvPaths.size > 1 ? "s" : ""}? This also removes all child environments.`}
+              confirmLabel="Delete"
+              variant="danger"
+              onConfirm={handleBulkDeleteEnvs}
+              onCancel={() => setConfirmBulkDeleteEnvs(false)}
+            />
+          )}
           {/* New env button */}
           <button
             onClick={handleAddRoot}
@@ -1013,23 +1506,32 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
             <>
               {/* Env header */}
               <div className="flex items-center gap-3 px-5 py-3 border-b border-border flex-shrink-0">
-                <h2 className="text-base font-semibold font-mono">
-                  {selectedEnvPath.split(".").pop()}
-                </h2>
-                <span className="text-xs px-2 py-0.5 rounded-md bg-active text-comment font-medium">
-                  {selectedNode.variables.length} vars
-                </span>
-                {selectedNode.variables.filter((v) => v.isPrivate).length > 0 && (
-                  <span className="text-xs px-2 py-0.5 rounded-md font-medium border"
-                    style={{
-                      backgroundColor: "color-mix(in srgb, var(--icon-warning) 10%, transparent)",
-                      borderColor: "color-mix(in srgb, var(--icon-warning) 30%, transparent)",
-                      color: "var(--icon-warning)",
-                    }}
-                  >
-                    {selectedNode.variables.filter((v) => v.isPrivate).length} private
+                <div className="flex flex-col min-w-0">
+                  <h2 className="text-sm font-semibold font-mono truncate">{selectedEnvPath.split(".").pop()}</h2>
+                  <input
+                    type="text"
+                    value={selectedNode.displayName ?? ""}
+                    onChange={(e) => handleUpdateSelectedNode({ ...selectedNode, displayName: e.target.value || undefined })}
+                    placeholder="Add display name..."
+                    className="text-xs text-comment bg-transparent focus:outline-none placeholder:text-comment/30 focus:placeholder:text-comment/50 truncate mt-0.5"
+                  />
+                </div>
+                <div className="flex items-center gap-1.5 ml-auto flex-shrink-0">
+                  <span className="text-xs px-2 py-0.5 rounded-md bg-active text-comment font-medium">
+                    {selectedNode.variables.length} vars
                   </span>
-                )}
+                  {selectedNode.variables.filter((v) => v.isPrivate).length > 0 && (
+                    <span className="text-xs px-2 py-0.5 rounded-md font-medium border"
+                      style={{
+                        backgroundColor: "color-mix(in srgb, var(--icon-warning) 10%, transparent)",
+                        borderColor: "color-mix(in srgb, var(--icon-warning) 30%, transparent)",
+                        color: "var(--icon-warning)",
+                      }}
+                    >
+                      {selectedNode.variables.filter((v) => v.isPrivate).length} private
+                    </span>
+                  )}
+                </div>
               </div>
 
               {/* Tab bar */}
@@ -1038,11 +1540,10 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
                   <button
                     key={tab}
                     onClick={() => setActiveTab(tab)}
-                    className={`px-1 pb-2 pt-2.5 mr-5 text-sm font-medium border-b-2 transition-colors capitalize ${
-                      activeTab === tab
+                    className={`px-1 pb-2 pt-2.5 mr-5 text-sm font-medium border-b-2 transition-colors capitalize ${activeTab === tab
                         ? "border-[var(--icon-primary)] text-text"
                         : "border-transparent text-comment hover:text-text"
-                    }`}
+                      }`}
                   >
                     {tab === "variables" ? "Variables" : (
                       <span className="flex items-center gap-1.5">
@@ -1063,6 +1564,7 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
                 <VariablesPanel
                   node={selectedNode}
                   envPath={selectedEnvPath}
+                  tree={tree}
                   highlightTarget={highlightTarget}
                   onUpdateNode={handleUpdateSelectedNode}
                 />
@@ -1085,12 +1587,27 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
                     <RefreshCw size={13} className="text-comment" />
                   </button>
                   {Object.keys(runtimeVars).length > 0 && (
-                    <button
-                      onClick={handleClearRuntimeBucket}
-                      className="flex items-center gap-1 text-xs px-2 py-1 rounded border border-border text-comment hover:text-text hover:bg-active transition-colors"
-                    >
-                      <Trash2 size={11} /> Clear All
-                    </button>
+                    confirmClearRuntime ? (
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs text-comment">Clear all?</span>
+                        <button
+                          onClick={() => { handleClearRuntimeBucket(); setConfirmClearRuntime(false); }}
+                          className="text-xs px-1.5 py-0.5 rounded font-medium"
+                          style={{ backgroundColor: "var(--icon-danger)", color: "var(--ui-bg)" }}
+                        >Yes</button>
+                        <button
+                          onClick={() => setConfirmClearRuntime(false)}
+                          className="text-xs px-1.5 py-0.5 rounded font-medium bg-active hover:bg-border text-comment transition-colors"
+                        >No</button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => setConfirmClearRuntime(true)}
+                        className="flex items-center gap-1 text-xs px-2 py-1 rounded border border-border text-comment hover:text-text hover:bg-active transition-colors"
+                      >
+                        <Trash2 size={11} /> Clear All
+                      </button>
+                    )
                   )}
                 </div>
               </div>
