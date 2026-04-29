@@ -446,6 +446,14 @@ export const aggregateGitStatus = (nodes: TreeNode[]): any => {
   return aggregatedStatus;
 };
 
+// Ignore all .voiden contents; only public env YAMLs are allowed through.
+// NOTE: must use .voiden/* (not .voiden/) so git honours the negation lines.
+const VOIDEN_IGNORE_BLOCK = [
+  '.voiden/*',
+  '!.voiden/env-public.yaml',
+  '!.voiden/env-*-public.yaml',
+];
+
 export async function ensureVoidenGitignore(rootDir: string): Promise<void> {
   const gitignorePath = path.join(rootDir, '.gitignore');
 
@@ -456,12 +464,17 @@ export async function ensureVoidenGitignore(rootDir: string): Promise<void> {
     // file doesn't exist yet — create it
   }
 
-  const lines = existing.split('\n').map((l) => l.trim());
-  if (lines.includes('.voiden/')) return; // already covered
-
   let content = existing;
+
+  // Migrate old directory-level ignore (`.voiden/`) which blocks negations
+  content = content.replace(/^\.voiden\/\s*$/m, '');
+
+  const lines = content.split('\n').map((l) => l.trim());
+  const missing = VOIDEN_IGNORE_BLOCK.filter((p) => !lines.includes(p));
+  if (missing.length === 0) return;
+
   if (content && !content.endsWith('\n')) content += '\n';
-  content += '\n# Voiden\n.voiden/\n!.voiden/env-public.yaml\n!.voiden/env-*-public.yaml\n';
+  content += '\n# Voiden\n' + missing.join('\n') + '\n';
 
   await fs.promises.writeFile(gitignorePath, content, 'utf8');
 }
