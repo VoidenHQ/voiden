@@ -376,7 +376,6 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
   const activeEditor = useCodeEditorStore((state) => state.activeEditor);
   const streamSnapshots = useCodeEditorStore((state) => state.streamSnapshots);
   const isSearchOpen = useSearchStore((s) => s.isOpen);
-  const voidenEditor = useVoidenEditorStore((state) => state.editor);
 
   useEffect(() => {
     if (!tabContentError) return;
@@ -532,15 +531,12 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
 
   const isShFile = !!(activeDocTabContent?.title.endsWith(".sh") && activeDocTabContent.source);
   const isVoidFile = !!activeDocTabContent?.title.endsWith(".void");
-  const voidHasMultipleSections = isVoidFile && voidenEditor
-    ? (() => { let found = false; voidenEditor.state.doc.forEach((n: any) => { if (n.type.name === "request-separator") found = true; }); return found; })()
-    : false;
-  const hasActions = isShFile || (isVoidFile && (voidHasMultipleSections || actionsToDisplay.length > 0)) || (!isVoidFile && actionsToDisplay.length > 0);
+  const hasActions = isShFile || isVoidFile || actionsToDisplay.length > 0;
   const showToolbar = hasActions || isSearchOpen;
 
   const cachedEditorsBlock = visibleDocumentTabIds.length > 0 && (
     <div className="h-full flex flex-col" style={{ display: isDocumentActive ? "flex" : "none" }}>
-      {showToolbar && <div className="flex-shrink-0 flex flex-col w-full shadow-md z-10 relative">
+      {showToolbar && <div className="flex-shrink-0 flex flex-col w-full z-10 relative">
         {hasActions && <div className="flex items-center justify-end gap-2 px-2 py-0.5 min-h-7">
           {isShFile && (
             <RunScriptButton source={activeDocTabContent!.source} />

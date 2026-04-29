@@ -1,6 +1,6 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from "react";
 import { cn } from "@/core/lib/utils";
-import { Plus, ChevronDown, Trash2, Check, Search, X, Globe, Lock, Eye, EyeOff, Copy, Clock, RefreshCw, Settings2, AlertTriangle, CornerDownRight, MoreHorizontal } from "lucide-react";
+import { Plus, ChevronDown, Trash2, Check, Search, X, Globe, Lock, Eye, EyeOff, Copy, Clock, RefreshCw, Settings2, AlertTriangle, CornerDownRight, MoreHorizontal, Pencil } from "lucide-react";
 import { MinusculeMatcher, MatchingMode } from "@voiden/fuzzy-search";
 import { useQueryClient } from "@tanstack/react-query";
 import { useYamlEnvironments, useEnvironments } from "@/core/environment/hooks";
@@ -942,7 +942,12 @@ const EnvSidebarItem = ({
             className={cn("text-comment/60 transition-transform", isCollapsed && entry.hasChildren ? "-rotate-90" : "")}
           />
         </button>
-        <span className="flex-1 truncate font-mono text-xs">{entry.displayName || entry.name}</span>
+        <span className="flex-1 min-w-0 flex flex-col">
+          <span className="truncate font-mono text-md">{entry.name}</span>
+          {isSelected && entry.displayName && (
+            <span className="truncate text-[9px] text-comment">{entry.displayName}</span>
+          )}
+        </span>
         {/* Actions shown on hover */}
         <span className="flex items-center gap-0.5 flex-shrink-0 opacity-0 group-hover/item:opacity-100 transition-opacity">
           <span className="text-xs text-comment/60 tabular-nums">{entry.varCount}</span>
@@ -979,7 +984,10 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
 
   const [tree, setTree] = useState<EditableEnvTree>({});
   const [selectedEnvPath, setSelectedEnvPath] = useState<string | null>(null);
+  // Reset display name editing when switching envs
+  useEffect(() => { setEditingDisplayName(false); }, [selectedEnvPath]);
   const [activeTab, setActiveTab] = useState<"variables" | "runtime">("variables");
+  const [editingDisplayName, setEditingDisplayName] = useState(false);
   const [runtimeVars, setRuntimeVars] = useState<Record<string, any>>({});
   const [highlightTarget, setHighlightTarget] = useState<{ varKey: string; envPath: string } | null>(null);
 
@@ -1508,13 +1516,28 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
               <div className="flex items-center gap-3 px-5 py-3 border-b border-border flex-shrink-0">
                 <div className="flex flex-col min-w-0">
                   <h2 className="text-sm font-semibold font-mono truncate">{selectedEnvPath.split(".").pop()}</h2>
-                  <input
-                    type="text"
-                    value={selectedNode.displayName ?? ""}
-                    onChange={(e) => handleUpdateSelectedNode({ ...selectedNode, displayName: e.target.value || undefined })}
-                    placeholder="Add display name..."
-                    className="text-xs text-comment bg-transparent focus:outline-none placeholder:text-comment/30 focus:placeholder:text-comment/50 truncate mt-0.5"
-                  />
+                  {editingDisplayName ? (
+                    <input
+                      autoFocus
+                      type="text"
+                      value={selectedNode.displayName ?? ""}
+                      onChange={(e) => handleUpdateSelectedNode({ ...selectedNode, displayName: e.target.value || undefined })}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === 'Escape') setEditingDisplayName(false); }}
+                      placeholder="Add display name..."
+                      className="mt-1 text-xs text-text bg-transparent border-b border-accent focus:outline-none placeholder:text-comment/40 truncate w-40"
+                    />
+                  ) : (
+                    <button
+                      onClick={() => setEditingDisplayName(true)}
+                      className="flex items-center gap-1 mt-0.5 group/dn w-fit"
+                      title="Edit display name"
+                    >
+                      <span className="text-xs text-comment/60 truncate">
+                        {selectedNode.displayName || <span className="text-comment/30 italic">Add display name</span>}
+                      </span>
+                      <Pencil size={10} className="flex-shrink-0 text-comment/20 group-hover/dn:text-comment/60 transition-colors" />
+                    </button>
+                  )}
                 </div>
                 <div className="flex items-center gap-1.5 ml-auto flex-shrink-0">
                   <span className="text-xs px-2 py-0.5 rounded-md bg-active text-comment font-medium">
