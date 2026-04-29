@@ -147,3 +147,12 @@ function computeSummary(files: StitchFileResult[]): StitchSummary {
 }
 
 export { computeSummary };
+
+export interface StitchHistoryEntry {
+  id: string;
+  runAt: number;
+  duration: number;
+  status: 'completed' | 'cancelled' | 'error';
+  summary: StitchSummary;
+  files: StitchFileResult[];
+}
