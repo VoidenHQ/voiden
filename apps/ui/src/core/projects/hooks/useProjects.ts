@@ -1,4 +1,11 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useSearchStore as useFileSearchStore } from "@/core/stores/searchStore";
+import { useSearchStore as useEditorSearchStore } from "@/core/stores/searchParamsStore";
+
+const closeAllSearchPanels = () => {
+  useFileSearchStore.getState().setIsSearching(false);
+  useEditorSearchStore.getState().setIsOpen(false);
+};
 
 export const getProjects = async () => {
   const projects = await window.electron?.state.getProjects();
@@ -23,6 +30,7 @@ export const useOpenProject = () => {
   return useMutation({
     mutationFn: async (projectPath: string) => window.electron?.state.openProject(projectPath),
     onSuccess: () => {
+      closeAllSearchPanels();
       clearGitQueries(queryClient);
       queryClient.invalidateQueries({ queryKey: ["environments"] });
       queryClient.invalidateQueries({ queryKey: ["app:state"] });
@@ -42,6 +50,7 @@ export const useSetActiveProject = () => {
   return useMutation({
     mutationFn: async (projectPath: string) => window.electron?.state.setActiveProject(projectPath),
     onSuccess: () => {
+      closeAllSearchPanels();
       clearGitQueries(queryClient);
       queryClient.invalidateQueries({ queryKey: ["projects"] });
       queryClient.invalidateQueries({ queryKey: ["app:state"] });
@@ -57,6 +66,7 @@ export const useCloseActiveProject = () => {
   return useMutation({
     mutationFn: async () => window.electron?.state.emptyActiveProject(),
     onSuccess: () => {
+      closeAllSearchPanels();
       clearGitQueries(queryClient);
       queryClient.invalidateQueries({ queryKey: ["projects"] });
       queryClient.invalidateQueries({ queryKey: ["app:state"] });

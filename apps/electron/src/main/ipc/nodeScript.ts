@@ -123,12 +123,8 @@ interface NodeScriptResult {
 
 async function loadProjectVariables(): Promise<Record<string, any>> {
   try {
-    const project = await getActiveProject();
-    if (!project) return {};
-    const filePath = path.join(project, ".voiden", ".process.env.json");
-    const content = await fs.readFile(filePath, "utf-8");
-    const parsed = JSON.parse(content);
-    return parsed && typeof parsed === "object" ? parsed : {};
+    const { loadVariablesForActive } = await import("../variables");
+    return await loadVariablesForActive();
   } catch {
     return {};
   }
@@ -136,12 +132,8 @@ async function loadProjectVariables(): Promise<Record<string, any>> {
 
 async function persistProjectVariables(next: Record<string, any>): Promise<void> {
   try {
-    const project = await getActiveProject();
-    if (!project) return;
-    const dirPath = path.join(project, ".voiden");
-    await fs.mkdir(dirPath, { recursive: true });
-    const filePath = path.join(dirPath, ".process.env.json");
-    await fs.writeFile(filePath, JSON.stringify(next, null, 2), "utf-8");
+    const { mergeWriteVariablesForActive } = await import("../variables");
+    await mergeWriteVariablesForActive(next);
   } catch {
     // Best-effort persistence
   }

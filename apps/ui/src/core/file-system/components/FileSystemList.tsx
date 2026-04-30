@@ -28,8 +28,6 @@ import {
   Settings2,
   FileCode,
   Database,
-  X,
-  Type,
   Hash,
 } from "lucide-react";
 import { cn } from "@/core/lib/utils";
@@ -47,10 +45,11 @@ import { useOpenProject, useCloseActiveProject } from "@/core/projects/hooks";
 import { useElectronEvent } from "@/core/providers";
 import { useFocusStore } from "@/core/stores/focusStore";
 import { useSearchStore } from "@/core/stores/searchStore";
+import { useSearchStore as useEditorSearchStore } from "@/core/stores/searchParamsStore";
+import { useShallow } from "zustand/react/shallow";
 import { useBlockContentStore } from "@/core/stores/blockContentStore";
-import { Input } from "@/core/components/ui/input";
+import { SearchPanelView } from "@/core/editors/code/lib/components/SearchPanelView";
 import { useSetActiveProject } from "@/core/projects/hooks";
-import { toggle } from "fp-ts/lib/ReadonlySet";
 import { usePanelStore } from "@/core/stores/panelStore";
 
 /*
@@ -1171,10 +1170,26 @@ export const FileSystemList = () => {
   const searchQuery = useDebounce(rawQuery, 300);
   const [matchCase, setMatchCase] = useState(false);
   const [matchWholeWord, setMatchWholeWord] = useState(false);
+  const [useRegex, setUseRegex] = useState(false);
+  const [useMultiline, setUseMultiline] = useState(false);
+
+  useEffect(() => {
+    if (rawQuery.includes("\n")) setUseMultiline(true);
+  }, [rawQuery]);
 
   const { closeBottomPanel } = usePanelStore();
-  const storeIsSearching = useSearchStore((state) => state.isSearching);
+  const { storeIsSearching, openSearchTick } = useSearchStore(useShallow((state) => ({
+    storeIsSearching: state.isSearching,
+    openSearchTick: state.openTick,
+  })));
   const setStoreIsSearching = useSearchStore((state) => state.setIsSearching);
+  const findInputRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (storeIsSearching) {
+      setTimeout(() => findInputRef.current?.focus(), 0);
+    }
+  }, [openSearchTick, storeIsSearching]);
 
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -1196,19 +1211,25 @@ export const FileSystemList = () => {
     searchIdRef.current += 1;
     const currentId = searchIdRef.current;
 
-    setSearchResults([]);
     seenSearchResultsRef.current = new Set();
+    setSearchResults([]);
     setIsSearching(true);
     setSearchError(null);
 
-    window.electron?.startSearch?.({ query: searchQuery, matchCase, matchWholeWord, searchId: currentId });
+    window.electron?.startSearch?.({ query: searchQuery, matchCase, matchWholeWord, useRegex, useMultiline, searchId: currentId });
 
+    let firstResult = true;
     const unsubResult = window.electron?.onSearchResult?.((data) => {
       if (data.searchId !== currentId) return;
       const key = `${data.result.path}:${data.result.line}`;
       if (!seenSearchResultsRef.current.has(key)) {
         seenSearchResultsRef.current.add(key);
-        setSearchResults((prev) => [...prev, data.result]);
+        if (firstResult) {
+          firstResult = false;
+          setSearchResults([data.result]);
+        } else {
+          setSearchResults((prev) => [...prev, data.result]);
+        }
       }
     });
 
@@ -1216,6 +1237,7 @@ export const FileSystemList = () => {
       if (data.searchId !== currentId) return;
       setIsSearching(false);
       if (data.error) setSearchError(data.error);
+      if (firstResult) setSearchResults([]);
     });
 
     return () => {
@@ -1223,7 +1245,7 @@ export const FileSystemList = () => {
       unsubDone?.();
       window.electron?.cancelSearch?.(currentId);
     };
-  }, [searchQuery, matchCase, matchWholeWord]);
+  }, [searchQuery, matchCase, matchWholeWord, useRegex, useMultiline]);
 
   // ─── Sync server data → treeData ─────────────────────────────────────────────
   // On the FIRST load we initialise treeData from the server response and then
@@ -1824,108 +1846,107 @@ export const FileSystemList = () => {
         {(showDeleteProgress || isSearching || isTreeBusy) && (
           <div
             className="absolute h-full w-1/3 bg-accent rounded-full"
-            style={{ animation: "fileTreeProgress 1.2s ease-in-out infinite" }}
+            style={{ animation: "fileTreeProgress 1.2s ease-in-out infinite", transform: "translateX(-100%)" }}
           />
         )}
       </div>
-      <div className="p-2 flex items-center gap-2 justify-end">
-        {storeIsSearching && (
-          <>
-            <Input
-              type="text"
-              className="flex-1 px-2 py-1 border rounded bg-bg"
-              placeholder="Search file contents…"
-              value={rawQuery}
-              onChange={(e) => setRawQuery(e.target.value)}
-              onClick={(e) => e.stopPropagation()}
-              onKeyDown={(e) => {
-                if (e.key === "Escape") {
-                  setStoreIsSearching(false);
-                  setRawQuery("");
-                }
-                e.stopPropagation();
-              }}
-              onKeyUp={(e) => e.stopPropagation()}
-              onMouseDown={(e) => e.stopPropagation()}
-              autoFocus
-            />
-            <Tip label="Match case" side="bottom">
-              <button onClick={() => setMatchCase((c) => !c)} className={matchCase ? "bg-active" : ""}>
-                <Type size={16} />
-              </button>
-            </Tip>
-            <Tip label="Match whole word" side="bottom">
-              <button onClick={() => setMatchWholeWord((w) => !w)} className={matchWholeWord ? "bg-active" : ""}>
-                <Hash size={16} />
-              </button>
-            </Tip>
-            <Tip label="Close search" side="bottom">
-              <button
-                onClick={() => {
-                  setStoreIsSearching(false);
-                  setRawQuery("");
-                }}
-                className="p-1 rounded hover:bg-active"
-              >
-                <X size={16} />
-              </button>
-            </Tip>
-          </>
-        )}
-        {storeIsSearching && isSearching && <Loader size={14} className="animate-spin text-accent" />}
-      </div>
+      {storeIsSearching && (
+        <div className="p-2">
+          <SearchPanelView
+            findValue={rawQuery}
+            replaceValue=""
+            matchCase={matchCase}
+            matchWholeWord={matchWholeWord}
+            useRegex={useRegex}
+            multiline={useMultiline}
+            showReplace={false}
+            hideNav
+            findInputRef={findInputRef}
+            onFindChange={setRawQuery}
+            onReplaceChange={() => {}}
+            onToggleMatchCase={() => setMatchCase((c) => !c)}
+            onToggleMatchWholeWord={() => setMatchWholeWord((w) => !w)}
+            onToggleRegex={() => setUseRegex((r) => !r)}
+            onToggleMultiline={() => setUseMultiline((m) => !m)}
+            onClose={() => { setStoreIsSearching(false); setRawQuery(""); }}
+          />
+        </div>
+      )}
       {storeIsSearching ? (
         <div className="flex flex-col flex-1 overflow-y-auto p-2">
-          {isSearching && (
-            <div className="flex items-center justify-center py-8">
-              <svg className="animate-spin h-5 w-5 text-accent" viewBox="0 0 24 24" fill="none">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
-              </svg>
-            </div>
-          )}
           {searchError && <div className="text-red-500 text-sm">Error running search: {searchError}</div>}
-          {!isSearching && !searchError && searchResults.length === 0 && searchQuery && (
-            <div className="text-gray-500 text-sm">No results for "{rawQuery}"</div>
-          )}
-          {searchResults.length > 0 && (
-            <div className="flex-1 overflow-y-auto p-2 space-y-2">
-              {searchResults.map(({ path, line, preview }) => (
-                <div
-                  key={`${path}:${line}`}
-                  className="p-3 bg-active rounded-lg border border-gray-200 hover:bg-transparent transition cursor-pointer"
-                  onClick={async () => {
-                    const newTab = {
-                      id: crypto.randomUUID(),
-                      type: "document" as const,
-                      title: path.split("/").pop() || path,
-                      source: path,
-                      directory: null,
-                    };
-                    const response = await window.electron.state.addPanelTab("main", newTab);
-                    const tabId = response?.tabId;
-                    if (tabId) {
-                      await activateTab({ panelId: "main", tabId });
-                    }
-                  }}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-mono text-xs text-gray-300 truncate">{path.split("/").pop() || path}</span>
-                    <span className="text-xs text-gray-300">Line {line}</span>
+          {!searchError && searchQuery && (() => {
+            const matchCount = searchResults.length;
+            const fileCount = new Set(searchResults.map((r) => r.path)).size;
+            return (
+              <div className="flex items-center gap-2 text-xs text-gray-400 px-2 mb-1">
+                {!isSearching && matchCount === 0 && rawQuery === searchQuery && <span>No results for "{rawQuery}"</span>}
+                {matchCount > 0 && <span>{matchCount} match{matchCount === 1 ? "" : "es"} in {fileCount} file{fileCount === 1 ? "" : "s"}</span>}
+                {isSearching && <Loader size={12} className="animate-spin text-accent shrink-0" />}
+              </div>
+            );
+          })()}
+          {searchResults.length > 0 && (() => {
+            // rg reports one result per matched line; for multi-line queries
+            // the preview is still a single line, so highlight using the
+            // first non-empty line of the pattern.
+            const firstLine = searchQuery.split(/\r?\n/).find((l) => l.length > 0) ?? "";
+            const rawPattern = useRegex
+              ? firstLine
+              : firstLine.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            const wrapped = matchWholeWord ? `\\b(?:${rawPattern})\\b` : rawPattern;
+            let splitter: RegExp | null = null;
+            try {
+              splitter = rawPattern ? new RegExp(`(${wrapped})`, matchCase ? "" : "i") : null;
+            } catch {
+              splitter = null;
+            }
+            return (
+              <div className="flex-1 overflow-y-auto p-2 space-y-2">
+                {searchResults.map(({ path, line, preview }) => (
+                  <div
+                    key={`${path}:${line}`}
+                    className="p-3 bg-active rounded-lg border border-gray-200 hover:bg-transparent transition cursor-pointer"
+                    onClick={async () => {
+                      const editorSearch = useEditorSearchStore.getState();
+                      editorSearch.setTerm(searchQuery);
+                      editorSearch.setMatchCase(matchCase);
+                      editorSearch.setMatchWholeWord(matchWholeWord);
+                      editorSearch.setUseRegex(useRegex);
+                      editorSearch.setUseMultiline(useMultiline);
+                      const newTab = {
+                        id: crypto.randomUUID(),
+                        type: "document" as const,
+                        title: path.split("/").pop() || path,
+                        source: path,
+                        directory: null,
+                      };
+                      const response = await window.electron.state.addPanelTab("main", newTab);
+                      const tabId = response?.tabId;
+                      if (tabId) {
+                        await activateTab({ panelId: "main", tabId });
+                      }
+                      editorSearch.requestOpenSearchPanel();
+                    }}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono text-xs text-gray-300 truncate">{path.split("/").pop() || path}</span>
+                      <span className="text-xs text-gray-300">Line {line}</span>
+                    </div>
+                    <p className="mt-1 text-sm text-white break-words">
+                      {splitter
+                        ? preview.split(splitter).map((part, idx) => (
+                            <React.Fragment key={idx}>
+                              {idx % 2 === 1 ? <mark className="bg-accent text-black rounded">{part}</mark> : part}
+                            </React.Fragment>
+                          ))
+                        : preview}
+                    </p>
                   </div>
-                  <p className="mt-1 text-sm text-white break-words">
-                    {preview
-                      .split(new RegExp(`(${searchQuery.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, matchCase ? "" : "i"))
-                      .map((part, idx) => (
-                        <React.Fragment key={idx}>
-                          {idx % 2 === 1 ? <mark className="bg-accent text-black rounded">{part}</mark> : part}
-                        </React.Fragment>
-                      ))}
-                  </p>
-                </div>
-              ))}
-            </div>
-          )}
+                ))}
+              </div>
+            );
+          })()}
         </div>
       ) : (
         <div ref={ref} className="flex-1 overflow-hidden">

@@ -285,12 +285,9 @@ function replaceTemplateExpressions(
 
 
 /**
- * Saves runtime variables to .voiden/.process.env.json with proper call type handling
- * @param resObject - Response object containing status, headers, body, etc.
- * @param captureArray - Array of runtime variable configurations
- * @param path - The file path to save variables
- * @param overwriteExisting - Whether to overwrite existing variables
- * @param callType - The type of call ('req' or 'res') to determine which expressions to process
+ * Saves runtime variables scoped to the currently active environment.
+ * Fetches the authoritative env key from the main process first so both
+ * read and write target the exact same bucket.
  */
 export async function saveRuntimeVariables(
     reqObject: RequestObject | undefined,
@@ -299,66 +296,45 @@ export async function saveRuntimeVariables(
     path: string,
 ): Promise<void> {
     try {
-        // Step 1: Read existing variables file
+        // Ask main process for the authoritative active env key
+        const envKey: string = await window.electron?.variables.getActiveEnvKey() ?? "__global__";
+
+        // Read existing vars for that specific bucket only
         let existingVariables: Record<string, any> = {};
         try {
-            const fileContent = await window.electron?.files?.read(path + '/.voiden/.process.env.json');
-            existingVariables = JSON.parse(fileContent || '{}');
+            existingVariables = await window.electron?.variables.read(envKey) ?? {};
         } catch (error: any) {
-            // File doesn't exist or is invalid, start with empty object
             if (error.code !== "ENOENT") {
                 console.warn("Error reading variables file, starting fresh:", error);
             }
         }
 
-        // Step 2: Process capture array and extract values based on call type
+        // Process capture array and extract values
         const newVariables: Record<string, any> = {};
 
         for (const capture of captureArray) {
-            if (!capture.enabled) {
-                continue; // Skip disabled captures
-            }
+            if (!capture.enabled) continue;
 
-            // Check if the value is a single template expression (e.g., "{{$res.body.data}}")
-            // If so, extract the actual value (preserving objects/arrays)
             const trimmedValue = capture.value.trim();
             const isSingleTemplate = trimmedValue.match(/^\{\{\s*\$\w+\.[^}]+\s*\}\}$/);
 
             if (isSingleTemplate) {
-                // Extract actual value (can be object, array, string, etc.)
                 let extractedValue = extractTemplateValue(capture.value, reqObject, resObject);
-
-                // If the extracted value is a string that looks like JSON, try to parse it
-                // This handles cases where the response body was stored as a stringified JSON
                 if (typeof extractedValue === 'string') {
                     const parsed = safeJsonParse(extractedValue);
-                    // Only use parsed value if it's actually an object/array (not just a string)
-                    if (typeof parsed === 'object' && parsed !== null) {
-                        extractedValue = parsed;
-                    }
+                    if (typeof parsed === 'object' && parsed !== null) extractedValue = parsed;
                 }
-
-                if (extractedValue !== undefined && extractedValue !== null) {
-                    newVariables[capture.key] = extractedValue;
-                } else {
-                    newVariables[capture.key] = null;
-                }
+                newVariables[capture.key] = (extractedValue !== undefined && extractedValue !== null) ? extractedValue : null;
             } else {
-                // Multiple templates or mixed text - use string replacement
                 const processedValue = replaceTemplateExpressions(capture.value, reqObject, resObject);
-                if (processedValue && processedValue.trim() !== '' ) {
-                    newVariables[capture.key] = processedValue;
-                } else {
-                    newVariables[capture.key] = "";
-                }
+                newVariables[capture.key] = (processedValue && processedValue.trim() !== '') ? processedValue : "";
             }
         }
 
-        // Step 3: Merge with existing variables
-        const mergedVariables = { ...existingVariables,...newVariables };
-        // Step 4: Save back to file with pretty formatting
-        await window.electron?.variables.writeVariables(JSON.stringify(mergedVariables, null, 2));
-        await window.electron?.git?.updateGitignore(['.voiden','.voiden/.process.env.json'], path);
+        // Write only new vars merged into the existing bucket — same envKey for both
+        const mergedVariables = { ...existingVariables, ...newVariables };
+        await window.electron?.variables.writeVariables(mergedVariables, envKey);
+        await window.electron?.git?.updateGitignore(['.voiden', '.voiden/.process.env.json'], path);
     } catch (error: any) {
         console.error("Error saving runtime variables:", error);
         throw error;
@@ -414,16 +390,12 @@ function replaceProcessVariables(text: string, variables: Record<string, any>, p
 }
 
 /**
- * Loads variables from .voiden/.process.env.json file
- * @param path - The directory path containing .voiden/.process.env.json
- * @returns The variables object or empty object if file doesn't exist
+ * Loads process variables merged for the currently active env.
+ * Main process resolves the active env key, so no renderer-side lookup needed.
  */
 async function loadProcessVariables(): Promise<Record<string, any>> {
     try {
-        const state = await window.electron?.state?.get();
-        const path = state?.activeDirectory || '';
-        const fileContent = await window.electron?.files?.read(path + '/.voiden/.process.env.json');
-        return fileContent ? JSON.parse(fileContent) : {};
+        return await window.electron?.variables.readMerged() ?? {};
     } catch (error: any) {
         if (error.code !== "ENOENT") {
             console.warn("Error reading process variables file:", error);

@@ -25,10 +25,13 @@ import {
   Copy,
   ExternalLink,
   Download,
+  ArrowLeft,
+  History,
 } from 'lucide-react';
 import { stitchStore } from '../lib/stitchStore';
-import type { StitchRunState, StitchFileResult, StitchSectionResult } from '../lib/types';
+import type { StitchRunState, StitchFileResult, StitchSectionResult, StitchHistoryEntry } from '../lib/types';
 import { exportStitchToExcel } from '../lib/exportExcel';
+import { loadStitchHistory, deleteStitchHistoryEntry, clearStitchHistory } from '../lib/stitchHistory';
 
 /** Generate a simple cURL command from request info. */
 function toCurl(req: NonNullable<StitchSectionResult['requestInfo']>): string {
@@ -78,6 +81,21 @@ function formatDuration(ms: number): string {
   if (ms < 1000) return `${Math.round(ms)}ms`;
   if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
   return `${Math.floor(ms / 60000)}m ${Math.round((ms % 60000) / 1000)}s`;
+}
+
+function formatRelativeTime(timestamp: number): string {
+  const diff = Date.now() - timestamp;
+  const minutes = Math.floor(diff / 60000);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+  if (days > 0) return `${days}d ago`;
+  if (hours > 0) return `${hours}h ago`;
+  if (minutes > 0) return `${minutes}m ago`;
+  return 'just now';
+}
+
+function formatDateTime(timestamp: number): string {
+  return new Date(timestamp).toLocaleString();
 }
 
 /** Lightweight styled tooltip wrapper. */
@@ -506,8 +524,104 @@ const FileRow = ({ file, defaultExpanded, onOpenFile }: { file: StitchFileResult
   );
 };
 
-export const StitchResultsSidebar = ({ tabId }: { tabId?: string }) => {
-  const run = useStitchRun(tabId);
+/** Live timer while a run is in progress. */
+const RunTimer = ({ startedAt }: { startedAt: number }) => {
+  const [elapsed, setElapsed] = useState(Date.now() - startedAt);
+  useEffect(() => {
+    const interval = setInterval(() => setElapsed(Date.now() - startedAt), 200);
+    return () => clearInterval(interval);
+  }, [startedAt]);
+  return <span>{formatDuration(elapsed)}</span>;
+};
+
+/** A single row in the history list. */
+const HistoryRow = ({
+  entry,
+  isLatest,
+  onClick,
+  onDelete,
+}: {
+  entry: StitchHistoryEntry;
+  isLatest: boolean;
+  onClick: () => void;
+  onDelete: (e: React.MouseEvent) => void;
+}) => {
+  const hasFail = entry.summary.failedFiles + entry.summary.errorFiles > 0;
+  const statusColor = entry.status === 'cancelled'
+    ? 'text-comment'
+    : hasFail
+      ? 'text-red-400'
+      : 'text-green-400';
+  const statusLabel = entry.status === 'cancelled'
+    ? 'Cancelled'
+    : entry.status === 'error'
+      ? 'Error'
+      : hasFail
+        ? 'Failed'
+        : 'Passed';
+
+  return (
+    <div
+      className="flex items-center gap-2 px-3 py-2 border-b border-border hover:bg-active cursor-pointer transition-colors select-none group/histrow"
+      onClick={onClick}
+      style={{ cursor: 'pointer' }}
+    >
+      <StatusDot status={entry.status === 'cancelled' ? 'skipped' : hasFail ? 'failed' : 'passed'} />
+      <div className="flex flex-col gap-0.5 flex-1 min-w-0">
+        <div className="flex items-center gap-1.5">
+          <span className={`text-[10px] font-semibold ${statusColor}`}>{statusLabel}</span>
+          {isLatest && (
+            <span className="text-[9px] text-accent font-semibold uppercase tracking-wide">latest</span>
+          )}
+        </div>
+        <div className="flex items-center gap-2 text-[10px] text-comment">
+          <span>{entry.summary.totalFiles} file{entry.summary.totalFiles !== 1 ? 's' : ''}</span>
+          {entry.summary.passedFiles > 0 && (
+            <span className="text-green-400">{entry.summary.passedFiles}✓</span>
+          )}
+          {entry.summary.failedFiles + entry.summary.errorFiles > 0 && (
+            <span className="text-red-400">{entry.summary.failedFiles + entry.summary.errorFiles}✗</span>
+          )}
+          {entry.summary.totalAssertions > 0 && (
+            <span>{entry.summary.passedAssertions}/{entry.summary.totalAssertions} assertions</span>
+          )}
+        </div>
+      </div>
+      <div className="flex items-center gap-1.5 flex-shrink-0">
+        <div className="flex flex-col items-end gap-0.5">
+          <Tip label={formatDateTime(entry.runAt)}>
+            <span className="text-[10px] text-comment font-mono">{formatRelativeTime(entry.runAt)}</span>
+          </Tip>
+          {entry.duration > 0 && (
+            <span className="text-[9px] text-comment font-mono">{formatDuration(entry.duration)}</span>
+          )}
+        </div>
+        <Tip label="Delete">
+          <button
+            onClick={onDelete}
+            className="p-1 rounded text-comment hover:text-red-400 transition-colors"
+            style={{ cursor: 'pointer' }}
+          >
+            <Trash2 size={11} />
+          </button>
+        </Tip>
+      </div>
+    </div>
+  );
+};
+
+/** Inner run results view — shared between live run and history detail. */
+const RunResultsView = ({
+  run,
+  isDone,
+  isRunning,
+  onOpenFile,
+}: {
+  run: Pick<StitchRunState, 'files' | 'summary' | 'status' | 'startedAt' | 'duration' | 'currentFileIndex'>;
+  isDone: boolean;
+  isRunning: boolean;
+  onOpenFile: (path: string) => void;
+}) => {
   const bottomRef = useRef<HTMLDivElement>(null);
   const [allExpanded, setAllExpanded] = useState(false);
   const [filterText, setFilterText] = useState('');
@@ -517,23 +631,6 @@ export const StitchResultsSidebar = ({ tabId }: { tabId?: string }) => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [run.currentFileIndex]);
 
-  // Open a .void file by its absolute path
-  const handleOpenFile = useCallback(async (filePath: string) => {
-    try {
-      const fileName = filePath.split('/').pop() || filePath;
-      await (window as any).electron?.ipc?.invoke('fileLink:open', filePath, fileName);
-      // Invalidate queries so the tab appears in the UI (same as ExternalFile.tsx)
-      // @ts-ignore - Vite dynamic import
-      const { getQueryClient } = await import(/* @vite-ignore */ '@/main');
-      const queryClient = getQueryClient();
-      queryClient.invalidateQueries({ queryKey: ['panel:tabs', 'main'] });
-      queryClient.invalidateQueries({ queryKey: ['tab:content', 'main', fileName] });
-    } catch (err) {
-      console.error('[voiden-stitch] Failed to open file:', err);
-    }
-  }, []);
-
-  // Filter files by name, section labels, methods, and URLs
   const filteredFiles = useMemo(() => {
     if (!filterText.trim()) return run.files;
     const q = filterText.toLowerCase();
@@ -547,34 +644,21 @@ export const StitchResultsSidebar = ({ tabId }: { tabId?: string }) => {
     });
   }, [run.files, filterText]);
 
-  const isIdle = run.status === 'idle';
-  const isRunning = run.status === 'running';
-  const isDone = run.status === 'completed' || run.status === 'cancelled' || run.status === 'error';
   const hasFailures = run.summary.failedFiles + run.summary.errorFiles > 0;
   const allPassed = isDone && !hasFailures;
-
   const statusLabel = isRunning ? 'Running' : run.status === 'completed'
     ? (allPassed ? 'Passed' : 'Failed')
     : run.status === 'cancelled' ? 'Cancelled' : run.status === 'error' ? 'Error' : null;
-
   const statusColor = allPassed
     ? 'text-green-400 bg-green-400/10'
-    : isRunning
-      ? 'text-accent bg-accent/10'
-      : isDone
-        ? 'text-red-400 bg-red-400/10'
-        : '';
-
-  const toggleAll = useCallback(() => {
-    setAllExpanded((prev) => !prev);
-  }, []);
+    : isRunning ? 'text-accent bg-accent/10'
+    : isDone ? 'text-red-400 bg-red-400/10' : '';
 
   return (
-    <div className="flex flex-col h-full font-mono">
-      {/* Sticky top bar — matches response panel */}
-      <div className="flex items-center justify-between h-10 border-b border-border px-3 flex-shrink-0 bg-bg">
-        <div className="flex items-center gap-2 min-w-0 flex-1">
-          <span className="text-comment text-xs">Stitch Results</span>
+    <>
+      {/* Sub-toolbar */}
+      <div className="flex items-center justify-between h-8 border-b border-border px-3 flex-shrink-0 bg-bg">
+        <div className="flex items-center gap-2">
           {statusLabel && (
             <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${statusColor}`}>
               {statusLabel}
@@ -585,21 +669,222 @@ export const StitchResultsSidebar = ({ tabId }: { tabId?: string }) => {
           {run.files.length > 0 && (
             <>
               <button
-                className={`p-1.5 transition-colors rounded ${showFilter ? 'text-accent' : 'text-comment hover:text-text'}`}
+                className={`p-1 transition-colors rounded ${showFilter ? 'text-accent' : 'text-comment hover:text-text'}`}
                 title="Filter results"
                 onClick={() => setShowFilter(!showFilter)}
                 style={{ cursor: 'pointer' }}
               >
-                <Search size={14} />
+                <Search size={12} />
               </button>
               <button
-                className="p-1.5 text-comment hover:text-text transition-colors rounded"
-                title={allExpanded ? "Collapse all" : "Expand all"}
-                onClick={toggleAll}
+                className="p-1 text-comment hover:text-text transition-colors rounded"
+                title={allExpanded ? 'Collapse all' : 'Expand all'}
+                onClick={() => setAllExpanded((v) => !v)}
                 style={{ cursor: 'pointer' }}
               >
-                {allExpanded ? <ChevronsDownUp size={14} /> : <ChevronsUpDown size={14} />}
+                {allExpanded ? <ChevronsDownUp size={12} /> : <ChevronsUpDown size={12} />}
               </button>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Filter bar */}
+      {showFilter && (
+        <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-border bg-panel flex-shrink-0">
+          <input
+            type="text"
+            placeholder="Filter by file, request, or URL..."
+            value={filterText}
+            onChange={(e) => setFilterText(e.target.value)}
+            autoFocus
+            className="flex-1 h-6 px-2 text-[11px] font-mono bg-editor border border-border rounded-md text-text focus:outline-none focus:border-accent placeholder:text-comment/40"
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') { setShowFilter(false); setFilterText(''); }
+            }}
+          />
+          {filterText && (
+            <span className="text-[10px] text-comment flex-shrink-0">{filteredFiles.length}/{run.files.length}</span>
+          )}
+          <button
+            onClick={() => { setShowFilter(false); setFilterText(''); }}
+            className="p-0.5 text-comment hover:text-text transition-colors rounded"
+            style={{ cursor: 'pointer' }}
+          >
+            <X size={12} />
+          </button>
+        </div>
+      )}
+
+      {/* Summary bar */}
+      {run.status !== 'idle' && (
+        <div className="flex items-center gap-3 px-3 py-2 border-b border-border bg-bg flex-shrink-0">
+          {run.summary.totalAssertions > 0 && (
+            <PassRateArc
+              passed={run.summary.passedAssertions}
+              failed={run.summary.failedAssertions}
+              total={run.summary.totalAssertions}
+              size={44}
+            />
+          )}
+          <div className="flex flex-col gap-0.5 flex-1 min-w-0">
+            <div className="flex items-center gap-2 text-[10px]">
+              <span className="text-comment">{run.summary.totalFiles} file{run.summary.totalFiles !== 1 ? 's' : ''}</span>
+              {run.summary.passedFiles > 0 && <span className="text-green-400">{run.summary.passedFiles} passed</span>}
+              {run.summary.failedFiles + run.summary.errorFiles > 0 && (
+                <span className="text-red-400">{run.summary.failedFiles + run.summary.errorFiles} failed</span>
+              )}
+              {run.summary.skippedFiles > 0 && <span className="text-comment">{run.summary.skippedFiles} skipped</span>}
+            </div>
+            {run.summary.totalAssertions > 0 && (
+              <div className="flex items-center gap-2 text-[10px]">
+                <span className="text-comment">Assertions:</span>
+                <span className="text-green-400">{run.summary.passedAssertions} passed</span>
+                {run.summary.failedAssertions > 0 && <span className="text-red-400">{run.summary.failedAssertions} failed</span>}
+                <span className="text-comment">/ {run.summary.totalAssertions}</span>
+              </div>
+            )}
+          </div>
+          <div className="text-[10px] text-comment font-mono flex-shrink-0">
+            {isRunning && run.startedAt ? <RunTimer startedAt={run.startedAt} /> : run.duration > 0 ? formatDuration(run.duration) : null}
+          </div>
+        </div>
+      )}
+
+      {/* File list */}
+      <div className="flex-1 overflow-y-auto overflow-x-hidden min-h-0 bg-editor">
+        {run.files.length === 0 && (
+          <div className="p-4 text-comment text-center text-[11px]">No files in this run.</div>
+        )}
+        {filteredFiles.map((file, i) => (
+          <FileRow key={`${file.filePath}-${i}`} file={file} defaultExpanded={allExpanded} onOpenFile={onOpenFile} />
+        ))}
+        <div ref={bottomRef} />
+      </div>
+    </>
+  );
+};
+
+export const StitchResultsSidebar = ({ tabId }: { tabId?: string }) => {
+  const run = useStitchRun(tabId);
+
+  // History state
+  const [showHistory, setShowHistory] = useState(false);
+  const [historyEntries, setHistoryEntries] = useState<StitchHistoryEntry[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [selectedEntry, setSelectedEntry] = useState<StitchHistoryEntry | null>(null);
+
+  const sourceFilePath = run.sourceFilePath;
+
+  // Load history when panel opens or source changes
+  useEffect(() => {
+    if (!showHistory || !sourceFilePath) return;
+    setHistoryLoading(true);
+    loadStitchHistory(sourceFilePath).then((entries) => {
+      setHistoryEntries(entries);
+      setHistoryLoading(false);
+    });
+  }, [showHistory, sourceFilePath]);
+
+  // When a new run completes, refresh history list if it's open
+  useEffect(() => {
+    if (!showHistory || !sourceFilePath || run.status === 'running' || run.status === 'idle') return;
+    loadStitchHistory(sourceFilePath).then(setHistoryEntries);
+  }, [run.status, showHistory, sourceFilePath]);
+
+  const handleDeleteEntry = useCallback(async (e: React.MouseEvent, entryId: string) => {
+    e.stopPropagation();
+    if (!sourceFilePath) return;
+    await deleteStitchHistoryEntry(sourceFilePath, entryId);
+    setHistoryEntries((prev) => prev.filter((e) => e.id !== entryId));
+  }, [sourceFilePath]);
+
+  const handleClearAll = useCallback(async () => {
+    if (!sourceFilePath) return;
+    await clearStitchHistory(sourceFilePath);
+    setHistoryEntries([]);
+  }, [sourceFilePath]);
+
+  const handleOpenFile = useCallback(async (filePath: string) => {
+    try {
+      const fileName = filePath.split('/').pop() || filePath;
+      await (window as any).electron?.ipc?.invoke('fileLink:open', filePath, fileName);
+      // @ts-ignore - Vite dynamic import
+      const { getQueryClient } = await import(/* @vite-ignore */ '@/main');
+      const queryClient = getQueryClient();
+      queryClient.invalidateQueries({ queryKey: ['panel:tabs', 'main'] });
+      queryClient.invalidateQueries({ queryKey: ['tab:content', 'main', fileName] });
+    } catch (err) {
+      console.error('[voiden-stitch] Failed to open file:', err);
+    }
+  }, []);
+
+  const isIdle = run.status === 'idle';
+  const isRunning = run.status === 'running';
+  const isDone = run.status === 'completed' || run.status === 'cancelled' || run.status === 'error';
+  const hasFailures = run.summary.failedFiles + run.summary.errorFiles > 0;
+  const allPassed = isDone && !hasFailures;
+  const statusLabel = isRunning ? 'Running' : run.status === 'completed'
+    ? (allPassed ? 'Passed' : 'Failed')
+    : run.status === 'cancelled' ? 'Cancelled' : run.status === 'error' ? 'Error' : null;
+  const statusColor = allPassed
+    ? 'text-green-400 bg-green-400/10'
+    : isRunning ? 'text-accent bg-accent/10'
+    : isDone ? 'text-red-400 bg-red-400/10' : '';
+
+  // ── Render ──────────────────────────────────────────────────────────────
+
+  return (
+    <div className="flex flex-col h-full font-mono overflow-x-hidden">
+      {/* Top bar */}
+      <div className="flex items-center justify-between h-10 border-b border-border px-3 flex-shrink-0 bg-bg">
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          {showHistory && selectedEntry ? (
+            <button
+              onClick={() => setSelectedEntry(null)}
+              className="flex items-center gap-1 text-comment hover:text-text transition-colors text-[11px]"
+              style={{ cursor: 'pointer' }}
+            >
+              <ArrowLeft size={12} />
+              <span>History</span>
+            </button>
+          ) : showHistory ? (
+            <button
+              onClick={() => { setShowHistory(false); setSelectedEntry(null); }}
+              className="flex items-center gap-1 text-comment hover:text-text transition-colors text-[11px]"
+              style={{ cursor: 'pointer' }}
+            >
+              <ArrowLeft size={12} />
+              <span>Results</span>
+            </button>
+          ) : (
+            <>
+              <span className="text-comment text-xs">Stitch Results</span>
+              {statusLabel && (
+                <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${statusColor}`}>
+                  {statusLabel}
+                </span>
+              )}
+            </>
+          )}
+        </div>
+
+        <div className="flex items-center gap-1">
+          {/* History toggle — shown when a source file is known */}
+          {sourceFilePath && !showHistory && (
+            <button
+              className="p-1.5 text-comment hover:text-text transition-colors rounded"
+              title="Run history"
+              onClick={() => { setShowHistory(true); setSelectedEntry(null); }}
+              style={{ cursor: 'pointer' }}
+            >
+              <History size={14} />
+            </button>
+          )}
+
+          {/* Current run actions — only in normal view */}
+          {!showHistory && run.files.length > 0 && (
+            <>
               {isDone && (
                 <button
                   onClick={() => exportStitchToExcel(run)}
@@ -623,114 +908,91 @@ export const StitchResultsSidebar = ({ tabId }: { tabId?: string }) => {
         </div>
       </div>
 
-      {/* Filter bar */}
-      {showFilter && (
-        <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-border bg-panel flex-shrink-0">
-          <input
-            type="text"
-            placeholder="Filter by file, request, or URL..."
-            value={filterText}
-            onChange={(e) => setFilterText(e.target.value)}
-            autoFocus
-            className="flex-1 h-6 px-2 text-[11px] font-mono bg-editor border border-border rounded-md text-text focus:outline-none focus:border-accent placeholder:text-comment/40"
-            onKeyDown={(e) => {
-              if (e.key === 'Escape') {
-                setShowFilter(false);
-                setFilterText('');
-              }
-            }}
-          />
-          {filterText && (
-            <span className="text-[10px] text-comment flex-shrink-0">
-              {filteredFiles.length}/{run.files.length}
-            </span>
-          )}
-          <button
-            onClick={() => { setShowFilter(false); setFilterText(''); }}
-            className="p-0.5 text-comment hover:text-text transition-colors rounded"
-            style={{ cursor: 'pointer' }}
-          >
-            <X size={12} />
-          </button>
-        </div>
-      )}
-
-      {/* Summary bar */}
-      {!isIdle && (
-        <div className="flex items-center gap-3 px-3 py-2 border-b border-border bg-bg flex-shrink-0">
-          {/* Pass rate donut */}
-          {run.summary.totalAssertions > 0 && (
-            <PassRateArc
-              passed={run.summary.passedAssertions}
-              failed={run.summary.failedAssertions}
-              total={run.summary.totalAssertions}
-              size={48}
-            />
-          )}
-
-          <div className="flex flex-col gap-0.5 flex-1 min-w-0">
-            {/* File counts */}
-            <div className="flex items-center gap-2 text-[10px]">
-              <span className="text-comment">
-                {run.summary.totalFiles} file{run.summary.totalFiles !== 1 ? 's' : ''}
-              </span>
-              {run.summary.passedFiles > 0 && (
-                <span className="text-green-400">{run.summary.passedFiles} passed</span>
-              )}
-              {run.summary.failedFiles + run.summary.errorFiles > 0 && (
-                <span className="text-red-400">{run.summary.failedFiles + run.summary.errorFiles} failed</span>
-              )}
-              {run.summary.skippedFiles > 0 && (
-                <span className="text-comment">{run.summary.skippedFiles} skipped</span>
-              )}
+      {/* ── History list view ── */}
+      {showHistory && !selectedEntry && (
+        <>
+          {!historyLoading && historyEntries.length > 0 && (
+            <div className="flex items-center justify-between px-3 py-1.5 border-b border-border bg-bg flex-shrink-0">
+              <span className="text-[10px] text-comment">{historyEntries.length} run{historyEntries.length !== 1 ? 's' : ''}</span>
+              <button
+                onClick={handleClearAll}
+                className="flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-accent text-text hover:opacity-90 transition-opacity"
+                style={{ cursor: 'pointer' }}
+              >
+                <Trash2 size={11} />
+                Delete all
+              </button>
             </div>
-
-            {/* Assertion counts */}
-            {run.summary.totalAssertions > 0 && (
-              <div className="flex items-center gap-2 text-[10px]">
-                <span className="text-comment">Assertions:</span>
-                <span className="text-green-400">{run.summary.passedAssertions} passed</span>
-                {run.summary.failedAssertions > 0 && (
-                  <span className="text-red-400">{run.summary.failedAssertions} failed</span>
-                )}
-                <span className="text-comment">/ {run.summary.totalAssertions}</span>
+          )}
+          <div className="flex-1 overflow-y-auto overflow-x-hidden min-h-0 bg-editor">
+            {historyLoading && (
+              <div className="p-4 flex items-center justify-center gap-2 text-comment text-[11px]">
+                <Loader2 size={12} className="animate-spin" />
+                Loading history...
               </div>
             )}
+            {!historyLoading && historyEntries.length === 0 && (
+              <div className="p-4 text-comment text-center text-[11px]">
+                No history yet. Run the stitch to record results.
+              </div>
+            )}
+            {!historyLoading && historyEntries.map((entry, i) => (
+              <HistoryRow
+                key={entry.id}
+                entry={entry}
+                isLatest={i === 0}
+                onClick={() => setSelectedEntry(entry)}
+                onDelete={(e) => handleDeleteEntry(e, entry.id)}
+              />
+            ))}
           </div>
-
-          {/* Duration */}
-          <div className="text-[10px] text-comment font-mono flex-shrink-0">
-            {run.status === 'running' && run.startedAt ? (
-              <RunTimer startedAt={run.startedAt} />
-            ) : run.duration > 0 ? (
-              formatDuration(run.duration)
-            ) : null}
-          </div>
-        </div>
+        </>
       )}
 
-      {/* File list — scrollable, matches response panel stacked sections */}
-      <div className="flex-1 overflow-y-auto min-h-0 bg-editor">
-        {isIdle && (
-          <div className="p-4 text-comment text-center text-[11px]">
-            Insert a <code className="text-text">/stitch</code> block and click Run to see results here.
+      {/* ── History detail view ── */}
+      {showHistory && selectedEntry && (
+        <>
+          <div className="px-3 py-1.5 border-b border-border bg-panel flex-shrink-0 flex items-center gap-2">
+            <Clock size={11} className="text-comment flex-shrink-0" />
+            <Tip label={formatDateTime(selectedEntry.runAt)}>
+              <span className="text-[11px] text-comment font-mono">{formatRelativeTime(selectedEntry.runAt)}</span>
+            </Tip>
+            <span className="text-[10px] text-comment">—</span>
+            <span className="text-[11px] text-comment font-mono">{formatDateTime(selectedEntry.runAt)}</span>
           </div>
-        )}
-        {filteredFiles.map((file, i) => (
-          <FileRow key={`${file.filePath}-${i}`} file={file} defaultExpanded={allExpanded} onOpenFile={handleOpenFile} />
-        ))}
-        <div ref={bottomRef} />
-      </div>
+          <RunResultsView
+            run={{
+              files: selectedEntry.files,
+              summary: selectedEntry.summary,
+              status: selectedEntry.status,
+              startedAt: selectedEntry.runAt,
+              duration: selectedEntry.duration,
+              currentFileIndex: -1,
+            }}
+            isDone={true}
+            isRunning={false}
+            onOpenFile={handleOpenFile}
+          />
+        </>
+      )}
+
+      {/* ── Current run view ── */}
+      {!showHistory && (
+        <>
+          {isIdle ? (
+            <div className="flex-1 flex items-center justify-center p-4 text-comment text-center text-[11px] bg-editor">
+              Insert a <code className="text-text mx-1">/stitch</code> block and click Run to see results here.
+            </div>
+          ) : (
+            <RunResultsView
+              run={run}
+              isDone={isDone}
+              isRunning={isRunning}
+              onOpenFile={handleOpenFile}
+            />
+          )}
+        </>
+      )}
     </div>
   );
-};
-
-/** Live timer while a run is in progress. */
-const RunTimer = ({ startedAt }: { startedAt: number }) => {
-  const [elapsed, setElapsed] = useState(Date.now() - startedAt);
-  useEffect(() => {
-    const interval = setInterval(() => setElapsed(Date.now() - startedAt), 200);
-    return () => clearInterval(interval);
-  }, [startedAt]);
-  return <span>{formatDuration(elapsed)}</span>;
 };

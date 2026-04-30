@@ -11,7 +11,7 @@ export const coreApi = {
       fetchOptions,
       signalState,
     }),
-  startSearch: (args: { query: string; matchCase: boolean; matchWholeWord: boolean; searchId: number }) =>
+  startSearch: (args: { query: string; matchCase: boolean; matchWholeWord: boolean; useRegex: boolean; useMultiline: boolean; searchId: number }) =>
     ipcRenderer.send("search-files:start", args),
   cancelSearch: (searchId: number) => ipcRenderer.send("search-files:cancel", searchId),
   onSearchResult: (cb: (data: { searchId: number; result: { path: string; line: number; preview: string } }) => void) => {

@@ -252,16 +252,16 @@ export const EnvSelector = () => {
                 </Command.List>
 
                 {/* Footer with keyboard hint */}
-                <div className="px-4 py-2 border-t border-border bg-editor/50">
-                  <div className="flex items-center justify-between text-comment">
+                <div className="px-4 py-2.5 border-t border-border bg-editor/50">
+                  <div className="flex items-center justify-between gap-3">
                     <button
                       onClick={handleOpenEditor}
-                      className="flex items-center gap-1.5 text-sm hover:text-text transition-colors"
+                      className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-md border border-accent bg-accent text-text hover:bg-accent/80 transition-colors"
                     >
                       <Settings2 size={14} />
-                      Edit Environments & Profiles
+                      Edit Environments
                     </button>
-                    <span className="flex items-center gap-1.5">
+                    <span className="flex items-center gap-1.5 text-comment">
                       <Kbd keys={getShortcutLabel("ToggleEnvSelector")} size="sm" />
                       <span className="text-sm">to toggle</span>
                     </span>

@@ -1,15 +1,17 @@
-import { search, highlightSelectionMatches, searchKeymap, closeSearchPanel } from '@codemirror/search';
+import { search, highlightSelectionMatches, findNext, findPrevious, replaceNext, replaceAll, setSearchQuery, SearchQuery, getSearchQuery, openSearchPanel, closeSearchPanel } from '@codemirror/search';
+import { isValidRegex } from "@/core/file-system/components/RegexHighlightOverlay";
+import { useSearchStore as useEditorSearchStore, type SearchCallbacks } from "@/core/stores/searchParamsStore";
 import { useCallback, useMemo, useState, useEffect, useLayoutEffect, memo, useRef } from "react";
 import { Compartment } from "@codemirror/state";
 import ReactCodeMirror from "@uiw/react-codemirror";
-import { EditorView, keymap } from "@codemirror/view";
+import { EditorView, keymap, ViewUpdate } from "@codemirror/view";
+import { Prec } from "@codemirror/state";
 import { useEditorStore } from "../voiden/VoidenEditor";
 import { tags as t } from "@lezer/highlight";
 import { createTheme, type CreateThemeOptions } from "@uiw/codemirror-themes";
 import { linter, lintGutter } from "@codemirror/lint";
 import type { Diagnostic } from "@codemirror/lint";
 import { syntaxTree } from "@codemirror/language";
-import { createCustomSearchPanel, customSearchPanelStyles } from "./lib/extensions/customSearchPanel";
 
 import {
   javascript
@@ -138,14 +140,7 @@ const quietlightInit = (options?: Partial<CreateThemeOptions>) => {
 
 const searchPanelTheme = EditorView.theme({
   ".cm-panels": {
-    position: "fixed !important",
-    top: "70px !important",
-    bottom: "auto !important",
-    right: "8px !important",
-    left: "auto !important",
-    zIndex: "100 !important",
-    maxWidth: "550px !important",
-    width: "auto !important",
+    display: "none !important",
   },
   ".cm-content": {
     whiteSpace: "var(--cm-whitespace) !important",
@@ -282,6 +277,9 @@ const searchPanelTheme = EditorView.theme({
       backgroundColor: "color-mix(in srgb, var(--icon-primary) 20%, var(--active))",
     },
   },
+  ".cm-searchMatch": {
+    borderRadius: "2px",
+  },
 });
 
 export const voidenTheme = [quietlightInit(), searchPanelTheme];
@@ -411,6 +409,8 @@ export const CodeEditor = memo(({ tabId, content, source, panelId, isActive = tr
   const [isApplyingFeatures, setIsApplyingFeatures] = useState(false);
   const langCompartment = useRef(new Compartment()).current;
   const lintCompartment = useRef(new Compartment()).current;
+  const isActiveRef = useRef(isActive);
+  isActiveRef.current = isActive;
 
   const { setUnsaved, clearUnsaved, setScrollPosition, getScrollPosition } = useEditorStore((state) => ({
     setUnsaved: state.setUnsaved,
@@ -420,6 +420,126 @@ export const CodeEditor = memo(({ tabId, content, source, panelId, isActive = tr
   }));
 
   const { setActiveEditor, updateContent, setEditor, registerEditorView, unregisterEditorView, setStreamSnapshot } = useCodeEditorStore();
+
+  const searchTerm = useEditorSearchStore((s) => s.term);
+  const matchCase = useEditorSearchStore((s) => s.matchCase);
+  const matchWholeWord = useEditorSearchStore((s) => s.matchWholeWord);
+  const useRegex = useEditorSearchStore((s) => s.useRegex);
+  const replaceTerm = useEditorSearchStore((s) => s.replaceTerm);
+
+  // Push store search params into CM whenever they change while this editor is active.
+  useEffect(() => {
+    if (!editorView || !isActive) return;
+    editorView.dispatch({
+      effects: setSearchQuery.of(new SearchQuery({
+        search: searchTerm,
+        caseSensitive: matchCase,
+        wholeWord: matchWholeWord,
+        regexp: useRegex && isValidRegex(searchTerm),
+        replace: replaceTerm,
+      })),
+    });
+  }, [searchTerm, matchCase, matchWholeWord, useRegex, replaceTerm, editorView, isActive]);
+
+  const cmStatusCacheRef = useRef<{ query: string; docLen: number; count: number } | null>(null);
+
+  const computeCmStatus = (view: EditorView): string => {
+    const q = getSearchQuery(view.state);
+    if (!q.search) return "";
+    const sel = view.state.selection.main;
+    const docLen = view.state.doc.length;
+    const cacheKey = `${q.search}|${q.caseSensitive}|${q.wholeWord}|${q.regexp}`;
+
+    let count: number;
+    const cache = cmStatusCacheRef.current;
+    if (cache && cache.query === cacheKey && cache.docLen === docLen) {
+      count = cache.count;
+    } else {
+      const cursor = q.getCursor(view.state.doc) as Iterator<{ from: number; to: number }>;
+      count = 0;
+      for (let n = cursor.next(); !n.done; n = cursor.next()) count++;
+      cmStatusCacheRef.current = { query: cacheKey, docLen, count };
+    }
+
+    if (count === 0) return "No results";
+
+    const cursor2 = q.getCursor(view.state.doc) as Iterator<{ from: number; to: number }>;
+    let currentIdx = -1;
+    let idx = 0;
+    for (let n = cursor2.next(); !n.done; n = cursor2.next()) {
+      if (sel.from >= n.value.from && sel.to <= n.value.to) { currentIdx = idx; break; }
+      idx++;
+    }
+    if (currentIdx >= 0) return `${currentIdx + 1} of ${count}`;
+    return `${count} result${count > 1 ? "s" : ""}`;
+  };
+
+  // Scroll #code-editor-container so the current CM selection is centered in view.
+  // Called after find next/prev since #code-editor-container is the actual scroll
+  // container here, not .cm-scroller, so CM's internal scrollIntoView has no effect.
+  const scrollMatchIntoView = (view: EditorView) => {
+    requestAnimationFrame(() => {
+      const scrollEl = document.getElementById("code-editor-container");
+      if (!scrollEl) return;
+      const pos = view.state.selection.main.head;
+      const coords = view.coordsAtPos(pos);
+      if (!coords) return;
+      const containerRect = scrollEl.getBoundingClientRect();
+      const relativeTop = coords.top - containerRect.top + scrollEl.scrollTop;
+      const target = relativeTop - scrollEl.clientHeight / 2;
+      scrollEl.scrollTop = Math.max(0, target);
+    });
+  };
+
+  // Register CM-backed search callbacks when this tab is active; unregister on deactivate.
+  useEffect(() => {
+    if (!editorView || !isActive) return;
+    const { registerSearchCallbacks, unregisterSearchCallbacks, setStatus } = useEditorSearchStore.getState();
+    const callbacks: SearchCallbacks = {
+      onFindNext: () => { findNext(editorView); scrollMatchIntoView(editorView); },
+      onFindPrevious: () => { findPrevious(editorView); scrollMatchIntoView(editorView); },
+      onClose: () => {
+        useEditorSearchStore.getState().setIsOpen(false);
+        useEditorSearchStore.getState().setUnifiedSearchActive(false);
+      },
+      onReplace: () => { replaceNext(editorView); scrollMatchIntoView(editorView); },
+      onReplaceAll: () => replaceAll(editorView),
+      getStatus: () => computeCmStatus(editorView),
+    };
+    registerSearchCallbacks(callbacks);
+    return () => { unregisterSearchCallbacks(); };
+  }, [editorView, isActive]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Keep CM's internal search panel open/closed in sync with the store.
+  // CM only renders cm-searchMatch decorations when its panel is "open", so we must
+  // open/close the hidden dummy panel whenever isOpen changes.
+  const isOpen = useEditorSearchStore((s) => s.isOpen);
+  useEffect(() => {
+    if (!editorView || !isActive) return;
+    if (isOpen) {
+      openSearchPanel(editorView);
+    } else {
+      closeSearchPanel(editorView);
+    }
+  }, [isOpen, editorView, isActive]);
+
+  // Sync store search params into CM and open panel when openPanelTick fires.
+  const openPanelTick = useEditorSearchStore((s) => s.openPanelTick);
+  const handledOpenTickRef = useRef(0);
+  useEffect(() => {
+    if (!editorView || !isActive) return;
+    if (openPanelTick === handledOpenTickRef.current) return;
+    handledOpenTickRef.current = openPanelTick;
+    const { term, matchCase, matchWholeWord, useRegex } = useEditorSearchStore.getState();
+    editorView.dispatch({
+      effects: setSearchQuery.of(new SearchQuery({
+        search: term,
+        caseSensitive: matchCase,
+        wholeWord: matchWholeWord,
+        regexp: useRegex && isValidRegex(term),
+      })),
+    });
+  }, [openPanelTick, editorView, isActive]);
 
   const fileExtension = source.split(".").pop()?.toLowerCase();
 
@@ -513,16 +633,6 @@ export const CodeEditor = memo(({ tabId, content, source, panelId, isActive = tr
     [isLargeFile, setUnsaved, clearUnsaved, updateContent, content]
   );
 
-  useEffect(() => {
-    const styleId = 'custom-search-panel-styles';
-    if (!document.getElementById(styleId)) {
-      const style = document.createElement('style');
-      style.id = styleId;
-      style.textContent = customSearchPanelStyles;
-      document.head.appendChild(style);
-    }
-  }, []);
-
   const initialContent = useMemo(() => {
     return useEditorStore.getState().unsaved[tabId] || content;
   }, [tabId, content]);
@@ -582,9 +692,9 @@ export const CodeEditor = memo(({ tabId, content, source, panelId, isActive = tr
       if (isUserScrolling) {
         currentTarget = scrollEl.scrollTop;
         setScrollPosition(tabId, scrollEl.scrollTop);
-      } else {
-        applySavedScroll();
       }
+      // Programmatic scrolls (e.g. find navigation) must not be fought against —
+      // the initial rAF restoration already handles tab-switch scroll restoration.
     };
 
     const handleUserInteraction = () => { setUserScrolling(); };
@@ -671,11 +781,45 @@ export const CodeEditor = memo(({ tabId, content, source, panelId, isActive = tr
     const baseExtensions = [
       ...languageExtension,
       lintCompartment.of(initialLint),
-      search({ top: true, createPanel: (view) => createCustomSearchPanel(view) }),
-      keymap.of([
-        ...searchKeymap,
-        { key: "Escape", run: closeSearchPanel }
-      ]),
+      search({ top: true, createPanel: () => ({ dom: document.createElement("div") }) }),
+      Prec.highest(keymap.of([
+        {
+          key: "Mod-f", preventDefault: true, run: () => {
+            useEditorSearchStore.getState().setShowReplace(false);
+            useEditorSearchStore.getState().requestOpenSearchPanel();
+            useEditorSearchStore.getState().setUnifiedSearchActive(true);
+            return true;
+          }
+        },
+        {
+          key: "Mod-h", preventDefault: true, run: () => {
+            useEditorSearchStore.getState().setShowReplace(true);
+            useEditorSearchStore.getState().requestOpenSearchPanel();
+            useEditorSearchStore.getState().setUnifiedSearchActive(true);
+            return true;
+          }
+        },
+        {
+          key: "Escape", run: () => {
+            if (!useEditorSearchStore.getState().isOpen) return false;
+            useEditorSearchStore.getState().setIsOpen(false);
+            useEditorSearchStore.getState().setUnifiedSearchActive(false);
+            return true;
+          }
+        },
+        { key: "F3", run: findNext },
+        { key: "Mod-g", run: findNext },
+        { key: "Shift-F3", run: findPrevious },
+        { key: "Shift-Mod-g", run: findPrevious },
+      ])),
+      EditorView.updateListener.of((update: ViewUpdate) => {
+        if (!isActiveRef.current) return;
+        const { isOpen, bumpStatusTick } = useEditorSearchStore.getState();
+        if (!isOpen) return;
+        if (update.docChanged || update.selectionSet || update.transactions.some(tr => tr.effects.some(e => e.is(setSearchQuery)))) {
+          bumpStatusTick();
+        }
+      }),
     ];
 
     if (!isLargeFile && !isMediumFile) {

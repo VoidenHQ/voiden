@@ -1,7 +1,7 @@
 /**
  * Auto-generated extension registry
  * DO NOT EDIT MANUALLY - run 'yarn generate-registry' to update
- * Generated on: 2026-03-23T00:49:29.616Z
+ * Generated on: 2026-04-28T10:47:34.637Z
  */
 
 export interface ExtensionMetadata {
@@ -28,7 +28,7 @@ export const coreExtensions: ExtensionMetadata[] = [
     "id": "voiden-rest-api",
     "name": "Voiden REST API",
     "description": "HTTP/REST API testing toolkit with extensible request pipeline, custom blocks for headers/body, environment variables, response visualization, and support for all HTTP methods including multipart file uploads",
-    "version": "1.4.0",
+    "version": "1.4.1",
     "author": "Voiden Team",
     "enabled": true,
     "priority": 10,
@@ -260,7 +260,7 @@ export const coreExtensions: ExtensionMetadata[] = [
     "id": "voiden-sockets-grpcs",
     "name": "Sockets & gRPC APIs",
     "description": "Voiden Sockets provide comprehensive support for WebSocket (WSS) and gRPC communication with unary, server streaming, client streaming, and bidirectional streaming patterns",
-    "version": "1.0.1",
+    "version": "1.1.0",
     "author": "Voiden Team",
     "enabled": true,
     "priority": 20,
@@ -378,7 +378,6 @@ export const coreExtensions: ExtensionMetadata[] = [
     "author": "Voiden Team",
     "enabled": true,
     "priority": 25,
-    "mainProcess": true,
     "readme": "Add JavaScript pre-request and post-response scripts to your API requests. Use the vd API to read/write request data, work with environment/runtime variables, and control request flow. Insert with /pre-script and /post-script slash commands. Note: for request body, pass a string payload; if you pass an object/JSON value it should be stringified.",
     "capabilities": {
       "blocks": {
@@ -461,7 +460,7 @@ export const coreExtensions: ExtensionMetadata[] = [
   {
     "id": "voiden-stitch",
     "name": "Voiden Stitch",
-    "version": "1.0.0",
+    "version": "1.2.0",
     "description": "Batch-run multiple .void files as a stitch with aggregated assertion results, variable isolation, and sequential execution",
     "author": "Voiden Team",
     "enabled": true,
@@ -485,14 +484,7 @@ export const coreExtensions: ExtensionMetadata[] = [
         ]
       },
       "sidebar": {
-        "tabs": [
-          {
-            "id": "stitch-results",
-            "title": "Stitch Results",
-            "side": "right",
-            "icon": "ListChecks"
-          }
-        ]
+        "tabs": []
       }
     },
     "dependencies": {
@@ -508,7 +500,8 @@ export const coreExtensions: ExtensionMetadata[] = [
       "Per-file pass/fail with assertion counts and timing",
       "Stop-on-failure option",
       "Configurable delay between files",
-      "Abort/cancel support"
+      "Abort/cancel support",
+      "Export results to styled Excel report with per-file sheets, assertion breakdowns, and pass/fail percentages"
     ],
     "type": "core"
   },
@@ -566,7 +559,7 @@ export const coreExtensions: ExtensionMetadata[] = [
     "id": "openapi-import",
     "name": "OpenAPI Collection Importer",
     "description": "Seamlessly migrate from OpenAPI by importing v3.0 collections and converting them to native Voiden request files with full support for nested folders, environment variables, headers, auth, and all request body types",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "author": "Voiden Team",
     "enabled": true,
     "priority": 50,

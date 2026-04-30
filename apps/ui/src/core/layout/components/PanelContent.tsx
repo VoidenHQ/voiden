@@ -26,6 +26,8 @@ import { useNewTerminalTab } from "@/core/terminal/hooks/useTerminal";
 import { usePanelStore } from "@/core/stores/panelStore";
 import { Tip } from "@/core/components/ui/Tip";
 import { useSettings } from "@/core/settings/hooks";
+import { PersistentSearchPanel } from "./PersistentSearchPanel";
+import { useSearchStore } from "@/core/stores/searchParamsStore";
 
 // Extensions that cannot be displayed as text — show a "not supported" message
 const BINARY_EXTENSIONS = new Set([
@@ -373,6 +375,7 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
   const { settings } = useSettings();
   const activeEditor = useCodeEditorStore((state) => state.activeEditor);
   const streamSnapshots = useCodeEditorStore((state) => state.streamSnapshots);
+  const isSearchOpen = useSearchStore((s) => s.isOpen);
 
   useEffect(() => {
     if (!tabContentError) return;
@@ -526,35 +529,40 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
     ? editorActions.filter((action) => !action.predicate || action.predicate(tabDataForPredicate))
     : [];
 
+  const isShFile = !!(activeDocTabContent?.title.endsWith(".sh") && activeDocTabContent.source);
+  const isVoidFile = !!activeDocTabContent?.title.endsWith(".void");
+  const hasActions = isShFile || isVoidFile || actionsToDisplay.length > 0;
+  const showToolbar = hasActions || isSearchOpen;
+
   const cachedEditorsBlock = visibleDocumentTabIds.length > 0 && (
     <div className="h-full flex flex-col" style={{ display: isDocumentActive ? "flex" : "none" }}>
-      <div className="h-8 px-5 flex items-center justify-between w-full flex-shrink-0">
-        <div className="flex items-center justify-between space-x-2 w-full">
-          <div className="flex-1">{/* todo things go here */}</div>
-          <div className="flex space-x-2">
-            {activeDocTabContent?.title.endsWith(".sh") && activeDocTabContent.source && (
-              <RunScriptButton source={activeDocTabContent.source} />
-            )}
-            {activeDocTabContent?.title.endsWith(".void") ? (
-              <>
-                <RunAllButton />
-                <ActionMenu actionsToDisplay={actionsToDisplay} tab={activeDocTabContent} />
-              </>
-            ) : (
-              actionsToDisplay.map((action) => {
-                const ActionComponent = action.component;
-                if (!ActionComponent || typeof ActionComponent !== 'function') {
-                  console.warn(`[PanelContent] Invalid editor action component for action: ${action.id}`);
-                  return null;
-                }
-                return <ActionComponent key={action.id} tab={activeDocTabContent} />;
-              })
-            )}
-          </div>
-        </div>
-      </div>
+      {showToolbar && <div className="flex-shrink-0 flex flex-col w-full z-10 relative">
+        {hasActions && <div className="flex items-center justify-end gap-2 px-2 py-0.5 min-h-7">
+          {isShFile && (
+            <RunScriptButton source={activeDocTabContent!.source} />
+          )}
+          {isVoidFile ? (
+            <>
+              <RunAllButton />
+              <ActionMenu actionsToDisplay={actionsToDisplay} tab={activeDocTabContent} />
+            </>
+          ) : (
+            actionsToDisplay.map((action) => {
+              const ActionComponent = action.component;
+              if (!ActionComponent || typeof ActionComponent !== 'function') {
+                console.warn(`[PanelContent] Invalid editor action component for action: ${action.id}`);
+                return null;
+              }
+              return <ActionComponent key={action.id} tab={activeDocTabContent} />;
+            })
+          )}
+        </div>}
+        {isSearchOpen && (
+          <div className="pb-1"><PersistentSearchPanel /></div>
+        )}
+      </div>}
       <div className="flex-1 bg-editor relative" id="code-editor-container" data-editor-scroll-container="true">
-        {activeDocTabContent?.title.endsWith(".md") && viewMode === "preview" && mdPreviewHelpers?.Preview ? (
+{activeDocTabContent?.title.endsWith(".md") && viewMode === "preview" && mdPreviewHelpers?.Preview ? (
           (() => {
             const PreviewComponent = mdPreviewHelpers.Preview;
             return <PreviewComponent tab={{ ...activeDocTabContent, content: getLiveContent() }} />;

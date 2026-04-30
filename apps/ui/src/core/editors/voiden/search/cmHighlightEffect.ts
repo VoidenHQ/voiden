@@ -36,12 +36,16 @@ export const unifiedSearchField = StateField.define<DecorationSet>({
           return Decoration.none;
         }
 
-        const decos = ranges.map((range, i) =>
-          (i === currentIndex ? currentMatchMark : matchMark).range(
-            range.from,
-            range.to
+        const decos = ranges
+          .map((range, i) =>
+            range.from < range.to
+              ? (i === currentIndex ? currentMatchMark : matchMark).range(
+                  range.from,
+                  range.to
+                )
+              : null
           )
-        );
+          .filter((d): d is ReturnType<typeof matchMark.range> => d !== null);
 
         return Decoration.set(decos, true);
       }

@@ -196,11 +196,17 @@ export const skillsApi = {
 };
 
 export const variablesApi = {
-  getKeys: () => ipcRenderer.invoke("variables:getKeys"),
-  read: () => ipcRenderer.invoke("variables:read"),
-  get: (key: string) => ipcRenderer.invoke("variables:get", key),
-  set: (key: string, value: any) => ipcRenderer.invoke("variables:set", key, value),
-  writeVariables: (content: string | Record<string, any>) => ipcRenderer.invoke("variables:writeVariables", content),
+  getKeys: (envKey?: string) => ipcRenderer.invoke("variables:getKeys", envKey),
+  /** Returns only the vars for the specified env bucket (not merged with global). */
+  read: (envKey?: string) => ipcRenderer.invoke("variables:read", envKey),
+  /** Returns merged global + env-specific vars for the given env. */
+  readMerged: (envKey?: string) => ipcRenderer.invoke("variables:readMerged", envKey),
+  /** Returns the currently active env key ("__global__" when none selected). */
+  getActiveEnvKey: () => ipcRenderer.invoke("variables:getActiveEnvKey"),
+  get: (key: string, envKey?: string) => ipcRenderer.invoke("variables:get", key, envKey),
+  set: (key: string, value: any, envKey?: string) => ipcRenderer.invoke("variables:set", key, value, envKey),
+  writeVariables: (content: string | Record<string, any>, envKey?: string) => ipcRenderer.invoke("variables:writeVariables", content, envKey),
+  deleteKey: (key: string, envKey?: string) => ipcRenderer.invoke("variables:deleteKey", key, envKey),
 }
 
 export const projectApi = {
