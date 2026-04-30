@@ -74,6 +74,49 @@ export async function saveStitchHistory(
   }
 }
 
+export async function deleteStitchHistoryEntry(
+  sourceFilePath: string,
+  entryId: string,
+): Promise<void> {
+  if (!sourceFilePath || !entryId) return;
+  try {
+    const projects = await (window as any).electron?.state?.getProjects?.();
+    const projectPath = projects?.activeProject;
+    if (!projectPath) return;
+
+    const filename = toHistoryFilename(sourceFilePath, projectPath);
+    const filePath = `${projectPath}/${HISTORY_SUBDIR}/${filename}`;
+
+    let entries: StitchHistoryEntry[] = [];
+    try {
+      const existing = await (window as any).electron?.files?.read?.(filePath);
+      if (existing) entries = JSON.parse(existing);
+    } catch { return; }
+
+    entries = entries.filter((e) => e.id !== entryId);
+    await (window as any).electron?.files?.write?.(filePath, JSON.stringify(entries, null, 2));
+  } catch (err) {
+    console.error('[voiden-stitch] Failed to delete history entry:', err);
+  }
+}
+
+export async function clearStitchHistory(
+  sourceFilePath: string,
+): Promise<void> {
+  if (!sourceFilePath) return;
+  try {
+    const projects = await (window as any).electron?.state?.getProjects?.();
+    const projectPath = projects?.activeProject;
+    if (!projectPath) return;
+
+    const filename = toHistoryFilename(sourceFilePath, projectPath);
+    const filePath = `${projectPath}/${HISTORY_SUBDIR}/${filename}`;
+    await (window as any).electron?.files?.write?.(filePath, JSON.stringify([], null, 2));
+  } catch (err) {
+    console.error('[voiden-stitch] Failed to clear history:', err);
+  }
+}
+
 export async function loadStitchHistory(
   sourceFilePath: string,
 ): Promise<StitchHistoryEntry[]> {

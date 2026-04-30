@@ -31,7 +31,7 @@ import {
 import { stitchStore } from '../lib/stitchStore';
 import type { StitchRunState, StitchFileResult, StitchSectionResult, StitchHistoryEntry } from '../lib/types';
 import { exportStitchToExcel } from '../lib/exportExcel';
-import { loadStitchHistory } from '../lib/stitchHistory';
+import { loadStitchHistory, deleteStitchHistoryEntry, clearStitchHistory } from '../lib/stitchHistory';
 
 /** Generate a simple cURL command from request info. */
 function toCurl(req: NonNullable<StitchSectionResult['requestInfo']>): string {
@@ -539,10 +539,12 @@ const HistoryRow = ({
   entry,
   isLatest,
   onClick,
+  onDelete,
 }: {
   entry: StitchHistoryEntry;
   isLatest: boolean;
   onClick: () => void;
+  onDelete: (e: React.MouseEvent) => void;
 }) => {
   const hasFail = entry.summary.failedFiles + entry.summary.errorFiles > 0;
   const statusColor = entry.status === 'cancelled'
@@ -560,7 +562,7 @@ const HistoryRow = ({
 
   return (
     <div
-      className="flex items-center gap-2 px-3 py-2 border-b border-border hover:bg-active cursor-pointer transition-colors select-none"
+      className="flex items-center gap-2 px-3 py-2 border-b border-border hover:bg-active cursor-pointer transition-colors select-none group/histrow"
       onClick={onClick}
       style={{ cursor: 'pointer' }}
     >
@@ -585,13 +587,24 @@ const HistoryRow = ({
           )}
         </div>
       </div>
-      <div className="flex flex-col items-end gap-0.5 flex-shrink-0">
-        <Tip label={formatDateTime(entry.runAt)}>
-          <span className="text-[10px] text-comment font-mono">{formatRelativeTime(entry.runAt)}</span>
+      <div className="flex items-center gap-1.5 flex-shrink-0">
+        <div className="flex flex-col items-end gap-0.5">
+          <Tip label={formatDateTime(entry.runAt)}>
+            <span className="text-[10px] text-comment font-mono">{formatRelativeTime(entry.runAt)}</span>
+          </Tip>
+          {entry.duration > 0 && (
+            <span className="text-[9px] text-comment font-mono">{formatDuration(entry.duration)}</span>
+          )}
+        </div>
+        <Tip label="Delete">
+          <button
+            onClick={onDelete}
+            className="p-1 rounded text-comment hover:text-red-400 transition-colors"
+            style={{ cursor: 'pointer' }}
+          >
+            <Trash2 size={11} />
+          </button>
         </Tip>
-        {entry.duration > 0 && (
-          <span className="text-[9px] text-comment font-mono">{formatDuration(entry.duration)}</span>
-        )}
       </div>
     </div>
   );
@@ -779,6 +792,19 @@ export const StitchResultsSidebar = ({ tabId }: { tabId?: string }) => {
     loadStitchHistory(sourceFilePath).then(setHistoryEntries);
   }, [run.status, showHistory, sourceFilePath]);
 
+  const handleDeleteEntry = useCallback(async (e: React.MouseEvent, entryId: string) => {
+    e.stopPropagation();
+    if (!sourceFilePath) return;
+    await deleteStitchHistoryEntry(sourceFilePath, entryId);
+    setHistoryEntries((prev) => prev.filter((e) => e.id !== entryId));
+  }, [sourceFilePath]);
+
+  const handleClearAll = useCallback(async () => {
+    if (!sourceFilePath) return;
+    await clearStitchHistory(sourceFilePath);
+    setHistoryEntries([]);
+  }, [sourceFilePath]);
+
   const handleOpenFile = useCallback(async (filePath: string) => {
     try {
       const fileName = filePath.split('/').pop() || filePath;
@@ -884,27 +910,43 @@ export const StitchResultsSidebar = ({ tabId }: { tabId?: string }) => {
 
       {/* ── History list view ── */}
       {showHistory && !selectedEntry && (
-        <div className="flex-1 overflow-y-auto overflow-x-hidden min-h-0 bg-editor">
-          {historyLoading && (
-            <div className="p-4 flex items-center justify-center gap-2 text-comment text-[11px]">
-              <Loader2 size={12} className="animate-spin" />
-              Loading history...
+        <>
+          {!historyLoading && historyEntries.length > 0 && (
+            <div className="flex items-center justify-between px-3 py-1.5 border-b border-border bg-bg flex-shrink-0">
+              <span className="text-[10px] text-comment">{historyEntries.length} run{historyEntries.length !== 1 ? 's' : ''}</span>
+              <button
+                onClick={handleClearAll}
+                className="flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-accent text-text hover:opacity-90 transition-opacity"
+                style={{ cursor: 'pointer' }}
+              >
+                <Trash2 size={11} />
+                Delete all
+              </button>
             </div>
           )}
-          {!historyLoading && historyEntries.length === 0 && (
-            <div className="p-4 text-comment text-center text-[11px]">
-              No history yet. Run the stitch to record results.
-            </div>
-          )}
-          {!historyLoading && historyEntries.map((entry, i) => (
-            <HistoryRow
-              key={entry.id}
-              entry={entry}
-              isLatest={i === 0}
-              onClick={() => setSelectedEntry(entry)}
-            />
-          ))}
-        </div>
+          <div className="flex-1 overflow-y-auto overflow-x-hidden min-h-0 bg-editor">
+            {historyLoading && (
+              <div className="p-4 flex items-center justify-center gap-2 text-comment text-[11px]">
+                <Loader2 size={12} className="animate-spin" />
+                Loading history...
+              </div>
+            )}
+            {!historyLoading && historyEntries.length === 0 && (
+              <div className="p-4 text-comment text-center text-[11px]">
+                No history yet. Run the stitch to record results.
+              </div>
+            )}
+            {!historyLoading && historyEntries.map((entry, i) => (
+              <HistoryRow
+                key={entry.id}
+                entry={entry}
+                isLatest={i === 0}
+                onClick={() => setSelectedEntry(entry)}
+                onDelete={(e) => handleDeleteEntry(e, entry.id)}
+              />
+            ))}
+          </div>
+        </>
       )}
 
       {/* ── History detail view ── */}
