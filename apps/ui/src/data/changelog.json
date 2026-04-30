@@ -1,5 +1,30 @@
 [
   {
+    "version": "v1.6.0",
+    "date": "30/04/2026",
+    "title": "Environment Editor Overhaul, Stitch History & Search Fixes",
+    "description": "Major overhaul of the Environment Editor with runtime variable binding, stitch runner run history, duplicate query parameter support, and fixes across the code editor search and highlight behaviour. Environment variables are stored as public and private YAML files inside the .voiden hidden folder — the public file can be committed to git for team sharing, while the private file stays local.",
+    "icon": "Sparkles",
+    "iconColor": "text-violet-400",
+    "bgColor": "bg-gradient-to-br from-violet-900 to-slate-900",
+    "changes": {
+      "Added": [
+        "Stitch Runner now records a history of past runs per file, browsable directly from the results sidebar — revisit previous run details, assertions, and request/response info without re-running",
+        "Delete individual stitch run history entries or clear all history at once from the history panel",
+        "Environment variable suggestions when editing values in the environment editor"
+      ],
+      "Improved": [
+        "Environment editor rebuilt with a new UI and improved runtime logic — variable management across profiles and nested environments is now more consistent and reliable",
+        "Runtime variables are now bound to the active environment and can be viewed directly in the Environment Editor — variables captured during a run are scoped to the environment that was selected at the time"
+      ],
+      "Fixed": [
+        "Query parameters with the same key are now all forwarded correctly — duplicate keys (e.g. filter=a&filter=b) were previously collapsed to a single entry",
+        "Code editor scroll no longer snaps back when navigating between find/replace matches — the active match is correctly scrolled into view",
+        "Search match highlights in the code editor now use the correct theme colors instead of a nearly invisible override that was suppressing the highlight entirely"
+      ]
+    }
+  },
+  {
     "version": "v1.5.1",
     "date": "24/04/2026",
     "title": "Binary File Execution, StitchRunner Temp Tab & Editor Find/Replace Fixes",
