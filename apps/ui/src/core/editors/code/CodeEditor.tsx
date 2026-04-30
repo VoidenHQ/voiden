@@ -277,16 +277,8 @@ const searchPanelTheme = EditorView.theme({
       backgroundColor: "color-mix(in srgb, var(--icon-primary) 20%, var(--active))",
     },
   },
-  // All matches get a muted selection tint, the current (navigated-to) one
-  // gets the accent color so it's clearly distinguishable.
   ".cm-searchMatch": {
-    backgroundColor: "color-mix(in srgb, var(--selection) 85%, transparent) !important",
     borderRadius: "2px",
-  },
-  ".cm-searchMatch-selected": {
-    backgroundColor: "var(--selection) !important",
-    outline: "1px solid var(--fg-primary)",
-    outlineOffset: "-1px",
   },
 });
 
@@ -449,15 +441,6 @@ export const CodeEditor = memo(({ tabId, content, source, panelId, isActive = tr
     });
   }, [searchTerm, matchCase, matchWholeWord, useRegex, replaceTerm, editorView, isActive]);
 
-  const scrollSelectionIntoView = (view: EditorView) => {
-    requestAnimationFrame(() => {
-      const pos = view.state.selection.main.head;
-      const { node } = view.domAtPos(pos);
-      const el = node.nodeType === Node.ELEMENT_NODE ? (node as Element) : (node as ChildNode).parentElement;
-      el?.scrollIntoView({ block: "center", inline: "nearest" });
-    });
-  };
-
   const cmStatusCacheRef = useRef<{ query: string; docLen: number; count: number } | null>(null);
 
   const computeCmStatus = (view: EditorView): string => {
@@ -491,18 +474,35 @@ export const CodeEditor = memo(({ tabId, content, source, panelId, isActive = tr
     return `${count} result${count > 1 ? "s" : ""}`;
   };
 
+  // Scroll #code-editor-container so the current CM selection is centered in view.
+  // Called after find next/prev since #code-editor-container is the actual scroll
+  // container here, not .cm-scroller, so CM's internal scrollIntoView has no effect.
+  const scrollMatchIntoView = (view: EditorView) => {
+    requestAnimationFrame(() => {
+      const scrollEl = document.getElementById("code-editor-container");
+      if (!scrollEl) return;
+      const pos = view.state.selection.main.head;
+      const coords = view.coordsAtPos(pos);
+      if (!coords) return;
+      const containerRect = scrollEl.getBoundingClientRect();
+      const relativeTop = coords.top - containerRect.top + scrollEl.scrollTop;
+      const target = relativeTop - scrollEl.clientHeight / 2;
+      scrollEl.scrollTop = Math.max(0, target);
+    });
+  };
+
   // Register CM-backed search callbacks when this tab is active; unregister on deactivate.
   useEffect(() => {
     if (!editorView || !isActive) return;
     const { registerSearchCallbacks, unregisterSearchCallbacks, setStatus } = useEditorSearchStore.getState();
     const callbacks: SearchCallbacks = {
-      onFindNext: () => { findNext(editorView); scrollSelectionIntoView(editorView); },
-      onFindPrevious: () => { findPrevious(editorView); scrollSelectionIntoView(editorView); },
+      onFindNext: () => { findNext(editorView); scrollMatchIntoView(editorView); },
+      onFindPrevious: () => { findPrevious(editorView); scrollMatchIntoView(editorView); },
       onClose: () => {
         useEditorSearchStore.getState().setIsOpen(false);
         useEditorSearchStore.getState().setUnifiedSearchActive(false);
       },
-      onReplace: () => { replaceNext(editorView); scrollSelectionIntoView(editorView); },
+      onReplace: () => { replaceNext(editorView); scrollMatchIntoView(editorView); },
       onReplaceAll: () => replaceAll(editorView),
       getStatus: () => computeCmStatus(editorView),
     };
@@ -692,9 +692,9 @@ export const CodeEditor = memo(({ tabId, content, source, panelId, isActive = tr
       if (isUserScrolling) {
         currentTarget = scrollEl.scrollTop;
         setScrollPosition(tabId, scrollEl.scrollTop);
-      } else {
-        applySavedScroll();
       }
+      // Programmatic scrolls (e.g. find navigation) must not be fought against —
+      // the initial rAF restoration already handles tab-switch scroll restoration.
     };
 
     const handleUserInteraction = () => { setUserScrolling(); };
