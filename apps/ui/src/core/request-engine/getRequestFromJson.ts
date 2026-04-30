@@ -326,20 +326,15 @@ const getTable = (type: "headers-table" | "query-table" | "url-table" | "multipa
 
 
 
-  // Apply override logic: local values (without importedFrom) override imported ones
-  const result = Object.values(groupedByKey).map((items) => {
+  // Apply override logic: local values (without importedFrom) override imported ones.
+  // For same-source duplicates (e.g. two local rows with the same key), preserve all entries.
+  const result = Object.values(groupedByKey).flatMap((items) => {
     if (items.length > 1) {
-
-      const localValue = items.find((item) => !item.importedFrom);
-      if (localValue) {
-
-        return localValue;
-      }
-
+      const localValues = items.filter((item) => !item.importedFrom);
+      if (localValues.length > 0) return localValues;
     }
-    return items[0];
+    return items;
   });
-
 
   return result;
 };
