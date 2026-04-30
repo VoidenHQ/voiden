@@ -989,6 +989,7 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
   const [activeTab, setActiveTab] = useState<"variables" | "runtime">("variables");
   const [editingDisplayName, setEditingDisplayName] = useState(false);
   const [runtimeVars, setRuntimeVars] = useState<Record<string, any>>({});
+  const [globalRuntimeCount, setGlobalRuntimeCount] = useState(0);
   const [highlightTarget, setHighlightTarget] = useState<{ varKey: string; envPath: string } | null>(null);
 
   // Env renaming in sidebar
@@ -1098,6 +1099,12 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
     const envKey = selectedEnvPath || "__global__";
     const vars = await (window as any).electron?.variables?.read?.(envKey);
     setRuntimeVars(vars ?? {});
+    if (envKey === "__global__") {
+      setGlobalRuntimeCount(Object.keys(vars ?? {}).length);
+    } else {
+      const globalVars = await (window as any).electron?.variables?.read?.("__global__");
+      setGlobalRuntimeCount(Object.keys(globalVars ?? {}).length);
+    }
   }, [selectedEnvPath]);
 
   useEffect(() => { loadRuntimeVars(); }, [loadRuntimeVars]);
@@ -1401,8 +1408,8 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
           >
             <Globe size={12} className="flex-shrink-0" />
             <span className="flex-1 text-left font-medium">Global Runtime</span>
-            {runtimeCount > 0 && selectedEnvPath !== "__global__" && (
-              <span className="text-xs px-1.5 py-0.5 rounded-full bg-active text-comment">{runtimeCount}</span>
+            {globalRuntimeCount > 0 && selectedEnvPath !== "__global__" && (
+              <span className="text-xs px-1.5 py-0.5 rounded-full bg-active text-comment">{globalRuntimeCount}</span>
             )}
           </button>
 
