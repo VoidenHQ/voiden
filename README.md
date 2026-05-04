@@ -52,7 +52,7 @@
   </a>
 </p>
 
-<h2 align="center">Contributors</h2>
+<h2 align="center">Main Contributors</h2>
 
 <p align="center">
   <a href="https://github.com/lbenedetto">
@@ -69,6 +69,9 @@
   </a>
   <a href="https://github.com/KrawMire">
     <img src="https://img.shields.io/badge/Anton_Gavrilov-181717?style=for-the-badge&logo=github" />
+  </a>
+  <a href="https://github.com/edymusajev">
+    <img src="https://img.shields.io/badge/Edy_Musajevs-181717?style=for-the-badge&logo=github" />
   </a>
 </p>
 
