@@ -73,6 +73,15 @@
   <a href="https://github.com/edymusajev">
     <img src="https://img.shields.io/badge/Edy_Musajevs-181717?style=for-the-badge&logo=github" />
   </a>
+  <a href="https://github.com/nikolasdimitr">
+    <img src="https://img.shields.io/badge/Nikolas_Dimitr-181717?style=for-the-badge&logo=github" />
+  </a>
+  <a href="https://github.com/dp1620">
+    <img src="https://img.shields.io/badge/Dhruv-181717?style=for-the-badge&logo=github" />
+  </a>
+  <a href="https://github.com/davinder-sudo">
+    <img src="https://img.shields.io/badge/Davinder_Sudo-181717?style=for-the-badge&logo=github" />
+  </a>
 </p>
 
 ![Voiden workspace showing requests, docs, and response panels](apps/electron/public/start-april18-1.png)
