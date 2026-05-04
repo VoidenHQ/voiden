@@ -12,6 +12,43 @@
 
 import type { ElectronExtensionContext, ElectronPlugin } from "@voiden/sdk/electron";
 import * as http from "node:http";
+import * as https from "node:https";
+
+// Lazily generated self-signed cert — reused for the lifetime of the process.
+let _selfSignedCreds: { key: string; cert: string } | null = null;
+
+async function getSelfSignedCreds(): Promise<{ key: string; cert: string }> {
+  if (_selfSignedCreds) return _selfSignedCreds;
+  const mod = await import("selfsigned");
+  // Handle both ESM default export and CJS module.exports interop
+  const generate: typeof import("selfsigned").generate =
+    (mod as any).default?.generate ?? (mod as any).generate;
+  if (typeof generate !== "function") {
+    throw new Error("selfsigned package failed to load — generate is not a function");
+  }
+  const attrs = [{ name: "commonName", value: "localhost" }];
+  const pems = generate(attrs, {
+    days: 825,
+    algorithm: "sha256",
+    keySize: 2048,
+    extensions: [
+      { name: "subjectAltName", altNames: [
+        { type: 2, value: "localhost" },
+        { type: 7, ip: "127.0.0.1" },
+      ]},
+    ],
+  });
+  console.log("[OAuth2] Self-signed cert generated for localhost/127.0.0.1");
+  _selfSignedCreds = { key: pems.private, cert: pems.cert };
+  return _selfSignedCreds;
+}
+
+function createCallbackServer(useHttps: boolean, creds?: { key: string; cert: string }): http.Server | https.Server {
+  if (useHttps && creds) {
+    return https.createServer({ key: creds.key, cert: creds.cert });
+  }
+  return http.createServer();
+}
 
 /** Escape HTML special characters to prevent XSS in callback pages. */
 function escapeHtml(str: string): string {
@@ -24,7 +61,7 @@ function escapeHtml(str: string): string {
 }
 
 // Track active loopback servers so we can cancel them
-let activeServer: http.Server | null = null;
+let activeServer: http.Server | https.Server | null = null;
 let activeReject: ((reason: Error) => void) | null = null;
 
 /**
@@ -232,6 +269,9 @@ export default function createOAuth2MainPlugin(ctx: ElectronExtensionContext): E
           codeChallengeMethod, state,
         } = p;
 
+        const useHttps = callbackUrl?.startsWith("https://") ?? false;
+        const creds = useHttps ? await getSelfSignedCreds() : undefined;
+
         let listenPort = 0;
         if (callbackUrl) {
           try {
@@ -245,7 +285,7 @@ export default function createOAuth2MainPlugin(ctx: ElectronExtensionContext): E
         return new Promise((resolve, reject) => {
           activeReject = reject;
 
-          const server = http.createServer();
+          const server = createCallbackServer(useHttps, creds);
           activeServer = server;
 
           server.on("error", (err) => {
@@ -417,6 +457,9 @@ export default function createOAuth2MainPlugin(ctx: ElectronExtensionContext): E
         const p = await replaceVarsInParams(params, ctx, event);
         const { authUrl, clientId, scope, callbackUrl, state } = p;
 
+        const useHttps = callbackUrl?.startsWith("https://") ?? false;
+        const creds = useHttps ? await getSelfSignedCreds() : undefined;
+
         let listenPort = 0;
         if (callbackUrl) {
           try {
@@ -430,7 +473,7 @@ export default function createOAuth2MainPlugin(ctx: ElectronExtensionContext): E
         return new Promise((resolve, reject) => {
           activeReject = reject;
 
-          const server = http.createServer();
+          const server = createCallbackServer(useHttps, creds);
           activeServer = server;
 
           server.on("error", (err) => {
