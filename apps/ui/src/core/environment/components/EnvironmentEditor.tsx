@@ -522,14 +522,14 @@ const VariablesPanel = ({
   const inheritedVars = useMemo(() => {
     const segments = envPath.split(".");
     const ownKeys = new Set(node.variables.map((v) => v.key));
-    const result: Array<{ key: string; value: string; fromPath: string }> = [];
+    const result: Array<{ key: string; value: string; isPrivate: boolean; fromPath: string }> = [];
     for (let i = 0; i < segments.length - 1; i++) {
       const parentPath = segments.slice(0, i + 1).join(".");
       const parentNode = getNodeAtPath(tree, parentPath);
       if (parentNode) {
         for (const v of parentNode.variables) {
           if (!ownKeys.has(v.key) && !result.some((r) => r.key === v.key)) {
-            result.push({ key: v.key, value: v.value, fromPath: segments[i] });
+            result.push({ key: v.key, value: v.value, isPrivate: v.isPrivate, fromPath: segments[i] });
           }
         }
       }
@@ -671,8 +671,8 @@ const VariablesPanel = ({
                           <span className="font-mono text-xs text-comment">{v.key}</span>
                         </div>
                       </td>
-                      <td className="px-2 py-1.5 max-w-[280px]"><span className="font-mono text-xs text-comment truncate block">{v.value}</span></td>
-                      <td className="px-2 py-1.5 text-comment" />
+                      <td className="px-2 py-1.5 max-w-[280px]"><span className="font-mono text-xs text-comment truncate block">{v.isPrivate ? "••••••••••••" : v.value}</span></td>
+                      <td className="px-2 py-1.5 text-comment">{v.isPrivate && <Lock size={11} className="text-comment/50" />}</td>
                       <td className="pr-3 py-1.5" />
                     </tr>
                   ))}
