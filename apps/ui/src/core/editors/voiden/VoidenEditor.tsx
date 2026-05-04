@@ -1174,9 +1174,12 @@ const VoidenEditorInner = ({
     }
   };
 
-  // Helper to clear all CM highlights
+  // Helper to clear all CM and PM highlights
   const clearCmHighlights = () => {
     if (!editor) return;
+    editor.view.dispatch(
+      editor.state.tr.setMeta(findHighlightPluginKey, { term: "" })
+    );
     const allCmViews = findAllCmViews(editor.view);
     for (const cmView of allCmViews) {
       cmView.dispatch({

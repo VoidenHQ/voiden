@@ -11,7 +11,7 @@
 import * as React from "react";
 import { Node } from "@tiptap/core";
 import { ReactNodeViewRenderer } from "@tiptap/react";
-import { AlertCircle, ChevronDown, Copy, Download, Eye, FileDown, FileText, WrapText } from "lucide-react";
+import { AlertCircle, Check, ChevronDown, Copy, Download, Eye, FileDown, FileText, WrapText } from "lucide-react";
 
 type LangOption = { label: string; value: string };
 const LANG_OPTIONS: LangOption[] = [
@@ -124,6 +124,8 @@ export const createResponseBodyNode = (
     const [langOverride, setLangOverride] = React.useState<string>("auto");
     const [isLangDropdownOpen, setIsLangDropdownOpen] = React.useState(false);
     const langDropdownRef = React.useRef<HTMLDivElement>(null);
+    const [copied, setCopied] = React.useState(false);
+    const [downloaded, setDownloaded] = React.useState(false);
 
     // Reset prettify when language changes
     React.useEffect(() => { setIsPrettified(false); }, [langOverride]);
@@ -270,6 +272,8 @@ export const createResponseBodyNode = (
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
+        setDownloaded(true);
+        setTimeout(() => setDownloaded(false), 2000);
       } catch (error) {
       }
     };
@@ -279,6 +283,8 @@ export const createResponseBodyNode = (
       try {
         const textToCopy = typeof body === "string" ? body : JSON.stringify(body, null, 2);
         await navigator.clipboard.writeText(textToCopy);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
       } catch (error) {
       }
     };
@@ -703,6 +709,16 @@ export const createResponseBodyNode = (
           .response-action-btn:hover {
             color: var(--accent) !important;
           }
+          @keyframes response-icon-pop {
+            0%   { transform: scale(0.6); opacity: 0; }
+            60%  { transform: scale(1.2); }
+            100% { transform: scale(1);   opacity: 1; }
+          }
+          .response-icon-animate {
+            animation: response-icon-pop 0.2s ease-out forwards;
+          }
+          .response-body-node .header-bar .response-body-actions { opacity: 0; transition: opacity 0.15s ease; }
+          .response-body-node .header-bar:hover .response-body-actions { opacity: 1; }
         `}</style>
 
         <div className="my-2">
@@ -744,25 +760,25 @@ export const createResponseBodyNode = (
               )}
             </div>
 
-            <div className="flex items-center gap-1" style={{ userSelect: 'none' }}>
+            <div className="flex items-center gap-1 response-body-actions" style={{ userSelect: 'none' }}>
               {/* Copy button - only show for text-based content */}
               {(isJson || isXml || isHtml || isText) && (
                 <button
                   onClick={(e) => { e.stopPropagation(); handleCopy(); }}
                   className="response-action-btn px-3 py-1 text-xs text-comment rounded"
-                  title="Copy to clipboard"
+                  title={copied ? "Copied!" : "Copy to clipboard"}
                   style={{ cursor: 'pointer', userSelect: 'none' }}
                 >
-                  <Copy size={14} />
+                  {copied ? <Check size={14} key="check" className="response-icon-animate text-status-success" /> : <Copy size={14} key="copy" />}
                 </button>
               )}
               <button
                 onClick={(e) => { e.stopPropagation(); handleDownload(); }}
                 className="response-action-btn px-3 py-1 text-xs text-comment rounded"
-                title="Download"
+                title={downloaded ? "Downloaded!" : "Download"}
                 style={{ cursor: 'pointer', userSelect: 'none' }}
               >
-                <Download size={14} />
+                {downloaded ? <Check size={14} key="check" className="response-icon-animate text-status-success" /> : <Download size={14} key="download" />}
               </button>
             </div>
           </div>

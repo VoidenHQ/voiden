@@ -8,7 +8,7 @@
 import * as React from "react";
 import { Node } from "@tiptap/core";
 import { ReactNodeViewRenderer } from "@tiptap/react";
-import { Copy, Download } from "lucide-react";
+import { Check, Copy, Download } from "lucide-react";
 
 export interface ResponseHeader {
   key: string;
@@ -29,6 +29,8 @@ export const createResponseHeadersNode = (
     const { headers } = node.attrs as ResponseHeadersAttrs;
  const { openNodes } = useParentResponseDoc(editor, getPos);
     const isCollapsed = !openNodes.includes("response-headers");
+    const [copied, setCopied] = React.useState(false);
+    const [downloaded, setDownloaded] = React.useState(false);
 
     // Handle click - toggle this node open/closed
     const handleSetActive = () => {
@@ -54,6 +56,8 @@ export const createResponseHeadersNode = (
     const handleCopy = async () => {
       try {
         await navigator.clipboard.writeText(headersText);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
       } catch (error) {
       }
     };
@@ -70,6 +74,8 @@ export const createResponseHeadersNode = (
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
+        setDownloaded(true);
+        setTimeout(() => setDownloaded(false), 2000);
       } catch (error) {
       }
     };
@@ -80,6 +86,16 @@ export const createResponseHeadersNode = (
           .response-action-btn:hover {
             color: var(--accent) !important;
           }
+          @keyframes response-icon-pop {
+            0%   { transform: scale(0.6); opacity: 0; }
+            60%  { transform: scale(1.2); }
+            100% { transform: scale(1);   opacity: 1; }
+          }
+          .response-icon-animate {
+            animation: response-icon-pop 0.2s ease-out forwards;
+          }
+          .response-headers-node .header-bar .response-header-actions { opacity: 0; transition: opacity 0.15s ease; }
+          .response-headers-node .header-bar:hover .response-header-actions { opacity: 1; }
         `}</style>
 
         <div className="my-2">
@@ -114,30 +130,26 @@ export const createResponseHeadersNode = (
               <span className="text-xs text-comment" style={{ pointerEvents: 'none' }}>({headers.length})</span>
             </div>
 
-            <div className="flex items-center gap-1" style={{ userSelect: 'none' }}>
+            <div className="flex items-center gap-1 response-header-actions" style={{ userSelect: 'none' }}>
               {/* Copy button */}
-              {!isCollapsed && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); handleCopy(); }}
-                  className="response-action-btn px-3 py-1 text-xs text-comment rounded"
-                  title="Copy to clipboard"
-                  style={{ cursor: 'pointer', userSelect: 'none' }}
-                >
-                  <Copy size={14} />
-                </button>
-              )}
+              <button
+                onClick={(e) => { e.stopPropagation(); handleCopy(); }}
+                className="response-action-btn px-3 py-1 text-xs text-comment rounded"
+                title={copied ? "Copied!" : "Copy to clipboard"}
+                style={{ cursor: 'pointer', userSelect: 'none' }}
+              >
+                {copied ? <Check size={14} key="check" className="response-icon-animate text-status-success" /> : <Copy size={14} key="copy" />}
+              </button>
 
               {/* Download button */}
-              {!isCollapsed && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); handleDownload(); }}
-                  className="response-action-btn px-3 py-1 text-xs text-comment rounded"
-                  title="Download"
-                  style={{ cursor: 'pointer', userSelect: 'none' }}
-                >
-                  <Download size={14} />
-                </button>
-              )}
+              <button
+                onClick={(e) => { e.stopPropagation(); handleDownload(); }}
+                className="response-action-btn px-3 py-1 text-xs text-comment rounded"
+                title={downloaded ? "Downloaded!" : "Download"}
+                style={{ cursor: 'pointer', userSelect: 'none' }}
+              >
+                {downloaded ? <Check size={14} key="check" className="response-icon-animate text-status-success" /> : <Download size={14} key="download" />}
+              </button>
             </div>
           </div>
 

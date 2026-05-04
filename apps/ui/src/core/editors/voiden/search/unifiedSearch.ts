@@ -85,6 +85,7 @@ export function buildUnifiedMatches(
       regex.lastIndex = 0;
       let m: RegExpExecArray | null;
       while ((m = regex.exec(node.text)) !== null) {
+        if (m[0].length === 0) { regex.lastIndex++; continue; }
         const from = pos + m.index;
         const to = from + m[0].length;
 
@@ -123,6 +124,7 @@ export function buildUnifiedMatches(
       regex.lastIndex = 0;
       let m: RegExpExecArray | null;
       while ((m = regex.exec(body)) !== null) {
+        if (m[0].length === 0) { regex.lastIndex++; continue; }
         matches.push({
           index: index++,
           source: {
@@ -148,6 +150,7 @@ export function buildUnifiedMatches(
           regex.lastIndex = 0;
           let m: RegExpExecArray | null;
           while ((m = regex.exec(chunk.text)) !== null) {
+            if (m[0].length === 0) { regex.lastIndex++; continue; }
             matches.push({
               index: index++,
               source: { type: "linked", pmNodePos: pos, blockUid: chunk.blockUid },

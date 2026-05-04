@@ -6,7 +6,7 @@
 import * as React from "react";
 import { Node } from "@tiptap/core";
 import { ReactNodeViewRenderer } from "@tiptap/react";
-import { Copy } from "lucide-react";
+import { Check, Copy } from "lucide-react";
 
 // --- INTERFACES ---
 
@@ -49,8 +49,8 @@ const renderTLSSection = (
   httpVersion: string | undefined,
   handleCopy: () => void,
   openNodes: string[],
-  editor: any
-
+  editor: any,
+  copied: boolean
 ) => {
   if (!tls && !url) return null;
 
@@ -115,21 +115,19 @@ const renderTLSSection = (
         </div>
 
         {/* Copy Button */}
-        {!isCollapsed && (
-          <div className="flex items-center gap-1" style={{ userSelect: "none" }}>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                handleCopy();
-              }}
-              className="response-action-btn px-3 py-1 text-xs text-comment rounded"
-              title="Copy to clipboard"
-              style={{ cursor: "pointer", userSelect: "none" }}
-            >
-              <Copy size={14}/>
-            </button>
-          </div>
-        )}
+        <div className="flex items-center gap-1 response-node-actions" style={{ userSelect: "none" }}>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              handleCopy();
+            }}
+            className="response-action-btn px-3 py-1 text-xs text-comment rounded"
+            title={copied ? "Copied!" : "Copy to clipboard"}
+            style={{ cursor: "pointer", userSelect: "none" }}
+          >
+            {copied ? <Check size={14} key="check" className="response-icon-animate text-status-success" /> : <Copy size={14} key="copy" />}
+          </button>
+        </div>
       </div>
 
       {/* Content - CodeMirror display */}
@@ -166,6 +164,14 @@ const renderTLSSection = (
                   top: 0 !important;
                   z-index: 10 !important;
                 }
+                @keyframes response-icon-pop {
+                  0%   { transform: scale(0.6); opacity: 0; }
+                  60%  { transform: scale(1.2); }
+                  100% { transform: scale(1);   opacity: 1; }
+                }
+                .response-icon-animate {
+                  animation: response-icon-pop 0.2s ease-out forwards;
+                }
               `}</style>
               <div className="request-summary-editor" style={{ height: "100%", overflow: "auto" }}>
                 <CodeEditor readOnly lang="text" value={summaryText} showReplace={false} />
@@ -186,6 +192,10 @@ export const createRequestHeadersNode = (NodeViewWrapper: any, CodeEditor: any, 
      // Read parent's openNodes state - automatically updates when parent changes
     const { openNodes } = useParentResponseDoc(editor, getPos);
     const isCollapsed = !openNodes.includes("request-headers");
+
+    // All hooks before any early returns (Rules of Hooks)
+    const [copiedSummary, setCopiedSummary] = React.useState(false);
+    const [copiedHeaders, setCopiedHeaders] = React.useState(false);
 
     // Handle click - toggle this node open/closed
     const handleSetActive = () => {
@@ -217,6 +227,8 @@ export const createRequestHeadersNode = (NodeViewWrapper: any, CodeEditor: any, 
           }
           const summaryText = summaryLines.join('\n');
           await navigator.clipboard.writeText(summaryText);
+          setCopiedSummary(true);
+          setTimeout(() => setCopiedSummary(false), 2000);
         } catch (error) {
         }
       };
@@ -227,10 +239,12 @@ export const createRequestHeadersNode = (NodeViewWrapper: any, CodeEditor: any, 
           .response-action-btn:hover {
             color: var(--accent) !important;
           }
+          .request-headers-node .header-bar .response-node-actions { opacity: 0; transition: opacity 0.15s ease; }
+          .request-headers-node .header-bar:hover .response-node-actions { opacity: 1; }
         `}</style>
 
           {/* Render summary section even without headers */}
-          {renderTLSSection(CodeEditor, tls, url, method, httpVersion, handleCopySummaryEmpty, openNodes, editor)}
+          {renderTLSSection(CodeEditor, tls, url, method, httpVersion, handleCopySummaryEmpty, openNodes, editor, copiedSummary)}
 
           <div >
             <div className="bg-bg p-2 text-comment text-sm border-b border-border">No Request Headers Sent</div>
@@ -254,6 +268,8 @@ export const createRequestHeadersNode = (NodeViewWrapper: any, CodeEditor: any, 
     const handleCopy = async () => {
       try {
         await navigator.clipboard.writeText(headersText);
+        setCopiedHeaders(true);
+        setTimeout(() => setCopiedHeaders(false), 2000);
       } catch (error) {
       }
     };
@@ -279,6 +295,8 @@ export const createRequestHeadersNode = (NodeViewWrapper: any, CodeEditor: any, 
         }
         const summaryText = summaryLines.join('\n');
         await navigator.clipboard.writeText(summaryText);
+        setCopiedSummary(true);
+        setTimeout(() => setCopiedSummary(false), 2000);
       } catch (error) {
       }
     };
@@ -289,10 +307,12 @@ export const createRequestHeadersNode = (NodeViewWrapper: any, CodeEditor: any, 
           .response-action-btn:hover {
             color: var(--accent) !important;
           }
+          .request-headers-node .header-bar .response-node-actions { opacity: 0; transition: opacity 0.15s ease; }
+          .request-headers-node .header-bar:hover .response-node-actions { opacity: 1; }
         `}</style>
 
         {/* 1. RENDER REQUEST SUMMARY / SECURITY SECTION */}
-        {renderTLSSection(CodeEditor, tls, url, method, httpVersion, handleCopySummary, openNodes, editor)}
+        {renderTLSSection(CodeEditor, tls, url, method, httpVersion, handleCopySummary, openNodes, editor, copiedSummary)}
 
         {/* 2. RENDER REQUEST HEADERS COLLAPSIBLE BLOCK (Copied structure) */}
         <div className="my-2">
@@ -328,20 +348,18 @@ export const createRequestHeadersNode = (NodeViewWrapper: any, CodeEditor: any, 
             </div>
 
             {/* Copy/Download Buttons*/}
-            <div className="flex items-center gap-1" style={{ userSelect: "none" }}>
-              {!isCollapsed && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleCopy();
-                  }}
-                  className="response-action-btn  px-3 py-1 text-xs text-comment rounded"
-                  title="Copy to clipboard"
-                  style={{ cursor: "pointer", userSelect: "none" }}
-                >
-                  <Copy size={14}/>
-                </button>
-              )}
+            <div className="flex items-center gap-1 response-node-actions" style={{ userSelect: "none" }}>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleCopy();
+                }}
+                className="response-action-btn  px-3 py-1 text-xs text-comment rounded"
+                title={copiedHeaders ? "Copied!" : "Copy to clipboard"}
+                style={{ cursor: "pointer", userSelect: "none" }}
+              >
+                {copiedHeaders ? <Check size={14} key="check" className="response-icon-animate text-status-success" /> : <Copy size={14} key="copy" />}
+              </button>
               {/* ... Download button if needed ... */}
             </div>
           </div>
@@ -416,6 +434,7 @@ export const createRequestHeadersNode = (NodeViewWrapper: any, CodeEditor: any, 
     editor: any;
   }) => {
     const isCollapsed = !openNodes.includes("request-body-sent");
+    const [copiedBody, setCopiedBody] = React.useState(false);
 
     const handleToggle = () => {
       ed.commands.toggleResponseNode("request-body-sent");
@@ -424,6 +443,8 @@ export const createRequestHeadersNode = (NodeViewWrapper: any, CodeEditor: any, 
     const handleCopyBody = async () => {
       try {
         await navigator.clipboard.writeText(body);
+        setCopiedBody(true);
+        setTimeout(() => setCopiedBody(false), 2000);
       } catch {}
     };
 
@@ -482,20 +503,18 @@ export const createRequestHeadersNode = (NodeViewWrapper: any, CodeEditor: any, 
             )}
           </div>
 
-          <div className="flex items-center gap-1" style={{ userSelect: "none" }}>
-            {!isCollapsed && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleCopyBody();
-                }}
-                className="response-action-btn px-3 py-1 text-xs text-comment rounded"
-                title="Copy to clipboard"
-                style={{ cursor: "pointer", userSelect: "none" }}
-              >
-                <Copy size={14} />
-              </button>
-            )}
+          <div className="flex items-center gap-1 response-node-actions" style={{ userSelect: "none" }}>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                handleCopyBody();
+              }}
+              className="response-action-btn px-3 py-1 text-xs text-comment rounded"
+              title={copiedBody ? "Copied!" : "Copy to clipboard"}
+              style={{ cursor: "pointer", userSelect: "none" }}
+            >
+              {copiedBody ? <Check size={14} key="check" className="response-icon-animate text-status-success" /> : <Copy size={14} key="copy" />}
+            </button>
           </div>
         </div>
 

@@ -265,14 +265,16 @@ export const useActions = (editor: Editor) => {
     const sectionStart = currentNodePos;
     let sectionEnd = doc.content.size;
 
-    // Find the next separator to determine section end
-    let pos = currentNodePos + currentNode.nodeSize;
-    doc.nodesBetween(pos, doc.content.size, (node, nodePos) => {
-      if (node.type.name === 'request-separator' && nodePos > currentNodePos) {
-        sectionEnd = nodePos;
-        return false; // stop
+    // Walk top-level nodes to find the NEXT separator after this one.
+    // nodesBetween's `return false` only stops descent, not traversal, so we use
+    // a flag to stop processing once the first next separator is found.
+    let found = false;
+    doc.forEach((node, offset) => {
+      if (found) return;
+      if (node.type.name === 'request-separator' && offset > currentNodePos) {
+        sectionEnd = offset;
+        found = true;
       }
-      return false; // only check top-level nodes
     });
 
     return { from: sectionStart, to: sectionEnd };

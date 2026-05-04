@@ -54,6 +54,7 @@
     "@faker-js/faker": "^9.0.3",
     "@voiden/sdk": "^1.0.9",
     "js-yaml": "^4.1.0",
+    "selfsigned": "^5.5.0",
     "shell-quote": "^1.8.1",
     "xlsx-js-style": "^1.2.0"
   },
@@ -77,6 +78,7 @@
     "@types/js-yaml": "^4.0.9",
     "@types/react": "^18.2.15",
     "@types/react-dom": "^18.2.7",
+    "@types/selfsigned": "^2.1.0",
     "@types/shell-quote": "^1.7.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",

@@ -2,7 +2,7 @@ import * as React from "react";
 import { Node } from "@tiptap/core";
 import { ReactNodeViewRenderer } from "@tiptap/react";
 import type { AssertionResult } from "../lib/assertionEngine";
-import { Copy } from "lucide-react";
+import { Check, Copy } from "lucide-react";
 
 export interface AssertionResultsAttrs {
   results: AssertionResult[];
@@ -108,6 +108,7 @@ export const createAssertionResultsNode = (NodeViewWrapper: any, useParentRespon
 
     const { openNodes } = useParentResponseDoc(editor, getPos);
     const isCollapsed = !openNodes.includes("assertion-results");
+    const [copied, setCopied] = React.useState(false);
     const handleSetActive = () => {
       editor.commands.toggleResponseNode("assertion-results");
     };
@@ -132,7 +133,10 @@ export const createAssertionResultsNode = (NodeViewWrapper: any, useParentRespon
         return `| ${status} | ${assertion} | ${operator} | ${expected} | ${actual} | ${error} |`;
       });
       const text = [header, separator, ...rows].join("\n");
-      navigator.clipboard.writeText(text);
+      navigator.clipboard.writeText(text).then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      }).catch(() => {});
     };
 
     const passRate = totalAssertions > 0
@@ -148,6 +152,16 @@ export const createAssertionResultsNode = (NodeViewWrapper: any, useParentRespon
           .response-action-btn:hover {
             color: var(--accent) !important;
           }
+          @keyframes response-icon-pop {
+            0%   { transform: scale(0.6); opacity: 0; }
+            60%  { transform: scale(1.2); }
+            100% { transform: scale(1);   opacity: 1; }
+          }
+          .response-icon-animate {
+            animation: response-icon-pop 0.2s ease-out forwards;
+          }
+          .assertion-results-node .header-bar .response-node-actions { opacity: 0; transition: opacity 0.15s ease; }
+          .assertion-results-node .header-bar:hover .response-node-actions { opacity: 1; }
         `}</style>
 
         <div className="my-2">
@@ -193,19 +207,17 @@ export const createAssertionResultsNode = (NodeViewWrapper: any, useParentRespon
               </span>
             </div>
 
-            <div className="flex items-center gap-1" style={{ userSelect: "none" }}>
-              {!isCollapsed && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleCopy();
-                  }}
-                  className="response-action-btn  px-3 py-1 text-xs text-comment rounded"
-                  style={{ cursor: "pointer", userSelect: "none" }}
-                >
-                  <Copy size={14} />
-                </button>
-              )}
+            <div className="flex items-center gap-1 response-node-actions" style={{ userSelect: "none" }}>
+              <button
+                onClick={(e) => { e.stopPropagation(); handleCopy(); }}
+                className="response-action-btn px-3 py-1 text-xs text-comment rounded"
+                title={copied ? "Copied!" : "Copy to clipboard"}
+                style={{ cursor: "pointer", userSelect: "none" }}
+              >
+                {copied
+                  ? <Check size={14} key="check" className="response-icon-animate text-status-success" />
+                  : <Copy size={14} key="copy" />}
+              </button>
             </div>
           </div>
 

@@ -157,6 +157,16 @@ export function convertResponseToVoidenDoc(response: HttpResponse): any {
     headersArray.find((h) => h.key.toLowerCase() === "content-disposition")?.value
   );
 
+  // Treat empty Buffers/strings as no body so the UI shows "No response body"
+  const resolvedBody = (() => {
+    const b = response.body;
+    if (!b) return null;
+    if (Buffer.isBuffer(b) && b.length === 0) return null;
+    if (b instanceof ArrayBuffer && b.byteLength === 0) return null;
+    if (typeof b === 'string' && b.trim() === '') return null;
+    return b;
+  })();
+
   // Build the Voiden document structure
   // Store metadata in doc attrs for ResponsePanelContainer to access
   const responseDocContent: any[] = [
@@ -164,7 +174,7 @@ export function convertResponseToVoidenDoc(response: HttpResponse): any {
     {
       type: 'response-body',
       attrs: {
-        body: response.body || null,
+        body: resolvedBody,
         contentType: contentType || null,
         downloadFilename,
       },
