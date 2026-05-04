@@ -886,6 +886,7 @@ const EnvSidebarItem = ({
   onAddChild,
   onToggleCollapse,
   onToggleEnvSelect,
+  onToggleIntermediate,
 }: {
   entry: FlatEnvEntry;
   isSelected: boolean;
@@ -898,6 +899,7 @@ const EnvSidebarItem = ({
   onAddChild: () => void;
   onToggleCollapse: () => void;
   onToggleEnvSelect: () => void;
+  onToggleIntermediate: () => void;
 }) => {
   const [confirming, setConfirming] = useState(false);
 
@@ -948,6 +950,17 @@ const EnvSidebarItem = ({
             <span className="truncate text-[9px] text-comment">{entry.displayName}</span>
           )}
         </span>
+        {/* Toggle-intermediate button: always visible when hidden, hover-only when visible */}
+        <button
+          title={entry.intermediate ? "Show in env picker" : "Hide from env picker"}
+          onClick={(e) => { e.stopPropagation(); onToggleIntermediate(); }}
+          className={cn("p-0.5 rounded hover:bg-border transition-colors flex-shrink-0",
+            entry.intermediate ? "opacity-100" : "opacity-0 group-hover/item:opacity-100")}
+        >
+          {entry.intermediate
+            ? <EyeOff size={11} style={{ color: "var(--icon-warning)" }} />
+            : <Eye size={11} className="text-comment/60 hover:text-comment" />}
+        </button>
         {/* Actions shown on hover */}
         <span className="flex items-center gap-0.5 flex-shrink-0 opacity-0 group-hover/item:opacity-100 transition-opacity">
           <span className="text-xs text-comment/60 tabular-nums">{entry.varCount}</span>
@@ -1263,6 +1276,12 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
     setSelectedEnvPaths((prev) => { const n = new Set(prev); n.has(path) ? n.delete(path) : n.add(path); return n; });
   }, []);
 
+  const handleToggleIntermediate = useCallback((path: string) => {
+    const node = getNodeAtPath(tree, path);
+    if (!node) return;
+    handleUpdateTree(updateNodeAtPath(tree, path, { ...node, intermediate: !node.intermediate }));
+  }, [tree, handleUpdateTree]);
+
   const handleBulkDeleteEnvs = useCallback(() => {
     // Only delete top-level selected paths; skip children of already-selected parents
     const sorted = Array.from(selectedEnvPaths).sort((a, b) => a.length - b.length);
@@ -1463,6 +1482,7 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
                       onAddChild={() => handleAddChild(entry.path)}
                       onToggleCollapse={() => toggleCollapsed(entry.path)}
                       onToggleEnvSelect={() => toggleEnvSelect(entry.path)}
+                      onToggleIntermediate={() => handleToggleIntermediate(entry.path)}
                     />
                   )}
                 </div>
@@ -1561,6 +1581,22 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
                       {selectedNode.variables.filter((v) => v.isPrivate).length} private
                     </span>
                   )}
+                  <button
+                    onClick={() => handleToggleIntermediate(selectedEnvPath)}
+                    title={selectedNode.intermediate ? "Show in env picker (currently hidden)" : "Hide from env picker"}
+                    className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-md border transition-colors"
+                    style={selectedNode.intermediate ? {
+                      backgroundColor: "color-mix(in srgb, var(--icon-warning) 10%, transparent)",
+                      borderColor: "color-mix(in srgb, var(--icon-warning) 30%, transparent)",
+                      color: "var(--icon-warning)",
+                    } : {
+                      borderColor: "var(--ui-line)",
+                      color: "var(--syntax-comment)",
+                    }}
+                  >
+                    {selectedNode.intermediate ? <EyeOff size={11} /> : <Eye size={11} />}
+                    {selectedNode.intermediate ? "hidden" : "visible"}
+                  </button>
                 </div>
               </div>
 
