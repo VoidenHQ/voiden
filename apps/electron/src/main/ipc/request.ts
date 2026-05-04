@@ -716,7 +716,7 @@ export function registerRequestIpcHandler() {
         status: response.status,
         statusText: response.statusText,
         headers: [...response.headers.entries()],
-        body: buffer ? Buffer.from(buffer) : null,
+        body: buffer && buffer.byteLength > 0 ? Buffer.from(buffer) : null,
         requestMeta: {
           method: fetchOptions.method,
           url: urlForRequest,
@@ -1119,7 +1119,7 @@ export function registerRequestIpcHandler() {
         operationType: requestState.operationType, // Include operation type for GraphQL (query/mutation/subscription)
         statusText: response.statusText,
         headers: [...response.headers.entries()],
-        body: buffer ? Buffer.from(buffer) : null,
+        body: buffer && buffer.byteLength > 0 ? Buffer.from(buffer) : null,
         requestMeta: {
           method: fetchOptions.method,
           url,
