@@ -356,8 +356,9 @@ export const CodeEditor = ({
     // When embedded in TipTap, skip CM's search extension entirely —
     // the unified search panel handles find/replace
     ...(tiptapProps ? [] : [search({ top: true, createPanel: () => ({ dom: document.createElement("div") }) })]),
-    // Disable selection matching for large content — it scans the full doc on every selection
-    ...(isLargeContent ? [] : [highlightSelectionMatches()]),
+    // Disable selection matching for large content or read-only editors (response panel).
+    // In read-only mode it's distracting — highlighting only makes sense when searching.
+    ...(isLargeContent || effectiveReadOnly ? [] : [highlightSelectionMatches()]),
     EditorView.theme({
       "&": {
         "--editor-selection": "rgba(255, 99, 132, 0.6)",
@@ -686,6 +687,9 @@ export const CodeEditor = ({
           highlightActiveLine: true,
           // Disable built-in search when embedded in TipTap — unified search handles it
           searchKeymap: !tiptapProps,
+          // Don't highlight other occurrences of selected text in read-only editors
+          // (response panel). Only makes sense when actively searching.
+          highlightSelectionMatches: !effectiveReadOnly,
         }}
         onCreateEditor={(view) => {
           editorRef.current = view;

@@ -1,7 +1,7 @@
 import { Editor, Extension } from "@tiptap/core";
 import { ReactRenderer } from "@tiptap/react";
 import Suggestion, { SuggestionProps, SuggestionKeyDownProps } from "@tiptap/suggestion";
-import { PluginKey } from "@tiptap/pm/state";
+import { PluginKey, TextSelection } from "@tiptap/pm/state";
 import tippy from "tippy.js";
 
 import React, { memo, useCallback, useEffect, useRef, useState } from "react";
@@ -192,10 +192,29 @@ const GROUPS: Group[] = [
             }
           } else {
             const newName = getRandomRequestName(usedNames);
-            editor.chain().focus().deleteRange({ from, to }).insertContent([
-              { type: "request-separator", attrs: { colorIndex, label: newName } },
-              { type: "paragraph" },
-            ]).run();
+            editor.chain()
+              .command(({ dispatch, tr, state }) => {
+                if (!dispatch) return true;
+                const { $from } = state.selection;
+                // Insert after the end of the current top-level block so the
+                // paragraph the user typed in is left intact.
+                const topStart = $from.depth > 0 ? $from.before(1) : 0;
+                const topNode = state.doc.nodeAt(topStart);
+                const insertAt = topStart + (topNode?.nodeSize ?? 0);
+
+                const sep = state.schema.nodes['request-separator'].create({ colorIndex, label: newName });
+                const para = state.schema.nodes['paragraph'].create();
+                tr.insert(insertAt, sep);
+                tr.insert(insertAt + sep.nodeSize, para);
+
+                // Place cursor inside the new paragraph
+                const cursorPos = insertAt + sep.nodeSize + 1;
+                const $cursor = tr.doc.resolve(Math.min(cursorPos, tr.doc.content.size - 1));
+                tr.setSelection(TextSelection.near($cursor));
+                return true;
+              })
+              .scrollIntoView()
+              .run();
           }
         },
       },

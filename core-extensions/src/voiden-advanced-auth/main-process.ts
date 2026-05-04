@@ -27,7 +27,7 @@ async function getSelfSignedCreds(): Promise<{ key: string; cert: string }> {
     throw new Error("selfsigned package failed to load — generate is not a function");
   }
   const attrs = [{ name: "commonName", value: "localhost" }];
-  const pems = generate(attrs, {
+  const pems = await generate(attrs, {
     days: 825,
     algorithm: "sha256",
     keySize: 2048,
@@ -37,9 +37,9 @@ async function getSelfSignedCreds(): Promise<{ key: string; cert: string }> {
         { type: 7, ip: "127.0.0.1" },
       ]},
     ],
-  });
+  } as any);
   console.log("[OAuth2] Self-signed cert generated for localhost/127.0.0.1");
-  _selfSignedCreds = { key: pems.private, cert: pems.cert };
+  _selfSignedCreds = { key: (pems as any).private, cert: (pems as any).cert };
   return _selfSignedCreds;
 }
 
