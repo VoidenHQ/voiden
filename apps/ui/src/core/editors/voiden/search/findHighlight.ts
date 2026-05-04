@@ -34,6 +34,7 @@ const findHighlightPlugin = new Plugin({
         if (node.isText && node.text) {
           let m: RegExpExecArray | null;
           while ((m = regex.exec(node.text)) !== null) {
+            if (m[0].length === 0) { regex.lastIndex++; continue; }
             const start = pos + m.index;
             const end = start + m[0].length;
             let valid = true;
