@@ -146,6 +146,24 @@ const GROUPS: Group[] = [
           const usedNames = getUsedNamesFromDoc(editor);
 
           if (!hasSeparators) {
+            const isDocEmpty = editor.state.doc.textContent === "" && editor.state.doc.childCount === 1;
+
+            if (isDocEmpty) {
+              // Empty file — just add a single separator at position 0
+              const newName = getRandomRequestName(usedNames);
+              editor.chain().focus()
+                .command(({ dispatch, tr, state }) => {
+                  if (dispatch) {
+                    const sep = state.schema.nodes['request-separator'].create({
+                      colorIndex,
+                      label: newName,
+                    });
+                    tr.insert(0, sep);
+                  }
+                  return true;
+                })
+                .run();
+            } else {
             // First separator being added — also add one for the existing first section
             const firstSectionColorIndex = pickDistinctColorIndex(-1, colorIndex);
             const firstName = getRandomRequestName(usedNames);
@@ -171,6 +189,7 @@ const GROUPS: Group[] = [
                 { type: "paragraph" },
               ])
               .run();
+            }
           } else {
             const newName = getRandomRequestName(usedNames);
             editor.chain().focus().deleteRange({ from, to }).insertContent([
