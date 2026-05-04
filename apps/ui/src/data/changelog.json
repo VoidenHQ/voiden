@@ -1,5 +1,32 @@
 [
   {
+    "version": "v1.6.1",
+    "date": "04/05/2026",
+    "title": "OAuth HTTPS, Section Copy Fixes & Response Panel Polish",
+    "description": "Patch release covering OAuth 2.0 HTTPS callback support, a batch of void file editor fixes around section creation and search, response panel accuracy improvements, and copy button feedback across all response nodes.",
+    "icon": "Bug",
+    "iconColor": "text-red-400",
+    "bgColor": "bg-gradient-to-br from-slate-900 to-red-950",
+    "changes": {
+      "Added": [
+        "OAuth 2.0 flows now support https:// callback URLs — a self-signed certificate is generated automatically so providers that require HTTPS (Okta, Azure AD, Auth0, etc.) work without extra setup",
+        "Environment editor now exposes an intermediate toggle per environment — mark a parent env as hidden so it is excluded from the env picker and users are required to select a child env",
+        "Copy buttons across all response panel sections (response headers, request headers, request body, assertion results) now show an animated check mark on success"
+      ],
+      "Fixed": [
+        "Typing /new-request inside an existing section no longer splits the current paragraph into an uneditable box — the new separator and paragraph are inserted cleanly after the current block",
+        "/new-request in a completely empty file now creates a single section header instead of two",
+        "Copying a section from the drag menu was including blocks from subsequent sections — the range calculation now correctly stops at the next separator",
+        "Pasting a block into a different section no longer triggers the singleton replacement dialog — the duplicate check is now scoped to the current section only",
+        "Regex patterns that match empty strings (e.g. .*, a?, b*) no longer produce phantom search results when navigating matches in void files",
+        "Closing the search bar in a void file now clears all highlights from both ProseMirror text and CodeMirror code blocks",
+        "Endpoints that return a 404 with no body no longer show a fake response body in the results panel — empty buffers are now treated as no body",
+        "Secret variables inherited from a parent environment are now masked in the child environment view",
+        "Selecting text in the response panel no longer highlights all other matching occurrences — selection match highlighting is now disabled in read-only editors"
+      ]
+    }
+  },
+  {
     "version": "v1.6.0",
     "date": "30/04/2026",
     "title": "Environment Editor Overhaul, Stitch History & Search Fixes",
