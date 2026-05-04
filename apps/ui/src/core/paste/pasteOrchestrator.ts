@@ -303,13 +303,27 @@ export class PasteOrchestrator {
           'socket-request'
         ];
         if (singletonBlocks.includes(nodeData.type)) {
-          // Check if this singleton block type already exists in the document
-          let existingBlockPos: number | null = null;
+          // Find the section boundaries around the cursor so we only check
+          // for existing blocks within the same request section, not the whole doc.
+          const cursorPos = view.state.selection.$from.pos;
+          let sectionStart = 0;
+          let sectionEnd = view.state.doc.content.size;
+          view.state.doc.forEach((child, offset) => {
+            if (child.type.name === 'request-separator') {
+              if (offset < cursorPos) {
+                sectionStart = offset + child.nodeSize;
+              } else if (offset >= cursorPos && sectionEnd === view.state.doc.content.size) {
+                sectionEnd = offset;
+              }
+            }
+          });
 
-          view.state.doc.descendants((node, pos) => {
+          // Check if this singleton block type already exists in the current section
+          let existingBlockPos: number | null = null;
+          view.state.doc.nodesBetween(sectionStart, sectionEnd, (node, pos) => {
             if (node.type.name === nodeData.type) {
               existingBlockPos = pos;
-              return false; // Stop iteration
+              return false;
             }
           });
 
