@@ -54,35 +54,67 @@
 
 <h2 align="center">Main Contributors</h2>
 
-<p align="center">
-  <a href="https://github.com/lbenedetto">
-    <img src="https://img.shields.io/badge/Lars_Benedetto-181717?style=for-the-badge&logo=github" />
-  </a>
-  <a href="https://github.com/kaluvuri">
-    <img src="https://img.shields.io/badge/Samuel_Kaluvuri-181717?style=for-the-badge&logo=github" />
-  </a>
-  <a href="https://github.com/jameesbrown">
-    <img src="https://img.shields.io/badge/James_Brown-181717?style=for-the-badge&logo=github" />
-  </a>
-  <a href="https://github.com/phurpa-tsering">
-    <img src="https://img.shields.io/badge/Phurpa_Tsering-181717?style=for-the-badge&logo=github" />
-  </a>
-  <a href="https://github.com/KrawMire">
-    <img src="https://img.shields.io/badge/Anton_Gavrilov-181717?style=for-the-badge&logo=github" />
-  </a>
-  <a href="https://github.com/edymusajev">
-    <img src="https://img.shields.io/badge/Edy_Musajevs-181717?style=for-the-badge&logo=github" />
-  </a>
-  <a href="https://github.com/nikolasdimitr">
-    <img src="https://img.shields.io/badge/Nikolas_Dimitr-181717?style=for-the-badge&logo=github" />
-  </a>
-  <a href="https://github.com/dp1620">
-    <img src="https://img.shields.io/badge/Dhruv-181717?style=for-the-badge&logo=github" />
-  </a>
-  <a href="https://github.com/davinder-sudo">
-    <img src="https://img.shields.io/badge/Davinder_Sudo-181717?style=for-the-badge&logo=github" />
-  </a>
-</p>
+<table align="center">
+  <tr>
+    <td align="center">
+      <a href="https://github.com/lbenedetto">
+        <img src="https://github.com/lbenedetto.png" width="72" /><br />
+        <sub><b>Lars Benedetto</b></sub>
+      </a>
+    </td>
+    <td align="center">
+      <a href="https://github.com/kaluvuri">
+        <img src="https://github.com/kaluvuri.png" width="72" /><br />
+        <sub><b>kaluvuri</b></sub>
+      </a>
+    </td>
+    <td align="center">
+      <a href="https://github.com/jameesbrown">
+        <img src="https://github.com/jameesbrown.png" width="72" /><br />
+        <sub><b>James Brown</b></sub>
+      </a>
+    </td>
+    <td align="center">
+      <a href="https://github.com/phurpa-tsering">
+        <img src="https://github.com/phurpa-tsering.png" width="72" /><br />
+        <sub><b>Phurpa Tsering</b></sub>
+      </a>
+    </td>
+    <td align="center">
+      <a href="https://github.com/KrawMire">
+        <img src="https://github.com/KrawMire.png" width="72" /><br />
+        <sub><b>Anton Gavrilov</b></sub>
+      </a>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <a href="https://github.com/edymusajev">
+        <img src="https://github.com/edymusajev.png" width="72" /><br />
+        <sub><b>Edy Musajev</b></sub>
+      </a>
+    </td>
+    <td align="center">
+      <a href="https://github.com/nikolasdimitr">
+        <img src="https://github.com/nikolasdimitr.png" width="72" /><br />
+        <sub><b>nikolasdimitr</b></sub>
+      </a>
+    </td>
+    <td align="center">
+      <a href="https://github.com/dp1620">
+        <img src="https://github.com/dp1620.png" width="72" /><br />
+        <sub><b>Dhruv</b></sub>
+      </a>
+    </td>
+    <td align="center">
+      <a href="https://github.com/davinder-sudo">
+        <img src="https://github.com/davinder-sudo.png" width="72" /><br />
+        <sub><b>davinder-sudo</b></sub>
+      </a>
+    </td>
+    <td></td>
+  </tr>
+</table>
 
 ![Voiden workspace showing requests, docs, and response panels](apps/electron/public/start-april18-1.png)
 
