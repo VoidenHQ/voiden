@@ -88,7 +88,11 @@
 
 ## Why Voiden
 
+Voiden is an offline, truly Git Native API client that helps developers build and test APIs like they code. With a programmable interface and an agent-friendly CLI, Voiden adapts to how engineers already work. 
+
 Voiden is for developers, testers, and technical writers who want API work to feel like code instead of a SaaS dashboard.
+
+Features:
 
 - Keep requests, notes, and reusable API building blocks (endpoint, auth, params, body) in the same `.void` files.
 - Work in Markdown and structured blocks instead of opaque collections locked inside an app.
