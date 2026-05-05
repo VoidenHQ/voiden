@@ -101,7 +101,7 @@ All major Protocols:
 
 Single Source of truth for all API work in the same file:
 
-- Keep API requests, tests, notes and docs together in the same executable`.void` files. Keep everything in one format and one workflow
+- Keep API requests, tests, notes and docs together in the same executable`.void` files. Keep everything in one format and one workflow.
 - Requests can be composed by API building blocks (endpoint, auth, params, body). Decompose requests into blocks. Reuse the same blocks across files, like functions.
 - Work in Markdown and structured blocks instead of opaque collections locked inside an app.
 - Test and document APIs without leaving the editor.
