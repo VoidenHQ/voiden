@@ -92,18 +92,30 @@ Voiden is an offline, truly Git Native API client that helps developers build an
 
 Voiden is for developers, testers, and technical writers who want API work to feel like code instead of a SaaS dashboard.
 
-Features:
+✨ Features:
 
 All major Protocols:
 
 - Supports REST, GraphQL, Grpc, Web-Sockets. All these are plugins that you can install or uninstall according to your needs. Community plugins available: https://voiden.md/plugins
-- Import collections from Postman and OpenAPI. 
-- Keep requests, notes, and reusable API building blocks (endpoint, auth, params, body) in the same `.void` files.
+- Import collections from Postman and OpenAPI.
+
+Single Source of truth for all API work in the same file
+
+- Keep API requests, tests, notes and docs together in the same executable`.void` files. Keep everything in one format and one workflow
+- Requests can be composed by API building blocks (endpoint, auth, params, body). Decompose requests into blocks. Reuse the same blocks across files, like functions.
 - Work in Markdown and structured blocks instead of opaque collections locked inside an app.
-- Reuse headers, auth, bodies, and whole sections across files with linked blocks and linked files.
 - Test and document APIs without leaving the editor.
+
+Workflows:
+
+- Scripting: Execute JavaScript, Python, or Shell scripts before sending requests and after receiving responses.
+- Stitch runner: Batch-execute multiple .void files sequentially. Supports glob patterns, stop-on-failure, variable isolation, configurable delays, and environment selection.
+
+Collaboration:
+
 - Collaborate with Git branches and pull requests instead of proprietary team workspaces.
 - Stay local-first with no signup and no required cloud sync.
+
 
 ## Install
 
