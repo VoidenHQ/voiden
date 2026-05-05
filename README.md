@@ -282,7 +282,6 @@ Voiden generates the document metadata and block IDs for you inside the app.
 - [Getting started](https://docs.voiden.md/docs/getting-started-section/intro)
 - [Download](https://voiden.md/download)
 - [Changelog](https://voiden.md/changelog)
-- [Blog](https://voiden.md/blog)
 
 ### Contributor docs
 
@@ -331,7 +330,7 @@ Voiden is built on [Electron](https://www.electronjs.org/). We are building some
 
 We also know Electron gets a bad reputation, often inherited from other API tools. Our take is that footprint matters, but stability, reliability, and cross-platform predictability matter more when users feel them every day. We would rather be transparent about resource usage and keep optimizing it than chase a lighter stack that breaks in subtle ways.
 
-Read the full reasoning here: [Why Voiden is Built on Electron?](https://docs.voiden.md/docs/getting-started-section/getting-started/why-electron).
+Read some more of our thoughts here: [Why Voiden is Built on Electron (and not Tauri)?](https://docs.voiden.md/docs/getting-started-section/getting-started/why-electron).
 
 ## Community
 
@@ -346,6 +345,15 @@ We welcome contributions. Start with:
 - [Contributing Guide](CONTRIBUTING.md)
 - [Code of Conduct](CODE_OF_CONDUCT.md)
 - [Security Policy](SECURITY.md)
+
+## Useful Resources
+
+- [Community and Feedback](https://discord.com/invite/XSYCf7JF4F)
+- [Documentation](https://docs.voiden.md/docs/getting-started-section/intro/)
+- [Voiden vs Postman](https://voiden.md/comparison)
+- [Plugins](https://voiden.md/plugins)
+- [Blog](https://voiden.md/blog)
+- [Privacy](https://voiden.md/privacy)
 
 ## License
 
