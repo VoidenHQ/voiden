@@ -99,7 +99,7 @@ All major Protocols:
 - Supports REST, GraphQL, Grpc, Web-Sockets. All these are plugins that you can install or uninstall according to your needs. Community plugins available: https://voiden.md/plugins
 - Import collections from Postman and OpenAPI.
 
-Single Source of truth for all API work in the same file
+Single Source of truth for all API work in the same file:
 
 - Keep API requests, tests, notes and docs together in the same executable`.void` files. Keep everything in one format and one workflow
 - Requests can be composed by API building blocks (endpoint, auth, params, body). Decompose requests into blocks. Reuse the same blocks across files, like functions.
