@@ -348,12 +348,12 @@ We welcome contributions. Start with:
 
 ## Useful Resources
 
-- [Community and Feedback](https://discord.com/invite/XSYCf7JF4F)
+- [Community & Feedback](https://discord.com/invite/XSYCf7JF4F)
 - [Documentation](https://docs.voiden.md/docs/getting-started-section/intro/)
 - [Voiden vs Postman](https://voiden.md/comparison)
-- [Plugins](https://voiden.md/plugins)
-- [Blog](https://voiden.md/blog)
-- [Privacy](https://voiden.md/privacy)
+- [Voiden Plugins](https://voiden.md/plugins)
+- [Blog and articles](https://voiden.md/blog)
+- [Privacy Policy](https://voiden.md/privacy)
 
 ## License
 
