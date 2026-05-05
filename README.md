@@ -94,7 +94,7 @@ No accounts, No telemetry, no VC funding, and no cloud lock-in.
 
 ✨ Features:
 
-All major Protocols:
+All Major API Protocols:
 
 - Supports REST, GraphQL, Grpc, Web-Sockets. All these are plugins that you can install or uninstall according to your needs. Community plugins available: https://voiden.md/plugins
 - Import collections from Postman and OpenAPI.
@@ -115,6 +115,11 @@ Collaboration:
 
 - Collaborate with Git branches and pull requests instead of proprietary team workspaces.
 - Stay local-first with no signup and no required cloud sync.
+
+AI Friendly:
+
+- No proprietary workspace. No binary exports. Pure text all the way down, diffable like code, greppable, AI-editable, and merge-friendly.
+- Supports Voiden skills for Claude and Codex agents. 
 
 
 ## Install
