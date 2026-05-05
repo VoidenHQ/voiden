@@ -88,7 +88,9 @@
 
 ## Why Voiden
 
-Voiden is an offline, truly Git Native API client that helps developers build and test APIs like they code. With a programmable interface and an agent-friendly CLI, Voiden adapts to how engineers already work. Built with [Electron](https://www.electronjs.org/), Typescript and Javascript , Voiden is flexible and adaptable to how devs work. No accounts, No telemetry, no VC funding, and no cloud lock-in.
+Voiden is an offline, truly Git Native API client that helps developers build and test APIs like they code. With a programmable interface and an agent-friendly CLI, Voiden adapts to how engineers already work. Built with [Electron](https://www.electronjs.org/), Typescript and Javascript , Voiden is flexible and adaptable to how devs work. 
+
+No accounts, No telemetry, no VC funding, and no cloud lock-in.
 
 ✨ Features:
 
