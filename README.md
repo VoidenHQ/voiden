@@ -94,6 +94,10 @@ Voiden is for developers, testers, and technical writers who want API work to fe
 
 Features:
 
+All major Protocols:
+
+- Supports REST, GraphQL, Grpc, Web-Sockets. All these are plugins that you can install or uninstall according to your needs. Community plugins available: https://voiden.md/plugins
+- Import collections from Postman and OpenAPI. 
 - Keep requests, notes, and reusable API building blocks (endpoint, auth, params, body) in the same `.void` files.
 - Work in Markdown and structured blocks instead of opaque collections locked inside an app.
 - Reuse headers, auth, bodies, and whole sections across files with linked blocks and linked files.
