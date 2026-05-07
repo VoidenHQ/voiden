@@ -257,6 +257,7 @@ export const EnvSelector = () => {
                     <button
                       onClick={handleOpenEditor}
                       className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-md border border-accent bg-accent text-text hover:bg-accent/80 transition-colors"
+                      style={{ color: "var(--ui-bg)" }}
                     >
                       <Settings2 size={14} />
                       Edit Environments

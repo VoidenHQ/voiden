@@ -280,6 +280,7 @@ const Dialog = ({
           className={cn(
             "px-4 py-1.5 text-sm rounded-md font-medium bg-accent text-text transition-colors hover:opacity-90"
           )}
+          style={{ color: "var(--ui-bg)" }}
         >
           {confirmLabel}
         </button>
