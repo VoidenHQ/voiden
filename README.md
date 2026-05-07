@@ -55,15 +55,20 @@
 <h2 align="center">Main Contributors</h2>
 
 <p align="center">
-  <a href="https://github.com/lbenedetto">⌁ Lars Benedetto</a> ·
-  <a href="https://github.com/kaluvuri">⌁ kaluvuri</a> ·
-  <a href="https://github.com/jameesbrown">⌁ James Brown</a> ·
-  <a href="https://github.com/phurpa-tsering">⌁ Phurpa Tsering</a> ·
-  <a href="https://github.com/KrawMire">⌁ Anton Gavrilov</a> ·
-  <a href="https://github.com/edymusajev">⌁ Edy Musajev</a> ·
-  <a href="https://github.com/nikolasdimitr">⌁ nikolasdimitr</a> ·
-  <a href="https://github.com/dp1620">⌁ Dhruv</a> ·
-  <a href="https://github.com/davinder-sudo">⌁ davinder-sudo</a>
+  <img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/github/github-original.svg" width="14" />
+  <a href="https://github.com/lbenedetto">Lars Benedetto</a> ·
+  <a href="https://github.com/kaluvuri">kaluvuri</a> ·
+  <a href="https://github.com/jameesbrown">James Brown</a> ·
+  <a href="https://github.com/phurpa-tsering">Phurpa Tsering</a> ·
+  <a href="https://github.com/KrawMire">Anton Gavrilov</a>
+</p>
+
+<p align="center">
+  <img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/github/github-original.svg" width="14" />
+  <a href="https://github.com/edymusajev">Edy Musajev</a> ·
+  <a href="https://github.com/nikolasdimitr">nikolasdimitr</a> ·
+  <a href="https://github.com/dp1620">Dhruv</a> ·
+  <a href="https://github.com/davinder-sudo">davinder-sudo</a>
 </p>
 
 
