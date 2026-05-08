@@ -18,6 +18,7 @@ import {
   renameKey,
 } from "./envTreeUtils";
 import { useEditorStore } from "@/core/editors/voiden/VoidenEditor";
+import { useGetAppState } from "@/core/state/hooks";
 
 const DEBOUNCE_MS = 800;
 const PROFILE_NAME_REGEX = /^[a-z0-9][a-z0-9-]*$/;
@@ -988,6 +989,8 @@ const EnvSidebarItem = ({
 export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
   const queryClient = useQueryClient();
   const { data: envData } = useEnvironments();
+  const { data: appState } = useGetAppState();
+  const activeProject = appState?.activeDirectory ?? null;
   const [selectedProfile, setSelectedProfile] = useState<string>(
     rememberedProfile ?? envData?.activeProfile ?? "default"
   );
@@ -1035,6 +1038,7 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
   const dirtyRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const treeDataRef = useRef<EditableEnvTree>({});
+  const treeProjectRef = useRef<string | null>(null);
   const editorRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const setScrollPosition = useEditorStore((s) => s.setScrollPosition);
@@ -1089,6 +1093,20 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
   useEffect(() => { queryClient.invalidateQueries({ queryKey: ["yaml-environments"] }); }, [queryClient]);
   // Reset dirty on profile switch
   useEffect(() => { dirtyRef.current = false; }, [selectedProfile]);
+  // Reset on project switch
+  useEffect(() => {
+    if (treeProjectRef.current !== null && treeProjectRef.current !== activeProject) {
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+      dirtyRef.current = false;
+      setTree({});
+      treeDataRef.current = {};
+      treeProjectRef.current = null;
+      setSelectedEnvPath(null);
+    }
+  }, [activeProject]);
 
   // Initialize tree from fetched data
   useEffect(() => {
@@ -1096,8 +1114,9 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
       const merged = mergeToEditable(data.public, data.private);
       setTree(merged);
       treeDataRef.current = merged;
+      treeProjectRef.current = activeProject;
     }
-  }, [data]);
+  }, [data, activeProject]);
 
   // Auto-select first env when tree loads
   useEffect(() => {
@@ -1133,17 +1152,22 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
       if (timerRef.current) {
         clearTimeout(timerRef.current);
         timerRef.current = null;
+        const projectAtFlush = treeProjectRef.current;
+        if (!projectAtFlush) return;
         const { publicTree, privateTree } = splitFromEditable(treeDataRef.current);
-        saveRef.current({ publicTree, privateTree });
+        saveRef.current({ publicTree, privateTree, projectPath: projectAtFlush });
       }
     };
   }, []);
 
   const scheduleSave = useCallback((newTree: EditableEnvTree) => {
     if (timerRef.current) clearTimeout(timerRef.current);
+    const projectAtSchedule = treeProjectRef.current;
     timerRef.current = setTimeout(() => {
+      timerRef.current = null;
+      if (!projectAtSchedule) return;
       const { publicTree, privateTree } = splitFromEditable(newTree);
-      save({ publicTree, privateTree });
+      save({ publicTree, privateTree, projectPath: projectAtSchedule });
     }, DEBOUNCE_MS);
   }, [save]);
 

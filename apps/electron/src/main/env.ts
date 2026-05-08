@@ -425,8 +425,11 @@ ipcMain.handle("env:getYamlTrees", async (event, params?: { profile?: string }) 
   return { public: publicTree, private: privateTree };
 });
 
-ipcMain.handle("env:saveYamlTrees", async (event, { publicTree, privateTree, profile }: { publicTree: YamlEnvTree; privateTree: YamlEnvTree; profile?: string }) => {
-  const activeProject = await getActiveProject(event);
+ipcMain.handle("env:saveYamlTrees", async (event, { publicTree, privateTree, profile, projectPath }: { publicTree: YamlEnvTree; privateTree: YamlEnvTree; profile?: string; projectPath?: string }) => {
+  const appState = getAppState(event);
+  const activeProject = projectPath && appState.directories[projectPath]
+    ? projectPath
+    : await getActiveProject(event);
   if (!activeProject) return;
 
   // Ensure .voiden/ directory exists

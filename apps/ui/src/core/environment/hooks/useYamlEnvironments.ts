@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useGetAppState } from "@/core/state/hooks";
 
 export interface YamlEnvNode {
   intermediate?: boolean;
@@ -20,8 +21,10 @@ const loadYamlTrees = async (profile?: string): Promise<YamlEnvTrees> => {
 };
 
 export const useYamlEnvironments = (profile?: string) => {
+  const { data: appState } = useGetAppState();
+  const projectPath = appState?.activeDirectory ?? null;
   return useQuery({
-    queryKey: ["yaml-environments", profile],
+    queryKey: ["yaml-environments", projectPath, profile],
     queryFn: () => loadYamlTrees(profile),
     staleTime: Infinity,
   });
