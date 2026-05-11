@@ -494,16 +494,19 @@ const VariablesPanel = ({
   tree,
   highlightTarget,
   onUpdateNode,
+  selectedIds,
+  onSelectionChange,
 }: {
   node: EditableEnvNode;
   envPath: string;
   tree: EditableEnvTree;
   highlightTarget: { varKey: string; envPath: string } | null;
   onUpdateNode: (updated: EditableEnvNode) => void;
+  selectedIds: Set<string>;
+  onSelectionChange: (ids: Set<string>) => void;
 }) => {
   const [search, setSearch] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
   const privateCount = node.variables.filter((v) => v.isPrivate).length;
 
@@ -548,15 +551,18 @@ const VariablesPanel = ({
   }, [node.variables, search]);
 
   // Selection helpers — must come after filteredVars
-  const toggleSelect = (id: string) =>
-    setSelectedIds((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const toggleSelect = (id: string) => {
+    const n = new Set(selectedIds);
+    n.has(id) ? n.delete(id) : n.add(id);
+    onSelectionChange(n);
+  };
   const allFilteredSelected = filteredVars.length > 0 && filteredVars.every((v) => selectedIds.has(v.id));
   const someSelected = selectedIds.size > 0;
   const toggleSelectAll = () =>
-    setSelectedIds(allFilteredSelected ? new Set() : new Set(filteredVars.map((v) => v.id)));
+    onSelectionChange(allFilteredSelected ? new Set() : new Set(filteredVars.map((v) => v.id)));
   const handleBulkDeleteVars = () => {
     onUpdateNode({ ...node, variables: node.variables.filter((v) => !selectedIds.has(v.id)) });
-    setSelectedIds(new Set());
+    onSelectionChange(new Set());
     setConfirmBulkDelete(false);
   };
 
@@ -619,7 +625,7 @@ const VariablesPanel = ({
       {someSelected && (
         <div className="flex items-center gap-3 px-4 py-2 border-b border-border bg-accent/10 flex-shrink-0">
           <span className="text-xs text-text font-medium">{selectedIds.size} selected</span>
-          <button onClick={() => setSelectedIds(new Set())} className=" text-xs text-comment hover:text-text ml-auto">Clear</button>
+          <button onClick={() => onSelectionChange(new Set())} className=" text-xs text-comment hover:text-text ml-auto">Clear</button>
           <button
             onClick={() => setConfirmBulkDelete(true)}
             className="flex items-center gap-1 text-xs px-2.5 py-1 text-accent border border-accent rounded-md font-medium transition-colors hover:opacity-90"
@@ -717,13 +723,16 @@ const RuntimePanel = ({
   vars,
   onRefresh,
   onDelete,
+  selectedKeys,
+  onSelectionChange,
 }: {
   vars: Record<string, any>;
   onRefresh: () => void;
   onDelete: (key: string) => void;
+  selectedKeys: Set<string>;
+  onSelectionChange: (keys: Set<string>) => void;
 }) => {
   const [search, setSearch] = useState("");
-  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
   const allEntries = Object.entries(vars);
   const entries = search.trim()
@@ -733,14 +742,17 @@ const RuntimePanel = ({
     )
     : allEntries;
 
-  const toggleKey = (k: string) =>
-    setSelectedKeys((prev) => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n; });
+  const toggleKey = (k: string) => {
+    const n = new Set(selectedKeys);
+    n.has(k) ? n.delete(k) : n.add(k);
+    onSelectionChange(n);
+  };
   const allSelected = entries.length > 0 && entries.every(([k]) => selectedKeys.has(k));
   const toggleAll = () =>
-    setSelectedKeys(allSelected ? new Set() : new Set(entries.map(([k]) => k)));
+    onSelectionChange(allSelected ? new Set() : new Set(entries.map(([k]) => k)));
   const handleBulkDelete = () => {
     selectedKeys.forEach((k) => onDelete(k));
-    setSelectedKeys(new Set());
+    onSelectionChange(new Set());
     setConfirmBulkDelete(false);
   };
 
@@ -770,7 +782,7 @@ const RuntimePanel = ({
       {selectedKeys.size > 0 && (
         <div className="flex items-center gap-3 px-4 py-2 border-b border-border bg-accent/10 flex-shrink-0">
           <span className="text-xs text-text font-medium">{selectedKeys.size} selected</span>
-          <button onClick={() => setSelectedKeys(new Set())} className="text-xs text-comment hover:text-text ml-auto">Clear</button>
+          <button onClick={() => onSelectionChange(new Set())} className="text-xs text-comment hover:text-text ml-auto">Clear</button>
           <button
             onClick={() => setConfirmBulkDelete(true)}
             className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-md font-medium transition-colors text-accent border border-accent hover:bg-accent/10"
@@ -1001,6 +1013,25 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
 
   const [tree, setTree] = useState<EditableEnvTree>({});
   const [selectedEnvPath, setSelectedEnvPath] = useState<string | null>(null);
+  const [selectedVarIds, setSelectedVarIds] = useState<Set<string>>(new Set());
+  const [selectedRuntimeKeys, setSelectedRuntimeKeys] = useState<Set<string>>(new Set());
+  const [pendingNav, setPendingNav] = useState<{ path: string | null } | null>(null);
+
+  // Clear variable selections whenever the active env changes
+  useEffect(() => {
+    setSelectedVarIds(new Set());
+    setSelectedRuntimeKeys(new Set());
+  }, [selectedEnvPath]);
+
+  // Navigate to an env, prompting if there are unsaved selections
+  const navigateToEnv = useCallback((path: string | null) => {
+    if (selectedVarIds.size > 0 || selectedRuntimeKeys.size > 0) {
+      setPendingNav({ path });
+    } else {
+      setSelectedEnvPath(path);
+    }
+  }, [selectedVarIds.size, selectedRuntimeKeys.size]);
+
   // Reset display name editing when switching envs
   useEffect(() => { setEditingDisplayName(false); }, [selectedEnvPath]);
   const [activeTab, setActiveTab] = useState<"variables" | "runtime">("variables");
@@ -1268,11 +1299,21 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
         if (selectedEnvPath === path) setSelectedEnvPath(null);
       }
     } else if (trimmed !== lastSegment) {
-      const newTree = renameNodeAtPath(tree, path, trimmed);
+      const segments = path.split(".");
+      const siblings: Record<string, unknown> = segments.length === 1
+        ? tree
+        : (getNodeAtPath(tree, segments.slice(0, -1).join("."))?.children ?? {});
+      // Exclude the node being renamed from the sibling set so it doesn't
+      // block its own name if the user re-confirms the current name.
+      const siblingsWithoutSelf = Object.fromEntries(
+        Object.entries(siblings).filter(([k]) => k !== lastSegment)
+      );
+      const effectiveName = generateUniqueName(siblingsWithoutSelf, trimmed);
+      const newTree = renameNodeAtPath(tree, path, effectiveName);
       handleUpdateTree(newTree);
       const newPath = path.includes(".")
-        ? path.split(".").slice(0, -1).join(".") + "." + trimmed
-        : trimmed;
+        ? path.split(".").slice(0, -1).join(".") + "." + effectiveName
+        : effectiveName;
       if (selectedEnvPath === path) setSelectedEnvPath(newPath);
     }
     setRenamingPath(null);
@@ -1385,8 +1426,25 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
     );
   }
 
+  const selectionCount = selectedVarIds.size + selectedRuntimeKeys.size;
+
   return (
     <div ref={editorRef} className="h-full w-full bg-editor text-text flex flex-col">
+      {pendingNav !== null && (
+        <Dialog
+          title="Switch environment?"
+          message={`You have ${selectionCount} selected variable${selectionCount !== 1 ? "s" : ""}. Switching environments will clear your selection.`}
+          confirmLabel="Switch & Clear"
+          cancelLabel="Stay"
+          onConfirm={() => {
+            setSelectedVarIds(new Set());
+            setSelectedRuntimeKeys(new Set());
+            setSelectedEnvPath(pendingNav.path);
+            setPendingNav(null);
+          }}
+          onCancel={() => setPendingNav(null)}
+        />
+      )}
       {/* Top toolbar */}
       <div className="flex items-center justify-between px-5 py-3 border-b border-border flex-shrink-0">
         <div className="flex items-center gap-2">
@@ -1442,7 +1500,7 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
 
           {/* Pinned Global entry */}
           <button
-            onClick={() => setSelectedEnvPath("__global__")}
+            onClick={() => navigateToEnv("__global__")}
             className={cn(
               "flex items-center gap-2 w-full px-3 py-2 text-xs border-b border-border transition-colors flex-shrink-0",
               selectedEnvPath === "__global__"
@@ -1498,7 +1556,7 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
                       isEnvSelected={selectedEnvPaths.has(entry.path)}
                       isCollapsed={collapsedPaths.has(entry.path)}
                       selectMode={envSelectMode}
-                      onClick={() => { setSelectedEnvPath(entry.path); }}
+                      onClick={() => { navigateToEnv(entry.path); }}
                       onDelete={() => {
                         handleUpdateTree(deleteNodeAtPath(tree, entry.path));
                         if (selectedEnvPath === entry.path) setSelectedEnvPath(null);
@@ -1658,12 +1716,16 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
                   tree={tree}
                   highlightTarget={highlightTarget}
                   onUpdateNode={handleUpdateSelectedNode}
+                  selectedIds={selectedVarIds}
+                  onSelectionChange={setSelectedVarIds}
                 />
               ) : (
                 <RuntimePanel
                   vars={runtimeVars}
                   onRefresh={loadRuntimeVars}
                   onDelete={handleDeleteRuntimeVar}
+                  selectedKeys={selectedRuntimeKeys}
+                  onSelectionChange={setSelectedRuntimeKeys}
                 />
               )}
             </>
@@ -1706,6 +1768,8 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
                 vars={runtimeVars}
                 onRefresh={loadRuntimeVars}
                 onDelete={handleDeleteRuntimeVar}
+                selectedKeys={selectedRuntimeKeys}
+                onSelectionChange={setSelectedRuntimeKeys}
               />
             </>
           ) : (

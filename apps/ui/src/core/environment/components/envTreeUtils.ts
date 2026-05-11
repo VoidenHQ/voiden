@@ -10,15 +10,15 @@ export function genVarId(): string {
 
 /**
  * Generate a unique name that doesn't collide with existing keys.
- * Produces "new-environment", "new-environment-1", "new-environment-2", etc.
+ * Produces "environment", "environment-1", "environment-2", etc.
  */
-export function generateUniqueName(existingKeys: Record<string, unknown>, base = "new-environment"): string {
-  let name = base;
+export function generateUniqueName(existingKeys: Record<string, unknown>, base = "environment"): string {
+  if (!(base in existingKeys)) return base;
   let counter = 1;
-  while (name in existingKeys) {
-    name = `${base}-${counter++}`;
+  while (`${base}-${counter}` in existingKeys) {
+    counter++;
   }
-  return name;
+  return `${base}-${counter}`;
 }
 
 /**
