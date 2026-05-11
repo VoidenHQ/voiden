@@ -383,6 +383,7 @@ declare global {
           publicTree: Record<string, unknown>,
           privateTree: Record<string, unknown>,
           profile?: string,
+          projectPath?: string,
         ) => Promise<void>;
         getProfiles: () => Promise<string[]>;
         setActiveProfile: (profile: string) => Promise<void>;

@@ -57,6 +57,7 @@ export const useSetActiveProject = () => {
       queryClient.invalidateQueries({ queryKey: ["panel:tabs"] });
       queryClient.invalidateQueries({ queryKey: ["files:tree"] });
       queryClient.invalidateQueries({ queryKey: ["environments"] });
+      queryClient.invalidateQueries({ queryKey: ["yaml-environments"] });
     },
   });
 };
