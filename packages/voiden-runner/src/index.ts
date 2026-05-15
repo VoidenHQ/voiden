@@ -673,7 +673,10 @@ sessionCmd
 const reportCmd = program
   .command('report')
   .description('Show and generate reports from accumulated session results')
-  .action(() => {
+  .option('--show-req', 'Print sent request headers and body for each request')
+  .option('--show-res', 'Print response headers and body for each request')
+  .option('--verbose', 'Print plugin and script logs')
+  .action((opts) => {
     const results = loadSessionResults()
     if (results.length === 0) {
       console.error(chalk.red('  ✗  No results found in session. Run some .void files first.'))
@@ -688,7 +691,7 @@ const reportCmd = program
     for (let i = 0; i < results.length; i++) {
       const { file, result } = results[i]
       totalDurationMs += result.durationMs
-      printRequestResult(result, file, i + 1, results.length, false, false, false)
+      printRequestResult(result, file, i + 1, results.length, opts.showReq ?? false, opts.showRes ?? false, opts.verbose ?? false)
     }
     printRunSummary(results, totalDurationMs)
   })
