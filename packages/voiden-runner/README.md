@@ -122,10 +122,14 @@ state (results and runtime variables).
 ### `report`
 
 ```
-voiden-runner report [--csv <path>] [--mail-to <address>] [--env .env]
+voiden-runner report generate [--csv <path>] [--mail] [--mail-to <address>]
+voiden-runner report clear
 ```
 
-Generate a combined report from all accumulated results in the current session.
+`generate` (alias `gen`) creates a combined report from all accumulated results 
+in the current session. `clear` wipes the results history only (runtime 
+variables are preserved).
+
 Accepts all mail and SMTP options listed above.
 
 ### `plugin`

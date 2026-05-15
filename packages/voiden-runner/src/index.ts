@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { program } from 'commander'
-import { readFileSync, existsSync, statSync } from 'fs'
-import { resolve, basename } from 'path'
+import { readFileSync, existsSync, statSync, writeFileSync, mkdirSync, unlinkSync } from 'fs'
+import { resolve, basename, join } from 'path'
 import { readdir } from 'fs/promises'
 import chalk from 'chalk'
 import { runVoidFile } from './runner.js'
@@ -15,8 +15,6 @@ import {
   hasCommunityRunner,
   installCommunityRunner,
 } from './plugins/community.js'
-import { writeFileSync, mkdirSync } from 'fs'
-import { join } from 'path'
 import {
   installPlugin,
   uninstallPlugin,
@@ -620,7 +618,7 @@ sessionCmd
   .description('Clear all session data (results and runtime variables)')
   .action(() => {
     clearSession()
-    console.log(chalk.yellow('  ✓  Session cleared (results and runtime variables wiped)'))
+    console.log(chalk.yellow('  ✓  Full session cleared (results and runtime variables wiped)'))
   })
 
 sessionCmd
@@ -672,13 +670,50 @@ sessionCmd
 
 // ── voiden-runner report ──────────────────────────────────────────────────────
 
-program
+const reportCmd = program
   .command('report')
+  .description('Show and generate reports from accumulated session results')
+  .action(() => {
+    const results = loadSessionResults()
+    if (results.length === 0) {
+      console.error(chalk.red('  ✗  No results found in session. Run some .void files first.'))
+      return
+    }
+
+    console.log()
+    console.log(chalk.bold('  Session History'))
+    console.log(DIVIDER)
+    
+    let totalDurationMs = 0
+    for (let i = 0; i < results.length; i++) {
+      const { file, result } = results[i]
+      totalDurationMs += result.durationMs
+      printRequestResult(result, file, i + 1, results.length, false, false, false)
+    }
+    printRunSummary(results, totalDurationMs)
+  })
+
+reportCmd
+  .command('clear')
+  .description('Clear accumulated session results (history) only')
+  .action(() => {
+    const RESULTS_PATH = join(STORE_DIR, 'results.json')
+    if (existsSync(RESULTS_PATH)) {
+      unlinkSync(RESULTS_PATH)
+      console.log(chalk.yellow('  ✓  Session results cleared (runtime variables preserved)'))
+    } else {
+      console.log(chalk.gray('  No session results to clear.'))
+    }
+  })
+
+reportCmd
+  .command('generate')
   .description('Generate reports from accumulated session results')
+  .alias('gen')
   .option('-e, --env <path>', 'Path to .env or .yaml file for SMTP configuration')
   .option('--csv <path>', 'Export session results to a CSV file')
-  .option('--mail', 'Send HTML report to address specified in VOIDEN_MAIL_TO env')
-  .option('--mail-to <address>', 'Send HTML report of session results to this email address')
+  .option('--mail', 'Send HTML summary + attached CSV using VOIDEN_MAIL_TO env (requires --csv)')
+  .option('--mail-to <address>', 'Send HTML summary + attached CSV to this email address (requires --csv)')
   .option('--mail-from <address>', 'Sender address for the report email')
   .option('--mail-subject <subject>', 'Email subject line')
   .option('--smtp-host <host>', 'SMTP server host')
