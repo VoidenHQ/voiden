@@ -223,8 +223,7 @@ export function convertBlocksToVoidFile(title: string, blocks: JSONContent[]): s
       voidContent += '```void\n';
       voidContent += '---\n';
       voidContent += YAML.stringify(blockWithUID, {
-        lineWidth: 0, // Don't wrap lines
-        defaultStringType: 'QUOTE_DOUBLE',
+        lineWidth: 0,
         defaultKeyType: 'PLAIN',
       });
       voidContent += '---\n';
