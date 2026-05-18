@@ -32,7 +32,7 @@ export const SocketUrlNode = Node.create({
     return [
       "surl",
       mergeAttributes(HTMLAttributes, {
-        class: "border border-stone-700/80 p-1 font-mono w-full block mb-4",
+        class: "border border-border p-1 font-mono w-full block mb-4",
       }),
       0,
     ];

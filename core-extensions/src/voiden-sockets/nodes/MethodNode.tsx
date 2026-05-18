@@ -108,7 +108,7 @@ export const createSocketMethodNode = (useSendRestRequest: any) => {
               {copied ? <Check size={12} className="text-status-success" /> : <Copy size={12} />}
             </button>
             <div
-              className="border-x border-stone-700/80 border-t p-1 hover:bg-stone-700 cursor-pointer text-http-get"
+              className="border-x border-border border-t p-1 hover:bg-stone-700 cursor-pointer text-http-get"
               onClick={async () => {
                 if (activeWsConnections.size > 0) {
                   const ok = window.confirm('An active connection exists. It will be closed to reconnect. Continue?');

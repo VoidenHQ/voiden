@@ -376,7 +376,8 @@ export const getRequest = async (
     
     // Check for socket node
     const endpointNode = findNode(editor, "socket-request");
-    const method = endpointNode?.content?.find((node) => node.type === "smethod")?.content?.[0]?.text || "GET";
+    const smethodNode = endpointNode?.content?.find((node) => node.type === "smethod");
+    const method = smethodNode?.content?.[0]?.text || smethodNode?.attrs?.method || "GET";
     if(method.toLowerCase() === "wss" || method.toLowerCase() === "ws" || method.toLowerCase()==='grpc' || method.toLowerCase()==='grpcs') {
       return method.toLowerCase();
     }

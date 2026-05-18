@@ -299,7 +299,7 @@ export default function WebSocketMessages(context: any) {
                     <div key={idx} className={`${lineBase} flex justify-start items-center`}>
                         <CornerDownRight size={10}></CornerDownRight>
                         <div className="flex-1">
-                            <pre className="whitespace-pre-wrap  break-words font-mono text-xs p-2 rounded border border-stone-700/80">{dataToRenderableText(it.data)}</pre>
+                            <pre className="whitespace-pre-wrap  break-words font-mono text-xs p-2 rounded border border-border">{dataToRenderableText(it.data)}</pre>
                             <div className="text-xs text-gray-500 mt-1">{time} • sent</div>
                         </div>
                     </div>
@@ -308,7 +308,7 @@ export default function WebSocketMessages(context: any) {
                 return (
                     <div key={idx} className={`${lineBase} flex justify-end items-center`}>
                         <div className="flex-1">
-                            <pre className="whitespace-pre-wrap tex-text break-words font-mono text-xs p-2 rounded border border-stone-700/80">{dataToRenderableText(it.data)}</pre>
+                            <pre className="whitespace-pre-wrap tex-text break-words font-mono text-xs p-2 rounded border border-border">{dataToRenderableText(it.data)}</pre>
                             <div className="text-xs text-gray-500 mt-1">{time} • received</div>
                         </div>
                         <CornerDownLeft size={10}></CornerDownLeft>
@@ -320,9 +320,9 @@ export default function WebSocketMessages(context: any) {
     };
 
     return (
-        <div className="w-full max-w-4xl mx-auto border border-stone-700/80  overflow-hidden shadow-sm flex flex-col" style={{ height: '88vh' }}>
+        <div className="w-full max-w-4xl mx-auto border border-border  overflow-hidden shadow-sm flex flex-col" style={{ height: '88vh' }}>
             {/* Header bar */}
-            <div className="flex items-center justify-between border-b border-stone-700/80  px-3 py-2">
+            <div className="flex items-center justify-between border-b border-border  px-3 py-2">
                 <div className="flex-1 flex items-center justify-between gap-2">
                     <span className="text-sm text-text font-semibold">WebSocket Messages</span>
                     {statusPill()}
@@ -350,7 +350,7 @@ export default function WebSocketMessages(context: any) {
                     <select
                         value={messageFormat}
                         onChange={(e) => handleLangChange(e.target.value as MessageFormat)}
-                        className="bg-bg text-text border border-stone-700/80 rounded px-2 py-1 text-sm appearnce-none pr-6"
+                        className="bg-bg text-text border border-border rounded px-2 py-1 text-sm appearnce-none pr-6"
                     >
                         {(['text', 'json', 'html', 'xml'] as MessageFormat[]).map((format) => (
                             <option key={format} value={format}>
