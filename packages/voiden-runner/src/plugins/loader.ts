@@ -26,7 +26,6 @@ import { createHeadlessPluginContext } from '../headlessContext.js'
 import { clearSchemas } from '../blockSchemaRegistry.js'
 import { readStore } from './store.js'
 import { findPlugin } from './registry.js'
-import { coreExtensions } from '@voiden/core-extensions/registry'
 
 // ─── Per-plugin enabled check ─────────────────────────────────────────────────
 

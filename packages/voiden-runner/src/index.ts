@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { program } from 'commander'
 import { readFileSync, existsSync, statSync, writeFileSync, mkdirSync, unlinkSync } from 'fs'
-import { resolve, basename, join } from 'path'
+import { resolve, basename, join, dirname } from 'path'
+import { fileURLToPath } from 'url'
 import { readdir } from 'fs/promises'
 import chalk from 'chalk'
 import { runVoidFile } from './runner.js'
@@ -337,10 +338,13 @@ function printRunSummaryJson(
 // CLI
 // ─────────────────────────────────────────────────────────────────────────────
 
+const pkgPath = resolve(join(dirname(fileURLToPath(import.meta.url)), '../package.json'))
+const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'))
+
 program
   .name('voiden-runner')
   .description('Run .void files headlessly — REST, WebSocket, and gRPC')
-  .version('0.1.0')
+  .version(pkg.version)
 
 // ── voiden-runner run ─────────────────────────────────────────────────────────
 

@@ -14,7 +14,7 @@
  * folder name inside @voiden/core-extensions/src/.
  */
 
-import { coreExtensions } from '@voiden/core-extensions/registry'
+import { coreExtensions } from '@voiden/core-extensions/registry.js'
 
 export interface PluginDefinition {
   /** Registry ID (e.g. 'voiden-rest-api', 'simple-assertions') */
