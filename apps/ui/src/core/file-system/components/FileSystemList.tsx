@@ -1,14 +1,4 @@
-import React, { useState, useRef, useEffect, useLayoutEffect, useContext, useCallback } from "react";
-import * as Tooltip from "@radix-ui/react-tooltip";
-// Debounce hook
-function useDebounce<T>(value: T, delay: number): T {
-  const [debounced, setDebounced] = useState<T>(value);
-  useEffect(() => {
-    const handler = setTimeout(() => setDebounced(value), delay);
-    return () => clearTimeout(handler);
-  }, [value, delay]);
-  return debounced;
-}
+import React, { useState, useRef, useEffect, useLayoutEffect, useContext, useCallback, useMemo } from "react";
 import { NodeRendererProps, Tree, NodeApi, TreeApi } from "react-arborist";
 import { Tip } from "@/core/components/ui/Tip";
 import {
@@ -21,6 +11,7 @@ import {
   GitBranch,
   Info,
   ChevronRight,
+  ChevronDown,
   ChevronsDownUp,
   ChevronsUpDown,
   File,
@@ -38,7 +29,7 @@ import { useEditorStore, reloadVoidenEditor } from "@/core/editors/voiden/Voiden
 import { toast } from "@/core/components/ui/sonner";
 import useResizeObserver from "use-resize-observer";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useActivateTab, useBottomPanel } from "@/core/layout/hooks";
+import { useActivateTab } from "@/core/layout/hooks";
 import { useGetActiveDocument } from "@/core/documents/hooks";
 import { useGetAppState } from "@/core/state/hooks";
 import { useOpenProject, useCloseActiveProject } from "@/core/projects/hooks";
@@ -51,6 +42,17 @@ import { useBlockContentStore } from "@/core/stores/blockContentStore";
 import { SearchPanelView } from "@/core/editors/code/lib/components/SearchPanelView";
 import { useSetActiveProject } from "@/core/projects/hooks";
 import { usePanelStore } from "@/core/stores/panelStore";
+import { useHotkeys } from "react-hotkeys-hook";
+
+// Debounce hook
+function useDebounce<T>(value: T, delay: number): T {
+  const [debounced, setDebounced] = useState<T>(value);
+  useEffect(() => {
+    const handler = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(handler);
+  }, [value, delay]);
+  return debounced;
+}
 
 /*
   Extend your base FileTree type to include the properties we need.
@@ -1174,6 +1176,78 @@ export const FileSystemList = () => {
   const [matchWholeWord, setMatchWholeWord] = useState(false);
   const [useRegex, setUseRegex] = useState(false);
   const [useMultiline, setUseMultiline] = useState(false);
+  const [fileMaskEnabled, setFileMaskEnabled] = useState(false);
+  const [fileMask, setFileMask] = useState("*.void");
+  const [dirMaskEnabled, setDirMaskEnabled] = useState(false);
+  const [dirMask, setDirMask] = useState("");
+  const [includeHidden, setIncludeHidden] = useState(false);
+  const dirMaskUserEditedRef = useRef(false);
+  const [dirSuggestionsOpen, setDirSuggestionsOpen] = useState(false);
+  const dirInputRef = useRef<HTMLInputElement>(null);
+  const dirSuggestionsRef = useRef<HTMLDivElement>(null);
+  const [fileMaskDropdownOpen, setFileMaskDropdownOpen] = useState(false);
+  const fileMaskDropdownRef = useRef<HTMLDivElement>(null);
+  const fileMaskButtonRef = useRef<HTMLButtonElement>(null);
+  const fileMaskInputRef = useRef<HTMLInputElement>(null);
+  const [dirActiveIndex, setDirActiveIndex] = useState(-1);
+
+  const [allDirs, setAllDirs] = useState<string[]>([]);
+
+  const dirSuggestions = useMemo(() => {
+    const lastSlash = dirMask.lastIndexOf("/");
+    const parentPrefix = lastSlash >= 0 ? dirMask.slice(0, lastSlash + 1) : "";
+    const partial = dirMask.slice(lastSlash + 1).toLowerCase();
+    return allDirs.filter((d) => {
+      if (!d.toLowerCase().startsWith(parentPrefix.toLowerCase())) return false;
+      const rest = d.slice(parentPrefix.length);
+      if (rest.includes("/")) return false;
+      if (partial && !rest.toLowerCase().startsWith(partial)) return false;
+      return true;
+    }).slice(0, 10);
+  }, [allDirs, dirMask]);
+
+  useEffect(() => {
+    if (!dirSuggestionsOpen) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (
+        !dirInputRef.current?.contains(e.target as Node) &&
+        !dirSuggestionsRef.current?.contains(e.target as Node)
+      ) {
+        setDirSuggestionsOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [dirSuggestionsOpen]);
+
+  useEffect(() => {
+    if (!fileMaskDropdownOpen) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (
+        !fileMaskButtonRef.current?.contains(e.target as Node) &&
+        !fileMaskDropdownRef.current?.contains(e.target as Node) &&
+        !fileMaskInputRef.current?.contains(e.target as Node)
+      ) {
+        setFileMaskDropdownOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [fileMaskDropdownOpen]);
+
+  useEffect(() => {
+    if (fileMaskDropdownOpen) {
+      (fileMaskDropdownRef.current?.querySelector("button") as HTMLButtonElement | null)?.focus();
+    }
+  }, [fileMaskDropdownOpen]);
+
+  useEffect(() => {
+    if (!dirSuggestionsOpen) setDirActiveIndex(-1);
+  }, [dirSuggestionsOpen]);
+
+  useEffect(() => {
+    setDirActiveIndex(-1);
+  }, [dirSuggestions]);
 
   useEffect(() => {
     if (rawQuery.includes("\n")) setUseMultiline(true);
@@ -1187,11 +1261,39 @@ export const FileSystemList = () => {
   const setStoreIsSearching = useSearchStore((state) => state.setIsSearching);
   const findInputRef = useRef<HTMLTextAreaElement>(null);
 
+  useHotkeys(
+    ["alt+f", "alt+d", "alt+."],
+    (_e, handler) => {
+      switch (handler.hotkey) {
+        case "alt+f": setFileMaskEnabled((v) => !v); break;
+        case "alt+d": setDirMaskEnabled((v) => !v); break;
+        case "alt+.": setIncludeHidden((v) => !v); break;
+      }
+    },
+    { enabled: storeIsSearching, enableOnFormTags: ["INPUT", "TEXTAREA"], preventDefault: true },
+    [storeIsSearching],
+  );
+
+  useEffect(() => {
+    if (!storeIsSearching) return;
+    window.electron?.listDirs?.().then((dirs) => setAllDirs(dirs ?? [])).catch(() => {});
+  }, [storeIsSearching]);
+
   useEffect(() => {
     if (storeIsSearching) {
       setTimeout(() => findInputRef.current?.focus(), 0);
     }
   }, [openSearchTick, storeIsSearching]);
+
+  useEffect(() => {
+    if (!storeIsSearching || dirMaskUserEditedRef.current) return;
+    const projectRoot = appState?.activeDirectory ?? "";
+    const fileParent = activeFile?.source ? getParentPath(activeFile.source) : "";
+    if (projectRoot && fileParent.startsWith(projectRoot)) {
+      const rel = fileParent.slice(projectRoot.length).replace(/^[/\\]/, "");
+      if (rel) setDirMask(rel);
+    }
+  }, [storeIsSearching, activeFile?.source, appState?.activeDirectory]);
 
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -1218,7 +1320,12 @@ export const FileSystemList = () => {
     setIsSearching(true);
     setSearchError(null);
 
-    window.electron?.startSearch?.({ query: searchQuery, matchCase, matchWholeWord, useRegex, useMultiline, searchId: currentId });
+    window.electron?.startSearch?.({
+      query: searchQuery, matchCase, matchWholeWord, useRegex, useMultiline, searchId: currentId,
+      fileMask: fileMaskEnabled ? fileMask.trim() || undefined : undefined,
+      dirMask: dirMaskEnabled ? dirMask.trim() || undefined : undefined,
+      includeHidden,
+    });
 
     let firstResult = true;
     const unsubResult = window.electron?.onSearchResult?.((data) => {
@@ -1247,7 +1354,7 @@ export const FileSystemList = () => {
       unsubDone?.();
       window.electron?.cancelSearch?.(currentId);
     };
-  }, [searchQuery, matchCase, matchWholeWord, useRegex, useMultiline]);
+  }, [searchQuery, matchCase, matchWholeWord, useRegex, useMultiline, fileMaskEnabled, fileMask, dirMaskEnabled, dirMask, includeHidden]);
 
   // ─── Sync server data → treeData ─────────────────────────────────────────────
   // On the FIRST load we initialise treeData from the server response and then
@@ -1870,8 +1977,214 @@ export const FileSystemList = () => {
           onToggleMatchWholeWord={() => setMatchWholeWord((w) => !w)}
           onToggleRegex={() => setUseRegex((r) => !r)}
           onToggleMultiline={() => setUseMultiline((m) => !m)}
-          onClose={() => { setStoreIsSearching(false); setRawQuery(""); }}
+          onClose={() => { setStoreIsSearching(false); setRawQuery(""); dirMaskUserEditedRef.current = false; }}
         />
+        {/* Search Filters */}
+        <div className="mt-1.5 flex flex-col gap-1">
+          {/* File mask */}
+          <div className="flex items-center gap-1.5">
+            <Tip label="Filter by file pattern (⌥F)" side="bottom">
+              <label tabIndex={-1} className="flex items-center gap-1.5 shrink-0 cursor-pointer select-none rounded px-1 -mx-1 has-[:focus-visible]:ring-1 has-[:focus-visible]:ring-accent">
+                <input
+                  type="checkbox"
+                  checked={fileMaskEnabled}
+                  onChange={(e) => setFileMaskEnabled(e.target.checked)}
+                  onKeyDown={(e) => { if (e.key === "Enter") setFileMaskEnabled((v) => !v); }}
+                  className="w-3.5 h-3.5 shrink-0 accent-[color:var(--color-accent)] focus:outline-none"
+                />
+                <span className="text-[13px] text-text">Files</span>
+              </label>
+            </Tip>
+            <div className="relative flex-1 min-w-0 flex">
+              <input
+                ref={fileMaskInputRef}
+                type="text"
+                value={fileMask}
+                onChange={(e) => setFileMask(e.target.value)}
+                disabled={!fileMaskEnabled}
+                placeholder="*.void"
+                onKeyDown={(e) => {
+                  if (!fileMaskEnabled) return;
+                  if (e.key === "ArrowDown") { e.preventDefault(); setFileMaskDropdownOpen(true); }
+                  if (e.key === "Escape" || e.key === "Tab") setFileMaskDropdownOpen(false);
+                }}
+                className={cn(
+                  "text-[13px] px-2 py-0.5 bg-active border border-border rounded-l w-full focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent focus-visible:border-accent",
+                  !fileMaskEnabled && "opacity-40 cursor-not-allowed",
+                )}
+              />
+              <button
+                ref={fileMaskButtonRef}
+                type="button"
+                disabled={!fileMaskEnabled}
+                onClick={() => setFileMaskDropdownOpen((o) => !o)}
+                onKeyDown={(e) => {
+                  if (!fileMaskEnabled) return;
+                  if (e.key === "ArrowDown") { e.preventDefault(); setFileMaskDropdownOpen(true); }
+                  if (e.key === "Escape") setFileMaskDropdownOpen(false);
+                }}
+                className={cn(
+                  "shrink-0 px-1 bg-active border border-l-0 border-border rounded-r text-text hover:bg-hover transition-colors",
+                  !fileMaskEnabled && "opacity-40 cursor-not-allowed",
+                )}
+                aria-label="File pattern presets"
+                aria-expanded={fileMaskDropdownOpen}
+                aria-haspopup="listbox"
+              >
+                <ChevronDown size={12} strokeWidth={2} />
+              </button>
+              {fileMaskDropdownOpen && fileMaskEnabled && (
+                <div
+                  ref={fileMaskDropdownRef}
+                  role="listbox"
+                  className="absolute z-50 top-full right-0 mt-0.5 bg-panel border border-border rounded shadow-lg overflow-hidden min-w-[6rem]"
+                >
+                  {["*.void", "*.yaml", "*.json", "*.sh"].map((preset, idx, arr) => (
+                    <button
+                      key={preset}
+                      type="button"
+                      role="option"
+                      tabIndex={-1}
+                      aria-selected={fileMask === preset}
+                      onPointerDown={(e) => {
+                        e.preventDefault();
+                        setFileMask(preset);
+                        setFileMaskDropdownOpen(false);
+                        fileMaskInputRef.current?.focus();
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          setFileMask(preset);
+                          setFileMaskDropdownOpen(false);
+                          fileMaskInputRef.current?.focus();
+                        } else if (e.key === "ArrowDown") {
+                          e.preventDefault();
+                          (e.currentTarget.nextElementSibling as HTMLButtonElement | null)?.focus();
+                        } else if (e.key === "ArrowUp") {
+                          e.preventDefault();
+                          const prev = e.currentTarget.previousElementSibling as HTMLButtonElement | null;
+                          if (prev) prev.focus(); else fileMaskInputRef.current?.focus();
+                        } else if (e.key === "Escape") {
+                          setFileMaskDropdownOpen(false);
+                          fileMaskInputRef.current?.focus();
+                        } else if (e.key === "Tab") {
+                          if (e.shiftKey && idx === 0) { e.preventDefault(); fileMaskInputRef.current?.focus(); }
+                          else if (!e.shiftKey && idx === arr.length - 1) { e.preventDefault(); setFileMaskDropdownOpen(false); }
+                        }
+                      }}
+                      className="w-full text-left text-[13px] px-3 py-1 text-text hover:bg-active focus:bg-active focus:outline-none"
+                    >
+                      {preset}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+          {/* Directory mask */}
+          <div className="flex items-center gap-1.5">
+            <Tip label="Filter by directory (⌥D)" side="bottom">
+              <label tabIndex={-1} className="flex items-center gap-1.5 shrink-0 cursor-pointer select-none rounded px-1 -mx-1 has-[:focus-visible]:ring-1 has-[:focus-visible]:ring-accent">
+                <input
+                  type="checkbox"
+                  checked={dirMaskEnabled}
+                  onChange={(e) => setDirMaskEnabled(e.target.checked)}
+                  onKeyDown={(e) => { if (e.key === "Enter") setDirMaskEnabled((v) => !v); }}
+                  className="w-3.5 h-3.5 shrink-0 accent-[color:var(--color-accent)] focus:outline-none"
+                />
+                <span className="text-[13px] text-text">Dir</span>
+              </label>
+            </Tip>
+            <div className="relative flex-1 min-w-0">
+              <input
+                ref={dirInputRef}
+                type="text"
+                value={dirMask}
+                onChange={(e) => { dirMaskUserEditedRef.current = true; setDirMask(e.target.value); setDirSuggestionsOpen(true); }}
+                onFocus={() => setDirSuggestionsOpen(true)}
+                onBlur={(e) => {
+                  if (!dirSuggestionsRef.current?.contains(e.relatedTarget as Node)) {
+                    setDirSuggestionsOpen(false);
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") { setDirSuggestionsOpen(false); return; }
+                  if (e.key === "ArrowDown") {
+                    e.preventDefault();
+                    setDirSuggestionsOpen(true);
+                    setDirActiveIndex((i) => Math.min(i + 1, dirSuggestions.length - 1));
+                    return;
+                  }
+                  if (e.key === "ArrowUp") {
+                    e.preventDefault();
+                    setDirActiveIndex((i) => Math.max(i - 1, -1));
+                    return;
+                  }
+                  if (e.key === "Enter" && dirActiveIndex >= 0) {
+                    e.preventDefault();
+                    dirMaskUserEditedRef.current = true;
+                    setDirMask(dirSuggestions[dirActiveIndex]);
+                    setDirSuggestionsOpen(false);
+                  }
+                }}
+                disabled={!dirMaskEnabled}
+                placeholder="relative/path"
+                aria-autocomplete="list"
+                aria-expanded={dirSuggestionsOpen}
+                aria-activedescendant={dirActiveIndex >= 0 ? `dir-suggestion-${dirActiveIndex}` : undefined}
+                className={cn(
+                  "text-[13px] px-2 py-0.5 bg-active border border-border rounded w-full focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent focus-visible:border-accent",
+                  !dirMaskEnabled && "opacity-40 cursor-not-allowed",
+                )}
+              />
+              {dirMaskEnabled && dirSuggestionsOpen && dirSuggestions.length > 0 && (
+                <div
+                  ref={dirSuggestionsRef}
+                  role="listbox"
+                  className="absolute z-50 top-full left-0 right-0 mt-0.5 bg-panel border border-border rounded shadow-lg overflow-hidden"
+                >
+                  {dirSuggestions.map((dir, idx) => (
+                    <button
+                      key={dir}
+                      id={`dir-suggestion-${idx}`}
+                      type="button"
+                      role="option"
+                      tabIndex={-1}
+                      aria-selected={idx === dirActiveIndex}
+                      onPointerDown={(e) => {
+                        e.preventDefault();
+                        dirMaskUserEditedRef.current = true;
+                        setDirMask(dir);
+                        setDirSuggestionsOpen(false);
+                        dirInputRef.current?.focus();
+                      }}
+                      className={cn(
+                        "w-full text-left text-[13px] px-2 py-1 text-text truncate",
+                        idx === dirActiveIndex ? "bg-active" : "hover:bg-active",
+                      )}
+                    >
+                      {dir}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+          {/* Hidden files toggle */}
+          <Tip label="Include hidden files (⌥.)" side="bottom">
+            <label tabIndex={-1} className="flex items-center gap-1.5 cursor-pointer select-none rounded px-1 -mx-1 has-[:focus-visible]:ring-1 has-[:focus-visible]:ring-accent">
+              <input
+                type="checkbox"
+                checked={includeHidden}
+                onChange={(e) => setIncludeHidden(e.target.checked)}
+                onKeyDown={(e) => { if (e.key === "Enter") setIncludeHidden((v) => !v); }}
+                className="w-3.5 h-3.5 shrink-0 accent-[color:var(--color-accent)] focus:outline-none"
+              />
+              <span className="text-[13px] text-text">Include hidden files</span>
+            </label>
+          </Tip>
+        </div>
       </div>
 
       {/* Search Results — always rendered, visibility controlled by CSS */}

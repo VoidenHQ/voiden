@@ -156,7 +156,7 @@ export function registerSearchIpcHandler() {
   const ARCHIVE_EXT = ["zip", "rar", "7z", "tar", "gz", "bz2", "xz", "tgz", "tbz2", "txz"];
   const BINARY_EXT = ["exe", "msi", "dll", "bin", "iso", "img", "dmg", "so"];
   const SKIP_EXT = [...IMAGE_EXT, ...ARCHIVE_EXT, ...BINARY_EXT, "pdf"];
-  const SKIP_DIR = [".git", ".idea", ".vscode", ".voiden"]
+  const SKIP_DIR = [".git", ".idea", ".vscode"]
   const SKIP_FILES = [".DS_Store"]
 
   function makeSnippet(line: string, matchStartCol: number, matchLen: number, maxLen = 160) {
@@ -188,8 +188,8 @@ export function registerSearchIpcHandler() {
   });
 
   // Streaming search: sends results one-by-one as they are found.
-  ipcMain.on("search-files:start", async (event, args: { query: string; matchCase: boolean; matchWholeWord: boolean; useRegex: boolean; useMultiline: boolean; searchId: number }) => {
-    const { query, matchCase, matchWholeWord, useRegex, useMultiline, searchId } = args;
+  ipcMain.on("search-files:start", async (event, args: { query: string; matchCase: boolean; matchWholeWord: boolean; useRegex: boolean; useMultiline: boolean; searchId: number; fileMask?: string; dirMask?: string; includeHidden?: boolean }) => {
+    const { query, matchCase, matchWholeWord, useRegex, useMultiline, searchId, fileMask, dirMask, includeHidden = false } = args;
     const key = `${event.sender.id}:${searchId}`;
 
     const state: { proc?: ReturnType<typeof spawn>; cancelled: boolean } = { cancelled: false };
@@ -232,14 +232,25 @@ export function registerSearchIpcHandler() {
       "--vimgrep", "--with-filename", "--line-number", "--column",
       "--hidden", "--no-ignore", "--text",
     ];
+    if (!includeHidden) {
+      rgArgs.push("--glob", "!**/.*");
+      rgArgs.push("--glob", "!**/.*/**");
+    }
     if (useMultiline) rgArgs.push("--multiline");
     if (!useRegex) rgArgs.push("--fixed-strings");
     for (const ext of SKIP_EXT) rgArgs.push("--glob", `!**/*.${ext}`);
-    for (const dir of SKIP_DIR) rgArgs.push("--glob", `!**/${dir}/**`)
-    for (const file of SKIP_FILES) rgArgs.push("--glob", `!**/${file}`)
+    for (const dir of SKIP_DIR) rgArgs.push("--glob", `!**/${dir}/**`);
+    for (const file of SKIP_FILES) rgArgs.push("--glob", `!**/${file}`);
     if (!matchCase) rgArgs.push("--ignore-case");
     if (matchWholeWord) rgArgs.push("--word-regexp");
-    rgArgs.push("--", query, ".");
+    if (fileMask) rgArgs.push("--glob", fileMask);
+    if (dirMask && /[*?{}[\]]/.test(dirMask)) rgArgs.push("--glob", `${dirMask}/**`);
+    rgArgs.push("--", query);
+    if (dirMask && !/[*?{}[\]]/.test(dirMask)) {
+      rgArgs.push(dirMask);
+    } else {
+      rgArgs.push(".");
+    }
 
     let count = 0;
     let rgRuntimeError: string | null = null;
@@ -313,13 +324,20 @@ export function registerSearchIpcHandler() {
       const sem = new ReadSemaphore(16);
       let files: string[] = [];
       try {
-        files = await fg("**/*.*", {
+        const isPlainDir = (p: string) => !!p && !/[*?{}[\]]/.test(p);
+        const basePattern = isPlainDir(dirMask ?? "")
+          ? `${dirMask}/${fileMask || "*.*"}`
+          : fileMask
+            ? (dirMask ? `${dirMask}/${fileMask}` : `**/${fileMask}`)
+            : (dirMask ? `${dirMask}/**/*.*` : "**/*.*");
+        files = await fg(basePattern, {
           cwd: projectRoot,
           dot: true,
           ignore: [
             ...SKIP_EXT.map((e) => `**/*.${e}`),
             ...SKIP_DIR.map((d) => `**/${d}/**`),
             ...SKIP_FILES.map((f) => `**/${f}`),
+            ...(includeHidden ? [] : ["**/.*", "**/.*/**"]),
           ],
         });
       } catch {
@@ -364,6 +382,31 @@ export function registerSearchIpcHandler() {
       }
 
       done();
+    }
+  });
+
+  // Returns all relative directory paths in the active project, excluding build/tool dirs.
+  ipcMain.handle("files:dirList", async () => {
+    let projectRoot: string | null = null;
+    try { projectRoot = await getActiveProject(); } catch { return []; }
+    if (!projectRoot) return [];
+
+    const SKIP_BUILD_DIRS = [
+      "node_modules", ".git", "dist", "build", ".next", ".nuxt", ".cache",
+      ".turbo", ".svelte-kit", "out", ".output", ".vercel", "__pycache__",
+      ".venv", "venv", ".tox", "vendor", "Pods", ".gradle", "target",
+      ...SKIP_DIR,
+    ];
+    try {
+      const dirs: string[] = await fg("**", {
+        cwd: projectRoot,
+        onlyDirectories: true,
+        dot: false,
+        ignore: SKIP_BUILD_DIRS.map((d) => `**/${d}/**`).concat(SKIP_BUILD_DIRS.map((d) => d)),
+      });
+      return dirs.sort();
+    } catch {
+      return [];
     }
   });
 }

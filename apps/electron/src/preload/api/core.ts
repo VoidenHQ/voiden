@@ -11,8 +11,9 @@ export const coreApi = {
       fetchOptions,
       signalState,
     }),
-  startSearch: (args: { query: string; matchCase: boolean; matchWholeWord: boolean; useRegex: boolean; useMultiline: boolean; searchId: number }) =>
+  startSearch: (args: { query: string; matchCase: boolean; matchWholeWord: boolean; useRegex: boolean; useMultiline: boolean; searchId: number; fileMask?: string; dirMask?: string; includeHidden?: boolean }) =>
     ipcRenderer.send("search-files:start", args),
+  listDirs: (): Promise<string[]> => ipcRenderer.invoke("files:dirList"),
   cancelSearch: (searchId: number) => ipcRenderer.send("search-files:cancel", searchId),
   onSearchResult: (cb: (data: { searchId: number; result: { path: string; line: number; col: number; preview: string } }) => void) => {
     const handler = (_: Electron.IpcRendererEvent, data: any) => cb(data);
