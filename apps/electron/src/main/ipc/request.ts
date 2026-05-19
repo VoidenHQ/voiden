@@ -655,16 +655,12 @@ export function registerRequestIpcHandler() {
 
       readFile: async (filePath: string) => {
         let resolved = filePath;
-        if (activeProject) {
-          if (!path.isAbsolute(filePath)) {
-            // Relative path — resolve against the active project directory so
-            // users can commit relative file references to git and share them.
-            resolved = path.join(activeProject, filePath);
-          } else if (!filePath.startsWith(activeProject)) {
-            // Absolute path outside the project — prefix with project root.
-            resolved = path.join(activeProject, filePath);
-          }
+        if (activeProject && !path.isAbsolute(filePath)) {
+          // Relative path — resolve against the active project directory so
+          // users can commit relative file references to git and share them.
+          resolved = path.join(activeProject, filePath);
         }
+        // Absolute paths are used as-is — files can live anywhere on the system.
         return fs.readFile(resolved);
       },
 

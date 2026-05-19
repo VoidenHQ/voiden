@@ -59,7 +59,7 @@ export interface RestApiRequestState {
   body?: string
   contentType?: string
   bodyParams?: Array<{ key: string; value: string | File; type?: string; enabled?: boolean }>
-  binary?: File | string
+  binary?: File | string | string[]
   authProfile?: string
   preRequestResult?: any
   metadata?: Record<string, any>

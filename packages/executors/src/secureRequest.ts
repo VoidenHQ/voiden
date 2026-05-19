@@ -257,8 +257,19 @@ export async function executeSecureRequest(
 
   // ── 9. Build request body ─────────────────────────────────────────────────
   if (requestState.binary) {
-    // Binary file upload
-    if (typeof requestState.binary === 'string') {
+    if (Array.isArray(requestState.binary)) {
+      // Multiple binary files → send as multipart/form-data, one entry per file
+      if (!adapter.readFile) throw new Error('Multi-file binary upload requires adapter.readFile')
+      const formData = new FormData()
+      for (const filePath of requestState.binary as string[]) {
+        const fileBuffer = await adapter.readFile(filePath)
+        const fileName = filePath.split('/').pop() ?? 'file'
+        const blob = new Blob([fileBuffer], { type: getFileMimeType(filePath) })
+        formData.append(fileName, blob, fileName)
+      }
+      fetchOptions.body = formData
+      deleteHttpHeader(headers, 'Content-Type')
+    } else if (typeof requestState.binary === 'string') {
       if (!adapter.readFile) throw new Error(`Binary file upload requires adapter.readFile (path: ${requestState.binary})`)
       const fileBuffer = await adapter.readFile(requestState.binary)
       fetchOptions.body = fileBuffer

@@ -1,5 +1,27 @@
 [
   {
+    "version": "v1.6.3",
+    "date": "18/05/2026",
+    "title": "gRPC Reliability, OAuth2 & Runtime Variable Fixes",
+    "description": "Patch release fixing response header lookups in runtime variables, gRPC connection error surfacing, protocol detection for imported gRPC files, native proto file selection via Electron dialog, theme-aware borders across gRPC and WebSocket UI components, OAuth2 error toasts, and bulk delete of runtime variables.",
+    "icon": "Wrench",
+    "iconColor": "text-orange-400",
+    "bgColor": "bg-gradient-to-br from-slate-900 to-orange-950",
+    "changes": {
+      "Improved": [
+        "Proto file selector now uses Electron's native file dialog instead of the HTML file input — the full absolute path is always available, making proto file selection reliable on all platforms and consistent with how other file pickers work in the app",
+        "OAuth2 auto-acquire and auto-refresh now show a toast with a specific error message when required config fields are missing, when the token server returns an error, or when an unexpected exception occurs — previously all failures were silent console warnings"
+      ],
+      "Fixed": [
+        "Runtime variable header lookups now return the correct value — the key-value array lookup was hardcoded to always match the literal string \"key\" instead of the requested path segment, so every header read returned the first header's value regardless of which header was requested; cookie extraction was unaffected because it used a separate dedicated code path",
+        "gRPC connection failures now surface the actual error message in the response panel instead of showing 'gRPC connection could not be initialized — no identifier provided' — a guard was added to the response handler that detects missing connection IDs and routes the error through the standard error display path",
+        "Border colors in gRPC and WebSocket UI components (proto selector, message viewer, method node, URL node) are now theme-aware — hardcoded stone-700/80 borders replaced with the --border CSS variable so the components follow the active theme correctly",
+        "Bulk delete of runtime variables now correctly removes all selected variables",
+        "Deleted runtime variables no longer reappear after an OAuth2 token is auto-acquired or refreshed"
+      ]
+    }
+  },
+  {
     "version": "v1.6.2",
     "date": "12/05/2026",
     "title": "Tab Scrolling, Scripting Docs & Multi-Bug Fixes",
