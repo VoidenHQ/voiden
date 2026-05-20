@@ -32,20 +32,27 @@ export function useFullTextSearch({
   const dirMaskUserEditedRef = useRef(false);
   const findInputRef = useRef<HTMLTextAreaElement>(null);
 
+  // Debounce mask inputs so each keystroke doesn't kick off a new rg run.
+  const debouncedFileMask = useDebounce(fileMask, 300);
+  const debouncedDirMask = useDebounce(dirMask, 300);
+
   const [allDirs, setAllDirs] = useState<string[]>([]);
+  const lastFetchedRootRef = useRef<string | undefined>(undefined);
 
   const dirSuggestions = useMemo(() => {
     const lastSlash = dirMask.lastIndexOf("/");
     const parentPrefix = lastSlash >= 0 ? dirMask.slice(0, lastSlash + 1) : "";
     const partial = dirMask.slice(lastSlash + 1).toLowerCase();
     return allDirs.filter((d) => {
+      // Hide dot-dirs unless the user opted into hidden-file search.
+      if (!includeHidden && d.split("/").some((seg) => seg.startsWith("."))) return false;
       if (!d.toLowerCase().startsWith(parentPrefix.toLowerCase())) return false;
       const rest = d.slice(parentPrefix.length);
       if (rest.includes("/")) return false;
       if (partial && !rest.toLowerCase().startsWith(partial)) return false;
       return true;
     }).slice(0, 10);
-  }, [allDirs, dirMask]);
+  }, [allDirs, dirMask, includeHidden]);
 
   useEffect(() => {
     if (rawQuery.includes("\n")) setUseMultiline(true);
@@ -66,8 +73,12 @@ export function useFullTextSearch({
 
   useEffect(() => {
     if (!storeIsSearching) return;
+    // Cache by project root: re-fetch only when the active project changes,
+    // not every time the search panel re-opens.
+    if (lastFetchedRootRef.current === activeDirectory) return;
+    lastFetchedRootRef.current = activeDirectory;
     window.electron?.listDirs?.().then((dirs) => setAllDirs(dirs ?? [])).catch(() => {});
-  }, [storeIsSearching]);
+  }, [storeIsSearching, activeDirectory]);
 
   useEffect(() => {
     if (storeIsSearching) {
@@ -111,8 +122,8 @@ export function useFullTextSearch({
 
     window.electron?.startSearch?.({
       query: searchQuery, matchCase, matchWholeWord, useRegex, useMultiline, searchId: currentId,
-      fileMask: fileMaskEnabled ? fileMask.trim() || undefined : undefined,
-      dirMask: dirMaskEnabled ? dirMask.trim() || undefined : undefined,
+      fileMask: fileMaskEnabled ? debouncedFileMask.trim() || undefined : undefined,
+      dirMask: dirMaskEnabled ? debouncedDirMask.trim() || undefined : undefined,
       includeHidden,
     });
 
@@ -143,7 +154,7 @@ export function useFullTextSearch({
       unsubDone?.();
       window.electron?.cancelSearch?.(currentId);
     };
-  }, [searchQuery, matchCase, matchWholeWord, useRegex, useMultiline, fileMaskEnabled, fileMask, dirMaskEnabled, dirMask, includeHidden]);
+  }, [searchQuery, matchCase, matchWholeWord, useRegex, useMultiline, fileMaskEnabled, debouncedFileMask, dirMaskEnabled, debouncedDirMask, includeHidden]);
 
   const resetSearch = () => {
     setRawQuery("");

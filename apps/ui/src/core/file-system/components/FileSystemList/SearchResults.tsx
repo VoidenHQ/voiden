@@ -96,7 +96,7 @@ export function SearchResults({
               </div>
               {matches.map(({ line, col, preview }, matchIndex) => (
                 <div
-                  key={`${line}:${col}`}
+                  key={`${line}:${col}:${matchIndex}`}
                   className="flex items-start gap-3 px-3 py-1.5 border-t border-border cursor-pointer hover:bg-hover transition-colors"
                   onClick={() => openMatch(filePath, line, col, matchIndex)}
                 >
@@ -124,12 +124,13 @@ function buildSplitter(
   searchQuery: string,
   flags: { matchCase: boolean; matchWholeWord: boolean; useRegex: boolean },
 ): RegExp | null {
-  const firstLine = searchQuery.split(/\r?\n/).find((l) => l.length > 0) ?? "";
-  const rawPattern = flags.useRegex
-    ? firstLine
-    : firstLine.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  if (!rawPattern) return null;
-  const wrapped = flags.matchWholeWord ? `\\b(?:${rawPattern})\\b` : rawPattern;
+  // The backend snippet is a single line, but a multiline query can match any
+  // of its lines — build an alternation so every line gets highlighted.
+  const lines = searchQuery.split(/\r?\n/).filter((l) => l.length > 0);
+  if (lines.length === 0) return null;
+  const parts = lines.map((l) => flags.useRegex ? `(?:${l})` : l.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  const inner = parts.length === 1 ? parts[0] : `(?:${parts.join("|")})`;
+  const wrapped = flags.matchWholeWord ? `\\b${inner}\\b` : inner;
   try {
     return new RegExp(`(${wrapped})`, flags.matchCase ? "" : "i");
   } catch {

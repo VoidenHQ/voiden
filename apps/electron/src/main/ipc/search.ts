@@ -3,7 +3,6 @@ import fs from "node:fs";
 import path from "node:path";
 import fsPromises from "node:fs/promises";
 import { spawn } from "child_process";
-// @ts-expect-error no types
 import fg from "fast-glob";
 import { getActiveProject } from "../state";
 
@@ -33,7 +32,7 @@ function stripFrontmatter(markdown: string): string {
  * Handles nested content arrays and differentiates tables and requests.
  */
 function extractContentFromYaml(node: any) {
-  let result: string[] = [];
+  const result: string[] = [];
   if (!node) return result;
   // If array, traverse each item
   if (Array.isArray(node)) {
@@ -82,7 +81,7 @@ async function extractReadableMarkdownText(markdownText: string) {
   // return array of {type:text|void,content:content};
   const segments = splitTextSegmentsWithType(markdownText);
   const output = [];
-  for (var i = 0; i < segments.length; i++) {
+  for (let i = 0; i < segments.length; i++) {
     const seg = segments[i];
     if (seg.type === 'text' && seg.content) {
       try {
@@ -93,8 +92,7 @@ async function extractReadableMarkdownText(markdownText: string) {
           useImgAltText: false
         })
         output.push(result);
-      } catch (e) {
-      }
+      } catch (e) { /* empty */ }
     } else {
       const yamlText = seg.content.trim().replace(/^void\s*/g, '').replace(/^---\s*/g, '').replace(/\s*---$/g, '');
       try {
@@ -113,7 +111,7 @@ async function extractReadableMarkdownText(markdownText: string) {
 function splitTextSegmentsWithType(text: string = '') {
   const splittedItems = text.trim().split('```');
   const segments = [];
-  for (var i = 0; i < splittedItems.length; i++) {
+  for (let i = 0; i < splittedItems.length; i++) {
     if (splittedItems[i].startsWith('void')) {
       segments.push({
         type: 'void',
@@ -131,6 +129,19 @@ function splitTextSegmentsWithType(text: string = '') {
 // Max results returned to the UI — prevents flooding the renderer with
 // thousands of matches on broad queries and keeps the IPC payload small.
 const MAX_SEARCH_RESULTS = 200;
+
+// Max directory depth for listDirs — keeps suggestions snappy on large repos.
+const MAX_DIR_LIST_DEPTH = 8;
+
+// Reject paths that are absolute, contain `..` segments, or otherwise escape
+// the project root. Used to sanitise user-supplied dirMask before it is fed
+// to ripgrep/fast-glob with `cwd: projectRoot`.
+function isSafeRelativePath(p: string): boolean {
+  if (!p) return true;
+  if (path.isAbsolute(p)) return false;
+  const norm = p.replace(/\\/g, "/");
+  return !norm.split("/").some((seg) => seg === "..");
+}
 
 // Semaphore for the JS fallback path — caps concurrent file reads so we
 // don't spike memory by opening thousands of files simultaneously.
@@ -224,6 +235,9 @@ export function registerSearchIpcHandler() {
       }
     }
 
+    // Drop any dirMask that would escape the project root.
+    const safeDirMask = dirMask && isSafeRelativePath(dirMask) ? dirMask : undefined;
+
     // ── rg path ────────────────────────────────────────────────────────────────
     const rgCandidates = ["/opt/homebrew/bin/rg", "/usr/local/bin/rg", "rg"];
     const rgPath = rgCandidates.find((p) => p === "rg" || fs.existsSync(p)) ?? "rg";
@@ -244,10 +258,10 @@ export function registerSearchIpcHandler() {
     if (!matchCase) rgArgs.push("--ignore-case");
     if (matchWholeWord) rgArgs.push("--word-regexp");
     if (fileMask) rgArgs.push("--glob", fileMask);
-    if (dirMask && /[*?{}[\]]/.test(dirMask)) rgArgs.push("--glob", `${dirMask}/**`);
+    if (safeDirMask && /[*?{}[\]]/.test(safeDirMask)) rgArgs.push("--glob", `${safeDirMask}/**`);
     rgArgs.push("--", query);
-    if (dirMask && !/[*?{}[\]]/.test(dirMask)) {
-      rgArgs.push(dirMask);
+    if (safeDirMask && !/[*?{}[\]]/.test(safeDirMask)) {
+      rgArgs.push(safeDirMask);
     } else {
       rgArgs.push(".");
     }
@@ -325,11 +339,11 @@ export function registerSearchIpcHandler() {
       let files: string[] = [];
       try {
         const isPlainDir = (p: string) => !!p && !/[*?{}[\]]/.test(p);
-        const basePattern = isPlainDir(dirMask ?? "")
-          ? `${dirMask}/${fileMask || "*.*"}`
+        const basePattern = isPlainDir(safeDirMask ?? "")
+          ? `${safeDirMask}/${fileMask || "*.*"}`
           : fileMask
-            ? (dirMask ? `${dirMask}/${fileMask}` : `**/${fileMask}`)
-            : (dirMask ? `${dirMask}/**/*.*` : "**/*.*");
+            ? (safeDirMask ? `${safeDirMask}/${fileMask}` : `**/${fileMask}`)
+            : (safeDirMask ? `${safeDirMask}/**/*.*` : "**/*.*");
         files = await fg(basePattern, {
           cwd: projectRoot,
           dot: true,
@@ -401,7 +415,8 @@ export function registerSearchIpcHandler() {
       const dirs: string[] = await fg("**", {
         cwd: projectRoot,
         onlyDirectories: true,
-        dot: false,
+        dot: true,
+        deep: MAX_DIR_LIST_DEPTH,
         ignore: SKIP_BUILD_DIRS.map((d) => `**/${d}/**`).concat(SKIP_BUILD_DIRS.map((d) => d)),
       });
       return dirs.sort();
