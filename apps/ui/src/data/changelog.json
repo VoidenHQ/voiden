@@ -1,5 +1,23 @@
 [
   {
+    "version": "v2.0.0-beta.1",
+    "date": "18/05/2026",
+    "title": "Architecture Refactor & Voiden Runner",
+    "description": "Major refactor restructuring the core request engine and plugin system. Protocol-specific logic for REST, WebSocket, and gRPC now lives entirely within each plugin. Introduces voiden-runner — a standalone CLI for executing .void files headlessly.",
+    "icon": "Wrench",
+    "iconColor": "text-blue-400",
+    "bgColor": "bg-gradient-to-br from-slate-900 to-blue-950",
+    "changes": {
+      "Added": [
+        "voiden-runner — standalone CLI package (@voiden/runner) for executing .void files from the terminal without the desktop app",
+        "Multiple file uploads on a single key in multipart form and binary body — a key can now have more than one file attached to it"
+      ],
+      "Improved": [
+        "REST, WebSocket, and gRPC protocol logic moved into their respective plugins — core request engine is now protocol-agnostic"
+      ]
+    }
+  },
+  {
     "version": "v1.6.3",
     "date": "18/05/2026",
     "title": "gRPC Reliability, OAuth2 & Runtime Variable Fixes",
