@@ -271,6 +271,7 @@ declare global {
         getProjects: () => Promise<any>;
         openProject: (projectPath: string) => Promise<any>;
         setActiveProject: (projectPath: string) => Promise<any>;
+        emptyActiveProject: () => Promise<void>;
         addPanelTab: (
           panelId: string,
           tab: any,
@@ -287,7 +288,10 @@ declare global {
         renameFile: (
           oldPath: string,
           newName: string,
-        ) => Promise<{ success: boolean; error?: string }>;
+        ) => Promise<
+          | { success: true; data: { path: string; name: string } }
+          | { success: false; error?: string }
+        >;
         getOnboarding: () => Promise<boolean>;
         updateOnboarding: (onboarding: boolean) => Promise<any>;
         duplicatePanelTab: (
