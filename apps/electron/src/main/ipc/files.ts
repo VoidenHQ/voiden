@@ -853,6 +853,24 @@ export function registerFileIpcHandlers() {
     }
   });
 
+  ipcMain.handle("files:ensureDir", async (_event, dirPath: string) => {
+    try {
+      await fs.promises.mkdir(dirPath, { recursive: true });
+    } catch (error) {
+      console.error(`Error ensuring directory ${dirPath}:`, error);
+      throw error;
+    }
+  });
+
+  ipcMain.handle("files:removeFile", async (_event, filePath: string) => {
+    try {
+      await fs.promises.unlink(filePath);
+    } catch (error) {
+      console.error(`Error removing file ${filePath}:`, error);
+      throw error;
+    }
+  });
+
   ipcMain.handle("files:stat", async (_event, filePath: string) => {
     try {
       const stat = await fs.promises.stat(filePath);

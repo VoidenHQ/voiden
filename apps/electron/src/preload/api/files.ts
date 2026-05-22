@@ -99,6 +99,8 @@ export const filesApi = {
     ipcRenderer.invoke("files:bulkDelete", items),
   getVoidFiles: () => ipcRenderer.invoke("files:getVoidFiles"),
   listDir: (dirPath: string): Promise<string[]> => ipcRenderer.invoke("files:listDir", dirPath),
+  ensureDir: (dirPath: string): Promise<void> => ipcRenderer.invoke("files:ensureDir", dirPath),
+  removeFile: (filePath: string): Promise<void> => ipcRenderer.invoke("files:removeFile", filePath),
   stat: (filePath: string): Promise<{ exists: boolean; size?: number; mtime?: number }> => ipcRenderer.invoke("files:stat", filePath),
   hash: (filePath: string): Promise<{ exists: boolean; hash?: string; size?: number }> => ipcRenderer.invoke("files:hash", filePath),
   onReferencesUpdated: (callback: (filePaths: string[]) => void) => {

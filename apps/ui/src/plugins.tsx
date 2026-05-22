@@ -317,6 +317,9 @@ export const createPlugin = (pluginModule: (context: PluginContext) => Plugin, e
     addVoidenSlashGroup: (group: SlashCommandGroup) => {
       useEditorEnhancementStore.getState().addVoidenSlashGroup(group);
     },
+    getVoidenSlashGroups: (): SlashCommandGroup[] => {
+      return useEditorEnhancementStore.getState().voidenSlashGroups;
+    },
     addVoidenSlashCommand: (command: SlashCommand) => {},
     registerVoidenExtension: (extension: AnyExtension) => {
       useEditorEnhancementStore.getState().addVoidenExtension(extension);
@@ -399,11 +402,35 @@ export const createPlugin = (pluginModule: (context: PluginContext) => Plugin, e
         return voidFiles;
       },
       createFile: async (filePath: string, content: string) => {
-        await window.electron?.files?.write(filePath, content);
+        const projects = await getProjects();
+        const activeProject = projects?.activeProject;
+        if (!activeProject) throw new Error("No active project");
+        const absPath = filePath.startsWith('/')
+          ? filePath
+          : ((await window.electron?.utils?.pathJoin(activeProject, filePath)) ?? filePath);
+        // Ensure parent directory exists before writing
+        const parentDir = absPath.substring(0, absPath.lastIndexOf('/'));
+        if (parentDir) await (window.electron?.files as any)?.ensureDir?.(parentDir);
+        await window.electron?.files?.write(absPath, content);
+      },
+      // @ts-expect-error — deleteFile extends PluginContext['project'] but SDK type predates this method
+      deleteFile: async (filePath: string) => {
+        const projects = await getProjects();
+        const activeProject = projects?.activeProject;
+        if (!activeProject) throw new Error("No active project");
+        const absPath = filePath.startsWith('/')
+          ? filePath
+          : ((await window.electron?.utils?.pathJoin(activeProject, filePath)) ?? filePath);
+        await (window.electron?.files as any)?.removeFile?.(absPath);
       },
       createFolder: async (folderPath: string) => {
-        // Note: This API might need updating on the electron side
-        await window.electron?.files?.createDirectory("", folderPath);
+        const projects = await getProjects();
+        const activeProject = projects?.activeProject;
+        if (!activeProject) throw new Error("No active project");
+        const absPath = folderPath.startsWith('/')
+          ? folderPath
+          : ((await window.electron?.utils?.pathJoin(activeProject, folderPath)) ?? folderPath);
+        await window.electron?.files?.createDirectory(absPath);
       },
       openFile: async (relativePath: string,skipJoin=false) => {
         // Safe API for plugins to open files
@@ -487,7 +514,22 @@ export const createPlugin = (pluginModule: (context: PluginContext) => Plugin, e
        read: async (path: string) => {
         const content = (await window.electron?.files?.read(path))||''
         return content;
-       }
+       },
+       write: async (path: string, content: string) => {
+        await window.electron?.files?.write(path, content);
+       },
+       listDir: async (path: string) => {
+        return (await window.electron?.files?.listDir?.(path)) || [];
+       },
+       ensureDir: async (path: string) => {
+        await window.electron?.files?.ensureDir?.(path);
+       },
+       removeFile: async (path: string) => {
+        await window.electron?.files?.removeFile?.(path);
+       },
+       joinPath: async (...parts: string[]) => {
+        return await window.electron?.utils?.pathJoin(...parts);
+       },
     },
     helpers: {
       parseVoid: (markdown) => {
