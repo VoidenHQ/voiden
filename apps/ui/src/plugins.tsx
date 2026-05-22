@@ -510,6 +510,12 @@ export const createPlugin = (pluginModule: (context: PluginContext) => Plugin, e
         return tab;
       },
     },
+    files:{
+       read: async (path: string) => {
+        const content = (await window.electron?.files?.read(path))||''
+        return content;
+       }
+    },
     helpers: {
       parseVoid: (markdown) => {
         const editor = useVoidenEditorStore.getState().editor;
