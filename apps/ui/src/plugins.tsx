@@ -510,27 +510,6 @@ export const createPlugin = (pluginModule: (context: PluginContext) => Plugin, e
         return tab;
       },
     },
-    files:{
-       read: async (path: string) => {
-        const content = (await window.electron?.files?.read(path))||''
-        return content;
-       },
-       write: async (path: string, content: string) => {
-        await window.electron?.files?.write(path, content);
-       },
-       listDir: async (path: string) => {
-        return (await window.electron?.files?.listDir?.(path)) || [];
-       },
-       ensureDir: async (path: string) => {
-        await window.electron?.files?.ensureDir?.(path);
-       },
-       removeFile: async (path: string) => {
-        await window.electron?.files?.removeFile?.(path);
-       },
-       joinPath: async (...parts: string[]) => {
-        return await window.electron?.utils?.pathJoin(...parts);
-       },
-    },
     helpers: {
       parseVoid: (markdown) => {
         const editor = useVoidenEditorStore.getState().editor;
