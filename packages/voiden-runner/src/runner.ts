@@ -2,7 +2,7 @@
  * voiden-runner — core runner
  *
  * Flow for each section in a .void file:
- *   1. loadEnabledPlugins() — derives the list from @voiden/core-extensions registry
+ *   1. loadEnabledPlugins() — derives the list from core-plugins-registry.json
  *      a. Parser plugins (graphql, sockets, rest-api) load their runner.ts and
  *         call context.onBuildRequest() to register block→request builders with
  *         the shared RequestOrchestrator from @voiden/executors

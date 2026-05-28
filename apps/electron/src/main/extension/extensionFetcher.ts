@@ -87,6 +87,7 @@ export async function getRemoteExtensions(): Promise<ExtensionData[]> {
         type: "community",
         readme: "",
         repo: ext.repo,
+        logo: ext.logo,
       }),
     );
 

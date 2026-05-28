@@ -6,7 +6,7 @@ import { existsSync, readFileSync } from "fs";
 import path from "path";
 import { app } from "electron";
 import { AppState, ExtensionData } from "src/shared/types";
-import { coreExtensions } from "../config/coreExtensions";
+import { coreExtensions, remoteVersions, remoteNewPlugins } from "../config/coreExtensions";
 import AdmZip from "adm-zip";
 
 // Tracks plugins the user has explicitly disabled (persisted globally, not per-window).
@@ -132,7 +132,8 @@ export class ExtensionManager {
 
     const syncedCoreExtensions: ExtensionData[] = coreExtensions.map((coreExt) => {
       const installed = isBundledLocally(coreExt.id) || isOtaCached(coreExt.id);
-      const effectiveVersion = getOtaCachedVersion(coreExt.id) ?? coreExt.version;
+      // Priority: OTA-installed version > remote registry version (for "available to install" display) > local snapshot fallback
+      const effectiveVersion = getOtaCachedVersion(coreExt.id) ?? remoteVersions.get(coreExt.id) ?? coreExt.version;
       return {
         ...coreExt,
         version: effectiveVersion,
@@ -143,8 +144,24 @@ export class ExtensionManager {
       };
     });
 
+    // Append plugins that exist in the remote registry but not in the local snapshot.
+    // These are OTA-only new plugins the user can install but haven't been bundled yet.
+    const existingIds = new Set(syncedCoreExtensions.map((e) => e.id));
+    const newRemoteExtensions: ExtensionData[] = remoteNewPlugins
+      .filter((p) => !existingIds.has(p.id))
+      .map((p) => {
+        const locallyAvailable = isBundledLocally(p.id) || isOtaCached(p.id);
+        return {
+          ...p,
+          version: remoteVersions.get(p.id) ?? p.version,
+          enabled: locallyAvailable && !disabled.has(p.id),
+          isLocallyAvailable: locallyAvailable,
+        };
+      });
+
     this.store.extensions = [
       ...syncedCoreExtensions,
+      ...newRemoteExtensions,
       ...this.store.extensions.filter((ext) => ext.type !== "core"),
     ];
   }

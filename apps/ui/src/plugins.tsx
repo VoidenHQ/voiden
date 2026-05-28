@@ -1,10 +1,20 @@
 import { create } from "zustand";
-import { useEffect } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import * as _ReactShim from "react";
 import * as _ReactJSXShim from "react/jsx-runtime";
 import * as _ReactDOMShim from "react-dom";
 import * as _ReactDOMClientShim from "react-dom/client";
-import { coreExtensionPlugins } from "@voiden/core-extensions";
+import * as _ZustandShim from "zustand";
+import * as _TiptapCore from "@tiptap/core";
+import * as _TiptapPMModel from "@tiptap/pm/model";
+import * as _TiptapPMState from "@tiptap/pm/state";
+import * as _TiptapPMTables from "@tiptap/pm/tables";
+import * as _TiptapPMView from "@tiptap/pm/view";
+import * as _TiptapSuggestion from "@tiptap/suggestion";
+import * as _LucideReact from "lucide-react";
+import * as _Tippy from "tippy.js";
+import * as _Yaml from "yaml";
 import { PluginErrorBoundary } from "@/core/components/ErrorBoundary";
 import { getProjects } from "@/core/projects/hooks";
 import { useGetExtensions } from "@/core/extensions/hooks";
@@ -12,9 +22,9 @@ import { getQueryClient } from "./main";
 import {
   Panel,
   Plugin,
-  PluginContext,
+  type PluginContext,
   SlashCommand,
-  SlashCommandGroup,
+  type SlashCommandGroup,
   Tab,
   EditorAction,
   StatusBarItem,
@@ -22,7 +32,9 @@ import {
   BlockPasteHandler,
   BlockExtension,
   PatternHandler,
+  UIExtension,
 } from "@voiden/sdk/ui";
+import { parseCookies } from "@voiden/sdk/shared";
 import { extensionLogger } from "@/core/lib/logger";
 import { AnyExtension } from "@tiptap/core";
 import { historyAdapterRegistry } from "@/core/history/adapterRegistry";
@@ -46,7 +58,21 @@ import { HistoryEntry } from "@/core/history/types";
 import { buildCurlFromEntry } from "@/core/history/historyManager";
 import { buildVoidMarkdownFromEntry } from "@/core/history/voidFileBuilder";
 import { prosemirrorToMarkdown } from "@/core/file-system/hooks/useFileSystem";
-
+import * as _ReactQuery from '@tanstack/react-query';
+import * as _TiptapReact from '@tiptap/react';
+import * as _CodeMirrorState from '@codemirror/state';
+import * as _CodeMirrorView from '@codemirror/view';
+import * as _CodeMirrorAutocomplete from '@codemirror/autocomplete';
+import * as _ReactDnd from 'react-dnd';
+import * as _ReactDndHtml5Backend from 'react-dnd-html5-backend';
+import { useActiveEnvironment, useEnvironments } from "@/core/environment/hooks";
+import { getResponsePanelPosition as getResponsePanelPositionFn } from "@/core/stores/responsePanelPosition";
+import { getTable, parseAuthNode, buildHeadersWithCookies, findNode, findNodes, createNewRequestObject, getRequest } from "@/core/request-engine/getRequestFromJson";
+import { voidenExtensions as coreVoidenExtensions } from "@/core/editors/voiden/extensions";
+import { expandLinkedBlocksInDoc } from "@/core/editors/voiden/utils/expandLinkedBlocks";
+import { useResponseStore } from "@/core/request-engine/stores/responseStore";
+import { replaceProcessVariablesInText } from "@/core/request-engine/runtimeVariables";
+import { hookRegistry, PipelineStage } from "@/core/request-engine/pipeline";
 export type VoidBuilderHelpers = {
   /** Convert a ProseMirror doc JSON string to .void markdown using the full editor schema */
   toMarkdown: (docJson: string, schema: any) => string;
@@ -106,18 +132,23 @@ interface PluginError {
   error: string;
 }
 
+export interface CorePluginUpdateInfo {
+  pluginId: string;
+  currentVersion: string | null;
+  remoteVersion: string;
+  voidenVersion?: string;
+  hasUpdate: boolean;
+  compatible: boolean;
+  requiredAppVersion: string | null;
+}
+
 interface PluginStoreState {
   isInitialized: boolean;
   pluginErrors: PluginError[];
   addPluginError: (extensionId: string, error: string) => void;
   clearPluginErrors: () => void;
-  sidebar: {
-    left: any[];
-    right: any[];
-  };
-  panels: {
-    [key: string]: any[];
-  };
+  sidebar: { left: any[]; right: any[] };
+  panels: { [key: string]: any[] };
   initialize: () => void;
   addSidebarTab: (sidebarId: "left" | "right", tab: any) => void;
   registerPanel: (panelId: string, panel: any) => void;
@@ -125,6 +156,12 @@ interface PluginStoreState {
   addEditorAction: (action: EditorAction) => void;
   statusBarItems: StatusBarItem[];
   addStatusBarItem: (item: StatusBarItem) => void;
+  /** Keyed by pluginId. Populated after the startup update check. */
+  coreUpdateInfo: Record<string, CorePluginUpdateInfo>;
+  setCoreUpdateInfo: (info: CorePluginUpdateInfo[]) => void;
+  /** Tracks which core plugins are currently being installed (global — survives PluginProvider remounts). */
+  installingCorePlugins: Record<string, boolean>;
+  setInstallingPlugin: (pluginId: string, installing: boolean) => void;
 }
 
 export const usePluginStore = create<PluginStoreState>((set) => ({
@@ -144,6 +181,9 @@ export const usePluginStore = create<PluginStoreState>((set) => ({
     bottom: [],
   },
   initialize: () => set({ isInitialized: true }),
+  coreUpdateInfo: {},
+  setCoreUpdateInfo: (info) =>
+    set({ coreUpdateInfo: Object.fromEntries(info.map((i) => [i.pluginId, i])) }),
   addSidebarTab: (sidebarId, tab) => {
     set((state) => ({
       sidebar: {
@@ -160,6 +200,13 @@ export const usePluginStore = create<PluginStoreState>((set) => ({
       },
     }));
   },
+  installingCorePlugins: {},
+  setInstallingPlugin: (pluginId, installing) =>
+    set((state) => ({
+      installingCorePlugins: installing
+        ? { ...state.installingCorePlugins, [pluginId]: true }
+        : Object.fromEntries(Object.entries(state.installingCorePlugins).filter(([k]) => k !== pluginId)),
+    })),
   editorActions: [],
   addEditorAction: (action) => {
     set((state) => ({
@@ -240,19 +287,78 @@ const loadedPlugins: Map<string, { onload: () => Promise<void>; onunload: () => 
 // Also expose on window for React components to access
 declare global {
   interface Window {
-    __voidenHelpers__?: Record<string, PluginHelpers>;
+    __voidenHelpers__?: Record<string, any>;
     __voiden_shims__?: Record<string, unknown>;
+    /** Keyed by pluginId — populated when an OTA bundle is loaded. Overrides baked-in registry metadata. */
+    __voiden_ota_manifests__?: Record<string, any>;
   }
+}
+
+if (typeof window !== 'undefined') {
+  window.__voiden_ota_manifests__ = {};
 }
 
 if (typeof window !== 'undefined') {
   window.__voidenHelpers__ = exposedHelpers;
   window.__voiden_shims__ = {
+    // React — shared instances so plugin hooks work correctly
     "react": _ReactShim,
     "react/jsx-runtime": _ReactJSXShim,
     "react-dom": _ReactDOMShim,
     "react-dom/client": _ReactDOMClientShim,
-  };
+    // @tanstack/react-query — shared instance so QueryClientContext matches QueryClientProvider
+    "@tanstack/react-query": _ReactQuery,
+    // @tiptap/react — shared instance so ReactNodeViewRenderer context matches NodeViewWrapper
+    "@tiptap/react": _TiptapReact,
+    // CodeMirror — shared instances so extension instanceof checks pass
+    "@codemirror/state": _CodeMirrorState,
+    "@codemirror/view": _CodeMirrorView,
+    "@codemirror/autocomplete": _CodeMirrorAutocomplete,
+    // @/core/* — host app internals exposed for OTA-loaded plugin bundles
+    "@/core/file-system/hooks/useFileSystem": { prosemirrorToMarkdown },
+    "@/core/editors/voiden/extensions": { voidenExtensions: coreVoidenExtensions },
+    "@/core/editors/voiden/VoidenEditor": { useEditorStore, useVoidenEditorStore, proseClasses },
+    "@/core/editors/voiden/utils/expandLinkedBlocks": { expandLinkedBlocksInDoc },
+    "@/core/editors/voiden/markdownConverter": { parseMarkdown },
+    "@/core/request-engine/getRequestFromJson": { getTable, parseAuthNode, buildHeadersWithCookies, findNode, findNodes, createNewRequestObject, getRequest },
+    "@/core/request-engine/stores/responseStore": { useResponseStore },
+    "@/core/request-engine/requestOrchestrator": { requestOrchestrator },
+    "@/core/request-engine/runtimeVariables": { replaceProcessVariablesInText },
+    "@/core/request-engine/pipeline": { hookRegistry, PipelineStage },
+    "@/core/history/adapterRegistry": { historyAdapterRegistry },
+    "@/core/stores/panelStore": { usePanelStore },
+    "@/core/stores/responsePanelPosition": { getResponsePanelPosition: getResponsePanelPositionFn },
+    "@/core/environment/hooks": { useActiveEnvironment, useEnvironments },
+    // @voiden/sdk — base classes plugins extend (UIExtension, etc.)
+    "@voiden/sdk": { UIExtension, PipelineStage },
+    "@voiden/sdk/shared": { parseCookies },
+    // Host module aliases
+    "@/plugins": { useEditorEnhancementStore, usePluginStore },
+    // Zustand — shared instance so stores work across plugin/host boundary
+    "zustand": _ZustandShim,
+    // @tiptap/* — shared instances so Node.create(), Extension.create() etc work
+    "@tiptap/core": _TiptapCore,
+    "@tiptap/pm/model": _TiptapPMModel,
+    "@tiptap/pm/state": _TiptapPMState,
+    "@tiptap/pm/tables": _TiptapPMTables,
+    "@tiptap/pm/view": _TiptapPMView,
+    "@tiptap/suggestion": _TiptapSuggestion,
+    // UI utilities — icons and tooltip engine shared with tiptap extensions
+    "lucide-react": _LucideReact,
+    "tippy.js": _Tippy,
+    "yaml": _Yaml,
+    // react-dnd / react-dnd-html5-backend — shared instances prevent duplicate HTML5 backend registration
+    "react-dnd": _ReactDnd,
+    "react-dnd-html5-backend": _ReactDndHtml5Backend,
+    // @/main is a lazy getter — getQueryClient lives in main.tsx which imports
+    // plugins.tsx, creating a circular dep. Accessing it eagerly here hits the
+    // Temporal Dead Zone. The getter defers the read until a plugin uses the shim.
+  } as Record<string, unknown>;
+  Object.defineProperty(window.__voiden_shims__, '@/main', {
+    get: () => ({ getQueryClient }),
+    enumerable: true,
+    configurable: true,
+  });
 }
 
 /**
@@ -286,13 +392,27 @@ export const getTableSuggestions = (
 
 export const createPlugin = (pluginModule: (context: PluginContext) => Plugin, extensionId: string) => {
   // Define the API that your plugins will use.
-  const context: PluginContext & { pipeline: any } = {
+  const context: any = {
     // Provide pipeline API so plugins never need to import @voiden/executors directly.
     // The hookRegistry is imported from the app's pipeline alias (same singleton).
     pipeline: {
       registerHook: async (stage: string, handler: any, priority?: number) => {
         const { hookRegistry } = await import('@/core/request-engine/pipeline');
         hookRegistry.registerHook(extensionId, stage as any, handler, priority);
+      },
+      unregister: async () => {
+        const { hookRegistry } = await import('@/core/request-engine/pipeline');
+        hookRegistry.unregisterExtension(extensionId);
+      },
+    },
+    response: {
+      getCurrentTabId: async (): Promise<string | null> => {
+        const { useResponseStore } = await import('@/core/request-engine/stores/responseStore');
+        return useResponseStore.getState().currentRequestTabId ?? null;
+      },
+      setError: async (tabId: string | null, error: string): Promise<void> => {
+        const { useResponseStore } = await import('@/core/request-engine/stores/responseStore');
+        useResponseStore.getState().setError(tabId, error);
       },
     },
     exposeHelpers: (helpers: PluginHelpers) => {
@@ -317,7 +437,7 @@ export const createPlugin = (pluginModule: (context: PluginContext) => Plugin, e
     addVoidenSlashGroup: (group: SlashCommandGroup) => {
       useEditorEnhancementStore.getState().addVoidenSlashGroup(group);
     },
-    addVoidenSlashCommand: (command: SlashCommand) => {},
+    addVoidenSlashCommand: (command: SlashCommand) => { },
     registerVoidenExtension: (extension: AnyExtension) => {
       useEditorEnhancementStore.getState().addVoidenExtension(extension);
     },
@@ -352,7 +472,7 @@ export const createPlugin = (pluginModule: (context: PluginContext) => Plugin, e
         queryKey: ["panel:tabs", addedTab.panelId],
       });
     },
-    registerEditorAction: (action) => {
+    registerEditorAction: (action: any) => {
       if (!action.component || typeof action.component !== 'function') {
         console.error(`[Plugin Context] Invalid component for editor action ${action.id} from ${extensionId}`);
         return;
@@ -405,7 +525,7 @@ export const createPlugin = (pluginModule: (context: PluginContext) => Plugin, e
         // Note: This API might need updating on the electron side
         await window.electron?.files?.createDirectory("", folderPath);
       },
-      openFile: async (relativePath: string,skipJoin=false) => {
+      openFile: async (relativePath: string, skipJoin = false) => {
         // Safe API for plugins to open files
         // Only allows opening files within the project
         const projects = await getProjects();
@@ -413,7 +533,7 @@ export const createPlugin = (pluginModule: (context: PluginContext) => Plugin, e
         if (!activeProject) {
           throw new Error("No active project found");
         }
-        const absolutePath = skipJoin ? relativePath: await window.electron?.utils?.pathJoin(activeProject, relativePath);
+        const absolutePath = skipJoin ? relativePath : await window.electron?.utils?.pathJoin(activeProject, relativePath);
         if (!absolutePath) {
           throw new Error("Failed to compute absolute path");
         }
@@ -424,10 +544,6 @@ export const createPlugin = (pluginModule: (context: PluginContext) => Plugin, e
         const queryClient = getQueryClient();
         queryClient.invalidateQueries({ queryKey: ["panel:tabs", "main"] });
         queryClient.invalidateQueries({ queryKey: ["tab:content", "main", fileName] });
-      },
-      searchFiles: async (query: string) => {
-        // Expose full-text search to plugins
-        return await window.electron?.searchFiles(query);
       },
       getPath: async () => {
         const projects = await getProjects();
@@ -476,21 +592,21 @@ export const createPlugin = (pluginModule: (context: PluginContext) => Plugin, e
         };
         setTimeout(() => tryPaste(15), 400);
       },
-    },
-    tab:{
-      getActiveTab:async()=>{
+    } as any,
+    tab: {
+      getActiveTab: async () => {
         const tab = (await window.electron?.tab.getActiveTab?.()) || {};
         return tab;
       },
     },
-    files:{
-       read: async (path: string) => {
-        const content = (await window.electron?.files?.read(path))||''
+    files: {
+      read: async (path: string) => {
+        const content = (await window.electron?.files?.read(path)) || ''
         return content;
-       }
+      }
     },
     helpers: {
-      parseVoid: (markdown) => {
+      parseVoid: (markdown: string | undefined) => {
         const editor = useVoidenEditorStore.getState().editor;
         if (!editor) {
           throw new Error("No active editor found.");
@@ -506,7 +622,24 @@ export const createPlugin = (pluginModule: (context: PluginContext) => Plugin, e
         }
         return helpers as T;
       },
-    },
+      // Environment hooks — must only be called inside React components / TipTap node views
+      useActiveEnvironment,
+      useEnvironments,
+      // Editor utilities
+      useEditorStore,
+      expandLinkedBlocksInDoc,
+      prosemirrorToMarkdown,
+      getVoidenExtensions: () => coreVoidenExtensions,
+      // Request-building utilities — available to all plugins without @/core imports
+      requestUtils: {
+        getTable,
+        parseAuthNode,
+        buildHeadersWithCookies,
+        findNode,
+        findNodes,
+        createNewRequestObject,
+      },
+    } as any,
     ui: {
       getProseClasses: () => {
         let classes: string;
@@ -522,14 +655,14 @@ export const createPlugin = (pluginModule: (context: PluginContext) => Plugin, e
       openRightPanel: () => {
         usePanelStore.getState().openRightPanel();
       },
-      openRightSidebarTab: async (id: string,openResponsePanel?:boolean) => {
+      openRightSidebarTab: async (id: string, openResponsePanel?: boolean) => {
         // 1) fetch right sidebar tabs from main
         const sidebarData = await window.electron?.sidebar?.getTabs('right');
         const tabs = sidebarData?.tabs || [];
 
         // 2) find our tab by customTabKey
         const pluginTab = tabs.find((t: any) => t?.meta?.customTabKey === id);
-        if(!pluginTab && openResponsePanel){
+        if (!pluginTab && openResponsePanel) {
           const tab = tabs.find((t: any) => t.type === 'responsePanel');
           usePanelStore.getState().openRightPanel();
           // 4) activate it
@@ -561,6 +694,14 @@ export const createPlugin = (pluginModule: (context: PluginContext) => Plugin, e
       closeBottomPanel: () => {
         usePanelStore.getState().closeBottomPanel();
       },
+      getResponsePanelPosition: (): 'right' | 'bottom' => getResponsePanelPositionFn(),
+      setBottomActiveView: (view: string) => {
+        (usePanelStore.getState() as any).setBottomActiveView(view);
+      },
+      expandBottomPanel: () => {
+        const { bottomPanelRef } = usePanelStore.getState() as any;
+        bottomPanelRef?.current?.expand();
+      },
       components: {
         CodeEditor: GenericCodeEditor,
         Table,
@@ -570,7 +711,7 @@ export const createPlugin = (pluginModule: (context: PluginContext) => Plugin, e
         NodeViewWrapper,
         RequestBlockHeader,
         Tip,
-      },
+      } as any,
       hooks: {
         useSendRestRequest,
         useParentResponseDoc,
@@ -583,7 +724,7 @@ export const createPlugin = (pluginModule: (context: PluginContext) => Plugin, e
           toast(message, { duration: 4000, closeButton: true });
         }
       },
-    },
+    } as any,
     paste: {
       registerBlockOwner: (handler: BlockPasteHandler) => {
         pasteOrchestrator.registerBlockOwner(handler.blockType, handler, extensionId);
@@ -597,7 +738,7 @@ export const createPlugin = (pluginModule: (context: PluginContext) => Plugin, e
       registerCurlImporter: (handler: CurlImporter) => {
         curlImporters.push(handler);
       },
-    },
+    } as any,
     history: {
       /**
        * Save a history entry for a given .void file path.
@@ -671,13 +812,13 @@ export const createPlugin = (pluginModule: (context: PluginContext) => Plugin, e
         }
       },
     },
-    onBuildRequest: (handler) => {
+    onBuildRequest: (handler: any) => {
       requestOrchestrator.registerRequestHandler(handler);
     },
-    onProcessResponse: (handler) => {
+    onProcessResponse: (handler: any) => {
       requestOrchestrator.registerResponseHandler(handler);
     },
-    registerResponseSection: (section) => {
+    registerResponseSection: (section: any) => {
       requestOrchestrator.registerResponseSection(section);
     },
     openVoidenTab: async (title: string, content: any, options?: { readOnly?: boolean }) => {
@@ -722,7 +863,7 @@ export const createPlugin = (pluginModule: (context: PluginContext) => Plugin, e
   return {
     onload: async () => plugin.onload(context),
     onunload: async () => {
-      await plugin.onunload();
+      await plugin.onunload?.();
     },
   };
 };
@@ -830,16 +971,29 @@ export const getPlugins = async () => {
 
   const extensions = getQueryClient().getQueryData(["extensions"]) as any[];
 
-  // Fetch paths to any core plugins that have been downloaded as updated bundles.
-  // If a cached path exists for a plugin it will be loaded instead of the bundled version.
+  const coreExtApi = (window as any).electron?.coreExtensions;
+
+  // Priority 1: OTA-cached bundles (user-downloaded updates)
   let cachedCorePaths: Record<string, string> = {};
   try {
-    const coreExtApi = (window as any).electron?.coreExtensions;
     if (coreExtApi?.getCachedPlugins) {
       cachedCorePaths = await coreExtApi.getCachedPlugins();
     }
   } catch (e) {
     extensionLogger.warn('Failed to fetch cached core extension paths:', e);
+  }
+
+  // Priority 2: Build-time pre-downloaded bundles (fetched from plugin repos during cleanup)
+  // These are better than workspace compiled code — same OTA format, correct shims.
+  let bundledCorePaths: Record<string, string> = {};
+  try {
+    if (coreExtApi?.getBundledPlugins) {
+      bundledCorePaths = await coreExtApi.getBundledPlugins();
+      console.log('[Plugin Loader] Bundled plugin paths found:', Object.keys(bundledCorePaths));
+    }
+  } catch (e) {
+    console.error('[Plugin Loader] Failed to fetch bundled plugin paths:', e);
+    extensionLogger.warn('Failed to fetch bundled plugin paths:', e);
   }
 
   // Register block ownership and create placeholders for disabled plugins
@@ -883,31 +1037,86 @@ export const getPlugins = async () => {
 
         let plugin: ((context: PluginContext) => Plugin) | undefined;
 
-        // Prefer a downloaded-and-cached bundle (updated version) over the bundled one
+        // Prefer a downloaded-and-cached bundle (updated version) over the bundled one.
+        // We read the file via IPC then create a Blob URL — direct file:// imports are
+        // blocked by Electron's CSP when the renderer is served from http://localhost.
         const cachedPath = cachedCorePaths[extension.id];
         if (cachedPath) {
           extensionLogger.info(`Using cached bundle for ${extension.id}: ${cachedPath}`);
+          let blobUrl: string | null = null;
           try {
-            const mod = await import(/* @vite-ignore */ `file://${cachedPath}`);
-            if (mod?.default && typeof mod.default === 'function') {
-              plugin = mod.default;
-            } else {
-              extensionLogger.warn(`Cached bundle for ${extension.id} has no default export — falling back to bundled version`);
+            const content = await (window as any).electron?.coreExtensions?.readPluginFile?.(cachedPath);
+            if (content) {
+              const blob = new Blob([content], { type: 'application/javascript' });
+              blobUrl = URL.createObjectURL(blob);
+              const mod = await import(/* @vite-ignore */ blobUrl);
+              // Bundles older than BUNDLE_SHIM_VERSION lack critical host shims (e.g.
+              // @tanstack/react-query) and cause "Invalid hook call" at render time.
+              // Skip them so the built-in version is used until new bundles are released.
+              const BUNDLE_SHIM_VERSION = 2;
+              if ((mod?.__voiden_bundle_version__ ?? 0) < BUNDLE_SHIM_VERSION) {
+                extensionLogger.warn(
+                  `Cached bundle for ${extension.id} uses shim v${mod?.__voiden_bundle_version__ ?? 0}` +
+                  ` (need v${BUNDLE_SHIM_VERSION}) — falling back to built-in version`
+                );
+              } else if (mod?.default && typeof mod.default === 'function') {
+                plugin = mod.default;
+                if (mod.__voiden_manifest__ && window.__voiden_ota_manifests__) {
+                  window.__voiden_ota_manifests__[extension.id] = mod.__voiden_manifest__;
+                  // Patch the main-process extension registry so getAll() returns updated metadata.
+                  // Awaited so the registry is fully updated before we invalidate the query below.
+                  await window.electron?.extensions?.updateCoreMeta?.(extension.id, mod.__voiden_manifest__);
+                }
+              } else {
+                extensionLogger.warn(`Cached bundle for ${extension.id} has no default export — falling back to bundled version`);
+              }
             }
           } catch (cacheErr) {
+            console.error(`[Plugin Loader] Failed to import cached bundle for ${extension.id}:`, cacheErr);
             extensionLogger.warn(`Failed to load cached bundle for ${extension.id}:`, cacheErr, '— falling back to bundled version');
+          } finally {
+            if (blobUrl) URL.revokeObjectURL(blobUrl);
           }
         }
 
-        // Fall back to the build-time bundled version
+        // Priority 2: build-time pre-downloaded bundle (cleanup.sh fetched from plugin repo)
         if (!plugin) {
-          if (coreExtensionPlugins[extension.id]) {
-            plugin = coreExtensionPlugins[extension.id];
-          } else {
-            extensionLogger.warn(`Core extension ${extension.id} not found in registry`);
-            console.warn(`[Plugin Loader] Core extension ${extension.id} not found in registry, skipping`);
-            continue;
+          const bundledPath = bundledCorePaths[extension.id];
+          if (bundledPath) {
+            extensionLogger.info(`Using build-time bundle for ${extension.id}: ${bundledPath}`);
+            let blobUrl: string | null = null;
+            try {
+              const content = await coreExtApi?.readPluginFile?.(bundledPath);
+              if (content) {
+                const blob = new Blob([content], { type: 'application/javascript' });
+                blobUrl = URL.createObjectURL(blob);
+                const mod = await import(/* @vite-ignore */ blobUrl);
+                const BUNDLE_SHIM_VERSION = 2;
+                if ((mod?.__voiden_bundle_version__ ?? 0) >= BUNDLE_SHIM_VERSION && mod?.default && typeof mod.default === 'function') {
+                  plugin = mod.default;
+                  console.log(`[Plugin Loader] Bundle version OK for ${extension.id}: v${mod.__voiden_bundle_version__}`);
+                  if (mod.__voiden_manifest__ && window.__voiden_ota_manifests__) {
+                    window.__voiden_ota_manifests__[extension.id] = mod.__voiden_manifest__;
+                    await window.electron?.extensions?.updateCoreMeta?.(extension.id, mod.__voiden_manifest__);
+                  }
+                } else {
+                  console.warn(`[Plugin Loader] Bundle rejected for ${extension.id}: version=${mod?.__voiden_bundle_version__}, hasDefault=${typeof mod?.default}`);
+                }
+              }
+            } catch (bundleErr) {
+              console.error(`[Plugin Loader] Failed to import build-time bundle for ${extension.id}:`, bundleErr);
+              extensionLogger.warn(`Failed to load build-time bundle for ${extension.id}:`, bundleErr);
+            } finally {
+              if (blobUrl) URL.revokeObjectURL(blobUrl);
+            }
           }
+        }
+
+        // No plugin loaded — OTA will download on next launch
+        if (!plugin) {
+          extensionLogger.warn(`Core extension ${extension.id} not found in any bundle — OTA will download on next launch`);
+          console.warn(`[Plugin Loader] Core extension ${extension.id} not available locally, skipping`);
+          continue;
         }
 
         // Validate plugin is a function
@@ -926,6 +1135,7 @@ export const getPlugins = async () => {
 
         loadedPlugins.set(extension.id, pluginInstance);
         const loadTime = (performance.now() - startTime).toFixed(2);
+        console.log(`[Plugin Loader] ✓ Loaded ${extension.id} in ${loadTime}ms`);
 
       } else {
         extensionLogger.info(`Loading external extension: ${extension.id}`);
@@ -980,16 +1190,192 @@ export const getPlugins = async () => {
       usePluginStore.getState().addPluginError(extension.id, detailedError);
     }
   }
+  // If any OTA bundles patched the main-process registry, invalidate the extensions
+  // query so ExtensionDetails, ExtensionBrowser etc. immediately show updated metadata.
+  if (Object.keys(window.__voiden_ota_manifests__ ?? {}).length > 0) {
+    getQueryClient().invalidateQueries({ queryKey: ['extensions'] });
+  }
+
+  console.log(
+    `[Plugin Loader] Done. ${loadedPlugins.size} plugins loaded.`,
+    `Request handlers: ${requestOrchestrator.requestHandlers.length},`,
+    `Response handlers: ${requestOrchestrator.responseHandlers.length}`
+  );
+
   usePluginStore.getState().initialize();
 };
 
-export const PluginProvider = ({ children }: { children: React.ReactNode }) => {
+const LOADING_STEPS = [
+  "Initializing core",
+  "Linking modules",
+  "Syncing pipeline",
+  "Environment ready",
+];
+
+const PluginLoadingScreen = () => {
+  const [step, setStep] = useState(0);
+
+  useEffect(() => {
+    const t = setInterval(() => {
+      setStep((s) => (s < 3 ? s + 1 : s));
+    }, 2000);
+    return () => clearInterval(t);
+  }, []);
+
+  // Corner targets in 100x100 SVG space
+  const corners = [
+    { x: 22, y: 22 }, // TL
+    { x: 78, y: 22 }, // TR
+    { x: 22, y: 78 }, // BL
+    { x: 78, y: 78 }, // BR
+  ];
+
+  return (
+    <div className="fixed inset-0 bg-bg flex flex-col items-center justify-center select-none z-[9999]">
+      <div className="flex flex-col items-center gap-16">
+
+        {/* Scatter-Connect-Combine Stage */}
+        <div className="relative w-48 h-48">
+          <svg viewBox="0 0 100 100" className="w-full h-full overflow-visible">
+
+            {/* Central Big Block (Static) */}
+            <motion.rect
+              x="40" y="40" width="20" height="20" rx="4"
+              fill="rgb(var(--common-accent))"
+              style={{ transformBox: 'fill-box', transformOrigin: 'center' }}
+              animate={{
+                scale: [0.95, 1.05, 0.95]
+              }}
+              transition={{
+                duration: 2,
+                repeat: Infinity,
+                ease: "easeInOut"
+              }}
+            />
+
+            {/* Orbiting Group for Modules */}
+            <motion.g
+              animate={{ rotate: 360 }}
+              transition={{ duration: 12, repeat: Infinity, ease: "linear" }}
+              style={{ originX: 0.5, originY: 0.5 }}
+            >
+              {/* Invisible anchor to lock the center of rotation at 50,50 */}
+              <rect x="0" y="0" width="100" height="100" fill="none" pointerEvents="none" />
+
+              {/* Connection Lines */}
+              {corners.map((c, i) => (
+                <motion.line
+                  key={`line-${i}`}
+                  x1="50" y1="50" x2={c.x} y2={c.y}
+                  stroke="rgb(var(--common-accent))"
+                  strokeWidth="1"
+                  strokeDasharray="2 2"
+                  initial={{ pathLength: 0, opacity: 0 }}
+                  animate={{ 
+                    pathLength: [0, 0, 1, 1, 0],
+                    opacity: [0, 0, 0.4, 0.4, 0]
+                  }}
+                  transition={{
+                    duration: 4,
+                    repeat: Infinity,
+                    times: [0, 0.25, 0.4, 0.7, 0.85],
+                    ease: "easeInOut"
+                  }}
+                />
+              ))}
+
+              {/* Traveling Signal Pulse */}
+              {corners.map((c, i) => (
+                <motion.circle
+                  key={`pulse-${i}`}
+                  r="1.5"
+                  fill="rgb(var(--common-accent))"
+                  style={{ transformBox: 'fill-box', transformOrigin: 'center' }}
+                  animate={{
+                    cx: [50, 50, c.x, c.x, 50],
+                    cy: [50, 50, c.y, c.y, 50],
+                    opacity: [0, 0, 1, 1, 0],
+                    r: [1.5, 1.5, 2.5, 2.5, 1.5]
+                  }}
+                  transition={{
+                    duration: 4,
+                    repeat: Infinity,
+                    times: [0, 0.25, 0.45, 0.65, 0.85],
+                    ease: "easeInOut"
+                  }}
+                />
+              ))}
+
+              {/* Expanding/Combining Blocks */}
+              {corners.map((c, i) => (
+                <motion.rect
+                  key={`node-${i}`}
+                  width="10" height="10" rx="2"
+                  fill="var(--ui-panel-bg)"
+                  stroke="var(--border)"
+                  strokeWidth="1.5"
+                  style={{ transformBox: 'fill-box', transformOrigin: 'center' }}
+                  animate={{
+                    x: [45, c.x - 5, c.x - 5, 45],
+                    y: [45, c.y - 5, c.y - 5, 45],
+                    opacity: [0, 1, 1, 0],
+                    scale: [0.2, 1, 1, 0.2],
+                    stroke: ["var(--border)", "rgb(var(--common-accent))", "rgb(var(--common-accent))", "var(--border)"],
+                    fill: ["var(--ui-panel-bg)", "rgba(var(--common-accent), 0.15)", "rgba(var(--common-accent), 0.15)", "var(--ui-panel-bg)"]
+                  }}
+                  transition={{
+                    duration: 4,
+                    repeat: Infinity,
+                    times: [0, 0.3, 0.7, 1],
+                    ease: "easeInOut"
+                  }}
+                />
+              ))}
+            </motion.g>
+          </svg>
+        </div>
+        {/* Minimal Info */}
+        <div className="flex flex-col items-center gap-6">
+          <div className="h-4 flex items-center justify-center">
+            <AnimatePresence mode="wait">
+              <motion.p
+                key={step}
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 1.1 }}
+                className="text-[10px] font-mono tracking-[0.5em] text-comment uppercase font-bold"
+              >
+                {LOADING_STEPS[step]}
+              </motion.p>
+            </AnimatePresence>
+          </div>
+
+          {/* Activity Pips */}
+          <div className="flex gap-2.5">
+            {[0, 1, 2, 3].map((i) => (
+              <motion.div
+                key={i}
+                className="w-1.5 h-1.5 rounded-full border border-border"
+                animate={{ 
+                  backgroundColor: step >= i ? "rgb(var(--common-accent))" : "transparent",
+                  borderColor: step >= i ? "rgb(var(--common-accent))" : "var(--border)",
+                }}
+                transition={{ duration: 0.5 }}
+              />
+            ))}
+          </div>
+        </div>
+
+      </div>
+    </div>
+  );
+};export const PluginProvider = ({ children }: { children: React.ReactNode }) => {
   const { data: extensions, isLoading: extLoading } = useGetExtensions();
   const isInitialized = usePluginStore((state) => state.isInitialized);
-  const updateCheckRan = _ReactShim.useRef(false);
+  const updateCheckRan = useRef(false);
 
   // After the first initialization, check GitHub for updated core extension bundles.
-  // Downloads happen in the background; a toast tells the user to restart if anything changed.
+  // Downloads happen in the background; a toast with a restart button appears if anything changed.
   useEffect(() => {
     if (!isInitialized || updateCheckRan.current) return;
     updateCheckRan.current = true;
@@ -997,59 +1383,113 @@ export const PluginProvider = ({ children }: { children: React.ReactNode }) => {
     (async () => {
       try {
         const coreExtApi = (window as any).electron?.coreExtensions;
-        if (!coreExtApi?.checkAndUpdate) return;
-
-        const result = await coreExtApi.checkAndUpdate();
-        if (result?.updated?.length > 0) {
-          const count: number = result.updated.length;
-          toast.info(
-            `Core extensions updated (${count} plugin${count > 1 ? 's' : ''}). Please restart the app to apply changes.`,
-            { duration: 10000 },
-          );
+        if (!coreExtApi?.checkForUpdates) {
+          console.warn('[CoreExtensions] coreExtensions API not available on window.electron');
+          return;
         }
-      } catch (e) {
-        extensionLogger.warn('Core extension update check failed:', e);
+
+        console.log('[CoreExtensions] Checking for available updates...');
+        const result = await coreExtApi.checkForUpdates();
+
+        if (result?.error) {
+          console.warn('[CoreExtensions] Update check error:', result.error);
+          return;
+        }
+
+        if (result?.plugins?.length) {
+          usePluginStore.getState().setCoreUpdateInfo(result.plugins);
+          const updatable = result.plugins.filter((p: any) => p.hasUpdate && p.compatible);
+          const incompatible = result.plugins.filter((p: any) => p.hasUpdate && !p.compatible);
+          if (updatable.length > 0) {
+            console.log(`[CoreExtensions] ${updatable.length} update(s) available:`, updatable.map((p: any) => p.pluginId).join(', '));
+          }
+          if (incompatible.length > 0) {
+            console.log(`[CoreExtensions] ${incompatible.length} update(s) require a newer app version:`, incompatible.map((p: any) => `${p.pluginId} (${p.requiredAppVersion})`).join(', '));
+          }
+        }
+      } catch (err) {
+        console.warn('[CoreExtensions] Update check threw unexpectedly:', err);
       }
     })();
   }, [isInitialized]);
 
+  const reloadPlugins = useCallback(async () => {
+    // IMPORTANT: Set isInitialized to false FIRST to prevent components from rendering during reload
+    usePluginStore.setState({ isInitialized: false });
+
+    // Small delay to let React process the state change
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    useEditorEnhancementStore.setState({
+      voidenExtensions: [],
+      voidenSlashGroups: [],
+      codemirrorExtensions: [],
+    });
+    try {
+      await getPlugins();
+    } catch (err) {
+      extensionLogger.error("Error reloading extensions:", err);
+      console.error("[PluginProvider] Critical error loading plugins:", err);
+      usePluginStore.getState().addPluginError('__plugin_system__', String(err));
+      usePluginStore.getState().initialize();
+    }
+  }, [getPlugins]);
+
+  // Hot-reload: main process signals this when bundled-plugins/ changes (dev only)
   useEffect(() => {
-    const reloadPlugins = async () => {
-      // IMPORTANT: Set isInitialized to false FIRST to prevent components from rendering during reload
-      usePluginStore.setState({ isInitialized: false });
+    const ipc = (window as any).electron?.ipc;
+    if (!ipc) return;
+    const handler = () => reloadPlugins();
+    ipc.on('coreExtensions:bundledPluginsChanged', handler);
+    return () => ipc.removeListener('coreExtensions:bundledPluginsChanged', handler);
+  }, [reloadPlugins]);
 
-      // Small delay to let React process the state change
-      await new Promise(resolve => setTimeout(resolve, 10));
+  // Log main-process extension load results to DevTools console (same format as renderer plugins).
+  // On mount: pull startup results (fired before renderer subscribed).
+  // At runtime: subscribe to live events (e.g. after OTA install).
+  useEffect(() => {
+    if (!isInitialized) return;
+    const coreExtApi = (window as any).electron?.coreExtensions;
+    if (!coreExtApi) return;
 
-      useEditorEnhancementStore.setState({
-        voidenExtensions: [],
-        voidenSlashGroups: [],
-        codemirrorExtensions: [],
-      });
-      try {
-        await getPlugins();
-      } catch (err) {
-        extensionLogger.error("Error reloading extensions:", err);
-        console.error("[PluginProvider] Critical error loading plugins:", err);
-        // Store the error for display
-        usePluginStore.getState().addPluginError('__plugin_system__', String(err));
-        // Still mark as initialized even on error so UI doesn't stay stuck
-        usePluginStore.getState().initialize();
+    const logResult = (r: { id: string; success: boolean; path?: string; error?: string; duration: number }) => {
+      if (r.success) {
+        extensionLogger.info(`[MainProcess] ✓ Loaded ${r.id} in ${r.duration.toFixed(1)}ms`, r.path ? `— ${r.path}` : '');
+      } else {
+        extensionLogger.warn(`[MainProcess] ✗ Failed to load ${r.id}: ${r.error}`);
       }
     };
 
-    // Debounce plugin reload to avoid React errors during rapid state changes
-    if (!extLoading) {
-      const timeoutId = setTimeout(() => {
-        reloadPlugins();
-      }, 100);
+    coreExtApi.getMainProcessResults?.().then((results: any[]) => results?.forEach(logResult));
 
-      return () => clearTimeout(timeoutId);
-    }
+    const unsub = coreExtApi.onMainProcessExtensionLoaded?.(logResult);
+    return () => unsub?.();
+  }, [isInitialized]);
+
+  const prevReloadKeyRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (extLoading) return;
+
+    // Only reload when the set of enabled/installed plugins actually changes.
+    // Metadata-only updates (OTA manifest sync, remote registry fetch) share
+    // the same id:enabled fingerprint — skip those to avoid a second loading screen.
+    const reloadKey = (extensions ?? [])
+      .map((e: any) => `${e.id}:${e.enabled ? '1' : '0'}`)
+      .sort()
+      .join('|');
+
+    if (prevReloadKeyRef.current === reloadKey) return;
+    prevReloadKeyRef.current = reloadKey;
+
+    const timeoutId = setTimeout(() => {
+      reloadPlugins();
+    }, 100);
+    return () => clearTimeout(timeoutId);
   }, [extensions, extLoading]);
-
-  if (extLoading || !isInitialized)
-    return <div className="bg-bg h-screen w-screen flex items-center justify-center text-text">Loading plugins...</div>;
+  if (extLoading || !isInitialized) {
+    return <PluginLoadingScreen />;
+  }
 
   return (
     <PluginErrorBoundary>

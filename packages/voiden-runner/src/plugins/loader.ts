@@ -15,7 +15,7 @@
  */
 
 import { requestOrchestrator, hookRegistry } from '@voiden/executors'
-import { CORE_PLUGINS } from './registry.js'
+import { CORE_PLUGINS, hasCoreRunner, getCoreRunnerImportUrl, getCoreRunnerPath } from './registry.js'
 import {
   fetchCommunityPlugins,
   findCommunityPlugin,
@@ -26,6 +26,45 @@ import { createHeadlessPluginContext } from '../headlessContext.js'
 import { clearSchemas } from '../blockSchemaRegistry.js'
 import { readStore } from './store.js'
 import { findPlugin } from './registry.js'
+import * as https from 'https'
+import { mkdirSync, createWriteStream, existsSync } from 'fs'
+import { dirname } from 'path'
+
+/** Download a core plugin runner bundle from its GitHub repo release. */
+async function downloadCoreRunner(pluginId: string, repo: string, assetName: string, verbose: boolean): Promise<boolean> {
+  const destPath = getCoreRunnerPath(pluginId)
+  mkdirSync(dirname(destPath), { recursive: true })
+
+  // Fetch latest release metadata from GitHub API
+  const apiUrl = `https://api.github.com/repos/${repo}/releases/latest`
+  const meta: any = await new Promise((resolve, reject) => {
+    https.get(apiUrl, { headers: { 'User-Agent': 'voiden-runner', 'Accept': 'application/vnd.github+json' } }, res => {
+      let data = ''
+      res.on('data', c => data += c)
+      res.on('end', () => {
+        try { resolve(JSON.parse(data)) } catch { reject(new Error('Invalid JSON from GitHub API')) }
+      })
+    }).on('error', reject)
+  })
+
+  const asset = (meta.assets ?? []).find((a: any) => a.name === assetName)
+  if (!asset) {
+    if (verbose) console.warn(`  [plugins] No "${assetName}" asset in latest release of ${repo}`)
+    return false
+  }
+
+  // Download the asset
+  await new Promise<void>((resolve, reject) => {
+    const file = createWriteStream(destPath)
+    https.get(asset.browser_download_url, { headers: { 'User-Agent': 'voiden-runner' } }, res => {
+      res.pipe(file)
+      file.on('finish', () => { file.close(); resolve() })
+    }).on('error', reject)
+  })
+
+  if (verbose) console.log(`  [plugins] Downloaded ${assetName} → ${destPath}`)
+  return true
+}
 
 // ─── Per-plugin enabled check ─────────────────────────────────────────────────
 
@@ -91,6 +130,7 @@ export async function loadEnabledPlugins(
 
   // ── Core plugins ──────────────────────────────────────────────────────────
   // Core plugins default to enabled but can be disabled via ~/.voiden/plugins.json.
+  // Runner bundles are downloaded on-demand from each plugin's GitHub repo.
   for (const def of CORE_PLUGINS) {
     if (skipPlugins.has(def.name)) {
       if (verbose) console.log(`  [plugins] Skipping plugin (--no-scripts): ${def.name}`)
@@ -100,7 +140,19 @@ export async function loadEnabledPlugins(
       if (verbose) console.log(`  [plugins] Skipping disabled core plugin: ${def.name}`)
       continue
     }
-    const ok = await loadPlugin(def.pluginPath, def.name, verbose)
+
+    // Auto-download runner bundle if not cached locally
+    if (!hasCoreRunner(def.name)) {
+      if (verbose) console.log(`  [plugins] Downloading runner for ${def.name} from ${def.repo}...`)
+      await downloadCoreRunner(def.name, def.repo, def.runnerAsset, verbose)
+    }
+
+    if (!hasCoreRunner(def.name)) {
+      if (verbose) console.warn(`  [plugins] Runner not available for ${def.name} — skipping`)
+      continue
+    }
+
+    const ok = await loadPlugin(getCoreRunnerImportUrl(def.name), def.name, verbose)
     if (ok) loaded.push(def.name)
   }
 

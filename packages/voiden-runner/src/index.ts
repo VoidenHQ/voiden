@@ -1021,7 +1021,7 @@ pluginCmd
     const communityPlugins = await fetchCommunityPlugins()
 
     console.log()
-    console.log(chalk.bold('  Core plugins') + chalk.gray('  (@voiden/core-extensions)'))
+    console.log(chalk.bold('  Core plugins') + chalk.gray('  (from individual plugin repos)'))
     console.log(DIVIDER)
 
     for (const def of CORE_PLUGINS) {

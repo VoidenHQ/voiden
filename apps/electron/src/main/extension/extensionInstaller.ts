@@ -161,7 +161,7 @@ export function prepareExtensionMain(main: string): { main: string; extraFiles: 
 export async function getExtensionFiles(
   repo: string,
   version: string
-): Promise<{ manifest: string; main: string; skill?: string }> {
+): Promise<{ manifest: string; main: string; skill?: string; mainProcess?: string }> {
   const apiUrl = `https://api.github.com/repos/${repo}/releases/tags/v${version}`;
   const releaseRaw = await httpsGetText(apiUrl);
   const releaseInfo = JSON.parse(releaseRaw);
@@ -190,5 +190,18 @@ export async function getExtensionFiles(
     }
   }
 
-  return { manifest, main, skill };
+  // Attempt to fetch main-process bundle — named {pluginId}-main.js by convention
+  let mainProcess: string | undefined;
+  const mainProcessAsset = assets.find(
+    (asset) => (asset.name.endsWith("-main.cjs") || asset.name.endsWith("-main.js")) && asset.name !== "main.js",
+  );
+  if (mainProcessAsset) {
+    try {
+      mainProcess = await httpsGetText(mainProcessAsset.browser_download_url);
+    } catch {
+      // main-process bundle is optional — continue without it
+    }
+  }
+
+  return { manifest, main, skill, mainProcess };
 }

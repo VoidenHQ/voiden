@@ -351,6 +351,7 @@ declare global {
         setEnabled: (extensionId: string, enabled: boolean) => Promise<any>;
         openDetails: (extension: any) => Promise<any>;
         update: (extensionId: string) => Promise<any>;
+        updateCoreMeta: (pluginId: string, meta: Record<string, any>) => Promise<void>;
       };
       ipc: {
         on: (
@@ -467,8 +468,10 @@ export interface Extension {
   enabled: boolean;
   readme: string;
   repo?: string;
+  logo?: string;
   installedPath?: string;
   latestVersion?: string;
+  isLocallyAvailable?: boolean;
   capabilities?: {
     blocks?: {
       owns?: string[];

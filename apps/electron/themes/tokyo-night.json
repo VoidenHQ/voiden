@@ -68,6 +68,12 @@
     "--variable-faker-bg": "rgba(125, 207, 255, 0.15)",
     "--variable-faker-fg": "#7dcfff",
     "--faker": "#7dcfff",
-    "--faker-bg": "rgba(125, 207, 255, 0.15)"
+    "--faker-bg": "rgba(125, 207, 255, 0.15)",
+
+    "_section_buttons": "=== BUTTON COLORS (4) ===",
+    "--button-primary-bg": "#7aa2f7",
+    "--button-primary-hover": "#8fb4f9",
+    "--button-danger-bg": "#f7768e",
+    "--button-danger-hover": "#f98ca0"
   }
 }

@@ -34,7 +34,7 @@ export default defineConfig((env) => {
     },
     optimizeDeps: {
       exclude: [
-        '@voiden/core-extensions',
+
         '@voiden/sdk',
         '@tiptap/core',
         '@tiptap/react',

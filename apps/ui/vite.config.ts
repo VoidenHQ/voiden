@@ -43,7 +43,7 @@ export default defineConfig(async () => ({
     exclude: [
       "js-big-decimal",
       // Exclude workspace packages to ensure fresh builds
-      "@voiden/core-extensions",
+
       "@voiden/fuzzy-search",
       "@voiden/sdk",
       "@voiden/shared",

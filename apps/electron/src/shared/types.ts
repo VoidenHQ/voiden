@@ -47,11 +47,13 @@ export interface ExtensionData {
   enabled: boolean;
   readme: string;
   repo?: string; // for community extensions
+  logo?: string; // logo icon link
   installedPath?: string; // for installed community extensions
   capabilities?: any; // capabilities from manifest
   features?: string[]; // features from manifest
   dependencies?: any; // dependencies from manifest
   mainProcess?: boolean; // whether this extension has a main-process entry point
+  isLocallyAvailable?: boolean; // core extensions only: true if a local bundle exists (bundled or OTA-cached)
 }
 
 // SIDEBAR PANELS LOGIC

@@ -1,7 +1,6 @@
 import { ipcRenderer } from "electron";
 import { Tab } from "../../shared/types";
 import type { Settings } from "../../main/settings";
-import { connect } from "http2";
 
 export const directoriesApi = {
   list: () => ipcRenderer.invoke("directories:list"),
@@ -80,11 +79,20 @@ export const extensionsApi = {
   getAll: () => ipcRenderer.invoke("extensions:getAll"),
   get: (extensionId: string) =>
     ipcRenderer.invoke("extensions:get", extensionId),
+  /** Patch a single core extension's metadata in the main-process registry (non-destructive). */
+  updateCoreMeta: (pluginId: string, meta: Record<string, any>) =>
+    ipcRenderer.invoke("extensions:updateCoreMeta", pluginId, meta),
   install: (extension: any) =>
     ipcRenderer.invoke("extensions:install", extension),
   installFromZip: () => ipcRenderer.invoke("extensions:installFromZip"),
   uninstall: (extensionId: string) =>
     ipcRenderer.invoke("extensions:uninstall", extensionId),
+  /** Permanently uninstall a core plugin (persisted across restarts). */
+  uninstallCore: (pluginId: string) =>
+    ipcRenderer.invoke("extensions:uninstallCore", pluginId),
+  /** Re-add a previously uninstalled core plugin to state. */
+  reinstallCore: (pluginId: string) =>
+    ipcRenderer.invoke("extensions:reinstallCore", pluginId),
   setEnabled: (extensionId: string, enabled: boolean) =>
     ipcRenderer.invoke("extensions:setEnabled", extensionId, enabled),
   openDetails: (extension: any) =>
@@ -94,21 +102,68 @@ export const extensionsApi = {
 };
 
 export const coreExtensionsApi = {
-  /**
-   * Returns { pluginId: absoluteFilePath } for every core plugin that has a
-   * downloaded update cached on disk. Used by the plugin loader to prefer the
-   * updated bundle over the build-time bundled version.
-   */
+  /** Returns the locally cached manifest (null if never downloaded). */
+  getLocalManifest: (): Promise<{ updatedAt: string; plugins: Record<string, { version: string; name: string; file: string; voidenVersion?: string; repo: string }> } | null> =>
+    ipcRenderer.invoke("coreExtensions:getLocalManifest"),
+
+  /** Check GitHub for available updates without downloading. Returns per-plugin update info. */
+  checkForUpdates: (): Promise<{
+    plugins: Array<{
+      pluginId: string
+      currentVersion: string | null
+      remoteVersion: string
+      voidenVersion?: string
+      hasUpdate: boolean
+      compatible: boolean
+      requiredAppVersion: string | null
+    }>
+    error?: string
+  }> => ipcRenderer.invoke("coreExtensions:checkForUpdates"),
+
+  /** Returns { pluginId: absoluteFilePath } for plugins pre-downloaded at Voiden build time. */
+  getBundledPlugins: (): Promise<Record<string, string>> =>
+    ipcRenderer.invoke("coreExtensions:getBundledPlugins"),
+
+  /** Returns { pluginId: absoluteFilePath } for cached plugin bundles. */
   getCachedPlugins: (): Promise<Record<string, string>> =>
     ipcRenderer.invoke("coreExtensions:getCachedPlugins"),
 
-  /**
-   * Fetches the latest core-extensions GitHub release, compares per-plugin
-   * versions against the local cache, and downloads only the plugins that changed.
-   * Returns { updated: string[], upToDate: boolean }.
-   */
-  checkAndUpdate: (): Promise<{ updated: string[]; upToDate: boolean; error?: string }> =>
-    ipcRenderer.invoke("coreExtensions:checkAndUpdate"),
+  /** Checks each plugin's own repo for updates, downloads changed plugins.
+   *  Pass a pluginId to scope the check to a single plugin. */
+  checkAndUpdate: (pluginId?: string): Promise<{ updated: string[]; upToDate: boolean; incompatible: string[]; error?: string }> =>
+    ipcRenderer.invoke("coreExtensions:checkAndUpdate", pluginId),
+
+  /** Read a cached plugin bundle as a UTF-8 string (for Blob URL import). */
+  readPluginFile: (filePath: string): Promise<string | null> =>
+    ipcRenderer.invoke("coreExtensions:readPluginFile", filePath),
+
+  /** Relaunch the app (app.relaunch + app.quit). */
+  restart: (): Promise<void> =>
+    ipcRenderer.invoke("coreExtensions:restart"),
+
+  /** Fetch the remote core plugin registry and sync into app state.
+   *  Call this when the Extension Browser opens — same pattern as community extensions. */
+  fetchRegistry: (): Promise<void> =>
+    ipcRenderer.invoke("coreExtensions:fetchRegistry"),
+
+  /** Delete the OTA-cached bundle for a core plugin (does not remove it from the browser). */
+  deleteCache: (pluginId: string): Promise<void> =>
+    ipcRenderer.invoke("coreExtensions:deleteCache", pluginId),
+
+  /** Returns parsed changelog.json for a cached plugin, or null if not available. */
+  getChangelog: (pluginId: string): Promise<any[] | null> =>
+    ipcRenderer.invoke("coreExtensions:getChangelog", pluginId),
+
+  /** Returns results of all main-process extension load attempts (for startup log reporting). */
+  getMainProcessResults: (): Promise<Array<{ id: string; success: boolean; path?: string; error?: string; duration: number }>> =>
+    ipcRenderer.invoke("coreExtensions:getMainProcessResults"),
+
+  /** Subscribe to main-process extension load events fired at runtime (e.g. after install). */
+  onMainProcessExtensionLoaded: (callback: (result: { id: string; success: boolean; path?: string; error?: string; duration: number }) => void) => {
+    const handler = (_: Electron.IpcRendererEvent, result: any) => callback(result);
+    ipcRenderer.on("coreExtensions:mainProcessLoaded", handler);
+    return () => ipcRenderer.removeListener("coreExtensions:mainProcessLoaded", handler);
+  },
 };
 
 export const ipcApi = {

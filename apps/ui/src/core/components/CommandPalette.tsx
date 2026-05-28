@@ -19,8 +19,8 @@ import {
   HttpPathParamsHelp,
   HttpJsonBodyHelp,
   HttpXmlBodyHelp,
-} from '@voiden/core-extensions/voiden-rest-api/help';
-import { SimpleAssertionsHelp } from '@voiden/core-extensions/simple-assertions/help';
+} from './plugin-help/VoidenRestApiHelp';
+import { SimpleAssertionsHelp } from './plugin-help/SimpleAssertionsHelp';
 import { RuntimeVariablesHelp } from '@/core/editors/voiden/nodes/help';
 
 interface CommandPaletteProps {

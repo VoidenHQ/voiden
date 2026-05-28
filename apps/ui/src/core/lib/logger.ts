@@ -90,18 +90,22 @@ class Logger {
 
   debug(message: string, ...args: any[]) {
     if (!this.shouldLog('debug')) return;
+    console.debug(...this.formatMessage('debug', message, ...args));
   }
 
   info(message: string, ...args: any[]) {
     if (!this.shouldLog('info')) return;
+    console.info(...this.formatMessage('info', message, ...args));
   }
 
   warn(message: string, ...args: any[]) {
     if (!this.shouldLog('warn')) return;
+    console.warn(...this.formatMessage('warn', message, ...args));
   }
 
   error(message: string, ...args: any[]) {
     if (!this.shouldLog('error')) return;
+    console.error(...this.formatMessage('error', message, ...args));
   }
 
   /**

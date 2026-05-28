@@ -401,14 +401,14 @@ input[type="week"]::-webkit-datetime-edit-year-field:focus {
     --placeholder-bg: var(--accent, rgba(255, 173, 102, 0.05));
 
     --button-primary-bg: var(--accent-alt, #3fa3d9);
-    --button-primary-hover: var(--accent-alt, #2e8fcc);
+    --button-primary-hover: color-mix(in srgb, var(--button-primary-bg) 82%, white);
 
     /* Button aliases */
     --button-secondary: var(--bg-secondary, #1c212b);
     --button-secondary-bg: var(--bg-secondary, #1c212b);
     --button-secondary-fg: var(--fg-primary, #a9b7c6);
     --button-danger-bg: var(--error, #f27983);
-    --button-danger-hover: var(--error, #d95965);
+    --button-danger-hover: color-mix(in srgb, var(--button-danger-bg) 82%, white);
 
     /* Blockquote aliases */
     --blockquote-border: var(--accent, #ffcc66);
