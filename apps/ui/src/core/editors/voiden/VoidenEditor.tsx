@@ -650,7 +650,8 @@ const VoidenEditorInner = ({
           try {
             const savedContent = parseMarkdown(content, memoizedSchema);
             const santizedContent = sanitizeDoc(savedContent);
-            applyContent(santizedContent);
+            const preserved = preserveUnknownNodesInJSON(santizedContent, memoizedSchema);
+            applyContent(preserved);
           } catch {
             const fallbackContent = { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: content }] }] };
             console.log('[VoidenEditor] setContent — doLoad: fallback (parse error)', { tabId, source });

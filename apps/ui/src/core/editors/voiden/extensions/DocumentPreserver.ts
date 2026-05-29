@@ -45,24 +45,37 @@ function restoreOriginalNodes(node: any, schema: any): any {
 }
 
 /**
- * When loading JSON, wrap unknown nodes with preservation data
+ * When loading JSON, wrap unknown nodes with preservation data.
+ *
+ * Special case: if a known placeholder node has children whose types are not in
+ * the schema (e.g. gqlquery containing gqlurl/gqlbody when the GraphQL plugin is
+ * disabled), collapse the whole node into __preserved and clear the content.
+ * This prevents TipTap from throwing on unknown child types while keeping all
+ * data intact for when the plugin is re-enabled.
  */
 export function preserveUnknownNodesInJSON(json: any, schema: any): any {
   if (!json || typeof json !== 'object') return json;
 
-  // Check if this node type exists in the schema
   if (json.type && !schema.nodes[json.type]) {
-    // Unknown node - wrap it for preservation
     return {
-      type: json.type,  // Keep the type name (placeholder will handle it)
-      attrs: {
-        __preserved: json,  // Store the entire original node
-      },
+      type: json.type,
+      attrs: { __preserved: json },
     };
   }
 
-  // Recursively process content
   if (json.content && Array.isArray(json.content)) {
+    const schemaNode = schema.nodes[json.type];
+    const isPlaceholder = schemaNode?.spec?.attrs?.__preserved !== undefined;
+
+    if (isPlaceholder && json.content.some((child: any) => child.type && !schema.nodes[child.type])) {
+      // Placeholder node with unknown children — store the entire original node
+      // (including its children) in __preserved so nothing is lost on save.
+      return {
+        type: json.type,
+        attrs: { ...(json.attrs ?? {}), __preserved: json },
+      };
+    }
+
     return {
       ...json,
       content: json.content.map((child: any) => preserveUnknownNodesInJSON(child, schema)),

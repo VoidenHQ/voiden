@@ -11,16 +11,6 @@ import { usePanelStore } from '@/core/stores/panelStore';
 import { useCodeEditorStore } from '@/core/editors/code/CodeEditorStore';
 import { useDocumentStore } from '@/core/file-system/stores';
 import { prettifyJSONC } from '@/utils/jsonc';
-import {
-  HttpHeadersHelp,
-  HttpQueryParamsHelp,
-  HttpUrlFormHelp,
-  HttpMultipartFormHelp,
-  HttpPathParamsHelp,
-  HttpJsonBodyHelp,
-  HttpXmlBodyHelp,
-} from './plugin-help/VoidenRestApiHelp';
-import { SimpleAssertionsHelp } from './plugin-help/SimpleAssertionsHelp';
 import { RuntimeVariablesHelp } from '@/core/editors/voiden/nodes/help';
 
 interface CommandPaletteProps {
@@ -409,92 +399,12 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isFocused, mode,
     },
     // Help commands
     {
-      id: 'help-headers',
-      label: 'Help: HTTP Headers',
-      description: 'Learn about HTTP headers and how to use them',
-      icon: <HelpCircle size={16} className="text-accent" />,
-      action: () => {
-        onShowHelp('HTTP Headers', <HttpHeadersHelp />);
-        setTimeout(() => onBlur(), 0);
-      },
-    },
-    {
-      id: 'help-query-params',
-      label: 'Help: Query Parameters',
-      description: 'Learn about query parameters and how to use them',
-      icon: <HelpCircle size={16} className="text-accent" />,
-      action: () => {
-        onShowHelp('Query Parameters', <HttpQueryParamsHelp />);
-        setTimeout(() => onBlur(), 0);
-      },
-    },
-    {
-      id: 'help-url-form',
-      label: 'Help: URL-Encoded Form',
-      description: 'Learn about URL-encoded form data',
-      icon: <HelpCircle size={16} className="text-accent" />,
-      action: () => {
-        onShowHelp('URL-Encoded Form', <HttpUrlFormHelp />);
-        setTimeout(() => onBlur(), 0);
-      },
-    },
-    {
-      id: 'help-multipart-form',
-      label: 'Help: Multipart Form',
-      description: 'Learn about multipart form data and file uploads',
-      icon: <HelpCircle size={16} className="text-accent" />,
-      action: () => {
-        onShowHelp('Multipart Form', <HttpMultipartFormHelp />);
-        setTimeout(() => onBlur(), 0);
-      },
-    },
-    {
-      id: 'help-path-params',
-      label: 'Help: Path Parameters',
-      description: 'Learn about path parameters in URLs',
-      icon: <HelpCircle size={16} className="text-accent" />,
-      action: () => {
-        onShowHelp('Path Parameters', <HttpPathParamsHelp />);
-        setTimeout(() => onBlur(), 0);
-      },
-    },
-    {
-      id: 'help-json-body',
-      label: 'Help: JSON Body',
-      description: 'Learn about sending JSON request bodies',
-      icon: <HelpCircle size={16} className="text-accent" />,
-      action: () => {
-        onShowHelp('JSON Body', <HttpJsonBodyHelp />);
-        setTimeout(() => onBlur(), 0);
-      },
-    },
-    {
-      id: 'help-xml-body',
-      label: 'Help: XML Body',
-      description: 'Learn about sending XML request bodies',
-      icon: <HelpCircle size={16} className="text-accent" />,
-      action: () => {
-        onShowHelp('XML Body', <HttpXmlBodyHelp />);
-        setTimeout(() => onBlur(), 0);
-      },
-    },
-    {
       id: 'help-runtime-variables',
       label: 'Help: Runtime Variables',
       description: 'Learn about capturing values from responses',
       icon: <HelpCircle size={16} className="text-accent" />,
       action: () => {
         onShowHelp('Runtime Variables', <RuntimeVariablesHelp />);
-        setTimeout(() => onBlur(), 0);
-      },
-    },
-    {
-      id: 'help-simple-assertions',
-      label: 'Help: Assertions',
-      description: 'Learn about validating API responses with assertions',
-      icon: <HelpCircle size={16} className="text-accent" />,
-      action: () => {
-        onShowHelp('Simple Assertions', <SimpleAssertionsHelp />);
         setTimeout(() => onBlur(), 0);
       },
     },

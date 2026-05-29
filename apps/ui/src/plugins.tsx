@@ -1214,6 +1214,7 @@ const LOADING_STEPS = [
 
 const PluginLoadingScreen = () => {
   const [step, setStep] = useState(0);
+  const [cycle, setCycle] = useState(0);
 
   useEffect(() => {
     const t = setInterval(() => {
@@ -1222,118 +1223,98 @@ const PluginLoadingScreen = () => {
     return () => clearInterval(t);
   }, []);
 
-  // Corner targets in 100x100 SVG space
-  const corners = [
-    { x: 22, y: 22 }, // TL
-    { x: 78, y: 22 }, // TR
-    { x: 22, y: 78 }, // BL
-    { x: 78, y: 78 }, // BR
-  ];
+  // Restart the grid every 3s so it loops
+  useEffect(() => {
+    const t = setTimeout(() => setCycle((c) => c + 1), 3000);
+    return () => clearTimeout(t);
+  }, [cycle]);
 
   return (
     <div className="fixed inset-0 bg-bg flex flex-col items-center justify-center select-none z-[9999]">
-      <div className="flex flex-col items-center gap-16">
+      <div className="flex flex-col items-center gap-14">
 
-        {/* Scatter-Connect-Combine Stage */}
-        <div className="relative w-48 h-48">
-          <svg viewBox="0 0 100 100" className="w-full h-full overflow-visible">
-
-            {/* Central Big Block (Static) */}
-            <motion.rect
-              x="40" y="40" width="20" height="20" rx="4"
-              fill="rgb(var(--common-accent))"
-              style={{ transformBox: 'fill-box', transformOrigin: 'center' }}
-              animate={{
-                scale: [0.95, 1.05, 0.95]
-              }}
-              transition={{
-                duration: 2,
-                repeat: Infinity,
-                ease: "easeInOut"
-              }}
-            />
-
-            {/* Orbiting Group for Modules */}
-            <motion.g
-              animate={{ rotate: 360 }}
-              transition={{ duration: 12, repeat: Infinity, ease: "linear" }}
-              style={{ originX: 0.5, originY: 0.5 }}
-            >
-              {/* Invisible anchor to lock the center of rotation at 50,50 */}
-              <rect x="0" y="0" width="100" height="100" fill="none" pointerEvents="none" />
-
-              {/* Connection Lines */}
-              {corners.map((c, i) => (
-                <motion.line
-                  key={`line-${i}`}
-                  x1="50" y1="50" x2={c.x} y2={c.y}
-                  stroke="rgb(var(--common-accent))"
-                  strokeWidth="1"
-                  strokeDasharray="2 2"
-                  initial={{ pathLength: 0, opacity: 0 }}
-                  animate={{ 
-                    pathLength: [0, 0, 1, 1, 0],
-                    opacity: [0, 0, 0.4, 0.4, 0]
+        {/* Plugin cards snapping into a grid */}
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={cycle}
+            className="grid grid-cols-3 gap-[10px]"
+            exit={{ opacity: 0, scale: 0.93, transition: { duration: 0.22 } }}
+          >
+            {[0, 1, 2, 3, 4, 5].map((i) => (
+              <motion.div
+                key={i}
+                className="relative overflow-hidden rounded"
+                style={{
+                  width: 46,
+                  height: 33,
+                  border: '1px solid var(--border)',
+                  backgroundColor: 'var(--ui-panel-bg)',
+                }}
+                initial={{ opacity: 0, scale: 0.25, y: 12 }}
+                animate={{
+                  opacity: 1,
+                  scale: 1,
+                  y: 0,
+                  boxShadow: [
+                    '0 0 0px rgba(var(--common-accent), 0)',
+                    '0 0 12px rgba(var(--common-accent), 0.5)',
+                    '0 0 0px rgba(var(--common-accent), 0)',
+                  ],
+                }}
+                transition={{
+                  delay: i * 0.11,
+                  type: 'spring',
+                  stiffness: 500,
+                  damping: 22,
+                  boxShadow: {
+                    delay: 0.95,
+                    duration: 1.1,
+                    ease: 'easeInOut',
+                    type: 'tween',
+                  },
+                }}
+              >
+                {/* Accent dot */}
+                <motion.div
+                  className="absolute rounded-full"
+                  style={{
+                    top: 8, left: 7, width: 5, height: 5,
+                    backgroundColor: 'rgb(var(--common-accent))',
                   }}
-                  transition={{
-                    duration: 4,
-                    repeat: Infinity,
-                    times: [0, 0.25, 0.4, 0.7, 0.85],
-                    ease: "easeInOut"
-                  }}
+                  initial={{ opacity: 0, scale: 0 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: i * 0.11 + 0.18, type: 'spring', stiffness: 700, damping: 18 }}
                 />
-              ))}
-
-              {/* Traveling Signal Pulse */}
-              {corners.map((c, i) => (
-                <motion.circle
-                  key={`pulse-${i}`}
-                  r="1.5"
-                  fill="rgb(var(--common-accent))"
-                  style={{ transformBox: 'fill-box', transformOrigin: 'center' }}
-                  animate={{
-                    cx: [50, 50, c.x, c.x, 50],
-                    cy: [50, 50, c.y, c.y, 50],
-                    opacity: [0, 0, 1, 1, 0],
-                    r: [1.5, 1.5, 2.5, 2.5, 1.5]
+                {/* Line 1 */}
+                <motion.div
+                  className="absolute rounded-full"
+                  style={{
+                    top: 9, left: 17, right: 6, height: 2,
+                    backgroundColor: 'var(--border)',
+                    transformOrigin: 'left',
                   }}
-                  transition={{
-                    duration: 4,
-                    repeat: Infinity,
-                    times: [0, 0.25, 0.45, 0.65, 0.85],
-                    ease: "easeInOut"
-                  }}
+                  initial={{ scaleX: 0, opacity: 0 }}
+                  animate={{ scaleX: 1, opacity: 1 }}
+                  transition={{ delay: i * 0.11 + 0.26, duration: 0.2 }}
                 />
-              ))}
-
-              {/* Expanding/Combining Blocks */}
-              {corners.map((c, i) => (
-                <motion.rect
-                  key={`node-${i}`}
-                  width="10" height="10" rx="2"
-                  fill="var(--ui-panel-bg)"
-                  stroke="var(--border)"
-                  strokeWidth="1.5"
-                  style={{ transformBox: 'fill-box', transformOrigin: 'center' }}
-                  animate={{
-                    x: [45, c.x - 5, c.x - 5, 45],
-                    y: [45, c.y - 5, c.y - 5, 45],
-                    opacity: [0, 1, 1, 0],
-                    scale: [0.2, 1, 1, 0.2],
-                    stroke: ["var(--border)", "rgb(var(--common-accent))", "rgb(var(--common-accent))", "var(--border)"],
-                    fill: ["var(--ui-panel-bg)", "rgba(var(--common-accent), 0.15)", "rgba(var(--common-accent), 0.15)", "var(--ui-panel-bg)"]
+                {/* Line 2 */}
+                <motion.div
+                  className="absolute rounded-full"
+                  style={{
+                    top: 16, left: 17, right: 13, height: 2,
+                    backgroundColor: 'var(--border)',
+                    opacity: 0.4,
+                    transformOrigin: 'left',
                   }}
-                  transition={{
-                    duration: 4,
-                    repeat: Infinity,
-                    times: [0, 0.3, 0.7, 1],
-                    ease: "easeInOut"
-                  }}
+                  initial={{ scaleX: 0, opacity: 0 }}
+                  animate={{ scaleX: 1, opacity: 0.4 }}
+                  transition={{ delay: i * 0.11 + 0.36, duration: 0.16 }}
                 />
-              ))}
-            </motion.g>
-          </svg>
-        </div>
+              </motion.div>
+            ))}
+          </motion.div>
+        </AnimatePresence>
+
         {/* Minimal Info */}
         <div className="flex flex-col items-center gap-6">
           <div className="h-4 flex items-center justify-center">
@@ -1356,7 +1337,7 @@ const PluginLoadingScreen = () => {
               <motion.div
                 key={i}
                 className="w-1.5 h-1.5 rounded-full border border-border"
-                animate={{ 
+                animate={{
                   backgroundColor: step >= i ? "rgb(var(--common-accent))" : "transparent",
                   borderColor: step >= i ? "rgb(var(--common-accent))" : "var(--border)",
                 }}
