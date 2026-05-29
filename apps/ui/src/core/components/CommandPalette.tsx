@@ -12,6 +12,7 @@ import { useCodeEditorStore } from '@/core/editors/code/CodeEditorStore';
 import { useDocumentStore } from '@/core/file-system/stores';
 import { prettifyJSONC } from '@/utils/jsonc';
 import { RuntimeVariablesHelp } from '@/core/editors/voiden/nodes/help';
+import { usePluginStore } from '@/plugins';
 
 interface CommandPaletteProps {
   isFocused: boolean;
@@ -50,6 +51,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isFocused, mode,
   const queryClient = useQueryClient();
   const { openBottomPanel, bottomPanelRef } = usePanelStore();
   const { data: activeFilePath } = useGetActiveDocument();
+  const helpCommands = usePluginStore((state) => state.helpCommands);
 
   // Prettify utilities
   const prettifyXML = (xml: string): string => {
@@ -408,7 +410,19 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isFocused, mode,
         setTimeout(() => onBlur(), 0);
       },
     },
-  ], [addPanelTab, bottomPanelRef, openBottomPanel, queryClient, onBlur, onShowHelp, activeFilePath]);
+    // Plugin-registered help commands
+    ...helpCommands.map((cmd) => ({
+      id: cmd.id,
+      label: `Help: ${cmd.label}`,
+      description: cmd.description ?? `Learn about ${cmd.label}`,
+      icon: <HelpCircle size={16} className="text-accent" />,
+      action: () => {
+        const HelpComponent = cmd.component;
+        onShowHelp(cmd.label, <HelpComponent />);
+        setTimeout(() => onBlur(), 0);
+      },
+    })),
+  ], [addPanelTab, bottomPanelRef, openBottomPanel, queryClient, onBlur, onShowHelp, activeFilePath, helpCommands]);
 
   const [filteredCommands, setFilteredCommands] = useState<Command[]>(commands);
 

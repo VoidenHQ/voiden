@@ -73,6 +73,7 @@ import { expandLinkedBlocksInDoc } from "@/core/editors/voiden/utils/expandLinke
 import { useResponseStore } from "@/core/request-engine/stores/responseStore";
 import { replaceProcessVariablesInText } from "@/core/request-engine/runtimeVariables";
 import { hookRegistry, PipelineStage } from "@/core/request-engine/pipeline";
+import { clearHelpRegistry } from "@/core/help/helpRegistry";
 export type VoidBuilderHelpers = {
   /** Convert a ProseMirror doc JSON string to .void markdown using the full editor schema */
   toMarkdown: (docJson: string, schema: any) => string;
@@ -127,6 +128,14 @@ export function buildVoidFileForEntry(entry: HistoryEntry, schema: any): string 
   return buildVoidMarkdownFromEntry(entry, schema);
 }
 
+// ── Plugin help command registry ─────────────────────────────────────────────
+export interface PluginHelpCommand {
+  id: string;
+  label: string;
+  description?: string;
+  component: React.ComponentType<any>;
+}
+
 interface PluginError {
   extensionId: string;
   error: string;
@@ -162,6 +171,9 @@ interface PluginStoreState {
   /** Tracks which core plugins are currently being installed (global — survives PluginProvider remounts). */
   installingCorePlugins: Record<string, boolean>;
   setInstallingPlugin: (pluginId: string, installing: boolean) => void;
+  /** Help commands registered by plugins — shown in the command palette under Help: */
+  helpCommands: PluginHelpCommand[];
+  addHelpCommand: (cmd: PluginHelpCommand) => void;
 }
 
 export const usePluginStore = create<PluginStoreState>((set) => ({
@@ -217,6 +229,12 @@ export const usePluginStore = create<PluginStoreState>((set) => ({
   addStatusBarItem: (item) => {
     set((state) => ({
       statusBarItems: [...state.statusBarItems, item],
+    }));
+  },
+  helpCommands: [],
+  addHelpCommand: (cmd) => {
+    set((state) => ({
+      helpCommands: [...state.helpCommands, cmd],
     }));
   },
 }));
@@ -856,6 +874,10 @@ export const createPlugin = (pluginModule: (context: PluginContext) => Plugin, e
       extensionLogger.info(`Plugin "${extensionId}" registering history adapter`);
       historyAdapterRegistry.register(adapter);
     },
+    registerHelpCommand: (cmd: PluginHelpCommand) => {
+      extensionLogger.info(`Plugin "${extensionId}" registering help command: ${cmd.id}`);
+      usePluginStore.getState().addHelpCommand(cmd);
+    },
   };
 
   const plugin = pluginModule(context);
@@ -893,6 +915,7 @@ export const getPlugins = async () => {
     sidebar: { left: [], right: [] },
     editorActions: [],
     statusBarItems: [],
+    helpCommands: [],
     panels: { main: [], bottom: [] },
   });
   Object.keys(exposedHelpers).forEach(key => delete exposedHelpers[key]);
@@ -902,7 +925,8 @@ export const getPlugins = async () => {
   coreLinkableNodeTypes.forEach(type => linkableNodeTypes.add(type)); // Re-seed core linkable types
   nodeDisplayNames.clear(); // Clear node display names on plugin reload
   Object.entries(coreNodeDisplayNames).forEach(([type, name]) => nodeDisplayNames.set(type, name)); // Re-seed core display names
-  tableSuggestionsRegistry.clear(); // Clear table suggestions on plugin reload
+  tableSuggestionsRegistry.clear();
+  clearHelpRegistry();
   requestOrchestrator.clear();
   pasteOrchestrator.clear();
   historyAdapterRegistry.clear();
