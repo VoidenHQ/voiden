@@ -7,6 +7,7 @@ import path from "path";
 import { app } from "electron";
 import { AppState, ExtensionData } from "src/shared/types";
 import { coreExtensions, remoteVersions, remoteNewPlugins } from "../config/coreExtensions";
+import { satisfiesVersionRange } from "../ipc/coreExtensions";
 import AdmZip from "adm-zip";
 
 // Tracks plugins the user has explicitly disabled (persisted globally, not per-window).
@@ -219,11 +220,14 @@ export class ExtensionManager {
     const allExtensions = [...this.store.extensions, ...remoteExtensions].filter(
       (ext, index, self) => self.findIndex((t) => t.id === ext.id) === index,
     );
-    // Attach latestVersion if remote version differs from local version
+    // Attach latestVersion if remote version differs and is compatible with the running app
+    const appVersion = app.getVersion();
     return allExtensions.map((ext) => {
       const remoteExt = remoteExtensions.find((r) => r.id === ext.id);
       if (remoteExt && remoteExt.version !== ext.version) {
-        return { ...ext, latestVersion: remoteExt.version };
+        const voidenVersion = (remoteExt as any).voidenVersion as string | undefined;
+        const compatible = voidenVersion ? satisfiesVersionRange(appVersion, voidenVersion) : true;
+        if (compatible) return { ...ext, latestVersion: remoteExt.version };
       }
       return ext;
     });

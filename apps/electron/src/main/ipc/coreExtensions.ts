@@ -2,7 +2,7 @@ import { ipcMain, app, net, BrowserWindow } from 'electron'
 import path from 'node:path'
 import fs from 'node:fs/promises'
 import { existsSync, watch, readFileSync } from 'node:fs'
-import { coreExtensions, fetchAndUpdateCoreRegistry, remoteVersions } from '../config/coreExtensions'
+import { coreExtensions, fetchAndUpdateCoreRegistry, remoteVersions, remoteVoidenVersions } from '../config/coreExtensions'
 import { getMainProcessExtensionResults } from '../extensionLoader'
 
 // builtInRegistry reflects what's actually loaded (remote if fetched, otherwise local fallback)
@@ -66,7 +66,7 @@ export interface PluginUpdateInfo {
 }
 
 /** Returns true only when version a is strictly greater than version b (semver). */
-function semverGt(a: string, b: string): boolean {
+export function semverGt(a: string, b: string): boolean {
   const parse = (v: string) => v.replace(/[-+].*$/, '').split('.').map(n => parseInt(n, 10) || 0)
   const av = parse(a), bv = parse(b)
   for (let i = 0; i < 3; i++) {
@@ -77,7 +77,8 @@ function semverGt(a: string, b: string): boolean {
 }
 
 /** Parse a semver range like ">=2.0.0" and check if appVersion satisfies it. */
-function satisfiesVersionRange(appVersion: string, range: string): boolean {
+export function satisfiesVersionRange(appVersion: string, range: string): boolean {
+  const isPreRelease = (v: string) => /[-+]/.test(v.trim())
   const clean = (v: string) => v.replace(/[-+].*$/, '').trim()
   const parseVer = (v: string) => clean(v).split('.').map((n) => parseInt(n, 10) || 0)
   const cmp = (a: number[], b: number[]): number => {
@@ -87,12 +88,15 @@ function satisfiesVersionRange(appVersion: string, range: string): boolean {
     return 0
   }
   const appVer = parseVer(appVersion)
+  const appIsPreRelease = isPreRelease(appVersion)
   for (const part of range.trim().split(/\s+/)) {
     const match = part.match(/^(>=|<=|>|<|=|~\^?)(.+)$/)
     if (!match) continue
     const [, op, ver] = match
     const target = parseVer(ver)
-    const diff = cmp(appVer, target)
+    let diff = cmp(appVer, target)
+    // In semver, 2.0.0-beta.1 < 2.0.0 — treat pre-release as slightly less when base versions match
+    if (diff === 0 && appIsPreRelease && !isPreRelease(ver)) diff = -1
     if (op === '>=' && diff < 0) return false
     if (op === '>' && diff <= 0) return false
     if (op === '<=' && diff > 0) return false
@@ -145,7 +149,16 @@ export async function seedBundledPluginsToCache(): Promise<void> {
 
     const existing = localManifest.plugins[ext.id]
     // Skip if already cached at the same version (OTA update may have a newer version, keep that)
-    if (existing?.version === ext.version && existing?.file) continue
+    if (existing?.version === ext.version && existing?.file) {
+      // Still seed changelog if it's missing from cache (may not have been bundled before)
+      const changelogCachePath = path.join(cacheDir, ext.id, 'changelog.json')
+      const bundledChangelog = path.join(bundledDir, `${ext.id}-changelog.json`)
+      if (!existsSync(changelogCachePath) && existsSync(bundledChangelog)) {
+        await fs.mkdir(path.join(cacheDir, ext.id), { recursive: true })
+        await fs.copyFile(bundledChangelog, changelogCachePath)
+      }
+      continue
+    }
 
     const pluginCacheDir = path.join(cacheDir, ext.id)
     await fs.mkdir(pluginCacheDir, { recursive: true })
@@ -153,6 +166,12 @@ export async function seedBundledPluginsToCache(): Promise<void> {
     // Copy renderer bundle
     const destJs = `${ext.version}.js`
     await fs.copyFile(bundledJs, path.join(pluginCacheDir, destJs))
+
+    // Copy changelog if bundled
+    const bundledChangelog = path.join(bundledDir, `${ext.id}-changelog.json`)
+    if (existsSync(bundledChangelog)) {
+      await fs.copyFile(bundledChangelog, path.join(pluginCacheDir, 'changelog.json'))
+    }
 
     // Copy main-process bundle if it exists (.cjs preferred, then .js)
     let mainFile: string | undefined
@@ -448,11 +467,9 @@ export function registerCoreExtensionsIpcHandlers(): void {
     try {
       const appVersion = app.getVersion()
 
-      // If remoteVersions hasn't been populated yet (e.g. called before fetchAndUpdateCoreRegistry
-      // completed), fetch now so the check is meaningful.
-      if (remoteVersions.size === 0) {
-        await fetchAndUpdateCoreRegistry()
-      }
+      // Always re-fetch so the check reflects the current state of the registry,
+      // not the stale in-memory snapshot from app startup.
+      await fetchAndUpdateCoreRegistry()
 
       const localManifest = await readLocalManifest()
 
@@ -463,7 +480,8 @@ export function registerCoreExtensionsIpcHandlers(): void {
         // remoteVersion comes from the GitHub registry fetch — NOT from the local snapshot.
         // Falls back to the local snapshot version when remote is unavailable (offline).
         const remoteVersion = remoteVersions.get(ext.id) ?? ext.version
-        const voidenVersion = (ext as any).voidenVersion as string | undefined
+        // Prefer live-fetched voidenVersion over local snapshot — registry update takes effect immediately
+        const voidenVersion = remoteVoidenVersions.get(ext.id) ?? (ext as any).voidenVersion as string | undefined
         const compatible = voidenVersion ? satisfiesVersionRange(appVersion, voidenVersion) : true
 
         const cachedVersion = localManifest?.plugins?.[ext.id]?.version ?? null
@@ -504,13 +522,21 @@ export function registerCoreExtensionsIpcHandlers(): void {
 
   /** Returns parsed changelog.json for a cached plugin, or null if not available. */
   ipcMain.handle('coreExtensions:getChangelog', async (_event, pluginId: string): Promise<any[] | null> => {
-    try {
-      const changelogPath = path.join(getCacheDir(), pluginId, 'changelog.json')
-      const raw = await fs.readFile(changelogPath, 'utf8')
-      return JSON.parse(raw)
-    } catch {
-      return null
+    const cachePath = path.join(getCacheDir(), pluginId, 'changelog.json')
+    const bundledDir = app.isPackaged
+      ? path.join(process.resourcesPath, 'bundled-plugins')
+      : path.join(app.getAppPath(), 'bundled-plugins')
+    const bundledPath = path.join(bundledDir, `${pluginId}-changelog.json`)
+
+    for (const filePath of [cachePath, bundledPath]) {
+      try {
+        const raw = await fs.readFile(filePath, 'utf8')
+        return JSON.parse(raw)
+      } catch {
+        // try next
+      }
     }
+    return null
   })
 
   /**

@@ -1,4 +1,4 @@
-import { Search, Settings, Loader2, Users, Upload, MoreVertical, RefreshCw, Trash2, Cpu, Globe, RotateCw } from "lucide-react";
+import { Search, Settings, Loader2, Users, Upload, MoreVertical, RefreshCw, Trash2, Cpu, Globe, RotateCw, HardDrive, ArrowUpCircle, ChevronDown, Check } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import {
   useGetExtensions,
@@ -205,7 +205,7 @@ const ExtensionItem = ({ extension }: { extension: Extension }) => {
               <DropdownMenu.Item
                 onClick={handleUninstallCore}
                 disabled={isUninstallingCore}
-                className="w-full px-3 py-2 text-xs text-left hover:bg-active outline-none cursor-pointer text-red-400 hover:text-red-300 rounded-sm flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full px-3 py-2 text-xs text-left hover:bg-active outline-none cursor-pointer text-text rounded-sm flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isUninstallingCore ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
                 Uninstall
@@ -232,42 +232,8 @@ const ExtensionItem = ({ extension }: { extension: Extension }) => {
   );
 
   const renderActions = () => {
-    // Not installed — install button lives in the bottom row, nothing at top-right
     if (extension.type === "core" && !coreIsLocallyAvailable) return null;
     if (extension.type === "community" && !extension.installedPath) return null;
-
-    // Community: has update
-    if (extension.type === "community" && extension.latestVersion) {
-      return updateMutation.isPending ? (
-        <button disabled className="px-2.5 py-1 bg-button-primary/40 text-bg/60 text-xs flex items-center gap-1 rounded-md cursor-not-allowed">
-          <Loader2 size={11} className="animate-spin" /> Updating
-        </button>
-      ) : (
-        <button
-          onClick={(e) => { e.stopPropagation(); updateMutation.mutate(extension.id); }}
-          className="px-2.5 py-1 bg-button-primary hover:bg-button-primary-hover text-bg text-xs rounded-md font-medium transition-colors shadow-sm"
-        >
-          Update
-        </button>
-      );
-    }
-
-    // Core: compatible update available
-    if (extension.type === "core" && coreIsLocallyAvailable && hasCompatibleUpdate) {
-      return isUpdating ? (
-        <button disabled className="px-2.5 py-1 bg-button-primary/40 text-bg/60 text-xs flex items-center gap-1 rounded-md cursor-not-allowed">
-          <Loader2 size={11} className="animate-spin" /> Updating
-        </button>
-      ) : (
-        <button
-          onClick={handleUpdateCore}
-          className="px-2.5 py-1 bg-button-primary hover:bg-button-primary-hover text-bg text-xs rounded-md font-medium transition-colors shadow-sm"
-        >
-          Update
-        </button>
-      );
-    }
-
     return renderContextMenu();
   };
 
@@ -304,34 +270,55 @@ const ExtensionItem = ({ extension }: { extension: Extension }) => {
               <span className="opacity-60">by</span>
               <span className="font-medium text-button-primary/80 hover:text-button-primary transition-colors">{extension.author}</span>
               <div className="ml-auto flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                {/* Core: not installed → Install */}
                 {extension.type === "core" && !coreIsLocallyAvailable && (
                   installingCorePlugins?.[extension.id] ? (
                     <button disabled className="px-2 py-0.5 text-[10px] bg-button-primary/40 text-bg/60 rounded flex items-center gap-1 cursor-not-allowed">
                       <Loader2 size={10} className="animate-spin" /> Installing
                     </button>
                   ) : (
-                    <button
-                      onClick={handleInstallCore}
-                      className="px-2 py-0.5 text-[10px] bg-button-primary hover:bg-button-primary-hover text-bg rounded font-medium transition-colors"
-                    >
+                    <button onClick={handleInstallCore} className="px-2 py-0.5 text-[10px] bg-button-primary hover:bg-button-primary-hover text-bg rounded font-medium transition-colors">
                       Install
                     </button>
                   )
                 )}
+                {/* Core: installed + compatible update */}
+                {extension.type === "core" && coreIsLocallyAvailable && hasCompatibleUpdate && (
+                  isUpdating ? (
+                    <button disabled className="px-2 py-0.5 text-[10px] bg-button-primary/40 text-bg/60 rounded flex items-center gap-1 cursor-not-allowed">
+                      <Loader2 size={10} className="animate-spin" /> Updating
+                    </button>
+                  ) : (
+                    <button onClick={handleUpdateCore} className="px-2 py-0.5 text-[10px] bg-button-primary hover:bg-button-primary-hover text-bg rounded font-medium transition-colors">
+                      Update
+                    </button>
+                  )
+                )}
+                {/* Community: not installed → Install */}
                 {extension.type === "community" && !extension.installedPath && (
                   installMutation.isPending ? (
                     <button disabled className="px-2 py-0.5 text-[10px] bg-button-primary/40 text-bg/60 rounded flex items-center gap-1 cursor-not-allowed">
                       <Loader2 size={10} className="animate-spin" /> Installing
                     </button>
                   ) : (
-                    <button
-                      onClick={(e) => { e.stopPropagation(); installMutation.mutate(extension.id); }}
-                      className="px-2 py-0.5 text-[10px] bg-button-primary hover:bg-button-primary-hover text-bg rounded font-medium transition-colors"
-                    >
+                    <button onClick={(e) => { e.stopPropagation(); installMutation.mutate(extension.id); }} className="px-2 py-0.5 text-[10px] bg-button-primary hover:bg-button-primary-hover text-bg rounded font-medium transition-colors">
                       Install
                     </button>
                   )
                 )}
+                {/* Community: installed + update available */}
+                {extension.type === "community" && extension.installedPath && extension.latestVersion && (
+                  updateMutation.isPending ? (
+                    <button disabled className="px-2 py-0.5 text-[10px] bg-button-primary/40 text-bg/60 rounded flex items-center gap-1 cursor-not-allowed">
+                      <Loader2 size={10} className="animate-spin" /> Updating
+                    </button>
+                  ) : (
+                    <button onClick={(e) => { e.stopPropagation(); updateMutation.mutate(extension.id); }} className="px-2 py-0.5 text-[10px] bg-button-primary hover:bg-button-primary-hover text-bg rounded font-medium transition-colors">
+                      Update
+                    </button>
+                  )
+                )}
+                {/* Enabled/Disabled badge — show when installed and no pending action */}
                 {(extension.type === "community" ? !!extension.installedPath : coreIsLocallyAvailable) && (
                   <span className="text-[10px] px-1.5 py-0.5 rounded border border-border text-comment bg-active/20">
                     {extension.enabled ? "Enabled" : "Disabled"}
@@ -437,8 +424,9 @@ export const ExtensionBrowser = () => {
   const { data: extensions, isLoading } = useGetExtensions();
   const queryClient = useQueryClient();
   const installFromZip = useInstallExtensionFromZip();
+  const { coreUpdateInfo } = usePluginStore();
   const [search, setSearch] = useState("");
-  const [category, setCategory] = useState<"all" | "core" | "community">("all");
+  const [category, setCategory] = useState<"all" | "core" | "community" | "installed" | "updates">("all");
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   const doFetchRegistry = async () => {
@@ -474,13 +462,26 @@ export const ExtensionBrowser = () => {
 
   const filteredExtensions = useMemo(() => {
     let result = extensions || [];
-    if (category !== "all") result = result.filter((ext: Extension) => ext.type === category);
+
+    if (category === "core" || category === "community") {
+      result = result.filter((ext: Extension) => ext.type === category);
+    } else if (category === "installed") {
+      result = result.filter((ext: Extension) =>
+        ext.type === "core" ? ext.isLocallyAvailable !== false : !!ext.installedPath
+      );
+    } else if (category === "updates") {
+      result = result.filter((ext: Extension) => {
+        if (ext.type === "core") return !!coreUpdateInfo?.[ext.id]?.hasUpdate;
+        return !!(ext as any).latestVersion;
+      });
+    }
+
     const query = search.trim().toLowerCase();
     if (!query) return result;
     return result.filter((ext: Extension) =>
       [ext.name, ext.description, ext.author, ext.id].filter(Boolean).join(" ").toLowerCase().includes(query)
     );
-  }, [extensions, search, category]);
+  }, [extensions, search, category, coreUpdateInfo]);
 
   return (
     <div className="flex flex-col h-full">
@@ -523,25 +524,45 @@ export const ExtensionBrowser = () => {
           </DropdownMenu.Root>
         </div>
 
-        <div className="flex p-0.5 bg-active/40 rounded-lg border border-border">
-          {[
-            { id: "all", label: "All", icon: Globe },
-            { id: "core", label: "Core", icon: Cpu },
-            { id: "community", label: "Community", icon: Users },
-          ].map((tab) => (
-            <Tip key={tab.id} label={tab.label} side="bottom">
-              <button
-                onClick={() => setCategory(tab.id as any)}
-                className={cn(
-                  "flex-1 flex items-center justify-center py-1.5 rounded-md transition-all",
-                  category === tab.id ? "bg-panel text-button-primary shadow-sm border border-border" : "text-comment hover:text-text hover:bg-active/50 border border-transparent"
-                )}
-              >
-                <tab.icon size={12} className={cn(category === tab.id ? "text-button-primary" : "text-comment/70")} />
-              </button>
-            </Tip>
-          ))}
-        </div>
+        {(() => {
+          const FILTERS = [
+            { id: "all",       label: "All Extensions",  icon: Globe         },
+            { id: "core",      label: "Core",            icon: Cpu           },
+            { id: "community", label: "Community",       icon: Users         },
+            { id: "installed", label: "Installed",       icon: HardDrive     },
+            { id: "updates",   label: "Updates",         icon: ArrowUpCircle },
+          ] as const;
+          const active = FILTERS.find((f) => f.id === category) ?? FILTERS[0];
+          return (
+            <DropdownMenu.Root modal={false}>
+              <DropdownMenu.Trigger asChild>
+                <button className="flex items-center gap-2 h-8 px-3 bg-panel border border-border rounded-lg text-xs text-text hover:bg-active transition-colors w-full">
+                  <active.icon size={12} className="text-button-primary flex-shrink-0" />
+                  <span className="flex-1 text-left font-medium">{active.label}</span>
+                  <ChevronDown size={12} className="text-comment flex-shrink-0" />
+                </button>
+              </DropdownMenu.Trigger>
+              <DropdownMenu.Portal>
+                <DropdownMenu.Content
+                  side="bottom" align="start" sideOffset={4}
+                  className="bg-editor z-[9999] outline-none w-[var(--radix-dropdown-menu-trigger-width)] border border-border rounded-md shadow-lg p-1"
+                >
+                  {FILTERS.map((f) => (
+                    <DropdownMenu.Item
+                      key={f.id}
+                      onClick={() => setCategory(f.id)}
+                      className="flex items-center gap-2.5 px-3 py-2 text-xs text-text hover:bg-active outline-none cursor-pointer rounded-sm"
+                    >
+                      <f.icon size={12} className={cn(category === f.id ? "text-button-primary" : "text-comment")} />
+                      <span className={cn("flex-1", category === f.id ? "text-text font-medium" : "text-comment")}>{f.label}</span>
+                      {category === f.id && <Check size={11} className="text-button-primary flex-shrink-0" />}
+                    </DropdownMenu.Item>
+                  ))}
+                </DropdownMenu.Content>
+              </DropdownMenu.Portal>
+            </DropdownMenu.Root>
+          );
+        })()}
       </div>
 
       <div className="border-border flex-1 flex flex-col mb-1.5 overflow-y-scroll scrollbar-hide">

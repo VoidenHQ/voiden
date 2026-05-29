@@ -24,6 +24,7 @@ function mapPlugins(reg: any): ExtensionData[] {
       capabilities: p.capabilities,
       features: p.features,
       repo: p.repo,
+      logo: p.logo,
       mainProcess: p.mainProcess ?? false,
       voidenVersion: p.voidenVersion,
     }));
@@ -52,6 +53,12 @@ function httpsGet(url: string): Promise<string> {
 export const remoteVersions: Map<string, string> = new Map();
 
 /**
+ * voidenVersion constraints fetched from the live remote registry.
+ * Takes precedence over the local snapshot when checking update compatibility.
+ */
+export const remoteVoidenVersions: Map<string, string> = new Map();
+
+/**
  * Plugins that exist in the remote registry but NOT in the local snapshot.
  * Populated by fetchAndUpdateCoreRegistry so they can be shown in the Extension
  * Browser even when the user hasn't updated the app yet.
@@ -70,10 +77,12 @@ export async function fetchAndUpdateCoreRegistry(): Promise<void> {
       const localIds = new Set(coreExtensionsSnapshot.map((e: ExtensionData) => e.id));
 
       remoteVersions.clear();
+      remoteVoidenVersions.clear();
       remoteNewPlugins.length = 0;
 
       for (const [id, p] of Object.entries(remote.plugins as Record<string, any>)) {
         if (p.version) remoteVersions.set(id, p.version);
+        if (p.voidenVersion) remoteVoidenVersions.set(id, p.voidenVersion);
 
         // New plugin — not in local snapshot at all
         if (!localIds.has(id)) {

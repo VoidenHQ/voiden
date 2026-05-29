@@ -347,6 +347,13 @@ const config: ForgeConfig = {
               console.log(`Staged main-process bundle: ${pluginId}-main${ext}`);
             }
           }
+
+          // Changelog
+          const changelogSrc = path.join(pluginsDir, pluginDir, "changelog.json");
+          if (fs.existsSync(changelogSrc)) {
+            fs.copyFileSync(changelogSrc, path.join(stagingDir, `${pluginId}-changelog.json`));
+            console.log(`Staged changelog: ${pluginId}-changelog.json`);
+          }
         }
       } else {
         console.warn("plugins/ not found — no plugin bundles will be included (run setup-plugins.sh first)");

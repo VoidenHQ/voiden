@@ -46,15 +46,6 @@ const ExtensionIcon = ({ extension }: { extension: any }) => {
   );
 };
 
-const CHANGE_COLORS: Record<string, string> = {
-  Added:    "text-green-400 bg-green-500/10 border-green-500/20",
-  Fixed:    "text-red-400 bg-red-500/10 border-red-500/20",
-  Improved: "text-blue-400 bg-blue-500/10 border-blue-500/20",
-  Removed:  "text-orange-400 bg-orange-500/10 border-orange-500/20",
-  Changed:  "text-yellow-400 bg-yellow-500/10 border-yellow-500/20",
-  Security: "text-purple-400 bg-purple-500/10 border-purple-500/20",
-};
-
 const ChangelogEntry = ({ entry }: { entry: any }) => {
   const [open, setOpen] = useState(false);
   return (
@@ -78,13 +69,11 @@ const ChangelogEntry = ({ entry }: { entry: any }) => {
           {entry.changes && Object.entries(entry.changes as Record<string, string[]>).map(([label, items]) => (
             items?.length > 0 && (
               <div key={label}>
-                <span className={cn("inline-block text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded border mb-2", CHANGE_COLORS[label] ?? "text-comment bg-active border-border")}>
-                  {label}
-                </span>
+                <p className="text-sm font-semibold text-text mb-1.5">{label}</p>
                 <ul className="space-y-1.5 ml-1">
                   {items.map((item, i) => (
                     <li key={i} className="flex gap-2 text-xs text-comment leading-relaxed">
-                      <span className="mt-1.5 w-1 h-1 rounded-full bg-comment/40 flex-shrink-0" />
+                      <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-comment flex-shrink-0" />
                       <span>{item}</span>
                     </li>
                   ))}
@@ -97,6 +86,9 @@ const ChangelogEntry = ({ entry }: { entry: any }) => {
     </div>
   );
 };
+
+const TABS = ["Documentation", "Capabilities", "Features", "Changelog"] as const;
+type Tab = typeof TABS[number];
 
 export const ExtensionDetails = ({
   extensionData: initialExtensionData,
@@ -116,6 +108,7 @@ export const ExtensionDetails = ({
   const { pluginErrors, coreUpdateInfo, installingCorePlugins, setInstallingPlugin, setCoreUpdateInfo } =
     usePluginStore();
 
+  const [activeTab, setActiveTab] = useState<Tab>("Documentation");
   const [changelog, setChangelog] = useState<any[] | null>(null);
   useEffect(() => {
     const api = (window as any).electron?.coreExtensions;
@@ -249,7 +242,7 @@ export const ExtensionDetails = ({
         <>
           <button
             onClick={() => toggleEnabledMutation.mutate({ extensionId: extensionData.id, enabled: !extensionData.enabled })}
-            className="inline-flex items-center px-3 py-1.5 text-xs rounded-md border border-border bg-panel hover:bg-active text-text transition-colors"
+            className="inline-flex items-center px-3 py-1.5 text-xs rounded-md border border-border bg-panel hover:bg-bg text-text transition-colors"
           >
             {toggleEnabledMutation.isPending ? "..." : extensionData.enabled ? "Disable" : "Enable"}
           </button>
@@ -266,19 +259,21 @@ export const ExtensionDetails = ({
             )
           )}
 
-          <button
-            onClick={handleCheckForUpdate}
-            disabled={isCheckingUpdate}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md border border-border bg-panel hover:bg-active text-text transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            <RefreshCw size={11} className={isCheckingUpdate ? "animate-spin" : ""} />
-            {isCheckingUpdate ? "Checking..." : "Check Update"}
-          </button>
+          {!hasCompatibleUpdate && (
+            <button
+              onClick={handleCheckForUpdate}
+              disabled={isCheckingUpdate}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md border border-border bg-panel hover:bg-active text-text transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <RefreshCw size={11} className={isCheckingUpdate ? "animate-spin" : ""} />
+              {isCheckingUpdate ? "Checking..." : "Check Update"}
+            </button>
+          )}
 
           <button
             onClick={handleUninstallCore}
             disabled={isUninstallingCore}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md border border-border bg-panel hover:bg-button-danger hover:border-button-danger hover:text-bg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md border border-border bg-panel hover:bg-bg  transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {isUninstallingCore ? <Loader2 size={11} className="animate-spin" /> : <Trash2 size={11} />}
             Uninstall
@@ -327,14 +322,14 @@ export const ExtensionDetails = ({
         <div className="flex items-center gap-4">
           <ExtensionIcon extension={extensionData} />
 
-          <div className="flex flex-col gap-1.5 flex-1 min-w-0">
+          <div className="flex flex-col gap-3 flex-1 min-w-0">
             {/* Name + badges */}
             <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-base font-semibold text-text leading-none">{extensionData.name}</h1>
               {renderTypeBadge()}
               {hasCompatibleUpdate && (
                 <span className="text-[10px] px-1.5 py-0.5 rounded border border-blue-500/30 text-blue-400 bg-blue-500/10 font-medium">
-                  Update v{updateInfo?.remoteVersion}
+                  Update available to v{updateInfo?.remoteVersion}
                 </span>
               )}
               {hasIncompatibleUpdate && (
@@ -354,8 +349,8 @@ export const ExtensionDetails = ({
                   <span className="opacity-30">·</span>
                   <span className={cn(
                     !coreIsLocallyAvailable ? "text-comment/40"
-                    : extensionData.enabled ? "text-green-500"
-                    : "text-comment/60"
+                    : extensionData.enabled ? "text-text"
+                    : "text-comment"
                   )}>
                     {!coreIsLocallyAvailable ? "Not installed" : extensionData.enabled ? "Enabled" : "Disabled"}
                   </span>
@@ -395,107 +390,115 @@ export const ExtensionDetails = ({
         )}
       </div>
 
-      {/* ── Scrollable content ── */}
-      <div className="flex-1 overflow-y-auto">
+      {/* ── Tabs ── */}
+      <div className="flex-shrink-0 flex items-center gap-0 border-b border-border px-5 bg-editor">
+        {TABS.map((tab) => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            className={cn(
+              "px-3 py-2.5 text-xs font-medium transition-colors border-b-2 -mb-px",
+              activeTab === tab
+                ? "border-button-primary text-text"
+                : "border-transparent text-comment hover:text-text"
+            )}
+          >
+            {tab}
+          </button>
+        ))}
+      </div>
 
-        {/* Changelog */}
-        {changelog && changelog.length > 0 && (
-          <Section title="Changelog">
-            <div className="space-y-2">
-              {changelog.map((entry, i) => <ChangelogEntry key={i} entry={entry} />)}
-            </div>
-          </Section>
+      {/* ── Tab content ── */}
+      <div className="flex-1 overflow-y-auto px-5 py-4">
+        {activeTab === "Documentation" && (
+          content
+            ? <ReactMarkdown
+                components={{ a: ({ href, children }) => <CustomLink href={href}>{children}</CustomLink> }}
+                className={proseClasses}
+              >
+                {content}
+              </ReactMarkdown>
+            : <p className="text-xs text-comment">No documentation available.</p>
         )}
 
-        {/* Capabilities */}
-        {Object.keys(capabilities).length > 0 && (
-          <Section title="Capabilities">
-            {capabilities.blocks && (
-              <div className="mb-5">
-                <h4 className="text-xs font-semibold text-text/80 uppercase tracking-wider mb-2">Blocks</h4>
-                {capabilities.blocks.description && (
-                  <p className="text-xs text-comment mb-2">{capabilities.blocks.description}</p>
-                )}
-                <div className="flex flex-wrap gap-1.5">
-                  {capabilities.blocks.owns?.map((block: string) => (
-                    <span key={block} className="px-2 py-0.5 bg-active border border-border rounded text-[11px] font-mono text-comment">{block}</span>
-                  ))}
-                </div>
-              </div>
-            )}
-            {capabilities.slashCommands && (
-              <div className="mb-5">
-                <h4 className="text-xs font-semibold text-text/80 uppercase tracking-wider mb-2">Slash Commands</h4>
-                {capabilities.slashCommands.groups?.map((group: any) => (
-                  <div key={group.name} className="mb-3">
-                    <p className="text-xs font-medium text-text/70 mb-1">{group.name}</p>
-                    <ul className="space-y-1 ml-2">
-                      {group.commands?.map((cmd: string, idx: number) => (
-                        <li key={idx} className="flex gap-2 text-xs text-comment">
-                          <span className="mt-1.5 w-1 h-1 rounded-full bg-comment/40 flex-shrink-0" />
-                          {cmd}
-                        </li>
+        {activeTab === "Capabilities" && (
+          Object.keys(capabilities).length > 0
+            ? <>
+                {capabilities.blocks && (
+                  <div className="mb-5">
+                    <h4 className="text-xs font-semibold text-text/80 uppercase tracking-wider mb-2">Blocks</h4>
+                    {capabilities.blocks.description && (
+                      <p className="text-xs text-comment mb-2">{capabilities.blocks.description}</p>
+                    )}
+                    <div className="flex flex-wrap gap-1.5">
+                      {capabilities.blocks.owns?.map((block: string) => (
+                        <span key={block} className="px-2 py-0.5 bg-active border border-border rounded text-[11px] font-mono text-comment">{block}</span>
                       ))}
-                    </ul>
+                    </div>
                   </div>
-                ))}
-              </div>
-            )}
-            {capabilities.paste?.patterns?.length > 0 && (
-              <div className="mb-5">
-                <h4 className="text-xs font-semibold text-text/80 uppercase tracking-wider mb-2">Paste Handlers</h4>
-                {capabilities.paste.patterns.map((pattern: any) => (
-                  <div key={pattern.name} className="mb-2 bg-bg px-3 py-2 rounded border border-border">
-                    <p className="text-xs font-medium text-text/80">{pattern.name}</p>
-                    {pattern.description && <p className="text-[11px] text-comment mt-0.5">{pattern.description}</p>}
+                )}
+                {capabilities.slashCommands && (
+                  <div className="mb-5">
+                    <h4 className="text-xs font-semibold text-text/80 uppercase tracking-wider mb-2">Slash Commands</h4>
+                    {capabilities.slashCommands.groups?.map((group: any) => (
+                      <div key={group.name} className="mb-3">
+                        <p className="text-xs font-medium text-text/70 mb-1">{group.name}</p>
+                        <ul className="space-y-1 ml-2">
+                          {group.commands?.map((cmd: string, idx: number) => (
+                            <li key={idx} className="flex gap-2 text-xs text-comment">
+                              <span className="mt-1.5 w-1 h-1 rounded-full bg-comment/40 flex-shrink-0" />
+                              {cmd}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-            )}
-            {capabilities.requestPipeline && (
-              <div>
-                <h4 className="text-xs font-semibold text-text/80 uppercase tracking-wider mb-2">Request Pipeline</h4>
-                <p className="text-xs text-comment">{capabilities.requestPipeline.description}</p>
-              </div>
-            )}
-          </Section>
+                )}
+                {capabilities.paste?.patterns?.length > 0 && (
+                  <div className="mb-5">
+                    <h4 className="text-xs font-semibold text-text/80 uppercase tracking-wider mb-2">Paste Handlers</h4>
+                    {capabilities.paste.patterns.map((pattern: any) => (
+                      <div key={pattern.name} className="mb-2 bg-bg px-3 py-2 rounded border border-border">
+                        <p className="text-xs font-medium text-text/80">{pattern.name}</p>
+                        {pattern.description && <p className="text-[11px] text-comment mt-0.5">{pattern.description}</p>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {capabilities.requestPipeline && (
+                  <div>
+                    <h4 className="text-xs font-semibold text-text/80 uppercase tracking-wider mb-2">Request Pipeline</h4>
+                    <p className="text-xs text-comment">{capabilities.requestPipeline.description}</p>
+                  </div>
+                )}
+              </>
+            : <p className="text-xs text-comment">No capabilities declared.</p>
         )}
 
-        {/* Features */}
-        {features.length > 0 && (
-          <Section title="Features">
-            <ul className="space-y-1.5">
-              {features.map((feature: string, idx: number) => (
-                <li key={idx} className="flex gap-2 text-xs text-comment leading-relaxed">
-                  <span className="mt-1.5 w-1 h-1 rounded-full bg-button-primary/60 flex-shrink-0" />
-                  {feature}
-                </li>
-              ))}
-            </ul>
-          </Section>
+        {activeTab === "Features" && (
+          features.length > 0
+            ? <ul className="space-y-1.5">
+                {features.map((feature: string, idx: number) => (
+                  <li key={idx} className="flex gap-2 text-xs text-comment leading-relaxed">
+                    <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-comment flex-shrink-0" />
+                    {feature}
+                  </li>
+                ))}
+              </ul>
+            : <p className="text-xs text-comment">No features listed.</p>
         )}
 
-        {/* Documentation */}
-        {content && (
-          <Section title="Documentation">
-            <ReactMarkdown
-              components={{ a: ({ href, children }) => <CustomLink href={href}>{children}</CustomLink> }}
-              className={proseClasses}
-            >
-              {content}
-            </ReactMarkdown>
-          </Section>
+        {activeTab === "Changelog" && (
+          changelog && changelog.length > 0
+            ? <div className="space-y-2">
+                {changelog.map((entry, i) => <ChangelogEntry key={i} entry={entry} />)}
+              </div>
+            : <p className="text-xs text-comment">No changelog available.</p>
         )}
       </div>
     </div>
   );
 };
-
-const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
-  <div className="border-b border-border px-5 py-4 last:border-b-0">
-    <h2 className="text-xs font-semibold text-comment/60 uppercase tracking-widest mb-3">{title}</h2>
-    {children}
-  </div>
-);
 
 export default ExtensionDetails;
