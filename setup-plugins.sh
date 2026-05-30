@@ -21,29 +21,29 @@ fail() { echo -e "${RED}✗ $1${NC}"; exit 1; }
 step() { echo -e "${YELLOW}$1${NC}"; }
 ok()   { echo -e "${GREEN}✓ $1${NC}"; }
 
-# ─── Step 1: Clone or pull core-plugins-registry ─────────────────────────────
-step "Step 1: core-plugins-registry"
-REGISTRY_DIR="$PLUGINS_DIR/core-plugins-registry"
+# ─── Step 1: Clone or pull plugin-registry ───────────────────────────────────
+step "Step 1: plugin-registry"
+REGISTRY_DIR="$PLUGINS_DIR/plugin-registry"
 if [ -d "$REGISTRY_DIR" ]; then
-  echo "  Pulling core-plugins-registry..."
-  git -C "$REGISTRY_DIR" pull || fail "Failed to pull core-plugins-registry"
+  echo "  Pulling plugin-registry..."
+  git -C "$REGISTRY_DIR" pull || fail "Failed to pull plugin-registry"
 else
-  echo "  Cloning core-plugins-registry..."
-  git clone https://github.com/VoidenHQ/core-plugins-registry.git "$REGISTRY_DIR" \
-    || fail "Failed to clone core-plugins-registry"
+  echo "  Cloning plugin-registry..."
+  git clone https://github.com/VoidenHQ/plugin-registry.git "$REGISTRY_DIR" \
+    || fail "Failed to clone plugin-registry"
 fi
-ok "core-plugins-registry ready"
+ok "plugin-registry ready"
 echo ""
 
-# ─── Step 2: Clone or pull each plugin listed in registry.json ───────────────
+# ─── Step 2: Clone or pull each plugin listed in extensions.json ─────────────
 step "Step 2: Plugin repos"
-REGISTRY_JSON="$REGISTRY_DIR/registry.json"
+REGISTRY_JSON="$REGISTRY_DIR/extensions.json"
 [ -f "$REGISTRY_JSON" ] || fail "$REGISTRY_JSON not found after clone"
 
 # Parse plugin list using Node (avoids a Python/jq dependency)
 PLUGIN_LIST=$(node -e "
   const r = JSON.parse(require('fs').readFileSync('$REGISTRY_JSON', 'utf8'));
-  const plugins = Object.values(r.plugins || {});
+  const plugins = Array.isArray(r) ? r.filter(p => p.type === 'core') : [];
   plugins.forEach(p => { if (p.id && p.repo) console.log(p.id + ' ' + p.repo); });
 " 2>/dev/null) || fail "Failed to parse $REGISTRY_JSON"
 
@@ -133,4 +133,4 @@ echo ""
 echo "Registry scripts:"
 echo "  yarn registry:sync              ← copy local registry clone → snapshot"
 echo "  yarn registry:update            ← update registry from plugin manifests (local)"
-echo "  yarn registry:update:push       ← same + push to VoidenHQ/core-plugins-registry"
+echo "  yarn registry:update:push       ← same + push to VoidenHQ/plugin-registry"

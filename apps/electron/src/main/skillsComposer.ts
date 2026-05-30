@@ -2,6 +2,7 @@ import { app } from "electron";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { AppState } from "src/shared/types";
+import { coreCacheDir } from "./extension/paths";
 
 function getSkillsSourceDir(): string {
   if (app.isPackaged) {
@@ -14,7 +15,7 @@ function getSkillsSourceDir(): string {
 function getCoreExtensionSkillPath(extensionId: string): string {
   if (app.isPackaged) {
     // Prefer OTA-cached skill.md if the plugin was updated at runtime
-    const cacheDir = path.join(app.getPath("userData"), "core-extensions-cache");
+    const cacheDir = coreCacheDir();
     const cacheManifestPath = path.join(cacheDir, "manifest.json");
     try {
       const cacheManifest = JSON.parse(fs.readFileSync(cacheManifestPath, "utf-8"));

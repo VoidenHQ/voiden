@@ -4,6 +4,7 @@ import fs from 'node:fs/promises'
 import { existsSync, watch, readFileSync } from 'node:fs'
 import { coreExtensions, fetchAndUpdateCoreRegistry, remoteVersions, remoteVoidenVersions } from '../config/coreExtensions'
 import { getMainProcessExtensionResults } from '../extensionLoader'
+import { coreCacheDir, githubCachePath } from '../extension/paths'
 
 // builtInRegistry reflects what's actually loaded (remote if fetched, otherwise local fallback)
 const builtInRegistry = {
@@ -13,7 +14,7 @@ const builtInRegistry = {
 }
 
 // Plugin registry — each plugin lives in its own VoidenHQ/plugin-* repo
-const REGISTRY_URL = 'https://raw.githubusercontent.com/VoidenHQ/core-plugins-registry/main/registry.json'
+const REGISTRY_URL = 'https://raw.githubusercontent.com/VoidenHQ/plugin-registry/main/extensions.json'
 
 interface RegistryPlugin {
   id: string
@@ -106,9 +107,7 @@ export function satisfiesVersionRange(appVersion: string, range: string): boolea
   return true
 }
 
-function getCacheDir(): string {
-  return path.join(app.getPath('userData'), 'core-extensions-cache')
-}
+const getCacheDir = coreCacheDir;
 
 async function readLocalManifest(): Promise<LocalManifest | null> {
   try {
@@ -125,7 +124,7 @@ async function writeLocalManifest(manifest: LocalManifest): Promise<void> {
 }
 
 /**
- * Copies bundled renderer and main-process plugin files into core-extensions-cache so
+ * Copies bundled renderer and main-process plugin files into plugins/core/ so
  * all plugins are served from the same uniform location. Runs at startup; skips plugins
  * whose cached version already matches the bundled version.
  */
@@ -217,7 +216,7 @@ export async function seedBundledPluginsToCache(): Promise<void> {
   }
 }
 
-const getApiCachePath = () => path.join(app.getPath('userData'), 'github-api-cache.json')
+const getApiCachePath = githubCachePath
 
 async function readApiCache(): Promise<Record<string, { etag: string; data: any }>> {
   try {
@@ -426,7 +425,8 @@ async function fetchRegistry(): Promise<Record<string, RegistryPlugin>> {
     const res = await net.fetch(REGISTRY_URL, { headers: { 'User-Agent': 'Voiden-App' } })
     if (res.ok) {
       const data = await res.json()
-      cachedRegistry = data?.plugins ?? {}
+      const entries: any[] = Array.isArray(data) ? data.filter((p: any) => p.type === 'core') : Object.values(data?.plugins ?? {})
+      cachedRegistry = Object.fromEntries(entries.map((p: any) => [p.id, p]))
       return cachedRegistry!
     }
   } catch (err) {
@@ -435,8 +435,9 @@ async function fetchRegistry(): Promise<Record<string, RegistryPlugin>> {
 
   // Final fallback: try local snapshot
   try {
-    const snapshot = require('../../core-plugins-registry.json')
-    cachedRegistry = snapshot.plugins ?? {}
+    const snapshot = require('../../extensions.json')
+    const entries: any[] = Array.isArray(snapshot) ? snapshot.filter((p: any) => p.type === 'core') : Object.values(snapshot?.plugins ?? {})
+    cachedRegistry = Object.fromEntries(entries.map((p: any) => [p.id, p]))
     return cachedRegistry!
   } catch {
     return {}

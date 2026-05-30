@@ -9,9 +9,10 @@ import {
   Tab
 } from "src/shared/types";
 import { ExtensionManager } from "./extension/extensionManager";
-import { getRemoteExtensions } from "./extension/extensionFetcher";
+import { getRemoteExtensions, fetchReadme, fetchChangelog, fetchManifest } from "./extension/extensionFetcher";
+import { migratePluginPaths, coreCacheDir, communityDir } from "./extension/paths";
 import { fetchAndUpdateCoreRegistry, coreExtensions, remoteNewPlugins } from "./config/coreExtensions";
-import { BrowserWindow, dialog, ipcMain, IpcMainInvokeEvent } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, IpcMainInvokeEvent } from "electron";
 import {
   loadState,
   saveState,
@@ -60,6 +61,8 @@ export const initializeState = async (
 ): Promise<AppState> => {
   const startupTimer = Date.now();
   logger.info('system', 'STARTUP [1/5] initializeState begin', { skipDefault });
+
+  await migratePluginPaths();
 
   const t0 = Date.now();
   appState = await loadState(skipDefault);
@@ -1354,6 +1357,35 @@ export const ipcStateHandlers = () => {
     maybeRecomposeSkills(appState);
     reloadMainProcessExtension(updatedExtension).catch(() => {});
     return { success: true, updatedExtension };
+  });
+
+  ipcMain.handle("extensions:fetchReadme", async (_, repo: string): Promise<string> => {
+    return fetchReadme(`https://raw.githubusercontent.com/${repo}/main/README.md`);
+  });
+
+  ipcMain.handle("extensions:fetchChangelog", async (_, pluginId: string, repo: string): Promise<any[] | null> => {
+    // For installed core plugins, use the local disk cache if available
+    const localPath = path.join(coreCacheDir(), pluginId, "changelog.json");
+    if (fsSync.existsSync(localPath)) {
+      try {
+        const raw = await fs.readFile(localPath, "utf8");
+        return JSON.parse(raw);
+      } catch {}
+    }
+    return fetchChangelog(repo);
+  });
+
+  ipcMain.handle("extensions:fetchManifest", async (_, pluginId: string, repo: string): Promise<Record<string, any> | null> => {
+    // For installed community plugins, read from disk (already has the manifest)
+    const localPath = path.join(communityDir(), pluginId, "manifest.json");
+    if (fsSync.existsSync(localPath)) {
+      try {
+        const raw = await fs.readFile(localPath, "utf8");
+        return JSON.parse(raw);
+      } catch {}
+    }
+    // For uninstalled: fetch from the plugin's latest GitHub release
+    return fetchManifest(repo);
   });
 
   ipcMain.handle("terminal:new", async (event, panelId: string) => {

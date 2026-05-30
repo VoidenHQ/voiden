@@ -1,9 +1,10 @@
 import { app } from "electron";
 import path from "node:path";
 import * as fs from "node:fs/promises";
+import { communityDir } from "./extension/paths";
 
 export const getPlugins = async () => {
-  const pluginDir = path.join(app.getPath("userData"), "extensions");
+  const pluginDir = communityDir();
 
   const entries = await fs.readdir(pluginDir, { withFileTypes: true });
 

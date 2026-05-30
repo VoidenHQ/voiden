@@ -468,9 +468,13 @@ export interface Extension {
   enabled: boolean;
   readme: string;
   repo?: string;
-  logo?: string;
+  icon?: string;
+  voidenVersion?: string;
+  bundled?: boolean;
   installedPath?: string;
   latestVersion?: string;
+  incompatibleLatestVersion?: string;
+  requiredVoidenVersion?: string;
   isLocallyAvailable?: boolean;
   capabilities?: {
     blocks?: {

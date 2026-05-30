@@ -19,6 +19,7 @@ import { replaceVariablesSecure } from "./env";
 import { getActiveProject } from "./state";
 import type { ExtensionData } from "../shared/types";
 import { logger } from "./logger";
+import { coreCacheDir } from "./extension/paths";
 
 export interface MainProcessExtensionResult {
   id: string;
@@ -149,7 +150,7 @@ function createContextForExtension(extensionId: string): {
  */
 function resolveMainProcessFilePath(ext: ExtensionData): string | null {
   if (ext.type === "core") {
-    const cacheDir = path.join(app.getPath("userData"), "core-extensions-cache");
+    const cacheDir = coreCacheDir();
 
     // 1. OTA cache — authoritative: only a real downloaded file counts
     const topManifestPath = path.join(cacheDir, "manifest.json");

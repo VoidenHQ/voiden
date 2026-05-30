@@ -26,10 +26,10 @@ const ExtensionIcon = ({ extension, size = "md" }: { extension: Extension; size?
   const dim = size === "sm" ? "w-8 h-8" : "w-10 h-10";
   const imgDim = size === "sm" ? "w-5 h-5" : "w-7 h-7";
 
-  if (extension.logo) {
+  if (extension.icon) {
     return (
       <div className={`${dim} rounded-lg bg-active/30 flex items-center justify-center overflow-hidden border border-border shadow-inner flex-shrink-0`}>
-        <img src={extension.logo} className="w-full h-full object-cover" alt={extension.name} />
+        <img src={extension.icon} className="w-full h-full object-cover" alt={extension.name} />
       </div>
     );
   }
@@ -69,9 +69,11 @@ const ExtensionItem = ({ extension }: { extension: Extension }) => {
       ? "bg-purple-500/10 text-purple-300 border-purple-500/20"
       : "bg-orange-500/10 text-orange-300 border-orange-500/20";
 
+  const { refetch: refetchExtensions } = useGetExtensions();
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
   const [isUninstallingCore, setIsUninstallingCore] = useState(false);
+  const [isCheckingCommunityUpdate, setIsCheckingCommunityUpdate] = useState(false);
 
   const coreIsLocallyAvailable = extension.type !== "core" || extension.isLocallyAvailable !== false;
   const displayVersion = (window as any).__voiden_ota_manifests__?.[extension.id]?.version ?? extension.version;
@@ -163,6 +165,24 @@ const ExtensionItem = ({ extension }: { extension: Extension }) => {
     }
   };
 
+  const handleCheckCommunityUpdate = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsCheckingCommunityUpdate(true);
+    try {
+      const result = await refetchExtensions();
+      const updated = result.data?.find((ex: any) => ex.id === extension.id);
+      if (updated?.latestVersion) {
+        toast.info(`Update available: v${updated.latestVersion}`);
+      } else if (updated?.incompatibleLatestVersion) {
+        toast.warning(`v${updated.incompatibleLatestVersion} requires Voiden ${updated.requiredVoidenVersion}`);
+      } else {
+        toast.success(`${extension.name} is up to date.`);
+      }
+    } finally {
+      setIsCheckingCommunityUpdate(false);
+    }
+  };
+
   const renderContextMenu = () => (
     <DropdownMenu.Root modal={false}>
       <DropdownMenu.Trigger asChild onClick={(e) => e.stopPropagation()}>
@@ -198,6 +218,18 @@ const ExtensionItem = ({ extension }: { extension: Extension }) => {
             </DropdownMenu.Item>
           )}
 
+          {/* Check for Update — community installed only */}
+          {extension.type === "community" && !!extension.installedPath && (
+            <DropdownMenu.Item
+              onClick={handleCheckCommunityUpdate}
+              disabled={isCheckingCommunityUpdate}
+              className="w-full px-3 py-2 text-xs text-left text-text hover:bg-active outline-none cursor-pointer rounded-sm flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <RefreshCw size={12} className={isCheckingCommunityUpdate ? "animate-spin" : ""} />
+              {isCheckingCommunityUpdate ? "Checking..." : "Check for Update"}
+            </DropdownMenu.Item>
+          )}
+
           {/* Uninstall core — only if installed */}
           {extension.type === "core" && coreIsLocallyAvailable && (
             <>
@@ -219,7 +251,7 @@ const ExtensionItem = ({ extension }: { extension: Extension }) => {
               <DropdownMenu.Separator className="my-1 border-t border-border" />
               <DropdownMenu.Item
                 onClick={(e) => { e.stopPropagation(); uninstallMutation.mutate(extension.id); }}
-                className="w-full px-3 py-2 text-xs text-left hover:bg-active outline-none cursor-pointer text-red-400 hover:text-red-300 rounded-sm flex items-center gap-2"
+                className="w-full px-3 py-2 text-xs text-left hover:bg-active outline-none cursor-pointer text-text rounded-sm flex items-center gap-2"
               >
                 <Trash2 size={12} />
                 Uninstall
@@ -264,61 +296,17 @@ const ExtensionItem = ({ extension }: { extension: Extension }) => {
                   Update available
                 </span>
               )}
+              {extension.incompatibleLatestVersion && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded border border-amber-500/20 text-amber-300 bg-amber-500/10">
+                  v{extension.incompatibleLatestVersion} — needs Voiden {extension.requiredVoidenVersion}
+                </span>
+              )}
             </div>
             <p className="text-xs text-comment line-clamp-2 mt-1.5 leading-relaxed">{extension.description}</p>
             <div className="flex items-center gap-2 text-[11px] text-comment mt-2.5">
               <span className="opacity-60">by</span>
               <span className="font-medium text-button-primary/80 hover:text-button-primary transition-colors">{extension.author}</span>
-              <div className="ml-auto flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                {/* Core: not installed → Install */}
-                {extension.type === "core" && !coreIsLocallyAvailable && (
-                  installingCorePlugins?.[extension.id] ? (
-                    <button disabled className="px-2 py-0.5 text-[10px] bg-button-primary/40 text-bg/60 rounded flex items-center gap-1 cursor-not-allowed">
-                      <Loader2 size={10} className="animate-spin" /> Installing
-                    </button>
-                  ) : (
-                    <button onClick={handleInstallCore} className="px-2 py-0.5 text-[10px] bg-button-primary hover:bg-button-primary-hover text-bg rounded font-medium transition-colors">
-                      Install
-                    </button>
-                  )
-                )}
-                {/* Core: installed + compatible update */}
-                {extension.type === "core" && coreIsLocallyAvailable && hasCompatibleUpdate && (
-                  isUpdating ? (
-                    <button disabled className="px-2 py-0.5 text-[10px] bg-button-primary/40 text-bg/60 rounded flex items-center gap-1 cursor-not-allowed">
-                      <Loader2 size={10} className="animate-spin" /> Updating
-                    </button>
-                  ) : (
-                    <button onClick={handleUpdateCore} className="px-2 py-0.5 text-[10px] bg-button-primary hover:bg-button-primary-hover text-bg rounded font-medium transition-colors">
-                      Update
-                    </button>
-                  )
-                )}
-                {/* Community: not installed → Install */}
-                {extension.type === "community" && !extension.installedPath && (
-                  installMutation.isPending ? (
-                    <button disabled className="px-2 py-0.5 text-[10px] bg-button-primary/40 text-bg/60 rounded flex items-center gap-1 cursor-not-allowed">
-                      <Loader2 size={10} className="animate-spin" /> Installing
-                    </button>
-                  ) : (
-                    <button onClick={(e) => { e.stopPropagation(); installMutation.mutate(extension.id); }} className="px-2 py-0.5 text-[10px] bg-button-primary hover:bg-button-primary-hover text-bg rounded font-medium transition-colors">
-                      Install
-                    </button>
-                  )
-                )}
-                {/* Community: installed + update available */}
-                {extension.type === "community" && extension.installedPath && extension.latestVersion && (
-                  updateMutation.isPending ? (
-                    <button disabled className="px-2 py-0.5 text-[10px] bg-button-primary/40 text-bg/60 rounded flex items-center gap-1 cursor-not-allowed">
-                      <Loader2 size={10} className="animate-spin" /> Updating
-                    </button>
-                  ) : (
-                    <button onClick={(e) => { e.stopPropagation(); updateMutation.mutate(extension.id); }} className="px-2 py-0.5 text-[10px] bg-button-primary hover:bg-button-primary-hover text-bg rounded font-medium transition-colors">
-                      Update
-                    </button>
-                  )
-                )}
-                {/* Enabled/Disabled badge — show when installed and no pending action */}
+              <div className="ml-auto flex items-center gap-2">
                 {(extension.type === "community" ? !!extension.installedPath : coreIsLocallyAvailable) && (
                   <span className="text-[10px] px-1.5 py-0.5 rounded border border-border text-comment bg-active/20">
                     {extension.enabled ? "Enabled" : "Disabled"}
@@ -355,11 +343,61 @@ const ExtensionItem = ({ extension }: { extension: Extension }) => {
         {renderActions()}
       </div>
 
-      {extension.enabled && coreIsLocallyAvailable && (
-        <div className="absolute bottom-2 right-2">
+      {/* Bottom-right — Install / Update / enabled dot */}
+      <div className="absolute bottom-2 right-2 flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+        {/* Core: not installed → Install */}
+        {extension.type === "core" && !coreIsLocallyAvailable && (
+          installingCorePlugins?.[extension.id] ? (
+            <button disabled className="px-2 py-0.5 text-[10px] bg-button-primary/40 text-bg/60 rounded flex items-center gap-1 cursor-not-allowed">
+              <Loader2 size={10} className="animate-spin" /> Installing
+            </button>
+          ) : (
+            <button onClick={handleInstallCore} className="px-2 py-0.5 text-[10px] bg-button-primary hover:bg-button-primary-hover text-bg rounded font-medium transition-colors">
+              Install
+            </button>
+          )
+        )}
+        {/* Core: installed + compatible update */}
+        {extension.type === "core" && coreIsLocallyAvailable && hasCompatibleUpdate && (
+          isUpdating ? (
+            <button disabled className="px-2 py-0.5 text-[10px] bg-button-primary/40 text-bg/60 rounded flex items-center gap-1 cursor-not-allowed">
+              <Loader2 size={10} className="animate-spin" /> Updating
+            </button>
+          ) : (
+            <button onClick={handleUpdateCore} className="px-2 py-0.5 text-[10px] bg-button-primary hover:bg-button-primary-hover text-bg rounded font-medium transition-colors">
+              Update
+            </button>
+          )
+        )}
+        {/* Community: not installed → Install */}
+        {extension.type === "community" && !extension.installedPath && (
+          installMutation.isPending ? (
+            <button disabled className="px-2 py-0.5 text-[10px] bg-button-primary/40 text-bg/60 rounded flex items-center gap-1 cursor-not-allowed">
+              <Loader2 size={10} className="animate-spin" /> Installing
+            </button>
+          ) : (
+            <button onClick={(e) => { e.stopPropagation(); installMutation.mutate(extension); }} className="px-2 py-0.5 text-[10px] bg-button-primary hover:bg-button-primary-hover text-bg rounded font-medium transition-colors">
+              Install
+            </button>
+          )
+        )}
+        {/* Community: installed + update available */}
+        {extension.type === "community" && extension.installedPath && extension.latestVersion && (
+          updateMutation.isPending ? (
+            <button disabled className="px-2 py-0.5 text-[10px] bg-button-primary/40 text-bg/60 rounded flex items-center gap-1 cursor-not-allowed">
+              <Loader2 size={10} className="animate-spin" /> Updating
+            </button>
+          ) : (
+            <button onClick={(e) => { e.stopPropagation(); updateMutation.mutate(extension.id); }} className="px-2 py-0.5 text-[10px] bg-button-primary hover:bg-button-primary-hover text-bg rounded font-medium transition-colors">
+              Update
+            </button>
+          )
+        )}
+        {/* Green dot — enabled indicator */}
+        {extension.enabled && coreIsLocallyAvailable && (
           <div className="w-1.5 h-1.5 rounded-full bg-green-500" />
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 };
@@ -536,7 +574,7 @@ export const ExtensionBrowser = () => {
           return (
             <DropdownMenu.Root modal={false}>
               <DropdownMenu.Trigger asChild>
-                <button className="flex items-center gap-2 h-8 px-3 bg-panel border border-border rounded-lg text-xs text-text hover:bg-active transition-colors w-full">
+                <button className="flex items-center gap-2 h-8 px-3 bg-bg border border-border rounded-lg text-xs text-text hover:bg-panel transition-colors w-full">
                   <active.icon size={12} className="text-button-primary flex-shrink-0" />
                   <span className="flex-1 text-left font-medium">{active.label}</span>
                   <ChevronDown size={12} className="text-comment flex-shrink-0" />
@@ -551,7 +589,7 @@ export const ExtensionBrowser = () => {
                     <DropdownMenu.Item
                       key={f.id}
                       onClick={() => setCategory(f.id)}
-                      className="flex items-center gap-2.5 px-3 py-2 text-xs text-text hover:bg-active outline-none cursor-pointer rounded-sm"
+                      className="flex items-center gap-2.5 px-3 py-2 text-xs text-text hover:bg-panel outline-none cursor-pointer rounded-sm"
                     >
                       <f.icon size={12} className={cn(category === f.id ? "text-button-primary" : "text-comment")} />
                       <span className={cn("flex-1", category === f.id ? "text-text font-medium" : "text-comment")}>{f.label}</span>

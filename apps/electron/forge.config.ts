@@ -228,22 +228,24 @@ const config: ForgeConfig = {
   hooks: {
     // Stamp version from package.json into bin scripts before packaging
     generateAssets: async () => {
-      const REGISTRY_URL = "https://raw.githubusercontent.com/VoidenHQ/core-plugins-registry/main/registry.json";
-      let registry: { plugins: Record<string, any> } = { plugins: {} };
+      const REGISTRY_URL = "https://raw.githubusercontent.com/VoidenHQ/plugin-registry/main/extensions.json";
+      let registryEntries: any[] = [];
 
       // Prefer the locally cloned registry repo (populated by setup-plugins.sh).
       // Fall back to a live GitHub fetch only when the clone is absent (e.g. CI).
-      const localRegistryPath = path.join(__dirname, "../../plugins/core-plugins-registry/registry.json");
+      const localRegistryPath = path.join(__dirname, "../../plugins/plugin-registry/extensions.json");
       if (fs.existsSync(localRegistryPath)) {
-        registry = JSON.parse(fs.readFileSync(localRegistryPath, "utf-8"));
-        console.log(`Using local registry clone: ${Object.keys(registry.plugins).length} plugins`);
+        const raw = JSON.parse(fs.readFileSync(localRegistryPath, "utf-8"));
+        registryEntries = Array.isArray(raw) ? raw.filter((p: any) => p.type === "core") : Object.values(raw?.plugins ?? {});
+        console.log(`Using local registry clone: ${registryEntries.length} core plugins`);
       } else {
         try {
           console.log("Local registry clone not found — fetching from GitHub...");
           const res = await fetch(REGISTRY_URL);
           if (res.ok) {
-            registry = await res.json();
-            console.log(`Registry fetched from GitHub — ${Object.keys(registry.plugins).length} plugins`);
+            const raw = await res.json();
+            registryEntries = Array.isArray(raw) ? raw.filter((p: any) => p.type === "core") : Object.values(raw?.plugins ?? {});
+            console.log(`Registry fetched from GitHub — ${registryEntries.length} core plugins`);
           } else {
             console.warn(`Failed to fetch registry (HTTP ${res.status})`);
           }
@@ -251,6 +253,8 @@ const config: ForgeConfig = {
           console.warn("Could not reach registry:", (e as Error).message);
         }
       }
+      // Wrap as object map for compatibility with the rest of this hook
+      const registry = { plugins: Object.fromEntries(registryEntries.map((p: any) => [p.id, p])) };
       // Parse semver range for voidenVersion compatibility check at build time
       const satisfiesRange = (appVer: string, range: string): boolean => {
         const clean = (v: string) => v.replace(/[-+].*$/, "").trim();
@@ -273,7 +277,7 @@ const config: ForgeConfig = {
       // Plugins not in the registry are never bundled, even if present in plugins/.
       const registeredIds = new Set<string>(Object.values(registry.plugins).map((p: any) => p.id as string));
       const excludedIds = new Set<string>();
-      for (const [, p] of Object.entries(registry.plugins)) {
+      for (const [, p] of Object.entries(registry.plugins) as [string, any][]) {
         const id = p.id as string;
         if (p.bundled === false) {
           excludedIds.add(id);
@@ -363,10 +367,10 @@ const config: ForgeConfig = {
       // The live GitHub fetch at startup will overwrite this in memory — the snapshot
       // is only used when the network is unavailable on first open.
       fs.writeFileSync(
-        path.join(__dirname, "src", "core-plugins-registry.json"),
-        JSON.stringify(registry, null, 2),
+        path.join(__dirname, "src", "extensions.json"),
+        JSON.stringify(registryEntries, null, 2),
       );
-      console.log("Wrote core-plugins-registry.json snapshot with", Object.keys(registry.plugins).length, "plugins");
+      console.log("Wrote extensions.json snapshot with", registryEntries.length, "core plugins");
 
       // Copy skill.md files from plugin repos into skills/core/ so they are
       // bundled as extraResource and available at runtime via process.resourcesPath
@@ -457,7 +461,7 @@ const config: ForgeConfig = {
     },
   },
   packagerConfig: {
-    extraResource: ["src/sample-project", "splash.html", "logo-dark.png", "background.png", "default.settings.json", "public/fonts", "themes", "bin", "src/images/icon.png", "skills", "bundled-plugins", "bundled-main-plugins", "src/core-plugins-registry.json"],
+    extraResource: ["src/sample-project", "splash.html", "logo-dark.png", "background.png", "default.settings.json", "public/fonts", "themes", "bin", "src/images/icon.png", "skills", "bundled-plugins", "bundled-main-plugins", "src/extensions.json"],
     extendInfo: "./info.plist",
     asar: {
       // Required for node-pty: ensures both `pty.node` and `spawn-helper` are unpacked for Unix platforms

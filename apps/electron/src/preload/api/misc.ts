@@ -99,6 +99,12 @@ export const extensionsApi = {
     ipcRenderer.invoke("extensions:openDetails", extension),
   update: (extensionId: string) =>
     ipcRenderer.invoke("extensions:update", extensionId),
+  fetchReadme: (repo: string): Promise<string> =>
+    ipcRenderer.invoke("extensions:fetchReadme", repo),
+  fetchChangelog: (pluginId: string, repo: string): Promise<any[] | null> =>
+    ipcRenderer.invoke("extensions:fetchChangelog", pluginId, repo),
+  fetchManifest: (pluginId: string, repo: string): Promise<Record<string, any> | null> =>
+    ipcRenderer.invoke("extensions:fetchManifest", pluginId, repo),
 };
 
 export const coreExtensionsApi = {

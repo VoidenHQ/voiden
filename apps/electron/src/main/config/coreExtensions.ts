@@ -4,11 +4,13 @@ import * as https from 'node:https';
 import { join } from 'node:path';
 import { readFileSync, existsSync } from 'node:fs';
 
-const CORE_REGISTRY_URL = 'https://raw.githubusercontent.com/VoidenHQ/core-plugins-registry/main/registry.json';
+const CORE_REGISTRY_URL = 'https://raw.githubusercontent.com/VoidenHQ/plugin-registry/main/extensions.json';
 
 function mapPlugins(reg: any): ExtensionData[] {
-  if (!reg || !reg.plugins) return [];
-  return Object.values(reg.plugins)
+  const entries: any[] = Array.isArray(reg)
+    ? reg.filter((p: any) => p.type === 'core')
+    : Object.values(reg?.plugins ?? {});
+  return entries
     .map((p: any) => ({
       id: p.id,
       type: 'core' as const,
@@ -24,7 +26,8 @@ function mapPlugins(reg: any): ExtensionData[] {
       capabilities: p.capabilities,
       features: p.features,
       repo: p.repo,
-      logo: p.logo,
+      icon: p.icon,
+      bundled: p.bundled ?? false,
       mainProcess: p.mainProcess ?? false,
       voidenVersion: p.voidenVersion,
     }));
@@ -72,15 +75,20 @@ export const remoteNewPlugins: ExtensionData[] = [];
 export async function fetchAndUpdateCoreRegistry(): Promise<void> {
   try {
     const raw = await httpsGet(CORE_REGISTRY_URL);
-    const remote = JSON.parse(raw);
-    if (remote?.plugins) {
+    const parsed = JSON.parse(raw);
+    const entries: any[] = Array.isArray(parsed)
+      ? parsed.filter((p: any) => p.type === 'core')
+      : Object.values(parsed?.plugins ?? {});
+
+    if (entries.length > 0) {
       const localIds = new Set(coreExtensionsSnapshot.map((e: ExtensionData) => e.id));
 
       remoteVersions.clear();
       remoteVoidenVersions.clear();
       remoteNewPlugins.length = 0;
 
-      for (const [id, p] of Object.entries(remote.plugins as Record<string, any>)) {
+      for (const p of entries) {
+        const id: string = p.id;
         if (p.version) remoteVersions.set(id, p.version);
         if (p.voidenVersion) remoteVoidenVersions.set(id, p.voidenVersion);
 
@@ -99,6 +107,8 @@ export async function fetchAndUpdateCoreRegistry(): Promise<void> {
             capabilities: p.capabilities,
             features: p.features,
             repo: p.repo,
+            icon: p.icon,
+            bundled: p.bundled ?? false,
             mainProcess: p.mainProcess ?? false,
             voidenVersion: p.voidenVersion,
           });
@@ -113,17 +123,17 @@ export async function fetchAndUpdateCoreRegistry(): Promise<void> {
 }
 
 // Seed from the build-time snapshot so core plugins are available immediately.
-let _snapshot: any = { plugins: {} };
+let _snapshot: any = [];
 try {
   const possiblePaths = [
     // Dev: local registry clone populated by setup-plugins.sh (always freshest in dev)
-    join(app.getAppPath(), '..', '..', 'plugins', 'core-plugins-registry', 'registry.json'),
+    join(app.getAppPath(), '..', '..', 'plugins', 'plugin-registry', 'extensions.json'),
     // Dev: snapshot synced via yarn registry:sync
-    join(app.getAppPath(), 'src', 'core-plugins-registry.json'),
+    join(app.getAppPath(), 'src', 'extensions.json'),
     // Packaged: baked into ASAR by forge generateAssets
-    join(app.getAppPath(), 'core-plugins-registry.json'),
+    join(app.getAppPath(), 'extensions.json'),
     // Packaged: resources directory outside ASAR
-    join(process.resourcesPath, 'core-plugins-registry.json'),
+    join(process.resourcesPath, 'extensions.json'),
   ];
 
   for (const p of possiblePaths) {
@@ -135,7 +145,7 @@ try {
   }
 } catch (err) {
   try {
-    _snapshot = require('../../core-plugins-registry.json');
+    _snapshot = require('../../extensions.json');
   } catch { /* ignored */ }
 }
 

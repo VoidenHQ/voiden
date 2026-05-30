@@ -25,10 +25,10 @@ export const CustomLink = ({ href, children }: CustomLinkProps) => (
 );
 
 const ExtensionIcon = ({ extension }: { extension: any }) => {
-  if (extension.logo) {
+  if (extension.icon) {
     return (
       <div className="w-14 h-14 rounded-xl bg-active/30 flex items-center justify-center overflow-hidden border border-border flex-shrink-0">
-        <img src={extension.logo} className="w-full h-full object-cover" alt={extension.name} />
+        <img src={extension.icon} className="w-full h-full object-cover" alt={extension.name} />
       </div>
     );
   }
@@ -97,7 +97,7 @@ export const ExtensionDetails = ({
   extensionData: any;
   content: string;
 }) => {
-  const { data: allExtensions } = useGetExtensions();
+  const { data: allExtensions, refetch: refetchExtensions } = useGetExtensions();
   const extensionData =
     allExtensions?.find((e: any) => e.id === initialExtensionData?.id) ?? initialExtensionData;
 
@@ -109,15 +109,48 @@ export const ExtensionDetails = ({
     usePluginStore();
 
   const [activeTab, setActiveTab] = useState<Tab>("Documentation");
+  const [readme, setReadme] = useState<string | null>(null);
+  const [readmeLoading, setReadmeLoading] = useState(false);
   const [changelog, setChangelog] = useState<any[] | null>(null);
+  const [remoteManifest, setRemoteManifest] = useState<any | null>(null);
+
   useEffect(() => {
-    const api = (window as any).electron?.coreExtensions;
-    if (extensionData?.type === "core" && api?.getChangelog) {
-      api.getChangelog(extensionData.id).then((data: any[] | null) => {
+    if (!extensionData?.repo) return;
+    setReadme(null);
+    setReadmeLoading(true);
+    const api = (window as any).electron?.extensions;
+    api?.fetchReadme?.(extensionData.repo)
+      .then((r: string) => setReadme(r || null))
+      .catch(() => setReadme(null))
+      .finally(() => setReadmeLoading(false));
+  }, [extensionData?.repo]);
+
+  useEffect(() => {
+    if (!extensionData?.repo) return;
+    setChangelog(null);
+    const api = (window as any).electron?.extensions;
+    api?.fetchChangelog?.(extensionData.id, extensionData.repo)
+      .then((data: any[] | null) => {
         if (data?.length) setChangelog(data);
-      }).catch(() => {});
-    }
-  }, [extensionData?.id, extensionData?.type]);
+      })
+      .catch(() => {});
+  }, [extensionData?.id, extensionData?.repo]);
+
+  // For community plugins without features/capabilities in the registry entry,
+  // fetch the full manifest from the GitHub release on-demand.
+  const needsManifest = extensionData?.type === "community"
+    && !extensionData?.features?.length
+    && !extensionData?.capabilities
+    && !!extensionData?.repo;
+
+  useEffect(() => {
+    if (!needsManifest) return;
+    setRemoteManifest(null);
+    const api = (window as any).electron?.extensions;
+    api?.fetchManifest?.(extensionData.id, extensionData.repo)
+      .then((m: any) => setRemoteManifest(m || null))
+      .catch(() => {});
+  }, [extensionData?.id, extensionData?.repo, needsManifest]);
 
   const error = pluginErrors.find((err) => err.extensionId === extensionData.id);
   const updateInfo = extensionData.type === "core" ? coreUpdateInfo?.[extensionData.id] : undefined;
@@ -132,6 +165,7 @@ export const ExtensionDetails = ({
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
   const [isUninstallingCore, setIsUninstallingCore] = useState(false);
+  const [isCheckingCommunityUpdate, setIsCheckingCommunityUpdate] = useState(false);
 
   const coreExtApi = () => (window as any).electron?.coreExtensions;
 
@@ -210,8 +244,25 @@ export const ExtensionDetails = ({
     }
   };
 
-  const capabilities = extensionData.capabilities || {};
-  const features = extensionData.features || [];
+  const handleCheckCommunityUpdate = async () => {
+    setIsCheckingCommunityUpdate(true);
+    try {
+      const result = await refetchExtensions();
+      const updated = result.data?.find((e: any) => e.id === extensionData.id);
+      if (updated?.latestVersion) {
+        toast.info(`Update available: v${updated.latestVersion}`);
+      } else if (updated?.incompatibleLatestVersion) {
+        toast.warning(`v${updated.incompatibleLatestVersion} requires Voiden ${updated.requiredVoidenVersion}`);
+      } else {
+        toast.success(`${extensionData.name} is up to date.`);
+      }
+    } finally {
+      setIsCheckingCommunityUpdate(false);
+    }
+  };
+
+  const capabilities = extensionData.capabilities || remoteManifest?.capabilities || {};
+  const features = extensionData.features || remoteManifest?.features || [];
 
   const renderTypeBadge = () => (
     extensionData.type === "core" ? (
@@ -298,9 +349,18 @@ export const ExtensionDetails = ({
           >
             {toggleEnabledMutation.isPending ? "..." : extensionData.enabled ? "Disable" : "Enable"}
           </button>
-          {extensionData.latestVersion && (
+          {extensionData.latestVersion ? (
             <button onClick={() => updateMutation.mutate(extensionData.id)} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md bg-button-primary hover:bg-button-primary-hover text-bg font-medium transition-colors shadow-sm">
               {updateMutation.isPending ? <><Loader2 size={11} className="animate-spin" /> Updating...</> : "Update"}
+            </button>
+          ) : (
+            <button
+              onClick={handleCheckCommunityUpdate}
+              disabled={isCheckingCommunityUpdate}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md border border-border bg-panel hover:bg-active text-text transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <RefreshCw size={11} className={isCheckingCommunityUpdate ? "animate-spin" : ""} />
+              {isCheckingCommunityUpdate ? "Checking..." : "Check Update"}
             </button>
           )}
           <button
@@ -335,6 +395,16 @@ export const ExtensionDetails = ({
               {hasIncompatibleUpdate && (
                 <span className="text-[10px] px-1.5 py-0.5 rounded border border-amber-500/30 text-amber-400 bg-amber-500/10 font-medium">
                   v{updateInfo?.remoteVersion} — needs Voiden {updateInfo?.requiredAppVersion}
+                </span>
+              )}
+              {extensionData.type === "community" && extensionData.latestVersion && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded border border-blue-500/30 text-blue-400 bg-blue-500/10 font-medium">
+                  Update available to v{extensionData.latestVersion}
+                </span>
+              )}
+              {extensionData.type === "community" && extensionData.incompatibleLatestVersion && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded border border-amber-500/30 text-amber-400 bg-amber-500/10 font-medium">
+                  v{extensionData.incompatibleLatestVersion} — needs Voiden {extensionData.requiredVoidenVersion}
                 </span>
               )}
             </div>
@@ -411,14 +481,16 @@ export const ExtensionDetails = ({
       {/* ── Tab content ── */}
       <div className="flex-1 overflow-y-auto px-5 py-4">
         {activeTab === "Documentation" && (
-          content
-            ? <ReactMarkdown
-                components={{ a: ({ href, children }) => <CustomLink href={href}>{children}</CustomLink> }}
-                className={proseClasses}
-              >
-                {content}
-              </ReactMarkdown>
-            : <p className="text-xs text-comment">No documentation available.</p>
+          readmeLoading
+            ? <p className="text-xs text-comment animate-pulse">Loading documentation...</p>
+            : (readme || content)
+              ? <ReactMarkdown
+                  components={{ a: ({ href, children }) => <CustomLink href={href}>{children}</CustomLink> }}
+                  className={proseClasses}
+                >
+                  {readme || content}
+                </ReactMarkdown>
+              : <p className="text-xs text-comment">No documentation available.</p>
         )}
 
         {activeTab === "Capabilities" && (

@@ -1,0 +1,651 @@
+[
+  {
+    "type": "core",
+    "id": "md-preview",
+    "repo": "VoidenHQ/plugin-md-preview",
+    "name": "Markdown Preview",
+    "description": "Live preview and rendering for Markdown files with full GitHub Flavored Markdown (GFM) support including tables, syntax highlighting, task lists, and strikethrough formatting",
+    "version": "1.0.1",
+    "author": "Voiden Team",
+    "priority": 40,
+    "bundled": false,
+    "capabilities": {
+      "editorActions": {
+        "actions": [
+          {
+            "id": "md-preview-toggle",
+            "name": "Preview Markdown",
+            "description": "Opens markdown preview in read-only Voiden tab with panel toggle",
+            "icon": "BookOpen",
+            "fileTypes": [
+              ".md",
+              ".markdown"
+            ]
+          }
+        ],
+        "description": "Registers preview button for markdown files in code editor toolbar"
+      }
+    },
+    "features": [
+      "Live markdown preview in read-only Voiden tab",
+      "GitHub Flavored Markdown (GFM) support",
+      "Tables with proper cell formatting",
+      "Strikethrough text formatting",
+      "Task lists and checkboxes",
+      "Inline and reference-style links",
+      "Inline and reference-style images",
+      "YAML frontmatter support",
+      "Custom YAML blocks (cube blocks)",
+      "Proper blank line preservation",
+      "Toggle preview panel visibility",
+      "Self-contained markdown parser (unified/remark)",
+      "Automatic heading IDs",
+      "Blockquotes",
+      "Ordered and unordered lists",
+      "Inline code and code blocks with syntax highlighting"
+    ],
+    "voidenVersion": ">=1.0.0",
+    "mainProcess": true
+  },
+  {
+    "type": "core",
+    "id": "openapi-import",
+    "repo": "VoidenHQ/plugin-openapi-import",
+    "name": "OpenAPI Collection Importer",
+    "description": "Seamlessly migrate from OpenAPI by importing v3.0 collections and converting them to native Voiden request files with full support for nested folders, environment variables, headers, auth, and all request body types",
+    "version": "1.0.1",
+    "author": "Voiden Team",
+    "priority": 50,
+    "bundled": false,
+    "capabilities": {
+      "ui": {
+        "buttons": [
+          {
+            "id": "openapi-import-btn",
+            "location": "sidebar-left",
+            "icon": "PackageImport",
+            "tooltip": "Import OpenAPI Collection",
+            "description": "Opens file picker to select and import OpenAPI v3.0 JSON collections"
+          }
+        ],
+        "description": "Adds import button to left sidebar for easy collection import"
+      },
+      "fileSystem": {
+        "operations": [
+          "create-directory",
+          "write-file"
+        ],
+        "description": "Creates folder structure and .void files from OpenAPI collection hierarchy"
+      },
+      "integration": {
+        "dependencies": [
+          {
+            "extension": "voiden-rest-api",
+            "reason": "Uses voiden-rest-api helpers to generate compatible REST API blocks",
+            "required": true
+          }
+        ],
+        "description": "Depends on voiden-rest-api extension for REST block generation"
+      }
+    },
+    "features": [
+      "Import OpenAPI Collection v3.0 JSON files",
+      "Automatically create folder structure matching collection hierarchy",
+      "Convert selected requests to a native .void file",
+      "Preserve request names and folder organization",
+      "Support for all HTTP methods (GET, POST, PUT, DELETE, PATCH, etc.)",
+      "Import request headers and convert to headers-table blocks",
+      "Import query parameters and convert to query-table blocks",
+      "Import JSON request bodies and convert to json_body blocks",
+      "Import form-data bodies and convert to multipart-table blocks",
+      "Import URL-encoded bodies",
+      "Sanitize file and folder names for filesystem compatibility",
+      "Progress tracking during import",
+      "Batch file creation with throttling to prevent system overload",
+      "Uses voiden-rest-api helpers for consistent block generation",
+      "Generates markdown with proper YAML frontmatter",
+      "Nested folder support (unlimited depth)",
+      "Handles special characters in names"
+    ],
+    "voidenVersion": ">=1.0.0",
+    "mainProcess": false
+  },
+  {
+    "type": "core",
+    "id": "postman-import",
+    "repo": "VoidenHQ/plugin-postman-import",
+    "name": "Postman Collection Importer",
+    "description": "Seamlessly migrate from Postman by importing v2.1 collections and automatically converting them to native Voiden request files with full support for nested folders, environment variables, headers, auth, and all request body types",
+    "version": "1.0.2",
+    "author": "Voiden Team",
+    "priority": 50,
+    "bundled": false,
+    "capabilities": {
+      "ui": {
+        "buttons": [
+          {
+            "id": "postman-import-btn",
+            "location": "sidebar-left",
+            "icon": "PackageImport",
+            "tooltip": "Import Postman Collection",
+            "description": "Opens file picker to select and import Postman v2.1 JSON collections"
+          }
+        ],
+        "description": "Adds import button to left sidebar for easy collection import"
+      },
+      "fileSystem": {
+        "operations": [
+          "create-directory",
+          "write-file"
+        ],
+        "description": "Creates folder structure and .void files from Postman collection hierarchy"
+      },
+      "integration": {
+        "dependencies": [
+          {
+            "extension": "voiden-rest-api",
+            "reason": "Uses voiden-rest-api helpers to generate compatible REST API blocks",
+            "required": true
+          }
+        ],
+        "description": "Depends on voiden-rest-api extension for REST block generation"
+      }
+    },
+    "features": [
+      "Import Postman Collection v2.1 JSON files",
+      "Automatically create folder structure matching collection hierarchy",
+      "Convert each request to a native .void file",
+      "Preserve request names and folder organization",
+      "Support for all HTTP methods (GET, POST, PUT, DELETE, PATCH, etc.)",
+      "Import request headers and convert to headers-table blocks",
+      "Import query parameters and convert to query-table blocks",
+      "Import JSON request bodies and convert to json_body blocks",
+      "Import form-data bodies and convert to multipart-table blocks",
+      "Import URL-encoded bodies",
+      "Sanitize file and folder names for filesystem compatibility",
+      "Progress tracking during import",
+      "Batch file creation with throttling to prevent system overload",
+      "Uses voiden-rest-api helpers for consistent block generation",
+      "Generates markdown with proper YAML frontmatter",
+      "Nested folder support (unlimited depth)",
+      "Handles special characters in names",
+      "Converts Postman's raw mode to appropriate body types"
+    ],
+    "voidenVersion": ">=1.0.0",
+    "mainProcess": true
+  },
+  {
+    "type": "core",
+    "id": "simple-assertions",
+    "repo": "VoidenHQ/plugin-simple-assertions",
+    "name": "Simple Assertions",
+    "description": "Add simple assertion testing to your HTTP requests with an easy-to-use table interface",
+    "version": "1.0.0",
+    "author": "Voiden Team",
+    "priority": 20,
+    "bundled": false,
+    "capabilities": {
+      "blocks": {
+        "owns": [
+          "assertions-table"
+        ],
+        "allowExtensions": false
+      },
+      "requestPipeline": {
+        "postProcessingHandler": true
+      },
+      "responseEnhancements": {
+        "assertionResults": true
+      }
+    },
+    "features": [
+      "Two-column assertion table for writing tests",
+      "Support for JSONPath, XPath, and form field assertions",
+      "Multiple assertion operators (equals, contains, exists, matches, etc.)",
+      "Assertion results displayed as sub-panel in response",
+      "Color-coded pass/fail indicators"
+    ],
+    "voidenVersion": ">=1.0.0",
+    "mainProcess": false
+  },
+  {
+    "type": "core",
+    "id": "voiden-advanced-auth",
+    "repo": "VoidenHQ/plugin-voiden-advanced-auth",
+    "name": "Advanced Authentication",
+    "description": "Advanced authentication support for HTTP/REST APIs including Bearer Token, Basic Auth, API Key, OAuth 1.0/2.0, Digest, AWS Signature, and more",
+    "version": "2.0.1",
+    "author": "Voiden Team",
+    "priority": 20,
+    "bundled": false,
+    "capabilities": {
+      "blocks": {
+        "owns": [
+          "auth"
+        ],
+        "allowExtensions": true,
+        "description": "Owns 1 block type for authentication configuration"
+      },
+      "slashCommands": {
+        "groups": [
+          {
+            "name": "Advanced Authentication",
+            "commands": [
+              "Insert authorization block",
+              "Insert Bearer Token auth",
+              "Insert Basic Auth",
+              "Insert API Key auth",
+              "Insert OAuth 2.0 auth",
+              "Insert OAuth 1.0 auth",
+              "Insert Digest Auth",
+              "Insert AWS Signature auth"
+            ]
+          }
+        ]
+      }
+    },
+    "features": [
+      "Bearer Token authentication",
+      "Basic authentication (username/password)",
+      "API Key authentication (header or query parameter)",
+      "OAuth 2.0 with customizable token types",
+      "OAuth 1.0 with signature generation",
+      "Digest authentication",
+      "AWS Signature v4",
+      "NTLM, Hawk, Atlassian ASAP, Netrc support",
+      "Environment variable substitution in auth values",
+      "Inherit authentication from parent collections",
+      "Quick auth type switching via dropdown"
+    ],
+    "voidenVersion": ">=1.0.0",
+    "mainProcess": true
+  },
+  {
+    "type": "core",
+    "id": "voiden-faker",
+    "repo": "VoidenHQ/plugin-voiden-faker",
+    "name": "Voiden Faker",
+    "description": "Generate fake data using Faker.js in your API requests",
+    "version": "1.1.0",
+    "author": "Voiden Team",
+    "priority": 30,
+    "bundled": false,
+    "capabilities": {
+      "pipeline": {
+        "hooks": [
+          "pre-send"
+        ]
+      },
+      "editor": {
+        "autocomplete": true,
+        "suggestions": true
+      }
+    },
+    "features": [],
+    "voidenVersion": ">=1.0.0",
+    "mainProcess": false
+  },
+  {
+    "type": "core",
+    "id": "voiden-graphql",
+    "repo": "VoidenHQ/plugin-voiden-graphql",
+    "name": "Voiden GraphQL",
+    "description": "GraphQL client with schema importer for building queries through a dedicated UI or editing manually. Supports queries, mutations, subscriptions with variables. Builds its own requests with auto-generated headers and POST method",
+    "version": "1.0.0",
+    "author": "Voiden Team",
+    "priority": 15,
+    "bundled": false,
+    "capabilities": {
+      "blocks": {
+        "owns": [
+          "gqlquery",
+          "gqlvariables"
+        ],
+        "allowExtensions": true,
+        "description": "Owns 2 block types for GraphQL query and variables"
+      },
+      "requestPipeline": {
+        "buildHandler": true,
+        "responseHandler": true,
+        "streamingHandler": true,
+        "description": "Registers handlers for building GraphQL requests, processing responses, and managing subscriptions"
+      },
+      "slashCommands": {
+        "groups": [
+          {
+            "name": "graphql",
+            "commands": [
+              "Insert GraphQL Query",
+              "Insert GraphQL Variables"
+            ]
+          }
+        ]
+      }
+    },
+    "features": [
+      "Schema file importer - load .graphql/.gql schema files",
+      "Visual query builder UI with operation and field selection",
+      "Field-level argument selection with automatic variable generation",
+      "Separate query and variables blocks",
+      "Operation type support (query/mutation/subscription)",
+      "Variable editor with JSON validation",
+      "Standalone request building with auto-generated Content-Type and POST method",
+      "Schema viewer with tabs for Query/Mutation/Subscription operations",
+      "Auto-generation of queries from UI selections"
+    ],
+    "voidenVersion": ">=1.0.0",
+    "mainProcess": false
+  },
+  {
+    "type": "core",
+    "id": "voiden-rest-api",
+    "repo": "VoidenHQ/plugin-voiden-rest-api",
+    "name": "Voiden REST API",
+    "description": "HTTP/REST API testing toolkit with extensible request pipeline, custom blocks for headers/body, environment variables, response visualization, and support for all HTTP methods including multipart file uploads",
+    "version": "1.4.1",
+    "author": "Voiden Team",
+    "priority": 10,
+    "bundled": true,
+    "capabilities": {
+      "blocks": {
+        "owns": [
+          "method",
+          "url",
+          "request",
+          "headers-table",
+          "query-table",
+          "path-table",
+          "url-table",
+          "multipart-table",
+          "cookies-table",
+          "options-table",
+          "json_body",
+          "xml_body",
+          "yml_body",
+          "response-status",
+          "response-headers",
+          "response-body"
+        ],
+        "allowExtensions": true,
+        "description": "Owns 14 block types for HTTP request/response building and visualization"
+      },
+      "paste": {
+        "patterns": [
+          {
+            "name": "cURL",
+            "description": "Parses cURL commands and populates editor with request details",
+            "pattern": "/^curl\\s+/i",
+            "handles": "Complete cURL command parsing including headers, auth, query params, and body"
+          }
+        ],
+        "blockHandlers": [
+          {
+            "blockType": "method",
+            "description": "Strips formatting from pasted content, inserts as plain text"
+          },
+          {
+            "blockType": "url",
+            "description": "Strips formatting from pasted content, inserts as plain text"
+          }
+        ]
+      },
+      "requestPipeline": {
+        "buildHandler": true,
+        "responseHandler": true,
+        "description": "Registers handlers for building requests and processing responses"
+      },
+      "history": {
+        "registersCurlBuilder": true,
+        "description": "Registers a REST-aware cURL builder for history entries. Other plugins can do the same via context.history.registerCurlBuilder()."
+      },
+      "slashCommands": {
+        "groups": [
+          {
+            "name": "REST API",
+            "commands": [
+              "Insert request block",
+              "Insert headers table",
+              "Insert query parameters",
+              "Insert request body"
+            ]
+          }
+        ]
+      }
+    },
+    "features": [
+      "HTTP method selection (GET, POST, PUT, DELETE, PATCH, etc.)",
+      "URL building with path parameters and query strings",
+      "Headers management with autocomplete",
+      "Multiple body types: JSON, XML, YAML, HTML, form-data, URL-encoded, multipart",
+      "File uploads via multipart/form-data",
+      "Environment variable substitution",
+      "cURL import via paste",
+      "Response visualization with status, headers, and body",
+      "Collapsible response sections",
+      "Syntax highlighting for JSON and XML responses",
+      "Request/response pipeline integration",
+      "History API integration: custom cURL builder for global history export"
+    ],
+    "voidenVersion": ">=1.0.0",
+    "mainProcess": false
+  },
+  {
+    "type": "core",
+    "id": "voiden-scripting",
+    "repo": "VoidenHQ/plugin-voiden-scripting",
+    "name": "Voiden Scripting",
+    "description": "Pre-request and post-response JavaScript scripting for API requests with vd API access",
+    "version": "1.1.0",
+    "author": "Voiden Team",
+    "priority": 25,
+    "bundled": true,
+    "capabilities": {
+      "blocks": {
+        "owns": [
+          "pre_script",
+          "post_script"
+        ],
+        "allowExtensions": false
+      },
+      "pipeline": {
+        "hooks": [
+          "pre-processing",
+          "pre-send",
+          "post-processing"
+        ]
+      },
+      "slashCommands": {
+        "groups": [
+          {
+            "name": "Scripting",
+            "commands": [
+              "Insert Pre-Request Script",
+              "Insert Post-Response Script"
+            ]
+          }
+        ]
+      },
+      "sidebar": {
+        "tabs": [
+          {
+            "id": "script-logs",
+            "title": "Script Logs",
+            "side": "right",
+            "icon": "Logs"
+          }
+        ]
+      }
+    },
+    "features": [
+      "Pre-request JavaScript scripts (runs before request is sent)",
+      "Post-response JavaScript scripts (runs after response is received)",
+      "voiden.request API for reading/writing request data",
+      "voiden.response API for reading response data",
+      "voiden.env.get for active environment variable access",
+      "voiden.variables.get/set for Voiden runtime variable access",
+      "Request body should be string payload (stringify JSON/object values before sending)",
+      "voiden.log() for script output logging",
+      "voiden.assert(condition, message) for script-based assertions",
+      "voiden.cancel() to cancel request from pre-script",
+      "CodeMirror JavaScript editor with syntax highlighting"
+    ],
+    "voidenVersion": ">=1.0.0",
+    "mainProcess": true
+  },
+  {
+    "type": "core",
+    "id": "voiden-sockets-grpcs",
+    "repo": "VoidenHQ/plugin-voiden-sockets",
+    "name": "Sockets & gRPC APIs",
+    "description": "Voiden Sockets provide comprehensive support for WebSocket (WSS) and gRPC communication with unary, server streaming, client streaming, and bidirectional streaming patterns",
+    "version": "1.1.1",
+    "author": "Voiden Team",
+    "priority": 20,
+    "bundled": false,
+    "capabilities": {
+      "blocks": {
+        "owns": [
+          "socket-request",
+          "surl",
+          "smethod",
+          "messages-node",
+          "grpc-messages-node",
+          "proto"
+        ],
+        "allowExtensions": true,
+        "description": "Owns 6 block types for WebSocket and gRPC socket connections"
+      },
+      "requestPipeline": {
+        "buildHandler": true,
+        "responseHandler": true,
+        "streamingHandler": true,
+        "description": "Registers handlers for building requests, processing streaming connections, and managing bidirectional communication"
+      },
+      "slashCommands": {
+        "groups": [
+          {
+            "name": "sockets",
+            "commands": [
+              "Insert WebSocket block",
+              "Insert gRPC socket block"
+            ]
+          }
+        ]
+      },
+      "paste": {
+        "patterns": [
+          {
+            "name": "websocat",
+            "description": "Parses websocat commands and populates editor with WebSocket connection details",
+            "pattern": "/^websocat\\s+/i",
+            "handles": "WebSocket URL parsing including headers, protocols, and connection options"
+          },
+          {
+            "name": "grpcurl",
+            "description": "Parses grpcurl commands and populates editor with gRPC request details",
+            "pattern": "/^grpcurl\\s+/i",
+            "handles": "gRPC service parsing including proto files, metadata, request body, and service endpoints"
+          }
+        ],
+        "blockHandlers": [
+          {
+            "blockType": "smethod",
+            "description": "Strips formatting from pasted content, inserts as plain text"
+          },
+          {
+            "blockType": "surl",
+            "description": "Strips formatting from pasted content, inserts as plain text"
+          },
+          {
+            "blockType": "proto",
+            "description": "Strips formatting from pasted content, inserts services and method"
+          }
+        ]
+      },
+      "panels": {
+        "responsePanel": {
+          "enabled": true,
+          "features": [
+            "Real-time message streaming",
+            "Bidirectional communication log",
+            "Connection status indicator",
+            "Message history viewer"
+          ],
+          "description": "Dedicated response panel for monitoring WebSocket and gRPC communication between Voiden and server"
+        }
+      },
+      "history": {
+        "registersCurlBuilder": true,
+        "description": "Registers socket-aware command builders for history entries: websocat for WS/WSS, grpcurl for GRPC/GRPCS."
+      },
+      "fileHandlers": {
+        "protoFiles": {
+          "extensions": [
+            ".proto"
+          ],
+          "parser": true,
+          "description": "Parse and import Protocol Buffer definition files for gRPC service discovery"
+        }
+      }
+    },
+    "features": [
+      "WebSocket (WSS) connection support",
+      "gRPC with unary, server streaming, client streaming, and bidirectional streaming patterns",
+      "Proto file import and parsing",
+      "Dynamic service and method selection from proto files",
+      "Real-time message exchange",
+      "Connection state management",
+      "Message history and logging",
+      "Dedicated response panel for socket communication",
+      "Support for multiple concurrent connections",
+      "History API integration: websocat/grpcurl command builder for global history export"
+    ],
+    "voidenVersion": ">=1.0.0",
+    "mainProcess": false
+  },
+  {
+    "type": "core",
+    "id": "voiden-stitch",
+    "repo": "VoidenHQ/plugin-voiden-stitch",
+    "name": "Voiden Stitch",
+    "description": "Batch-run multiple .void files as a stitch with aggregated assertion results, variable isolation, and sequential execution",
+    "version": "1.2.0",
+    "author": "Voiden Team",
+    "priority": 35,
+    "bundled": false,
+    "capabilities": {
+      "blocks": {
+        "owns": [
+          "stitch"
+        ],
+        "allowExtensions": false
+      },
+      "slashCommands": {
+        "groups": [
+          {
+            "name": "Stitch",
+            "commands": [
+              "Insert Stitch Runner"
+            ]
+          }
+        ]
+      },
+      "sidebar": {
+        "tabs": []
+      }
+    },
+    "features": [
+      "Batch run multiple .void files sequentially",
+      "Glob pattern matching for file inclusion/exclusion",
+      "Shared or isolated variable scope per file",
+      "Aggregated assertion results in dedicated sidebar tab",
+      "Per-file pass/fail with assertion counts and timing",
+      "Stop-on-failure option",
+      "Configurable delay between files",
+      "Abort/cancel support",
+      "Export results to styled Excel report with per-file sheets, assertion breakdowns, and pass/fail percentages"
+    ],
+    "voidenVersion": ">=1.0.0",
+    "mainProcess": false
+  }
+]
