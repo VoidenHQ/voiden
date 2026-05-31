@@ -1,0 +1,30 @@
+{
+  "name": "@voiden/create-plugin",
+  "version": "1.0.0",
+  "description": "Scaffold a new Voiden plugin with all required config, build scripts and boilerplate",
+  "type": "module",
+  "license": "Apache-2.0",
+  "author": "Phurpa Tsering <phurpa@apyhub.com>",
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "bin": {
+    "create-voiden-plugin": "./bin/index.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/VoidenHQ/voiden.git",
+    "directory": "packages/create-plugin"
+  },
+  "homepage": "https://github.com/VoidenHQ/voiden/tree/main/packages/create-plugin#readme",
+  "bugs": {
+    "url": "https://github.com/VoidenHQ/voiden/issues"
+  },
+  "dependencies": {
+    "prompts": "^2.4.2"
+  },
+  "keywords": ["voiden", "plugin", "scaffold", "create", "cli"]
+}
