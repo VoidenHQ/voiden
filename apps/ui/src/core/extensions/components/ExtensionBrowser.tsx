@@ -320,7 +320,16 @@ const ExtensionItem = ({ extension }: { extension: Extension }) => {
 
       {/* Actions — top-right */}
       <div className="absolute top-2 right-2 flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-        {error && (
+        {error && error.kind === 'permission' ? (
+          <Tip label={error.error} side="bottom" align="end">
+            <button
+              onClick={(e) => { e.stopPropagation(); toast.warning(error.error); }}
+              className="flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-amber-500/10 border border-amber-500/30 text-amber-400 hover:bg-amber-500/20 transition-colors"
+            >
+              Needs Permission
+            </button>
+          </Tip>
+        ) : error ? (
           <Tip label={error.error} side="bottom" align="end">
             <button
               onClick={(e) => { e.stopPropagation(); toast.error(error.error); }}
@@ -329,7 +338,7 @@ const ExtensionItem = ({ extension }: { extension: Extension }) => {
               Error
             </button>
           </Tip>
-        )}
+        ) : null}
         {hasCompatibleUpdate && coreIsLocallyAvailable && (
           <Tip label={`Update available — v${updateInfo?.remoteVersion}`} side="bottom" align="end">
             <span className="w-2 h-2 rounded-full bg-blue-400 flex-shrink-0 cursor-default" />

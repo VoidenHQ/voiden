@@ -10,6 +10,7 @@ import { useGetActiveDocument } from "@/core/documents/hooks";
 import { useQueryClient } from "@tanstack/react-query";
 import { createPortal } from "react-dom";
 import { Kbd } from "@/core/components/ui/kbd";
+import { getContextMenuItems, type PluginContextMenuItem } from "@/plugins";
 
 // ────────────────────────────────────────────────
 // Memoized DragMenuItem Component
@@ -430,10 +431,12 @@ interface DragPopoverContentProps {
   cutSectionBlock?: () => void;
   deleteSectionBlock?: () => void;
   linkSectionBlock?: () => void;
+  pluginBlockItems: PluginContextMenuItem[];
+  pluginBlockTarget: { node: Node | null; nodeType: string; pos: number };
 }
 
 const DragPopoverContent: React.FC<DragPopoverContentProps> = React.memo(
-  ({ duplicateNode, handleAddBlockAbove, handleAddBlockBelow, deleteNode, duplicateShortcut, deleteShortcut, copyNode, cutNode, linkNode, copyDisabled, showLinkBlock, onKeyDown, isSectionSeparator, copySectionBlock, cutSectionBlock, deleteSectionBlock, linkSectionBlock }: DragPopoverContentProps) => {
+  ({ duplicateNode, handleAddBlockAbove, handleAddBlockBelow, deleteNode, duplicateShortcut, deleteShortcut, copyNode, cutNode, linkNode, copyDisabled, showLinkBlock, onKeyDown, isSectionSeparator, copySectionBlock, cutSectionBlock, deleteSectionBlock, linkSectionBlock, pluginBlockItems, pluginBlockTarget }: DragPopoverContentProps) => {
     const isMac = navigator.userAgent.includes("Mac");
     const modKey = isMac ? "⌘" : "Ctrl";
     const contentRef = useRef<HTMLDivElement>(null);
@@ -477,6 +480,22 @@ const DragPopoverContent: React.FC<DragPopoverContentProps> = React.memo(
               )}
               <div className="h-px bg-border my-1" />
               <DragMenuItem onClick={deleteNode} label="Delete" shortcut={<span className="inline-block mr-1"><Kbd keys="⌫" size="sm"></Kbd></span>} />
+            </>
+          )}
+          {pluginBlockItems.length > 0 && (
+            <>
+              <div className="h-px bg-border my-1" />
+              {pluginBlockItems.map((item) => (
+                <PopoverClose key={item.id} asChild>
+                  <button
+                    className="px-3 py-1 w-full text-left rounded hover:bg-active text-text hover:text-text focus:outline-none cursor-pointer transition-colors flex items-center gap-2"
+                    onClick={() => item.action(pluginBlockTarget)}
+                  >
+                    {item.icon && <item.icon size={14} className="text-comment flex-shrink-0" />}
+                    <span className="text-sm">{item.label}</span>
+                  </button>
+                </PopoverClose>
+              ))}
             </>
           )}
         </PopoverContent>
@@ -834,6 +853,15 @@ export const VoidenDragMenu = React.memo(({ editor }: { editor: Editor }) => {
   const duplicateShortcut = useMemo(() => (navigator.userAgent.includes("Mac") ? "⌘D" : "Ctrl+D"), []);
   const deleteShortcut = "Del";
 
+  const pluginBlockTarget = useMemo(
+    () => ({ node: currentNode, nodeType: currentNode?.type.name ?? '', pos: currentNodePos }),
+    [currentNode, currentNodePos],
+  );
+  const pluginBlockItems = useMemo(
+    () => getContextMenuItems('block', pluginBlockTarget),
+    [pluginBlockTarget],
+  );
+
   // Hide menu for certain node types or when not editable
   const hideMenu =
     !currentNode ||
@@ -888,6 +916,8 @@ export const VoidenDragMenu = React.memo(({ editor }: { editor: Editor }) => {
             cutSectionBlock={cutSectionBlock}
             deleteSectionBlock={deleteSectionBlock}
             linkSectionBlock={linkSectionBlock}
+            pluginBlockItems={pluginBlockItems}
+            pluginBlockTarget={pluginBlockTarget}
           />
         </Popover>
       </div>

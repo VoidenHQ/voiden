@@ -321,6 +321,23 @@ export const userSettingsApi = {
   },
 };
 
+export const pluginSettingsApi = {
+  get: (pluginId: string, key: string): Promise<unknown> =>
+    ipcRenderer.invoke('pluginSettings:get', pluginId, key),
+  getAll: (pluginId: string): Promise<Record<string, unknown>> =>
+    ipcRenderer.invoke('pluginSettings:getAll', pluginId),
+  set: (pluginId: string, key: string, value: unknown): Promise<void> =>
+    ipcRenderer.invoke('pluginSettings:set', pluginId, key, value),
+  delete: (pluginId: string, key: string): Promise<void> =>
+    ipcRenderer.invoke('pluginSettings:delete', pluginId, key),
+  onChanged: (cb: (pluginId: string, key: string, value: unknown) => void): (() => void) => {
+    const handler = (_: unknown, pluginId: string, key: string, value: unknown) =>
+      cb(pluginId, key, value);
+    ipcRenderer.on('pluginSettings:changed', handler);
+    return () => ipcRenderer.removeListener('pluginSettings:changed', handler);
+  },
+};
+
 export const fontsApi = {
   install: (): Promise<{
     success: boolean;

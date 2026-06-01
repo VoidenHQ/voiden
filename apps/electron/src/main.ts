@@ -15,6 +15,7 @@ import { registerDirectoryIpcHandlers } from "./main/ipc/directory";
 import { registerProjectIpcHandlers } from "./main/ipc/project";
 import { registerTabIpcHandlers } from "./main/ipc/tabHandlers";
 import { registerPluginIpcHandlers } from "./main/ipc/plugins";
+import { registerPluginSettingsIpcHandlers } from "./main/ipc/pluginSettings";
 import { registerAppIpcHandlers } from "./main/ipc/app";
 import { registerRequestIpcHandler } from "./main/ipc/request";
 import { registerSearchIpcHandler } from "./main/ipc/search";
@@ -175,6 +176,7 @@ app.on("ready", async () => {
   registerProjectIpcHandlers();
   registerTabIpcHandlers();
   registerPluginIpcHandlers();
+  registerPluginSettingsIpcHandlers();
   registerAppIpcHandlers();
   registerRequestIpcHandler();
   registerSearchIpcHandler();

@@ -132,8 +132,9 @@ declare global {
           oldPath: string,
           newName: string,
         ) => Promise<{ success: boolean; error?: string }>;
-        showFileContextMenu: (data: FileTreeItem) => void;
+        showFileContextMenu: (data: FileTreeItem & { pluginItems?: Array<{ id: string; label: string }> }) => void;
         showBulkDeleteMenu: (data: FileTreeItem[]) => void;
+        onPluginFileContextAction: (callback: (data: { id: string; target: FileTreeItem }) => void) => () => void;
         onFileMenuCommand: (
           callback: (command: string, data: FileTreeItem) => void,
         ) => () => void;
@@ -400,6 +401,13 @@ declare global {
         set: (patch: any) => Promise<any>;
         reset: () => Promise<any>;
         onChange: (callback: void) => Promise<any>;
+      };
+      pluginSettings: {
+        get: (pluginId: string, key: string) => Promise<unknown>;
+        getAll: (pluginId: string) => Promise<Record<string, unknown>>;
+        set: (pluginId: string, key: string, value: unknown) => Promise<void>;
+        delete: (pluginId: string, key: string) => Promise<void>;
+        onChanged: (cb: (pluginId: string, key: string, value: unknown) => void) => () => void;
       };
       themes: {
         list: () => Promise<{ id: string; name: string; type: string }[]>;

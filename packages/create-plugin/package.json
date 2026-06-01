@@ -26,5 +26,11 @@
   "dependencies": {
     "prompts": "^2.4.2"
   },
-  "keywords": ["voiden", "plugin", "scaffold", "create", "cli"]
+  "keywords": [
+    "voiden",
+    "plugin",
+    "scaffold",
+    "create",
+    "cli"
+  ]
 }

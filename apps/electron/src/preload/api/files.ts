@@ -47,10 +47,17 @@ export const filesApi = {
     newName: string,
   ): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke("files:rename", oldPath, newName),
-  showFileContextMenu: (data: FileTreeItem) =>
+  showFileContextMenu: (data: FileTreeItem & { pluginItems?: Array<{ id: string; label: string }> }) =>
     ipcRenderer.send("show-file-context-menu", data),
   showBulkDeleteMenu: (data: FileTreeItem[]) =>
     ipcRenderer.send("show-bulk-delete-menu", data),
+  onPluginFileContextAction: (
+    callback: (data: { id: string; target: FileTreeItem }) => void,
+  ) => {
+    const handler = (_: unknown, data: { id: string; target: FileTreeItem }) => callback(data);
+    ipcRenderer.on("plugin:file-context-action", handler);
+    return () => ipcRenderer.removeListener("plugin:file-context-action", handler);
+  },
   onFileMenuCommand: (
     callback: (command: string, data: FileTreeItem) => void,
   ) => {

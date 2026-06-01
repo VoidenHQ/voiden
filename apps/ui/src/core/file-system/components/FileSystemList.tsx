@@ -45,6 +45,7 @@ import { useOpenProject, useCloseActiveProject } from "@/core/projects/hooks";
 import { useElectronEvent } from "@/core/providers";
 import { useFocusStore } from "@/core/stores/focusStore";
 import { useSearchStore } from "@/core/stores/searchStore";
+import { getContextMenuItems, emitPluginEvent } from "@/plugins";
 import { useSearchStore as useEditorSearchStore } from "@/core/stores/searchParamsStore";
 import { useShallow } from "zustand/react/shallow";
 import { useBlockContentStore } from "@/core/stores/blockContentStore";
@@ -327,6 +328,13 @@ function TreeNode({ node, style, dragHandle, activeFile, removeTemporaryNode, on
       queryClient.invalidateQueries({ queryKey: ["voiden-wrapper:blockContent"] });
       queryClient.invalidateQueries({ queryKey: ["file:exists"] });
       queryClient.invalidateQueries({ queryKey: ["app:state"] });
+      emitPluginEvent('file:renamed', {
+        oldPath,
+        newPath,
+        oldName: oldPath.split('/').pop() ?? '',
+        newName,
+        type: node.data.type === 'folder' ? 'directory' : 'file',
+      });
     },
     onError: (error) => {
       setError(error.message || "Error renaming file");
@@ -688,11 +696,11 @@ function TreeNode({ node, style, dragHandle, activeFile, removeTemporaryNode, on
         })),
       );
     } else {
+      const _fcmTarget = { path: node.data.path, type: node.data.type, name: node.data.name };
       window.electron?.files.showFileContextMenu({
-        path: node.data.path,
-        type: node.data.type,
-        name: node.data.name,
+        ..._fcmTarget,
         isProjectRoot: node.level === 0,
+        pluginItems: getContextMenuItems('file', _fcmTarget).map((i) => ({ id: i.id, label: i.label })),
       });
     }
   };
@@ -869,20 +877,40 @@ export const FileSystemList = () => {
   useElectronEvent("file:bulk-delete-complete", () => {
     setShowDeleteProgress(false);
   });
-  useElectronEvent<{ path: string }>("file:delete", (eventData) => {
+  useElectronEvent<{ path: string; name?: string; type?: string }>("file:delete", (eventData) => {
     if (!eventData?.path) return;
     setTreeData((prev) => removeNodeByPath(prev, eventData.path));
     queryClient.invalidateQueries({ queryKey: ["panel:tabs"] });
     queryClient.invalidateQueries({ queryKey: ["app:state"] });
+    emitPluginEvent('file:deleted', {
+      filePath: eventData.path,
+      name: eventData.name ?? eventData.path.split('/').pop() ?? '',
+      type: 'file',
+    });
   });
 
-  useElectronEvent<{ path: string }>("directory:delete", (eventData) => {
+  useElectronEvent<{ path: string; name?: string; type?: string }>("directory:delete", (eventData) => {
     if (!eventData?.path) return;
     setTreeData((prev) => removeNodeByPath(prev, eventData.path));
     expandedDirsRef.current.delete(eventData.path);
     queryClient.invalidateQueries({ queryKey: ["panel:tabs"] });
     queryClient.invalidateQueries({ queryKey: ["app:state"] });
+    emitPluginEvent('directory:deleted', {
+      filePath: eventData.path,
+      name: eventData.name ?? eventData.path.split('/').pop() ?? '',
+      type: 'directory',
+    });
   });
+
+  // Route plugin file context menu actions back to the registered plugin handlers
+  useEffect(() => {
+    const unsub = window.electron?.files.onPluginFileContextAction?.((data) => {
+      const items = getContextMenuItems('file', data.target);
+      items.find((item) => item.id === data.id)?.action(data.target);
+    });
+    return () => unsub?.();
+  }, []);
+
   useEffect(() => {
     // Fallback: also clear if the tree finishes a refetch (e.g. single-file delete via context menu).
     if (!isFetching) setShowDeleteProgress(false);
@@ -1409,7 +1437,7 @@ export const FileSystemList = () => {
   // `files:tree` invalidation alone doesn't work here because the subsequent-
   // refetch handler keeps existing children and discards incoming data to
   // preserve expanded state. refreshDir surgically updates the parent dir instead.
-  useElectronEvent<{ path: string }>("file:new", (eventData) => {
+  useElectronEvent<{ path: string; name?: string; type?: string }>("file:new", (eventData) => {
     const newPath = eventData?.path;
     if (!newPath) return;
     // Walk up from the immediate parent until we find an ancestor already
@@ -1422,6 +1450,12 @@ export const FileSystemList = () => {
       target = parent;
     }
     if (target) refreshDir(target);
+    const isDir = eventData?.type === 'directory' || eventData?.type === 'folder';
+    emitPluginEvent(isDir ? 'directory:created' : 'file:created', {
+      filePath: newPath,
+      name: eventData?.name ?? newPath.split('/').pop() ?? '',
+      type: isDir ? 'directory' : 'file',
+    });
   });
 
   useElectronEvent<{ path: string }>("file:duplicate", (eventData) => {
@@ -1834,11 +1868,11 @@ export const FileSystemList = () => {
         event.preventDefault();
         event.stopPropagation();
         if (data) {
+          const _rootTarget = { path: data.path, type: data.type, name: data.name };
           window.electron?.files.showFileContextMenu({
-            path: data.path,
-            type: data.type,
-            name: data.name,
+            ..._rootTarget,
             isProjectRoot: true,
+            pluginItems: getContextMenuItems('file', _rootTarget).map((i) => ({ id: i.id, label: i.label })),
           });
         }
       }}

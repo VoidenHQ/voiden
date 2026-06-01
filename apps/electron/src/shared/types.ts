@@ -56,6 +56,7 @@ export interface ExtensionData {
   dependencies?: any; // dependencies from manifest
   mainProcess?: boolean; // whether this extension has a main-process entry point
   isLocallyAvailable?: boolean; // core extensions only: true if a local bundle exists (bundled or OTA-cached)
+  permissions?: string[];
   incompatibleLatestVersion?: string; // community only: a newer version exists but requires a newer Voiden
   requiredVoidenVersion?: string; // community only: the voidenVersion constraint blocking the update
 }

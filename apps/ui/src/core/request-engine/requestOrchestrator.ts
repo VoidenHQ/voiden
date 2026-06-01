@@ -207,6 +207,7 @@ class RequestOrchestratorImpl implements RequestOrchestrator {
 
     // Step 2: Send request through core pipeline
     // Pass handlerEditor (section-scoped) so pipeline hooks get scoped getJSON()
+    import('@/plugins').then(({ emitPluginEvent }) => emitPluginEvent('request:sent', { request })).catch(() => {});
     const response = await sendRequestHybrid(request, handlerEditor, signal, window.electron);
 
     if (!response) {
@@ -240,6 +241,7 @@ class RequestOrchestratorImpl implements RequestOrchestrator {
       }
     }
 
+    import('@/plugins').then(({ emitPluginEvent }) => emitPluginEvent('response:received', { response })).catch(() => {});
     requestLogger.info("Request execution complete");
     return response;
   }

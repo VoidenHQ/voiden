@@ -33,6 +33,7 @@ import {
   BlockExtension,
   PatternHandler,
   UIExtension,
+  THEME_CLASSES,
 } from "@voiden/sdk/ui";
 import { parseCookies } from "@voiden/sdk/shared";
 import { extensionLogger } from "@/core/lib/logger";
@@ -581,7 +582,20 @@ export const createPlugin = (
     getVoidenSlashGroups: (): SlashCommandGroup[] => {
       return useEditorEnhancementStore.getState().voidenSlashGroups;
     },
-    addVoidenSlashCommand: (command: SlashCommand) => { },
+    addVoidenSlashCommand: (command: SlashCommand) => {
+      // Legacy single-command API — wraps into a group keyed by extensionId
+      const existing = useEditorEnhancementStore.getState().voidenSlashGroups.find(g => g.name === extensionId);
+      if (existing) {
+        existing.commands.push(command as any);
+        useEditorEnhancementStore.getState().addVoidenSlashGroup({ ...existing });
+      } else {
+        useEditorEnhancementStore.getState().addVoidenSlashGroup({
+          name: extensionId,
+          title: extensionId,
+          commands: [command as any],
+        });
+      }
+    },
     registerVoidenExtension: (extension: AnyExtension) => {
       useEditorEnhancementStore.getState().addVoidenExtension(extension);
     },
@@ -1126,6 +1140,7 @@ export const createPlugin = (
         }) ?? (() => {});
       },
     },
+    theme: THEME_CLASSES,
   };
 
   const plugin = pluginModule(context);

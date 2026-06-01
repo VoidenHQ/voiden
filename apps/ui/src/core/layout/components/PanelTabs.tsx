@@ -30,7 +30,7 @@ import { useEditorStore } from "@/core/editors/voiden/VoidenEditor";
 import { getSchema } from "@tiptap/core";
 import { voidenExtensions } from "@/core/editors/voiden/extensions";
 import { prosemirrorToMarkdown } from "@/core/file-system/hooks";
-import { useEditorEnhancementStore } from "@/plugins";
+import { useEditorEnhancementStore, emitPluginEvent, getContextMenuItems } from "@/plugins";
 import { usePanelStore } from "@/core/stores/panelStore";
 import { getQueryClient } from "@/main";
 import { Kbd } from "@/core/components/ui/kbd";
@@ -307,6 +307,13 @@ const TabComponent = ({
               savePanelStateForTab(currentActiveTabId);
             }
             activateTab(tab.id);
+            const prevTab = currentActiveTabId ? tabs.find((t) => t.id === currentActiveTabId) : undefined;
+            emitPluginEvent('tab:changed', {
+              tabId: tab.id, title: tab.title, type: tab.type,
+              previousTabId: prevTab?.id ?? null,
+              previousTitle: prevTab?.title ?? null,
+              previousType: prevTab?.type ?? null,
+            });
             // Panel state (open/close) is applied by AppLayout's activeTabId effect
             // after the panel:tabs query settles, so the editor switches first.
           }}
@@ -386,6 +393,16 @@ const TabComponent = ({
             <span>Reload Tab</span>
             <Kbd keys="⌘R" size="sm"></Kbd>
           </ContextMenu.Item>
+          {getContextMenuItems('tab', tab).map((item) => (
+            <ContextMenu.Item
+              key={item.id}
+              onSelect={() => item.action(tab)}
+              className="flex items-center gap-2 px-3 py-1 hover:bg-active cursor-pointer focus:outline-none"
+            >
+              {item.icon && <item.icon size={14} className="text-comment" />}
+              <span>{item.label}</span>
+            </ContextMenu.Item>
+          ))}
         </ContextMenu.Content>
       </ContextMenu.Portal>
     </ContextMenu.Root>

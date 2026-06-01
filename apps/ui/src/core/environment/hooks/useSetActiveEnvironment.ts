@@ -5,6 +5,7 @@
  */
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { emitPluginEvent } from "@/plugins";
 
 export const useSetActiveEnvironment = () => {
   const queryClient = useQueryClient();
@@ -18,6 +19,7 @@ export const useSetActiveEnvironment = () => {
       queryClient.invalidateQueries({ queryKey: ["environments"] });
       queryClient.invalidateQueries({ queryKey: ["env"] });
       queryClient.invalidateQueries({ queryKey: ["environment-keys"] });
+      emitPluginEvent('environment:changed', { envPath });
     },
   });
 };

@@ -50,6 +50,7 @@ export class ExtensionManager {
               features: manifest.features || ext.features,
               dependencies: manifest.dependencies || ext.dependencies,
               mainProcess: manifest.mainProcess ?? ext.mainProcess,
+              permissions: manifest.permissions ?? ext.permissions ?? [],
             };
           } catch {
             return ext;
@@ -271,6 +272,7 @@ export class ExtensionManager {
       features: manifestData.features || extension.features,
       dependencies: manifestData.dependencies || extension.dependencies,
       mainProcess: manifestData.mainProcess ?? !!mainProcess,
+      permissions: manifestData.permissions ?? [],
     };
 
     const index = this.store.extensions.findIndex((ext) => ext.id === installed.id);
@@ -422,6 +424,7 @@ export class ExtensionManager {
       features: manifest.features,
       dependencies: manifest.dependencies,
       mainProcess: manifest.mainProcess ?? !!mainProcessEntry,
+      permissions: manifest.permissions ?? [],
     };
 
     // Add or update in store

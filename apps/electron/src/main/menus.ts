@@ -47,6 +47,9 @@ export const createFileTreeContextMenu = (mainWindow: BrowserWindow) => {
         (appState.activeDirectory === data.path ||
           Object.values(appState.directories || {}).some((dir) => dir.rootPath === data.path)));
 
+    const pluginItems: Array<{ id: string; label: string }> = data.pluginItems ?? [];
+    const fileTarget = { path: data.path, type: data.type, name: data.name };
+
     if (data.type === "folder") {
       const menuTemplate: MenuItemConstructorOptions[] = [
         {
@@ -157,9 +160,18 @@ export const createFileTreeContextMenu = (mainWindow: BrowserWindow) => {
         });
       }
 
+      if (pluginItems.length > 0) {
+        menuTemplate.push({ type: "separator" as const });
+        for (const item of pluginItems) {
+          menuTemplate.push({
+            label: item.label,
+            click: () => safeSend(senderWindow, "plugin:file-context-action", { id: item.id, target: fileTarget }),
+          });
+        }
+      }
       menu = Menu.buildFromTemplate(menuTemplate);
     } else {
-      menu = Menu.buildFromTemplate([
+      const fileMenuTemplate: MenuItemConstructorOptions[] = [
         {
           label: process.platform==='darwin'?"Reveal in Finder":(process.platform==='win32'?"Reveal in Explorer":"Reveal Containing Folder"),
           accelerator: "Option+Cmd+R",
@@ -236,7 +248,17 @@ export const createFileTreeContextMenu = (mainWindow: BrowserWindow) => {
             }
           },
         },
-      ]);
+      ];
+      if (pluginItems.length > 0) {
+        fileMenuTemplate.push({ type: "separator" as const });
+        for (const item of pluginItems) {
+          fileMenuTemplate.push({
+            label: item.label,
+            click: () => safeSend(senderWindow, "plugin:file-context-action", { id: item.id, target: fileTarget }),
+          });
+        }
+      }
+      menu = Menu.buildFromTemplate(fileMenuTemplate);
     }
 
     menu.popup({ window: senderWindow || undefined });

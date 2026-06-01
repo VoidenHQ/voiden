@@ -37,6 +37,7 @@ interface Command {
   description: string;
   icon: React.ReactNode;
   action: () => void;
+  shortcut?: string;
 }
 
 export const CommandPalette: React.FC<CommandPaletteProps> = ({ isFocused, mode, onFocus, onBlur, onShowHelp }) => {
@@ -52,6 +53,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isFocused, mode,
   const { openBottomPanel, bottomPanelRef } = usePanelStore();
   const { data: activeFilePath } = useGetActiveDocument();
   const helpCommands = usePluginStore((state) => state.helpCommands);
+  const pluginCommands = usePluginStore((state) => state.pluginCommands);
 
   // Prettify utilities
   const prettifyXML = (xml: string): string => {
@@ -422,7 +424,18 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isFocused, mode,
         setTimeout(() => onBlur(), 0);
       },
     })),
-  ], [addPanelTab, bottomPanelRef, openBottomPanel, queryClient, onBlur, onShowHelp, activeFilePath, helpCommands]);
+    // Plugin-registered commands
+    ...pluginCommands
+      .filter((cmd) => !cmd.when || cmd.when())
+      .map((cmd) => ({
+        id: cmd.id,
+        label: cmd.label,
+        description: cmd.description ?? '',
+        icon: cmd.icon ? <cmd.icon size={16} className="text-accent" /> : <Settings size={16} className="text-accent" />,
+        action: cmd.action,
+        shortcut: cmd.shortcut,
+      })),
+  ], [addPanelTab, bottomPanelRef, openBottomPanel, queryClient, onBlur, onShowHelp, activeFilePath, helpCommands, pluginCommands]);
 
   const [filteredCommands, setFilteredCommands] = useState<Command[]>(commands);
 
@@ -900,6 +913,9 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isFocused, mode,
                       <div className="text-sm font-medium text-text">{command.label}</div>
                       <div className="text-xs text-comment">{command.description}</div>
                     </div>
+                    {command.shortcut && (
+                      <span className="text-xs text-comment font-mono bg-active px-1.5 py-0.5 rounded flex-shrink-0">{command.shortcut}</span>
+                    )}
                   </button>
                 ))
               )

@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSearchStore as useFileSearchStore } from "@/core/stores/searchStore";
 import { useSearchStore as useEditorSearchStore } from "@/core/stores/searchParamsStore";
+import { emitPluginEvent } from "@/plugins";
 
 const closeAllSearchPanels = () => {
   useFileSearchStore.getState().setIsSearching(false);
@@ -29,13 +30,14 @@ export const useOpenProject = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (projectPath: string) => window.electron?.state.openProject(projectPath),
-    onSuccess: () => {
+    onSuccess: (_, projectPath) => {
       closeAllSearchPanels();
       clearGitQueries(queryClient);
       queryClient.invalidateQueries({ queryKey: ["environments"] });
       queryClient.invalidateQueries({ queryKey: ["app:state"] });
       queryClient.invalidateQueries({ queryKey: ["files:tree"] });
       queryClient.invalidateQueries({ queryKey: ["panel:tabs"] });
+      emitPluginEvent('project:changed', { projectPath });
     },
   });
 };
@@ -49,7 +51,7 @@ export const useSetActiveProject = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (projectPath: string) => window.electron?.state.setActiveProject(projectPath),
-    onSuccess: () => {
+    onSuccess: (_, projectPath) => {
       closeAllSearchPanels();
       clearGitQueries(queryClient);
       queryClient.invalidateQueries({ queryKey: ["projects"] });
@@ -58,6 +60,7 @@ export const useSetActiveProject = () => {
       queryClient.invalidateQueries({ queryKey: ["files:tree"] });
       queryClient.invalidateQueries({ queryKey: ["environments"] });
       queryClient.invalidateQueries({ queryKey: ["yaml-environments"] });
+      emitPluginEvent('project:changed', { projectPath });
     },
   });
 };
