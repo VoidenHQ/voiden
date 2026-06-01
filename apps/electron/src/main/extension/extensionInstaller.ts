@@ -168,16 +168,19 @@ export async function getExtensionFiles(
   const assets: ReleaseAsset[] = releaseInfo.assets;
 
   const manifestAsset = assets.find((asset) => asset.name === "manifest.json");
-  const mainAsset = assets.find((asset) => asset.name === "main.js");
+  if (!manifestAsset) throw new Error("manifest.json not found in release assets");
 
-  if (!manifestAsset || !mainAsset) {
-    throw new Error("Required files not found in release assets");
-  }
+  // Download manifest first so we can derive the expected bundle filename ({id}.js)
+  const manifest = await httpsGetText(manifestAsset.browser_download_url);
+  let pluginId: string | undefined;
+  try { pluginId = JSON.parse(manifest).id; } catch { /* malformed — fall back */ }
 
-  const [manifest, main] = await Promise.all([
-    httpsGetText(manifestAsset.browser_download_url),
-    httpsGetText(mainAsset.browser_download_url),
-  ]);
+  // Prefer {id}.js (canonical name matching the build output); fall back to main.js for older releases
+  const mainAsset = assets.find((asset) => asset.name === `${pluginId}.js`)
+    ?? assets.find((asset) => asset.name === "main.js");
+  if (!mainAsset) throw new Error(`${pluginId}.js (or main.js) not found in release assets`);
+
+  const main = await httpsGetText(mainAsset.browser_download_url);
 
   // Attempt to fetch skill.md — best-effort, optional
   let skill: string | undefined;

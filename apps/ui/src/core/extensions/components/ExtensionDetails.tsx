@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
+import * as LucideIcons from "lucide-react";
 import { proseClasses } from "@/core/editors/voiden/VoidenEditor";
 import { GitBranch, Loader2, Shield, Users, RefreshCw, Trash2, ChevronDown, ChevronRight } from "lucide-react";
 import { openExternalLink } from "@/core/lib/utils";
@@ -26,13 +27,26 @@ export const CustomLink = ({ href, children }: CustomLinkProps) => (
 );
 
 const ExtensionIcon = ({ extension }: { extension: any }) => {
-  if (extension.icon) {
-    return (
-      <div className="w-14 h-14 rounded-xl bg-active/30 flex items-center justify-center overflow-hidden border border-border flex-shrink-0">
-        <img src={extension.icon} className="w-full h-full object-cover" alt={extension.name} />
-      </div>
-    );
+  const icon: string | undefined = extension.icon;
+
+  if (icon) {
+    if (icon.startsWith("http") || icon.startsWith("data:")) {
+      return (
+        <div className="w-14 h-14 rounded-xl bg-active/30 flex items-center justify-center overflow-hidden border border-border flex-shrink-0">
+          <img src={icon} className="w-full h-full object-cover" alt={extension.name} />
+        </div>
+      );
+    }
+    const LucideIcon = (LucideIcons as Record<string, any>)[icon] as React.ComponentType<{ size?: number; className?: string }> | undefined;
+    if (LucideIcon) {
+      return (
+        <div className="w-14 h-14 rounded-xl bg-active/30 flex items-center justify-center border border-border flex-shrink-0">
+          <LucideIcon size={28} className="text-foreground" />
+        </div>
+      );
+    }
   }
+
   if (extension.type === "core") {
     return (
       <div className="w-14 h-14 rounded-xl bg-active/30 flex items-center justify-center overflow-hidden border border-border flex-shrink-0">
@@ -315,6 +329,14 @@ export const ExtensionDetails = ({
   const capabilities = extensionData.capabilities || remoteManifest?.capabilities || {};
   const features = extensionData.features || remoteManifest?.features || [];
 
+  const hasUiButtons  = (capabilities.ui?.buttons?.length ?? 0) > 0;
+  const hasUiPanels   = (capabilities.ui?.panels?.length ?? 0) > 0;
+  const hasBlocks     = !!capabilities.blocks;
+  const hasSlash      = !!capabilities.slashCommands;
+  const hasPaste      = (capabilities.paste?.patterns?.length ?? 0) > 0;
+  const hasPipeline   = !!capabilities.requestPipeline;
+  const hasCapabilities = hasUiButtons || hasUiPanels || hasBlocks || hasSlash || hasPaste || hasPipeline;
+
   const renderTypeBadge = () => (
     extensionData.type === "core" ? (
       <span className="inline-flex items-center gap-1 text-[10px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded border border-purple-500/30 text-purple-400 bg-purple-500/10">
@@ -547,70 +569,109 @@ export const ExtensionDetails = ({
       <div className="flex-1 overflow-y-auto px-5 py-4">
         {activeTab === "Documentation" && (
           readmeLoading
-            ? <p className="text-xs text-comment animate-pulse">Loading documentation...</p>
+            ? <div className="flex items-center justify-center h-full">
+                <p className="text-xs text-comment animate-pulse">Loading documentation...</p>
+              </div>
             : (readme || content)
-              ? <ReactMarkdown
-                  components={{ a: ({ href, children }) => <CustomLink href={href}>{children}</CustomLink> }}
-                  className={proseClasses}
-                >
-                  {readme || content}
-                </ReactMarkdown>
-              : <p className="text-xs text-comment">No documentation available.</p>
+              ? <div className={proseClasses}>
+                  <ReactMarkdown
+                    components={{ a: ({ href, children }) => <CustomLink href={href}>{children}</CustomLink> }}
+                  >
+                    {readme || content}
+                  </ReactMarkdown>
+                </div>
+              : <div className="flex flex-col items-center justify-center h-full gap-1.5 text-center">
+                  <p className="text-sm font-medium text-comment/60">No documentation</p>
+                  <p className="text-xs text-comment/40">This plugin has no readme.</p>
+                </div>
         )}
 
         {activeTab === "Capabilities" && (
-          Object.keys(capabilities).length > 0
-            ? <>
-                {capabilities.blocks && (
-                  <div className="mb-5">
-                    <h4 className="text-xs font-semibold text-text/80 uppercase tracking-wider mb-2">Blocks</h4>
-                    {capabilities.blocks.description && (
-                      <p className="text-xs text-comment mb-2">{capabilities.blocks.description}</p>
-                    )}
-                    <div className="flex flex-wrap gap-1.5">
-                      {capabilities.blocks.owns?.map((block: string) => (
-                        <span key={block} className="px-2 py-0.5 bg-active border border-border rounded text-[11px] font-mono text-comment">{block}</span>
+          hasCapabilities ? (
+            <>
+              {(hasUiButtons || hasUiPanels) && (
+                <div className="mb-5">
+                  <h4 className="text-xs font-semibold text-text/80 uppercase tracking-wider mb-2">UI</h4>
+                  {hasUiButtons && (
+                    <div className="mb-3">
+                      <p className="text-[11px] text-comment/60 uppercase tracking-wider mb-1.5">Buttons</p>
+                      {capabilities.ui.buttons.map((btn: any) => (
+                        <div key={btn.id} className="mb-1.5 bg-bg px-3 py-2 rounded border border-border">
+                          <p className="text-xs font-medium text-text/80">{btn.tooltip || btn.id}</p>
+                          {btn.description && <p className="text-[11px] text-comment mt-0.5">{btn.description}</p>}
+                          {btn.location && <p className="text-[11px] text-comment/50 mt-0.5 font-mono">{btn.location}</p>}
+                        </div>
                       ))}
                     </div>
-                  </div>
-                )}
-                {capabilities.slashCommands && (
-                  <div className="mb-5">
-                    <h4 className="text-xs font-semibold text-text/80 uppercase tracking-wider mb-2">Slash Commands</h4>
-                    {capabilities.slashCommands.groups?.map((group: any) => (
-                      <div key={group.name} className="mb-3">
-                        <p className="text-xs font-medium text-text/70 mb-1">{group.name}</p>
-                        <ul className="space-y-1 ml-2">
-                          {group.commands?.map((cmd: string, idx: number) => (
-                            <li key={idx} className="flex gap-2 text-xs text-comment">
-                              <span className="mt-1.5 w-1 h-1 rounded-full bg-comment/40 flex-shrink-0" />
-                              {cmd}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
+                  )}
+                  {hasUiPanels && (
+                    <div>
+                      <p className="text-[11px] text-comment/60 uppercase tracking-wider mb-1.5">Panels</p>
+                      {capabilities.ui.panels.map((panel: any) => (
+                        <div key={panel.id} className="mb-1.5 bg-bg px-3 py-2 rounded border border-border">
+                          <p className="text-xs font-medium text-text/80">{panel.title || panel.id}</p>
+                          {panel.description && <p className="text-[11px] text-comment mt-0.5">{panel.description}</p>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              {hasBlocks && (
+                <div className="mb-5">
+                  <h4 className="text-xs font-semibold text-text/80 uppercase tracking-wider mb-2">Blocks</h4>
+                  {capabilities.blocks.description && (
+                    <p className="text-xs text-comment mb-2">{capabilities.blocks.description}</p>
+                  )}
+                  <div className="flex flex-wrap gap-1.5">
+                    {capabilities.blocks.owns?.map((block: string) => (
+                      <span key={block} className="px-2 py-0.5 bg-active border border-border rounded text-[11px] font-mono text-comment">{block}</span>
                     ))}
                   </div>
-                )}
-                {capabilities.paste?.patterns?.length > 0 && (
-                  <div className="mb-5">
-                    <h4 className="text-xs font-semibold text-text/80 uppercase tracking-wider mb-2">Paste Handlers</h4>
-                    {capabilities.paste.patterns.map((pattern: any) => (
-                      <div key={pattern.name} className="mb-2 bg-bg px-3 py-2 rounded border border-border">
-                        <p className="text-xs font-medium text-text/80">{pattern.name}</p>
-                        {pattern.description && <p className="text-[11px] text-comment mt-0.5">{pattern.description}</p>}
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {capabilities.requestPipeline && (
-                  <div>
-                    <h4 className="text-xs font-semibold text-text/80 uppercase tracking-wider mb-2">Request Pipeline</h4>
-                    <p className="text-xs text-comment">{capabilities.requestPipeline.description}</p>
-                  </div>
-                )}
-              </>
-            : <p className="text-xs text-comment">No capabilities declared.</p>
+                </div>
+              )}
+              {hasSlash && (
+                <div className="mb-5">
+                  <h4 className="text-xs font-semibold text-text/80 uppercase tracking-wider mb-2">Slash Commands</h4>
+                  {capabilities.slashCommands.groups?.map((group: any) => (
+                    <div key={group.name} className="mb-3">
+                      <p className="text-xs font-medium text-text/70 mb-1">{group.name}</p>
+                      <ul className="space-y-1 ml-2">
+                        {group.commands?.map((cmd: string, idx: number) => (
+                          <li key={idx} className="flex gap-2 text-xs text-comment">
+                            <span className="mt-1.5 w-1 h-1 rounded-full bg-comment/40 flex-shrink-0" />
+                            {cmd}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {hasPaste && (
+                <div className="mb-5">
+                  <h4 className="text-xs font-semibold text-text/80 uppercase tracking-wider mb-2">Paste Handlers</h4>
+                  {capabilities.paste.patterns.map((pattern: any) => (
+                    <div key={pattern.name} className="mb-2 bg-bg px-3 py-2 rounded border border-border">
+                      <p className="text-xs font-medium text-text/80">{pattern.name}</p>
+                      {pattern.description && <p className="text-[11px] text-comment mt-0.5">{pattern.description}</p>}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {hasPipeline && (
+                <div>
+                  <h4 className="text-xs font-semibold text-text/80 uppercase tracking-wider mb-2">Request Pipeline</h4>
+                  <p className="text-xs text-comment">{capabilities.requestPipeline.description}</p>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="flex flex-col items-center justify-center h-full gap-1.5 text-center">
+              <p className="text-sm font-medium text-comment/60">No capabilities</p>
+              <p className="text-xs text-comment/40">This plugin declares no capabilities.</p>
+            </div>
+          )
         )}
 
         {activeTab === "Features" && (
@@ -623,7 +684,10 @@ export const ExtensionDetails = ({
                   </li>
                 ))}
               </ul>
-            : <p className="text-xs text-comment">No features listed.</p>
+            : <div className="flex flex-col items-center justify-center h-full gap-1.5 text-center">
+                <p className="text-sm font-medium text-comment/60">No features listed</p>
+                <p className="text-xs text-comment/40">This plugin has no feature descriptions.</p>
+              </div>
         )}
 
         {activeTab === "Changelog" && (
@@ -631,7 +695,10 @@ export const ExtensionDetails = ({
             ? <div className="space-y-2">
                 {changelog.map((entry, i) => <ChangelogEntry key={i} entry={entry} />)}
               </div>
-            : <p className="text-xs text-comment">No changelog available.</p>
+            : <div className="flex flex-col items-center justify-center h-full gap-1.5 text-center">
+                <p className="text-sm font-medium text-comment/60">No changelog</p>
+                <p className="text-xs text-comment/40">No changelog available for this plugin.</p>
+              </div>
         )}
       </div>
     </div>

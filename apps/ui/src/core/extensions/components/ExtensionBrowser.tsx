@@ -1,4 +1,5 @@
 import { Search, Settings, Loader2, Users, Upload, RefreshCw, Trash2, Cpu, Globe, RotateCw, HardDrive, ArrowUpCircle, ChevronDown, Check } from "lucide-react";
+import * as LucideIcons from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import {
   useGetExtensions,
@@ -25,13 +26,29 @@ let _lastUpdateCheck = 0;
 const ExtensionIcon = ({ extension, size = "md" }: { extension: Extension; size?: "sm" | "md" }) => {
   const dim = size === "sm" ? "w-8 h-8" : "w-10 h-10";
   const imgDim = size === "sm" ? "w-5 h-5" : "w-7 h-7";
+  const iconSize = size === "sm" ? 16 : 20;
 
   if (extension.icon) {
-    return (
-      <div className={`${dim} rounded-lg bg-active/30 flex items-center justify-center overflow-hidden border border-border shadow-inner flex-shrink-0`}>
-        <img src={extension.icon} className="w-full h-full object-cover" alt={extension.name} />
-      </div>
-    );
+    const icon = extension.icon;
+
+    // URL or embedded base64 data URL → render as image
+    if (icon.startsWith("http") || icon.startsWith("data:")) {
+      return (
+        <div className={`${dim} rounded-lg bg-active/30 flex items-center justify-center overflow-hidden border border-border shadow-inner flex-shrink-0`}>
+          <img src={icon} className="w-full h-full object-cover" alt={extension.name} />
+        </div>
+      );
+    }
+
+    // Lucide icon name → resolve dynamically
+    const LucideIcon = (LucideIcons as Record<string, any>)[icon] as React.ComponentType<{ size?: number; className?: string }> | undefined;
+    if (LucideIcon) {
+      return (
+        <div className={`${dim} rounded-lg bg-active/30 flex items-center justify-center border border-border shadow-inner flex-shrink-0`}>
+          <LucideIcon size={iconSize} className="text-foreground" />
+        </div>
+      );
+    }
   }
 
   if (extension.type === "core") {
@@ -44,7 +61,7 @@ const ExtensionIcon = ({ extension, size = "md" }: { extension: Extension; size?
 
   return (
     <div className={`${dim} rounded-lg bg-active/30 flex items-center justify-center border border-border shadow-inner flex-shrink-0`}>
-      <Users size={size === "sm" ? 16 : 20} className="text-comment" />
+      <Users size={iconSize} className="text-comment" />
     </div>
   );
 };

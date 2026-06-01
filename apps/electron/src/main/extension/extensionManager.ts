@@ -58,6 +58,7 @@ export class ExtensionManager {
             const manifest = JSON.parse(manifestRaw);
             return {
               ...ext,
+              icon: manifest.icon || ext.icon,
               readme: manifest.readme || ext.readme || "",
               capabilities: manifest.capabilities || ext.capabilities,
               features: manifest.features || ext.features,
@@ -306,6 +307,7 @@ export class ExtensionManager {
       ...extension,
       installedPath: installPath,
       enabled: true,
+      icon: manifestData.icon || extension.icon,
       readme: manifestData.readme || extension.readme || "",
       capabilities: manifestData.capabilities || extension.capabilities,
       features: manifestData.features || extension.features,
@@ -375,13 +377,11 @@ export class ExtensionManager {
 
     const entries = zip.getEntries();
 
-    // Look for manifest.json and main.js — either at root or inside a single top-level folder
+    // Resolve prefix: entries can live at root or inside a single top-level folder
     let prefix = "";
     const hasRootManifest = entries.some((e) => e.entryName === "manifest.json");
-    const hasRootMain = entries.some((e) => e.entryName === "main.js");
 
-    if (!hasRootManifest || !hasRootMain) {
-      // Check for a single top-level directory
+    if (!hasRootManifest) {
       const topLevelDirs = new Set<string>();
       for (const entry of entries) {
         const parts = entry.entryName.split("/");
@@ -389,16 +389,14 @@ export class ExtensionManager {
           topLevelDirs.add(parts[0]);
         }
       }
-
       if (topLevelDirs.size === 1) {
         prefix = [...topLevelDirs][0] + "/";
         const hasNestedManifest = entries.some((e) => e.entryName === prefix + "manifest.json");
-        const hasNestedMain = entries.some((e) => e.entryName === prefix + "main.js");
-        if (!hasNestedManifest || !hasNestedMain) {
-          throw new Error("Zip must contain manifest.json and main.js");
+        if (!hasNestedManifest) {
+          throw new Error("Zip must contain manifest.json at root level or inside a single folder");
         }
       } else {
-        throw new Error("Zip must contain manifest.json and main.js at root level or inside a single folder");
+        throw new Error("Zip must contain manifest.json at root level or inside a single folder");
       }
     }
 
@@ -429,8 +427,9 @@ export class ExtensionManager {
 
     await fs.writeFile(path.join(installPath, "manifest.json"), manifestEntry.getData());
 
-    const mainEntry = zip.getEntry(prefix + "main.js");
-    if (!mainEntry) throw new Error("main.js not found in zip");
+    // Prefer {id}.js (canonical build output name); fall back to main.js for older zips
+    const mainEntry = zip.getEntry(prefix + `${manifest.id}.js`) ?? zip.getEntry(prefix + "main.js");
+    if (!mainEntry) throw new Error(`${manifest.id}.js (or main.js) not found in zip`);
     const preparedZip = installer.prepareExtensionMain(mainEntry.getData().toString("utf8"));
     await fs.writeFile(path.join(installPath, "main.js"), preparedZip.main, "utf8");
     await Promise.all(
@@ -445,10 +444,13 @@ export class ExtensionManager {
       await fs.writeFile(path.join(installPath, "skill.md"), skillEntry.getData().toString("utf8"), "utf8");
     }
 
-    // Extract main-process bundle if present — named {pluginId}-main.js by convention
+    // Extract main-process bundle — accepts three naming conventions:
+    //   {id}-main.cjs  (canonical, current build output)
+    //   {id}-main.js   (legacy renamed format)
+    //   main-process.js (older zip.mjs format)
     const mainProcessEntry = entries.find((e) => {
       const name = e.entryName.startsWith(prefix) ? e.entryName.slice(prefix.length) : e.entryName;
-      return name.endsWith("-main.js") && name !== "main.js";
+      return (name.endsWith("-main.cjs") || name.endsWith("-main.js") || name === "main-process.js") && name !== "main.js";
     });
     if (mainProcessEntry) {
       await fs.writeFile(
@@ -467,6 +469,7 @@ export class ExtensionManager {
       author: manifest.author || "Unknown",
       version: manifest.version,
       enabled: true,
+      icon: manifest.icon,
       readme: manifest.readme || "",
       installedPath: installPath,
       capabilities: manifest.capabilities,

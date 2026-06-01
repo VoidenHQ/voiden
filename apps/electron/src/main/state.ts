@@ -744,6 +744,33 @@ export const ipcStateHandlers = () => {
             (ext) => ext.id === tab.meta!.extensionId,
           ) as typeof extension;
         }
+        // Last resort: read installed.json directly — handles the startup race where
+        // loadInstalledCommunityExtensions hasn't populated appState.extensions yet.
+        if (!extension) {
+          try {
+            const raw = await fs.readFile(path.join(communityDir(), "installed.json"), "utf8");
+            const installed: any[] = JSON.parse(raw);
+            const found = installed.find((e) => e.id === tab.meta!.extensionId);
+            if (found) {
+              // Enrich with on-disk manifest so readme/capabilities are current
+              try {
+                const manifestRaw = await fs.readFile(
+                  path.join(communityDir(), found.id, "manifest.json"), "utf8"
+                );
+                const manifest = JSON.parse(manifestRaw);
+                extension = {
+                  ...found,
+                  readme: manifest.readme || found.readme || "",
+                  capabilities: manifest.capabilities || found.capabilities,
+                  features: manifest.features || found.features,
+                  icon: manifest.icon || found.icon,
+                };
+              } catch {
+                extension = found;
+              }
+            }
+          } catch { /* installed.json not readable — fall through */ }
+        }
         if (!extension) {
           throw new Error(
             `Extension with id ${tab.meta.extensionId} not found`,
