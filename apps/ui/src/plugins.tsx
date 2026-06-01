@@ -139,6 +139,49 @@ export interface PluginHelpCommand {
 interface PluginError {
   extensionId: string;
   error: string;
+  kind?: 'permission' | 'load' | 'runtime';
+}
+
+export interface PluginCommand {
+  id: string;
+  label: string;
+  description?: string;
+  icon?: React.ComponentType<any>;
+  shortcut?: string;
+  when?: () => boolean;
+  action: () => void;
+}
+
+export interface PluginTopBarItem {
+  id: string;
+  icon: React.ComponentType<any>;
+  tooltip?: string;
+  position?: 'left' | 'right';
+  onClick: () => void;
+}
+
+export interface PluginContextMenuItem {
+  id: string;
+  label: string;
+  icon?: React.ComponentType<any>;
+  surface: 'tab' | 'file' | 'block';
+  when?: (target: any) => boolean;
+  action: (target: any) => void;
+}
+
+export type PluginSettingField =
+  | { type: 'text';   key: string; label: string; description?: string; placeholder?: string; defaultValue?: string }
+  | { type: 'number'; key: string; label: string; description?: string; placeholder?: string; defaultValue?: number; min?: number; max?: number; step?: number }
+  | { type: 'select'; key: string; label: string; description?: string; options: Array<{ label: string; value: string }>; defaultValue?: string }
+  | { type: 'toggle'; key: string; label: string; description?: string; defaultValue?: boolean };
+
+export interface PluginSettingsSection {
+  id: string;
+  title: string;
+  icon?: React.ComponentType<any>;
+  fields: PluginSettingField[];
+  /** Injected by the host — not part of the public SDK surface */
+  pluginId: string;
 }
 
 export interface CorePluginUpdateInfo {
@@ -154,7 +197,7 @@ export interface CorePluginUpdateInfo {
 interface PluginStoreState {
   isInitialized: boolean;
   pluginErrors: PluginError[];
-  addPluginError: (extensionId: string, error: string) => void;
+  addPluginError: (extensionId: string, error: string, kind?: PluginError['kind']) => void;
   clearPluginErrors: () => void;
   sidebar: { left: any[]; right: any[] };
   panels: { [key: string]: any[] };
@@ -174,14 +217,22 @@ interface PluginStoreState {
   /** Help commands registered by plugins — shown in the command palette under Help: */
   helpCommands: PluginHelpCommand[];
   addHelpCommand: (cmd: PluginHelpCommand) => void;
+  pluginCommands: PluginCommand[];
+  addPluginCommand: (cmd: PluginCommand) => void;
+  topBarItems: PluginTopBarItem[];
+  addTopBarItem: (item: PluginTopBarItem) => void;
+  contextMenuItems: PluginContextMenuItem[];
+  addContextMenuItem: (item: PluginContextMenuItem) => void;
+  settingsPageSections: PluginSettingsSection[];
+  addSettingsSection: (section: PluginSettingsSection) => void;
 }
 
 export const usePluginStore = create<PluginStoreState>((set) => ({
   isInitialized: false,
   pluginErrors: [],
-  addPluginError: (extensionId, error) =>
+  addPluginError: (extensionId, error, kind) =>
     set((state) => ({
-      pluginErrors: [...state.pluginErrors, { extensionId, error }],
+      pluginErrors: [...state.pluginErrors, { extensionId, error, kind }],
     })),
   clearPluginErrors: () => set({ pluginErrors: [] }),
   sidebar: {
@@ -237,6 +288,14 @@ export const usePluginStore = create<PluginStoreState>((set) => ({
       helpCommands: [...state.helpCommands, cmd],
     }));
   },
+  pluginCommands: [],
+  addPluginCommand: (cmd) => set((state) => ({ pluginCommands: [...state.pluginCommands, cmd] })),
+  topBarItems: [],
+  addTopBarItem: (item) => set((state) => ({ topBarItems: [...state.topBarItems, item] })),
+  contextMenuItems: [],
+  addContextMenuItem: (item) => set((state) => ({ contextMenuItems: [...state.contextMenuItems, item] })),
+  settingsPageSections: [],
+  addSettingsSection: (section) => set((state) => ({ settingsPageSections: [...state.settingsPageSections, section] })),
 }));
 
 interface EditorEnhancementStore {
@@ -321,7 +380,14 @@ if (typeof window !== 'undefined') {
   window.__voiden_shims__ = {
     // React — shared instances so plugin hooks work correctly
     "react": _ReactShim,
-    "react/jsx-runtime": _ReactJSXShim,
+    // In Vite dev mode @vitejs/plugin-react switches the jsx runtime to react/jsx-dev-runtime
+    // (which exports jsxDEV instead of jsx). Expose a plain object so plugin bundles get real
+    // functions regardless of which runtime mode the host is in.
+    "react/jsx-runtime": {
+      jsx:      (_ReactJSXShim as any).jsx      ?? (_ReactJSXShim as any).jsxDEV ?? _ReactShim.createElement,
+      jsxs:     (_ReactJSXShim as any).jsxs     ?? (_ReactJSXShim as any).jsxDEV ?? _ReactShim.createElement,
+      Fragment: (_ReactJSXShim as any).Fragment  ?? (_ReactShim as any).Fragment,
+    },
     "react-dom": _ReactDOMShim,
     "react-dom/client": _ReactDOMClientShim,
     // @tanstack/react-query — shared instance so QueryClientContext matches QueryClientProvider
@@ -351,7 +417,7 @@ if (typeof window !== 'undefined') {
     "@voiden/sdk": { UIExtension, PipelineStage },
     "@voiden/sdk/shared": { parseCookies },
     // Host module aliases
-    "@/plugins": { useEditorEnhancementStore, usePluginStore },
+    "@/plugins": { useEditorEnhancementStore, usePluginStore, emitPluginEvent, getContextMenuItems },
     // Zustand — shared instance so stores work across plugin/host boundary
     "zustand": _ZustandShim,
     // @tiptap/* — shared instances so Node.create(), Extension.create() etc work
@@ -408,7 +474,64 @@ export const getTableSuggestions = (
   return config[columnIndex] || [];
 };
 
-export const createPlugin = (pluginModule: (context: PluginContext) => Plugin, extensionId: string) => {
+export class PluginPermissionError extends Error {
+  readonly extensionId: string;
+  readonly permission: string;
+
+  constructor(extensionId: string, permission: string) {
+    super(
+      `Plugin "${extensionId}" requires the "${permission}" permission. ` +
+      `Add "${permission}" to the permissions array in its manifest.json.`
+    );
+    this.name = 'PluginPermissionError';
+    this.extensionId = extensionId;
+    this.permission = permission;
+  }
+}
+
+type PluginEventCallback = (data: any) => void;
+const pluginEventBus = new Map<string, Set<PluginEventCallback>>();
+
+export function emitPluginEvent(event: string, data?: any): void {
+  const listeners = pluginEventBus.get(event);
+  if (!listeners) return;
+  listeners.forEach((cb) => {
+    try { cb(data); } catch (e) { console.error(`[PluginEvents] Error in "${event}" handler:`, e); }
+  });
+}
+
+function subscribePluginEvent(event: string, cb: PluginEventCallback): () => void {
+  if (!pluginEventBus.has(event)) pluginEventBus.set(event, new Set());
+  pluginEventBus.get(event)!.add(cb);
+  return () => pluginEventBus.get(event)?.delete(cb);
+}
+
+export function getContextMenuItems(
+  surface: PluginContextMenuItem['surface'],
+  target: any
+): PluginContextMenuItem[] {
+  return usePluginStore
+    .getState()
+    .contextMenuItems.filter(
+      (item) => item.surface === surface && (!item.when || item.when(target))
+    );
+}
+
+export const createPlugin = (
+  pluginModule: (context: PluginContext) => Plugin,
+  extensionId: string,
+  options: { isCore?: boolean; permissions?: string[] } = {}
+) => {
+  const { isCore = false, permissions = [] } = options;
+
+  const requirePermission = (perm: string): void => {
+    if (isCore) return;
+    if (!permissions.includes(perm)) {
+      const err = new PluginPermissionError(extensionId, perm);
+      usePluginStore.getState().addPluginError(extensionId, err.message, 'permission');
+      throw err;
+    }
+  };
   // Define the API that your plugins will use.
   const context: any = {
     // Provide pipeline API so plugins never need to import @voiden/executors directly.
@@ -454,6 +577,9 @@ export const createPlugin = (pluginModule: (context: PluginContext) => Plugin, e
     },
     addVoidenSlashGroup: (group: SlashCommandGroup) => {
       useEditorEnhancementStore.getState().addVoidenSlashGroup(group);
+    },
+    getVoidenSlashGroups: (): SlashCommandGroup[] => {
+      return useEditorEnhancementStore.getState().voidenSlashGroups;
     },
     addVoidenSlashCommand: (command: SlashCommand) => { },
     registerVoidenExtension: (extension: AnyExtension) => {
@@ -742,6 +868,11 @@ export const createPlugin = (pluginModule: (context: PluginContext) => Plugin, e
           toast(message, { duration: 4000, closeButton: true });
         }
       },
+      registerSettings: (section: Omit<PluginSettingsSection, 'pluginId'>) => {
+        requirePermission('settings');
+        extensionLogger.info(`Plugin "${extensionId}" registering settings section: ${section.id}`);
+        usePluginStore.getState().addSettingsSection({ ...section, pluginId: extensionId });
+      },
     } as any,
     paste: {
       registerBlockOwner: (handler: BlockPasteHandler) => {
@@ -878,6 +1009,123 @@ export const createPlugin = (pluginModule: (context: PluginContext) => Plugin, e
       extensionLogger.info(`Plugin "${extensionId}" registering help command: ${cmd.id}`);
       usePluginStore.getState().addHelpCommand(cmd);
     },
+    registerCommand: (cmd: PluginCommand) => {
+      requirePermission('commandPalette');
+      extensionLogger.info(`Plugin "${extensionId}" registering command: ${cmd.id}`);
+      usePluginStore.getState().addPluginCommand(cmd);
+    },
+    registerTopBarItem: (item: PluginTopBarItem) => {
+      extensionLogger.info(`Plugin "${extensionId}" registering top bar item: ${item.id}`);
+      usePluginStore.getState().addTopBarItem(item);
+    },
+    registerContextMenu: (item: PluginContextMenuItem) => {
+      requirePermission('contextMenus');
+      extensionLogger.info(`Plugin "${extensionId}" registering context menu: ${item.id} for surface "${item.surface}"`);
+      usePluginStore.getState().addContextMenuItem(item);
+    },
+    events: {
+      on: (event: string, cb: PluginEventCallback): (() => void) => {
+        requirePermission('events');
+        return subscribePluginEvent(event, cb);
+      },
+    },
+    fs: {
+      read: async (relativePath: string): Promise<string> => {
+        requirePermission('filesystem');
+        const projects = await getProjects();
+        const base = projects?.activeProject;
+        if (!base) throw new Error('No active project');
+        const abs = await window.electron?.utils?.pathJoin(base, relativePath);
+        if (!abs) throw new Error('Failed to resolve path');
+        return window.electron?.files?.read(abs) ?? '';
+      },
+      write: async (relativePath: string, content: string): Promise<void> => {
+        requirePermission('filesystem');
+        const projects = await getProjects();
+        const base = projects?.activeProject;
+        if (!base) throw new Error('No active project');
+        const abs = await window.electron?.utils?.pathJoin(base, relativePath);
+        if (!abs) throw new Error('Failed to resolve path');
+        await window.electron?.files?.write(abs, content);
+      },
+      create: async (relativePath: string, content = ''): Promise<void> => {
+        requirePermission('filesystem');
+        const projects = await getProjects();
+        const base = projects?.activeProject;
+        if (!base) throw new Error('No active project');
+        const abs = await window.electron?.utils?.pathJoin(base, relativePath);
+        if (!abs) throw new Error('Failed to resolve path');
+        await window.electron?.files?.write(abs, content);
+      },
+      createDirectory: async (relativePath: string): Promise<void> => {
+        requirePermission('filesystem');
+        const projects = await getProjects();
+        const base = projects?.activeProject;
+        if (!base) throw new Error('No active project');
+        const abs = await window.electron?.utils?.pathJoin(base, relativePath);
+        if (!abs) throw new Error('Failed to resolve path');
+        await window.electron?.files?.createDirectory(abs);
+      },
+      delete: async (relativePath: string): Promise<void> => {
+        requirePermission('filesystem');
+        const projects = await getProjects();
+        const base = projects?.activeProject;
+        if (!base) throw new Error('No active project');
+        const abs = await window.electron?.utils?.pathJoin(base, relativePath);
+        if (!abs) throw new Error('Failed to resolve path');
+        await window.electron?.files?.delete(abs);
+      },
+      exists: async (relativePath: string): Promise<boolean> => {
+        requirePermission('filesystem');
+        const projects = await getProjects();
+        const base = projects?.activeProject;
+        if (!base) return false;
+        const abs = await window.electron?.utils?.pathJoin(base, relativePath);
+        if (!abs) return false;
+        try {
+          const [fileExists, dirExists] = await Promise.all([
+            window.electron?.files?.getFileExist(abs) ?? false,
+            window.electron?.files?.getDirectoryExist(abs) ?? false,
+          ]);
+          return fileExists || dirExists;
+        } catch { return false; }
+      },
+      list: async (relativePath = ''): Promise<Array<{ name: string; path: string; type: 'file' | 'directory' }>> => {
+        requirePermission('filesystem');
+        const projects = await getProjects();
+        const base = projects?.activeProject;
+        if (!base) return [];
+        const target = relativePath
+          ? (await window.electron?.utils?.pathJoin(base, relativePath)) ?? base
+          : base;
+        const entries = await window.electron?.files?.expandDir(target) ?? [];
+        return (entries as any[]).map((e: any) => ({
+          name: e.name ?? e.id?.split('/').pop() ?? '',
+          path: e.path ?? e.id ?? '',
+          type: (e.type === 'internal' || e.children !== undefined) ? 'directory' : 'file',
+        }));
+      },
+    },
+    settings: {
+      get: async <T = any>(key: string): Promise<T | undefined> => {
+        requirePermission('settings');
+        return window.electron?.pluginSettings?.get(extensionId, key) as Promise<T | undefined>;
+      },
+      set: async <T = any>(key: string, value: T): Promise<void> => {
+        requirePermission('settings');
+        await window.electron?.pluginSettings?.set(extensionId, key, value);
+      },
+      delete: async (key: string): Promise<void> => {
+        requirePermission('settings');
+        await window.electron?.pluginSettings?.delete(extensionId, key);
+      },
+      onChange: (cb: (key: string, value: any) => void): (() => void) => {
+        requirePermission('settings');
+        return window.electron?.pluginSettings?.onChanged((pluginId, key, value) => {
+          if (pluginId === extensionId) cb(key, value);
+        }) ?? (() => {});
+      },
+    },
   };
 
   const plugin = pluginModule(context);
@@ -916,8 +1164,13 @@ export const getPlugins = async () => {
     editorActions: [],
     statusBarItems: [],
     helpCommands: [],
+    pluginCommands: [],
+    topBarItems: [],
+    contextMenuItems: [],
+    settingsPageSections: [],
     panels: { main: [], bottom: [] },
   });
+  pluginEventBus.clear();
   Object.keys(exposedHelpers).forEach(key => delete exposedHelpers[key]);
   Object.keys(historyExporters).forEach(key => delete historyExporters[key]);
   curlImporters.length = 0;
@@ -1148,7 +1401,10 @@ export const getPlugins = async () => {
           throw new Error(`Core extension ${extension.id} is not a function (got ${typeof plugin})`);
         }
 
-        const pluginInstance = createPlugin(plugin, extension.id);
+        const pluginInstance = createPlugin(plugin, extension.id, {
+          isCore: true,
+          permissions: extension.permissions ?? [],
+        });
 
         // Validate plugin instance has required methods
         if (!pluginInstance || typeof pluginInstance.onload !== 'function') {
@@ -1183,7 +1439,10 @@ export const getPlugins = async () => {
           throw new Error(`External extension ${extension.id} default export is not a function (got ${typeof mod.default})`);
         }
 
-        const pluginInstance = createPlugin(mod.default, extension.id);
+        const pluginInstance = createPlugin(mod.default, extension.id, {
+          isCore: false,
+          permissions: extension.permissions ?? [],
+        });
 
         // Validate plugin instance
         if (!pluginInstance || typeof pluginInstance.onload !== 'function') {
@@ -1211,7 +1470,7 @@ export const getPlugins = async () => {
 
       // Store detailed error information
       const detailedError = `${errorMessage}${errorStack ? '\n\nStack:\n' + errorStack : ''}`;
-      usePluginStore.getState().addPluginError(extension.id, detailedError);
+      usePluginStore.getState().addPluginError(extension.id, detailedError, 'load');
     }
   }
   // If any OTA bundles patched the main-process registry, invalidate the extensions

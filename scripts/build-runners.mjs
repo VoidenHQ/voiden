@@ -31,7 +31,6 @@ const targetId = process.argv[2] || null
 
 const plugins = readdirSync(pluginsDir)
   .filter(name => {
-    if (!name.startsWith('plugin-')) return false
     try { return statSync(join(pluginsDir, name)).isDirectory() } catch { return false }
   })
   .flatMap(name => {
@@ -61,10 +60,15 @@ let failed = 0
 for (const { repoDir, pluginId, buildScript } of plugins) {
   process.stdout.write(`  Building ${pluginId}-runner...`)
 
+  // Strip Yarn PnP env vars so each plugin resolves deps from its own node_modules
+  const cleanEnv = Object.fromEntries(
+    Object.entries(process.env).filter(([k]) => !k.startsWith('YARN_') && k !== 'NODE_OPTIONS')
+  )
   const result = spawnSync('node', [buildScript], {
     cwd: repoDir,
     stdio: 'pipe',
     encoding: 'utf8',
+    env: cleanEnv,
   })
 
   if (result.status !== 0) {
