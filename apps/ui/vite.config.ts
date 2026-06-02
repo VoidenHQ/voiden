@@ -24,7 +24,6 @@ export default defineConfig(async () => ({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
-      "@voiden/core-extensions": path.resolve(__dirname, "../../packages/core-extensions/src"),
       "@voiden/sdk": path.resolve(__dirname, "../../packages/sdk/src"),
       "@voiden/shared": path.resolve(__dirname, "../../packages/shared/src"),
     },
@@ -44,7 +43,7 @@ export default defineConfig(async () => ({
     exclude: [
       "js-big-decimal",
       // Exclude workspace packages to ensure fresh builds
-      "@voiden/core-extensions",
+
       "@voiden/fuzzy-search",
       "@voiden/sdk",
       "@voiden/shared",

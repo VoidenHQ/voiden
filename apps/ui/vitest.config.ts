@@ -14,7 +14,7 @@ export default defineConfig({
       deps: {
         inline: [
           '@voiden/sdk',
-          '@voiden/core-extensions', 
+
           '@voiden/shared',
         ],
       },

@@ -1,8 +1,10 @@
 import { useSettings } from "@/core/settings/hooks";
 import { useState, useEffect } from "react";
+import { usePluginStore } from "@/plugins";
 
 export const SettingsContent = () => {
   const { settings, save } = useSettings();
+  const pluginSections = usePluginStore((state) => state.settingsPageSections);
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const [cliInstalling, setCliInstalling] = useState(false);
@@ -326,6 +328,26 @@ export const SettingsContent = () => {
           </div>
         </div>
       </section>
+
+      {/* Plugin Settings — sections registered via context.ui.registerSettings */}
+      {pluginSections.length > 0 && (
+        <section className="mb-8">
+          <h2 className="text-xl font-semibold mb-4">Plugin Settings</h2>
+          <div className="space-y-6">
+            {pluginSections.map((section) => (
+              <div key={section.id} className="border border-border rounded-lg overflow-hidden">
+                <div className="flex items-center gap-2 px-4 py-3 bg-surface border-b border-border">
+                  {section.icon && <section.icon size={16} className="text-comment" />}
+                  <h3 className="font-medium">{section.title}</h3>
+                </div>
+                <div className="p-4 text-sm text-comment">
+                  Settings for this plugin are managed in the main Settings panel.
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* AI Skills */}
       <section className="mb-8">

@@ -11,6 +11,7 @@ import dotenv from "dotenv";
 import * as fs from "fs";
 import * as path from "path";
 import * as crypto from "crypto";
+import { execSync } from "child_process";
 
 dotenv.config({ path: "../../.env" });
 
@@ -227,16 +228,166 @@ const config: ForgeConfig = {
   hooks: {
     // Stamp version from package.json into bin scripts before packaging
     generateAssets: async () => {
-      // Copy core extension skill.md files into skills/core/ so they are
+      const REGISTRY_URL = "https://raw.githubusercontent.com/VoidenHQ/plugin-registry/main/extensions.json";
+      let registryEntries: any[] = [];
+
+      // Prefer the locally cloned registry repo (populated by cleanup.sh).
+      // Fall back to a live GitHub fetch only when the clone is absent (e.g. CI).
+      const localRegistryPath = path.join(__dirname, "../../plugins/plugin-registry/extensions.json");
+      if (fs.existsSync(localRegistryPath)) {
+        const raw = JSON.parse(fs.readFileSync(localRegistryPath, "utf-8"));
+        registryEntries = Array.isArray(raw) ? raw.filter((p: any) => p.type === "core") : Object.values(raw?.plugins ?? {});
+        console.log(`Using local registry clone: ${registryEntries.length} core plugins`);
+      } else {
+        try {
+          console.log("Local registry clone not found — fetching from GitHub...");
+          const res = await fetch(REGISTRY_URL);
+          if (res.ok) {
+            const raw = await res.json();
+            registryEntries = Array.isArray(raw) ? raw.filter((p: any) => p.type === "core") : Object.values(raw?.plugins ?? {});
+            console.log(`Registry fetched from GitHub — ${registryEntries.length} core plugins`);
+          } else {
+            console.warn(`Failed to fetch registry (HTTP ${res.status})`);
+          }
+        } catch (e) {
+          console.warn("Could not reach registry:", (e as Error).message);
+        }
+      }
+      // Wrap as object map for compatibility with the rest of this hook
+      const registry = { plugins: Object.fromEntries(registryEntries.map((p: any) => [p.id, p])) };
+      // Parse semver range for voidenVersion compatibility check at build time
+      const satisfiesRange = (appVer: string, range: string): boolean => {
+        const clean = (v: string) => v.replace(/[-+].*$/, "").trim();
+        const parse = (v: string) => clean(v).split(".").map((n) => parseInt(n, 10) || 0);
+        const cmp = (a: number[], b: number[]) => { for (let i = 0; i < 3; i++) { if ((a[i]??0) !== (b[i]??0)) return (a[i]??0)-(b[i]??0); } return 0; };
+        const av = parse(appVer);
+        for (const part of range.trim().split(/\s+/)) {
+          const m = part.match(/^(>=|<=|>|<|=)?(.+)$/); if (!m) continue;
+          const [,op,ver] = m; const d = cmp(av, parse(ver));
+          if (op === ">=" && d < 0) return false;
+          if (op === ">" && d <= 0) return false;
+          if (op === "<=" && d > 0) return false;
+          if (op === "<" && d >= 0) return false;
+          if ((!op || op === "=") && d !== 0) return false;
+        }
+        return true;
+      };
+
+      // Build the set of plugin IDs that are registered and eligible to bundle.
+      // Plugins not in the registry are never bundled, even if present in plugins/.
+      const registeredIds = new Set<string>(Object.values(registry.plugins).map((p: any) => p.id as string));
+      const excludedIds = new Set<string>();
+      for (const [, p] of Object.entries(registry.plugins) as [string, any][]) {
+        const id = p.id as string;
+        if (p.bundled === false) {
+          excludedIds.add(id);
+          continue;
+        }
+        if (p.voidenVersion && !satisfiesRange(version, p.voidenVersion)) {
+          excludedIds.add(id);
+          console.log(`Excluding ${id} — requires ${p.voidenVersion}, building ${version}`);
+        }
+      }
+
+      // Build plugin bundles from plugins/ repos into each plugin's own dist/.
+      // Then collect compatible ones into staging dirs for packaging.
+      // plugins/ is populated by cleanup.sh (clones repos).
+      const pluginsDir = path.join(__dirname, "../../plugins");
+
+      // Staging dirs — cleared and repopulated each build
+      const stagingDir = path.join(__dirname, "bundled-plugins");
+      const stagingMainDir = path.join(__dirname, "bundled-main-plugins");
+      fs.mkdirSync(stagingDir, { recursive: true });
+      fs.mkdirSync(stagingMainDir, { recursive: true });
+      for (const f of fs.readdirSync(stagingDir)) fs.unlinkSync(path.join(stagingDir, f));
+      for (const f of fs.readdirSync(stagingMainDir)) fs.unlinkSync(path.join(stagingMainDir, f));
+
+      if (fs.existsSync(pluginsDir)) {
+        console.log("Building plugin bundles...");
+        // Build renderer bundles (plugins/*/dist/{id}.js)
+        execSync("node scripts/build-plugins.mjs", {
+          cwd: path.join(__dirname, "../.."),
+          stdio: "inherit",
+        });
+
+        // Build main-process bundles for plugins that have build-main.mjs
+        for (const pluginDir of fs.readdirSync(pluginsDir)) {
+          const buildMainPath = path.join(pluginsDir, pluginDir, "build-main.mjs");
+          if (!fs.existsSync(buildMainPath)) continue;
+          try {
+            execSync("node build-main.mjs", {
+              cwd: path.join(pluginsDir, pluginDir),
+              stdio: "inherit",
+            });
+          } catch (e) {
+            console.warn(`build-main.mjs failed for ${pluginDir}`);
+          }
+        }
+
+        // Collect built bundles from plugins/*/dist/ into staging dirs
+        for (const pluginDir of fs.readdirSync(pluginsDir)) {
+          const manifestPath = path.join(pluginsDir, pluginDir, "manifest.json");
+          if (!fs.existsSync(manifestPath)) continue;
+          const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8"));
+          const pluginId = manifest.id;
+          if (!pluginId || !registeredIds.has(pluginId) || excludedIds.has(pluginId)) continue;
+
+          // Renderer bundle
+          const rendererBundle = path.join(pluginsDir, pluginDir, "dist", `${pluginId}.js`);
+          if (fs.existsSync(rendererBundle)) {
+            fs.copyFileSync(rendererBundle, path.join(stagingDir, `${pluginId}.js`));
+            console.log(`Staged renderer bundle: ${pluginId}.js`);
+          }
+
+          // Main-process bundle (only for plugins with mainProcess: true)
+          if (manifest.mainProcess) {
+            const distDir = path.join(pluginsDir, pluginDir, "dist");
+            const mainBundle = fs.existsSync(path.join(distDir, `${pluginId}-main.cjs`))
+              ? path.join(distDir, `${pluginId}-main.cjs`)
+              : path.join(distDir, `${pluginId}-main.js`);
+            const ext = mainBundle.endsWith(".cjs") ? ".cjs" : ".js";
+            if (fs.existsSync(mainBundle)) {
+              fs.copyFileSync(mainBundle, path.join(stagingMainDir, `${pluginId}-main${ext}`));
+              console.log(`Staged main-process bundle: ${pluginId}-main${ext}`);
+            }
+          }
+
+          // Changelog
+          const changelogSrc = path.join(pluginsDir, pluginDir, "changelog.json");
+          if (fs.existsSync(changelogSrc)) {
+            fs.copyFileSync(changelogSrc, path.join(stagingDir, `${pluginId}-changelog.json`));
+            console.log(`Staged changelog: ${pluginId}-changelog.json`);
+          }
+        }
+      } else {
+        console.warn("plugins/ not found — no plugin bundles will be included (run cleanup.sh first)");
+      }
+
+      // Snapshot the registry so the packaged app has a reliable offline fallback.
+      // The live GitHub fetch at startup will overwrite this in memory — the snapshot
+      // is only used when the network is unavailable on first open.
+      fs.writeFileSync(
+        path.join(__dirname, "src", "extensions.json"),
+        JSON.stringify(registryEntries, null, 2),
+      );
+      console.log("Wrote extensions.json snapshot with", registryEntries.length, "core plugins");
+
+      // Copy skill.md files from plugin repos into skills/core/ so they are
       // bundled as extraResource and available at runtime via process.resourcesPath
-      const coreExtSrcDir = path.join(__dirname, "../../core-extensions/src");
       const skillsCoreDir = path.join(__dirname, "skills", "core");
       fs.mkdirSync(skillsCoreDir, { recursive: true });
-      for (const extId of fs.readdirSync(coreExtSrcDir)) {
-        const skillSrc = path.join(coreExtSrcDir, extId, "skill.md");
-        if (fs.existsSync(skillSrc)) {
-          fs.copyFileSync(skillSrc, path.join(skillsCoreDir, `${extId}.skill.md`));
-          console.log(`Copied skill.md for ${extId}`);
+      if (fs.existsSync(pluginsDir)) {
+        for (const pluginDir of fs.readdirSync(pluginsDir)) {
+          const manifestPath = path.join(pluginsDir, pluginDir, "manifest.json");
+          if (!fs.existsSync(manifestPath)) continue;
+          const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8"));
+          const pluginId = manifest.id;
+          if (!pluginId || !registeredIds.has(pluginId) || excludedIds.has(pluginId)) continue;
+          const skillSrc = path.join(pluginsDir, pluginDir, "src", "skill.md");
+          if (fs.existsSync(skillSrc)) {
+            fs.copyFileSync(skillSrc, path.join(skillsCoreDir, `${pluginId}.skill.md`));
+            console.log(`Copied skill.md for ${pluginId}`);
+          }
         }
       }
 
@@ -310,7 +461,7 @@ const config: ForgeConfig = {
     },
   },
   packagerConfig: {
-    extraResource: ["src/sample-project", "splash.html", "logo-dark.png", "background.png", "default.settings.json", "public/fonts", "themes", "bin", "src/images/icon.png", "skills"],
+    extraResource: ["src/sample-project", "splash.html", "logo-dark.png", "background.png", "default.settings.json", "public/fonts", "themes", "bin", "src/images/icon.png", "skills", "bundled-plugins", "bundled-main-plugins", "src/extensions.json"],
     extendInfo: "./info.plist",
     asar: {
       // Required for node-pty: ensures both `pty.node` and `spawn-helper` are unpacked for Unix platforms

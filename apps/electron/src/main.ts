@@ -15,6 +15,7 @@ import { registerDirectoryIpcHandlers } from "./main/ipc/directory";
 import { registerProjectIpcHandlers } from "./main/ipc/project";
 import { registerTabIpcHandlers } from "./main/ipc/tabHandlers";
 import { registerPluginIpcHandlers } from "./main/ipc/plugins";
+import { registerPluginSettingsIpcHandlers } from "./main/ipc/pluginSettings";
 import { registerAppIpcHandlers } from "./main/ipc/app";
 import { registerRequestIpcHandler } from "./main/ipc/request";
 import { registerSearchIpcHandler } from "./main/ipc/search";
@@ -24,6 +25,7 @@ import { registerCliIpcHandlers } from "./main/ipc/cli";
 import { registerSkillsIpcHandlers } from "./main/ipc/skills";
 import { registerPythonScriptIpcHandler } from "./main/ipc/pythonScript";
 import { registerNodeScriptIpcHandler } from "./main/ipc/nodeScript";
+import { registerCoreExtensionsIpcHandlers, watchBundledPluginsForDevReload, seedBundledPluginsToCache } from "./main/ipc/coreExtensions";
 import { loadMainProcessExtensions, unloadMainProcessExtensions } from "./main/extensionLoader";
 import { recomposeAndInstall } from "./main/skillsInstaller";
 import { setupLoggerIPC, logger } from "./main/logger";
@@ -174,6 +176,7 @@ app.on("ready", async () => {
   registerProjectIpcHandlers();
   registerTabIpcHandlers();
   registerPluginIpcHandlers();
+  registerPluginSettingsIpcHandlers();
   registerAppIpcHandlers();
   registerRequestIpcHandler();
   registerSearchIpcHandler();
@@ -183,6 +186,8 @@ app.on("ready", async () => {
   registerSkillsIpcHandlers();
   registerPythonScriptIpcHandler();
   registerNodeScriptIpcHandler();
+  registerCoreExtensionsIpcHandlers();
+  watchBundledPluginsForDevReload();
   ipcStateHandlers();
 
   // Initialize auto-updates with the configured channel
@@ -219,7 +224,11 @@ app.on("ready", async () => {
 
   // Load main-process extensions after state is initialized
   try {
-    const { getAppState } = await import("./main/state");
+    // Seed bundled plugins into the OTA cache so all plugins are served from one location.
+    // Then re-sync core extensions so the freshly seeded files are reflected in the extension list.
+    await seedBundledPluginsToCache();
+    const { getAppState, extensionManager } = await import("./main/state");
+    extensionManager?.syncCoreExtensions();
     const appState = getAppState();
     if (appState?.extensions) {
       await loadMainProcessExtensions(appState.extensions);

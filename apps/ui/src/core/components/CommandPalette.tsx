@@ -11,17 +11,8 @@ import { usePanelStore } from '@/core/stores/panelStore';
 import { useCodeEditorStore } from '@/core/editors/code/CodeEditorStore';
 import { useDocumentStore } from '@/core/file-system/stores';
 import { prettifyJSONC } from '@/utils/jsonc';
-import {
-  HttpHeadersHelp,
-  HttpQueryParamsHelp,
-  HttpUrlFormHelp,
-  HttpMultipartFormHelp,
-  HttpPathParamsHelp,
-  HttpJsonBodyHelp,
-  HttpXmlBodyHelp,
-} from '@voiden/core-extensions/voiden-rest-api/help';
-import { SimpleAssertionsHelp } from '@voiden/core-extensions/simple-assertions/help';
 import { RuntimeVariablesHelp } from '@/core/editors/voiden/nodes/help';
+import { usePluginStore } from '@/plugins';
 
 interface CommandPaletteProps {
   isFocused: boolean;
@@ -46,6 +37,7 @@ interface Command {
   description: string;
   icon: React.ReactNode;
   action: () => void;
+  shortcut?: string;
 }
 
 export const CommandPalette: React.FC<CommandPaletteProps> = ({ isFocused, mode, onFocus, onBlur, onShowHelp }) => {
@@ -60,6 +52,8 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isFocused, mode,
   const queryClient = useQueryClient();
   const { openBottomPanel, bottomPanelRef } = usePanelStore();
   const { data: activeFilePath } = useGetActiveDocument();
+  const helpCommands = usePluginStore((state) => state.helpCommands);
+  const pluginCommands = usePluginStore((state) => state.pluginCommands);
 
   // Prettify utilities
   const prettifyXML = (xml: string): string => {
@@ -409,76 +403,6 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isFocused, mode,
     },
     // Help commands
     {
-      id: 'help-headers',
-      label: 'Help: HTTP Headers',
-      description: 'Learn about HTTP headers and how to use them',
-      icon: <HelpCircle size={16} className="text-accent" />,
-      action: () => {
-        onShowHelp('HTTP Headers', <HttpHeadersHelp />);
-        setTimeout(() => onBlur(), 0);
-      },
-    },
-    {
-      id: 'help-query-params',
-      label: 'Help: Query Parameters',
-      description: 'Learn about query parameters and how to use them',
-      icon: <HelpCircle size={16} className="text-accent" />,
-      action: () => {
-        onShowHelp('Query Parameters', <HttpQueryParamsHelp />);
-        setTimeout(() => onBlur(), 0);
-      },
-    },
-    {
-      id: 'help-url-form',
-      label: 'Help: URL-Encoded Form',
-      description: 'Learn about URL-encoded form data',
-      icon: <HelpCircle size={16} className="text-accent" />,
-      action: () => {
-        onShowHelp('URL-Encoded Form', <HttpUrlFormHelp />);
-        setTimeout(() => onBlur(), 0);
-      },
-    },
-    {
-      id: 'help-multipart-form',
-      label: 'Help: Multipart Form',
-      description: 'Learn about multipart form data and file uploads',
-      icon: <HelpCircle size={16} className="text-accent" />,
-      action: () => {
-        onShowHelp('Multipart Form', <HttpMultipartFormHelp />);
-        setTimeout(() => onBlur(), 0);
-      },
-    },
-    {
-      id: 'help-path-params',
-      label: 'Help: Path Parameters',
-      description: 'Learn about path parameters in URLs',
-      icon: <HelpCircle size={16} className="text-accent" />,
-      action: () => {
-        onShowHelp('Path Parameters', <HttpPathParamsHelp />);
-        setTimeout(() => onBlur(), 0);
-      },
-    },
-    {
-      id: 'help-json-body',
-      label: 'Help: JSON Body',
-      description: 'Learn about sending JSON request bodies',
-      icon: <HelpCircle size={16} className="text-accent" />,
-      action: () => {
-        onShowHelp('JSON Body', <HttpJsonBodyHelp />);
-        setTimeout(() => onBlur(), 0);
-      },
-    },
-    {
-      id: 'help-xml-body',
-      label: 'Help: XML Body',
-      description: 'Learn about sending XML request bodies',
-      icon: <HelpCircle size={16} className="text-accent" />,
-      action: () => {
-        onShowHelp('XML Body', <HttpXmlBodyHelp />);
-        setTimeout(() => onBlur(), 0);
-      },
-    },
-    {
       id: 'help-runtime-variables',
       label: 'Help: Runtime Variables',
       description: 'Learn about capturing values from responses',
@@ -488,17 +412,30 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isFocused, mode,
         setTimeout(() => onBlur(), 0);
       },
     },
-    {
-      id: 'help-simple-assertions',
-      label: 'Help: Assertions',
-      description: 'Learn about validating API responses with assertions',
+    // Plugin-registered help commands
+    ...helpCommands.map((cmd) => ({
+      id: cmd.id,
+      label: `Help: ${cmd.label}`,
+      description: cmd.description ?? `Learn about ${cmd.label}`,
       icon: <HelpCircle size={16} className="text-accent" />,
       action: () => {
-        onShowHelp('Simple Assertions', <SimpleAssertionsHelp />);
+        const HelpComponent = cmd.component;
+        onShowHelp(cmd.label, <HelpComponent />);
         setTimeout(() => onBlur(), 0);
       },
-    },
-  ], [addPanelTab, bottomPanelRef, openBottomPanel, queryClient, onBlur, onShowHelp, activeFilePath]);
+    })),
+    // Plugin-registered commands
+    ...pluginCommands
+      .filter((cmd) => !cmd.when || cmd.when())
+      .map((cmd) => ({
+        id: cmd.id,
+        label: cmd.label,
+        description: cmd.description ?? '',
+        icon: cmd.icon ? <cmd.icon size={16} className="text-accent" /> : <Settings size={16} className="text-accent" />,
+        action: cmd.action,
+        shortcut: cmd.shortcut,
+      })),
+  ], [addPanelTab, bottomPanelRef, openBottomPanel, queryClient, onBlur, onShowHelp, activeFilePath, helpCommands, pluginCommands]);
 
   const [filteredCommands, setFilteredCommands] = useState<Command[]>(commands);
 
@@ -976,6 +913,9 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isFocused, mode,
                       <div className="text-sm font-medium text-text">{command.label}</div>
                       <div className="text-xs text-comment">{command.description}</div>
                     </div>
+                    {command.shortcut && (
+                      <span className="text-xs text-comment font-mono bg-active px-1.5 py-0.5 rounded flex-shrink-0">{command.shortcut}</span>
+                    )}
                   </button>
                 ))
               )

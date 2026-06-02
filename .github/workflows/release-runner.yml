@@ -1,0 +1,83 @@
+# Builds and publishes @voiden/runner to npm, and attaches a .tgz to a GitHub Release.
+#
+# Trigger: push a tag like runner-v0.1.0
+#
+# Required repository secret:
+#   NPM_TOKEN  — Automation token from npmjs.com (Settings → Access Tokens → Automation)
+
+name: Release voiden-runner
+
+on:
+  push:
+    tags:
+      - 'runner-v*'   # e.g. runner-v0.1.0
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build, Publish & Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # core-extensions is gitignored — fetch it from its own repo
+      - name: Clone core-extensions
+        run: git clone https://github.com/VoidenHQ/core-extensions.git core-extensions
+
+      - name: Setup Node (with npm registry auth)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Enable Corepack (Yarn)
+        run: corepack enable
+
+      - name: Install workspace dependencies
+        run: yarn install --immutable
+
+      # npm run build handles the full chain:
+      #   prebuild → tsc in core-extensions → tsc in executors
+      #   build    → tsc in voiden-runner
+      - name: Build @voiden/runner
+        working-directory: packages/voiden-runner
+        run: npm run build
+
+      # ── Publish to npm ─────────────────────────────────────────────────────
+      - name: Publish to npm
+        working-directory: packages/voiden-runner
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # ── Attach tarball to GitHub Release ───────────────────────────────────
+      - name: Pack tarball
+        working-directory: packages/voiden-runner
+        run: npm pack
+
+      - name: Get tarball name
+        id: tarball
+        working-directory: packages/voiden-runner
+        run: echo "name=$(ls *.tgz)" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: voiden-runner ${{ github.ref_name }}
+          body: |
+            ### Install
+
+            ```bash
+            npm install -g @voiden/runner
+            ```
+
+            Or from this release tarball:
+            ```bash
+            npm install -g https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/${{ steps.tarball.outputs.name }}
+            ```
+          files: packages/voiden-runner/${{ steps.tarball.outputs.name }}

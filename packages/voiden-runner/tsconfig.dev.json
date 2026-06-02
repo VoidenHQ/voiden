@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "../../",
+    "paths": {
+      "@voiden/executors": ["../../packages/executors/src/index.ts"]
+    }
+  }
+}

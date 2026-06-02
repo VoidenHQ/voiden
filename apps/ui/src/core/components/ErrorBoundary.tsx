@@ -4,6 +4,7 @@ import { AlertCircle, RefreshCw, Github, Copy, Check } from 'lucide-react';
 interface Props {
   children: ReactNode;
   fallback?: ReactNode;
+  fallbackRender?: (props: { error: Error | null; errorInfo: ErrorInfo | null; reset: () => void }) => ReactNode;
   onError?: (error: Error, errorInfo: ErrorInfo) => void;
   level?: 'app' | 'plugin' | 'component';
   resetKey?: string | number;
@@ -119,12 +120,16 @@ ${errorInfo?.componentStack || 'No component stack available'}
 
   render() {
     const { hasError, error, errorInfo, copied } = this.state;
-    const { children, fallback, level = 'component' } = this.props;
+    const { children, fallback, fallbackRender, level = 'component' } = this.props;
 
     if (hasError) {
       // Use custom fallback if provided
       if (fallback) {
         return fallback;
+      }
+
+      if (fallbackRender) {
+        return fallbackRender({ error, errorInfo, reset: this.handleReset });
       }
 
       // App-level error (most severe)

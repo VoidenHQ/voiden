@@ -67,6 +67,11 @@ export const FileSystemList = () => {
     setTreeData((prev) => removeNodeByPath(prev, eventData.path));
     queryClient.invalidateQueries({ queryKey: ["panel:tabs"] });
     queryClient.invalidateQueries({ queryKey: ["app:state"] });
+    emitPluginEvent('file:deleted', {
+      filePath: eventData.path,
+      name: eventData.name ?? eventData.path.split('/').pop() ?? '',
+      type: 'file',
+    });
   });
   useElectronEvent<{ path: string }>("directory:delete", (eventData) => {
     if (!eventData?.path) return;
@@ -74,7 +79,22 @@ export const FileSystemList = () => {
     expandedDirsRef.current.delete(eventData.path);
     queryClient.invalidateQueries({ queryKey: ["panel:tabs"] });
     queryClient.invalidateQueries({ queryKey: ["app:state"] });
+    emitPluginEvent('directory:deleted', {
+      filePath: eventData.path,
+      name: eventData.name ?? eventData.path.split('/').pop() ?? '',
+      type: 'directory',
+    });
   });
+
+  // Route plugin file context menu actions back to the registered plugin handlers
+  useEffect(() => {
+    const unsub = window.electron?.files.onPluginFileContextAction?.((data) => {
+      const items = getContextMenuItems('file', data.target);
+      items.find((item) => item.id === data.id)?.action(data.target);
+    });
+    return () => unsub?.();
+  }, []);
+
   useEffect(() => {
     // Fallback: also clear if the tree finishes a refetch (e.g. single-file delete via context menu).
     if (!isFetching) setShowDeleteProgress(false);
@@ -465,6 +485,12 @@ export const FileSystemList = () => {
       target = parent;
     }
     if (target) refreshDir(target);
+    const isDir = eventData?.type === 'directory' || eventData?.type === 'folder';
+    emitPluginEvent(isDir ? 'directory:created' : 'file:created', {
+      filePath: newPath,
+      name: eventData?.name ?? newPath.split('/').pop() ?? '',
+      type: isDir ? 'directory' : 'file',
+    });
   });
 
   useElectronEvent<{ path: string }>("file:duplicate", (eventData) => {
@@ -768,11 +794,11 @@ export const FileSystemList = () => {
         event.preventDefault();
         event.stopPropagation();
         if (data) {
+          const _rootTarget = { path: data.path, type: data.type, name: data.name };
           window.electron?.files.showFileContextMenu({
-            path: data.path,
-            type: data.type,
-            name: data.name,
+            ..._rootTarget,
             isProjectRoot: true,
+            pluginItems: getContextMenuItems('file', _rootTarget).map((i) => ({ id: i.id, label: i.label })),
           });
         }
       }}

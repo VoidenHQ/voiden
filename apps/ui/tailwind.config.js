@@ -245,6 +245,30 @@ module.exports = {
           fg: "var(--titlebar-fg)",
         },
       },
+      keyframes: {
+        shimmer: {
+          '100%': { transform: 'translateX(100%)' },
+        },
+        'block-assemble': {
+          from: { transform: 'scaleX(0)', opacity: '0' },
+          '60%': { opacity: '1' },
+          to: { transform: 'scaleX(1)', opacity: '1' },
+        },
+        'card-rise': {
+          from: { transform: 'translateY(14px)', opacity: '0' },
+          to: { transform: 'translateY(0)', opacity: '1' },
+        },
+        'progress-indeterminate': {
+          '0%': { transform: 'translateX(-100%)' },
+          '100%': { transform: 'translateX(300%)' },
+        },
+      },
+      animation: {
+        shimmer: 'shimmer 1.6s infinite',
+        'block-assemble': 'block-assemble 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both',
+        'card-rise': 'card-rise 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) both',
+        'progress-indeterminate': 'progress-indeterminate 1.4s ease-in-out infinite',
+      },
     },
   },
   plugins: [require("tailwindcss-animate"), require("@tailwindcss/typography")],

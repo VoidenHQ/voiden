@@ -166,7 +166,7 @@ export interface Request {
   version?: number;
 
   isModified?: boolean; // this property is only available in the client side
-  binary?: File | string; // File object or file path string (this property is only available in the client side)
+  binary?: File | string | string[]; // File object, file path string, or multiple file paths
   tabId?: string; // this property is only available in the client side
 
   parent_id?: string;

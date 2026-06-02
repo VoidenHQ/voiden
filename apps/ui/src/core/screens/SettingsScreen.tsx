@@ -1,6 +1,7 @@
 import { useSettings, ProxyConfig } from "@/core/settings/hooks/useSettings";
 import { Check, RefreshCw, Plus, Trash2, Edit2, Palette, FileText, Network, Search, Keyboard, ChevronUp, ChevronDown, Settings, Plug, Code2, Sparkles } from "lucide-react";
-import { useEffect, useMemo, useState, useRef } from "react";
+import { useEffect, useMemo, useState, useRef, useCallback } from "react";
+import { usePluginStore, type PluginSettingsSection } from "@/plugins";
 import { loadThemeById, getAvailableThemes } from "@/utils/themeLoader";
 import { Kbd } from "@/core/components/ui/kbd";
 
@@ -83,8 +84,97 @@ const Input = ({ className = "", ...props }: React.InputHTMLAttributes<HTMLInput
   />
 );
 
+// ── Plugin settings field renderer ────────────────────────────────────────────
+// Reads current values from electron pluginSettings on mount, then writes
+// individual keys back on each field change. No custom React from plugins.
+
+const PluginSectionFields = ({ section }: { section: PluginSettingsSection }) => {
+  const [values, setValues] = useState<Record<string, any>>({});
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    window.electron?.pluginSettings?.getAll(section.pluginId).then((stored: Record<string, any>) => {
+      const defaults: Record<string, any> = {};
+      for (const field of section.fields) {
+        if ('defaultValue' in field && field.defaultValue !== undefined) {
+          defaults[field.key] = field.defaultValue;
+        }
+      }
+      setValues({ ...defaults, ...(stored ?? {}) });
+      setLoaded(true);
+    });
+  }, [section.pluginId, section.id]);
+
+  const handleChange = useCallback(async (key: string, value: any) => {
+    setValues((prev) => ({ ...prev, [key]: value }));
+    await window.electron?.pluginSettings?.set(section.pluginId, key, value);
+  }, [section.pluginId]);
+
+  if (!loaded) return null;
+
+  return (
+    <div className="px-4 py-4 space-y-5">
+      {section.fields.map((field) => {
+        const val = values[field.key];
+        return (
+          <div key={field.key}>
+            {field.type === 'toggle' ? (
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-sm text-text">{field.label}</div>
+                  {field.description && <div className="text-xs text-text-subtle mt-0.5">{field.description}</div>}
+                </div>
+                <Toggle
+                  checked={val ?? false}
+                  onChange={(v) => handleChange(field.key, v)}
+                />
+              </div>
+            ) : (
+              <div>
+                <div className="text-sm text-text mb-1.5">{field.label}</div>
+                {field.description && <div className="text-xs text-text-subtle mb-2">{field.description}</div>}
+                {field.type === 'text' && (
+                  <Input
+                    value={val ?? ''}
+                    placeholder={field.placeholder}
+                    onChange={(e) => handleChange(field.key, e.target.value)}
+                    className="w-full max-w-sm"
+                  />
+                )}
+                {field.type === 'number' && (
+                  <Input
+                    type="number"
+                    value={val ?? ''}
+                    placeholder={field.placeholder}
+                    min={field.min}
+                    max={field.max}
+                    step={field.step}
+                    onChange={(e) => handleChange(field.key, e.target.valueAsNumber)}
+                    className="w-32"
+                  />
+                )}
+                {field.type === 'select' && (
+                  <Select
+                    value={val ?? ''}
+                    onChange={(e) => handleChange(field.key, e.target.value)}
+                  >
+                    {field.options.map((opt) => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </Select>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
 export const SettingsScreen = () => {
   const { settings, loading, save, saveImmediate, reset, onChange } = useSettings();
+  const pluginSections = usePluginStore((state) => state.settingsPageSections);
   const [activeSection, setActiveSection] = useState("general");
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -129,6 +219,7 @@ export const SettingsScreen = () => {
   const aiSkillsRef = useRef<HTMLElement>(null);
   const developerRef = useRef<HTMLElement>(null);
   const keyboardRef = useRef<HTMLElement>(null);
+  const pluginsRef = useRef<HTMLElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
 
   const [claudeSkillToggling, setClaudeSkillToggling] = useState(false);
@@ -143,6 +234,7 @@ export const SettingsScreen = () => {
     { id: "ai-skills", label: "AI Skills", icon: <Sparkles className="w-4 h-4" />, ref: aiSkillsRef },
     { id: "developer", label: "Developer", icon: <Code2 className="w-4 h-4" />, ref: developerRef },
     { id: "keyboard", label: "Keyboard", icon: <Keyboard className="w-4 h-4" />, ref: keyboardRef },
+    { id: "plugins", label: "Plugins", icon: <Plug className="w-4 h-4" />, ref: pluginsRef },
   // eslint-disable-next-line react-hooks/exhaustive-deps
   ], []);
 
@@ -620,7 +712,7 @@ export const SettingsScreen = () => {
         </div>
 
         <div className="flex-1 overflow-y-auto px-2 py-0.5">
-          {sections.map((section) => (
+          {sections.filter((s) => s.id !== "plugins" || pluginSections.length > 0).map((section) => (
             <button
               key={section.id}
               onClick={() => scrollToSection(section.id)}
@@ -1323,6 +1415,24 @@ export const SettingsScreen = () => {
               )}
             </Card>
           </section>
+
+          {/* ── Plugins ──────────────────────────────────────────── */}
+          {pluginSections.length > 0 && (
+            <section ref={pluginsRef} data-section="plugins" className="mb-10">
+              <h2 className="text-lg font-semibold text-text mb-4">Plugins</h2>
+              <div className="space-y-4">
+                {pluginSections.map((section) => (
+                  <Card key={section.id}>
+                    <div className="flex items-center gap-2 px-4 py-3 border-b border-border-subtle">
+                      {section.icon && <section.icon className="w-4 h-4 opacity-60" />}
+                      <span className="text-sm font-medium text-text">{section.title}</span>
+                    </div>
+                    <PluginSectionFields section={section} />
+                  </Card>
+                ))}
+              </div>
+            </section>
+          )}
 
           {/* ── Keyboard ─────────────────────────────────────────── */}
           <section ref={keyboardRef} data-section="keyboard" className="mb-10">

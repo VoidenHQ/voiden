@@ -19,7 +19,7 @@ import { SectionIndicatorExtension } from "./extensions/sectionIndicator";
 import { voidenExtensions } from "./extensions";
 import { preserveUnknownNodesInJSON, DocumentPreserver } from "./extensions/DocumentPreserver";
 import { create } from "zustand";
-import { useEditorEnhancementStore } from "@/plugins";
+import { useEditorEnhancementStore, emitPluginEvent } from "@/plugins";
 import { parseMarkdown } from "./markdownConverter";
 import UniqueID from "./extensions/uniqueId";
 import { VoidenDragMenu } from "./components/VoidenDragMenu";
@@ -650,7 +650,8 @@ const VoidenEditorInner = ({
           try {
             const savedContent = parseMarkdown(content, memoizedSchema);
             const santizedContent = sanitizeDoc(savedContent);
-            applyContent(santizedContent);
+            const preserved = preserveUnknownNodesInJSON(santizedContent, memoizedSchema);
+            applyContent(preserved);
           } catch {
             const fallbackContent = { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: content }] }] };
             console.log('[VoidenEditor] setContent — doLoad: fallback (parse error)', { tabId, source });
@@ -776,7 +777,9 @@ const VoidenEditorInner = ({
           autoSaveTimerRef.current = window.setTimeout(() => {
             autoSaveTimerRef.current = null;
             if (window.electron?.autosave?.save) {
-              window.electron.autosave.save(tabId, contentString).catch(console.error);
+              window.electron.autosave.save(tabId, contentString)
+                .then(() => emitPluginEvent('file:saved', { filePath: tabId, tabId }))
+                .catch(console.error);
             }
           }, 1000);
         }
