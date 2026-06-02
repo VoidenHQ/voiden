@@ -109,6 +109,7 @@
     "immer": "^10.0.3",
     "js-base64": "^3.7.7",
     "js-cookie": "^3.0.5",
+    "lossless-json": "^4.0.2",
     "lucide-react": "^0.474.0",
     "marked": "^14.1.2",
     "next-themes": "^0.3.0",
