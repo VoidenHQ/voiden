@@ -907,10 +907,10 @@ const FileLinkTippyContent = forwardRef((props: FileLinkListProps & { editor?: E
         {!isBlockMode && (
           <button
             onClick={() => command(addNewItem)}
-            className="flex items-center gap-1 text-xs text-comment hover:text-text transition-colors cursor-pointer"
+            className="flex items-center gap-1 text-[10px] bg-button-primary hover:bg-button-primary-hover text-bg rounded px-2 py-0.5 font-medium transition-colors cursor-pointer"
           >
             <Plus size={14} />
-            <span>New file</span>
+            <span>Add new file</span>
           </button>
         )}
       </div>
