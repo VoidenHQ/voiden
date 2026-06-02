@@ -645,29 +645,20 @@ const FileLinkTippyContent = forwardRef((props: FileLinkListProps & { editor?: E
     },
   }));
 
-  // FIXED: Improved smooth scroll behavior with padding
   useEffect(() => {
     const activeItem = itemRefs.current.get(listSelectedIndex);
     const container = isBlockMode ? blockScrollContainer.current : scrollContainer.current;
 
     if (activeItem && container) {
-      const padding = 32; // Extra padding to ensure item is fully visible
-      const itemTop = activeItem.offsetTop;
-      const itemBottom = itemTop + activeItem.offsetHeight;
-      const containerScrollTop = container.scrollTop;
-      const containerHeight = container.clientHeight;
+      const itemRect = activeItem.getBoundingClientRect();
+      const containerRect = container.getBoundingClientRect();
 
-      // Item is below visible area - scroll down
-      if (itemBottom + padding > containerScrollTop + containerHeight) {
-        container.scrollTo({
-          top: itemBottom + padding - containerHeight,
-        });
-      }
-      // Item is above visible area - scroll up
-      else if (itemTop - padding < containerScrollTop) {
-        container.scrollTo({
-          top: itemTop - padding,
-        });
+      if (itemRect.bottom > containerRect.bottom) {
+        // Item's bottom is below the container's visible bottom — scroll down exactly enough
+        container.scrollTop += itemRect.bottom - containerRect.bottom;
+      } else if (itemRect.top < containerRect.top) {
+        // Item's top is above the container's visible top — scroll up exactly enough
+        container.scrollTop -= containerRect.top - itemRect.top;
       }
     }
   }, [listSelectedIndex, isBlockMode]);
