@@ -1,5 +1,4 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { invalidateEnvQueries } from "./envQueryKeys";
 
 export const useRenameProfile = () => {
   const queryClient = useQueryClient();
@@ -8,7 +7,7 @@ export const useRenameProfile = () => {
       await window.electron?.env.renameProfile(oldName, newName);
     },
     onSuccess: () => {
-      invalidateEnvQueries(queryClient);
+      queryClient.invalidateQueries({ queryKey: ["env-profiles"] });
     },
   });
 };

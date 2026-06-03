@@ -1027,6 +1027,12 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
     if (t === "default" || (profiles?.includes(t) && t !== selectedProfile)) { setProfileNameError("Profile already exists"); return; }
     renameProfile({ oldName: selectedProfile, newName: t }, {
       onSuccess: () => {
+        // Seed the new profile's cache key with existing data so useYamlEnvironments
+        // finds it immediately and skips the loading state (no flicker).
+        const existing = queryClient.getQueryData(["yaml-environments", activeProject, selectedProfile]);
+        if (existing) {
+          queryClient.setQueryData(["yaml-environments", activeProject, t], existing);
+        }
         setSelectedProfile(t);
         setEditingProfileName(false);
         setProfileNameError(null);
@@ -1473,35 +1479,41 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
       )}
       {/* Top toolbar */}
       <div className="flex items-center justify-between px-5 py-3 border-b border-border flex-shrink-0">
-        <div className="flex items-center gap-2">
-          <Settings2 size={15} style={{ color: "var(--icon-primary)" }} />
+        <div className="flex items-baseline gap-2">
+          <Settings2 size={15} style={{ color: "var(--icon-primary)" }} className="self-center" />
           <h2 className="text-sm font-semibold">Environments</h2>
           {selectedProfile !== "default" && (
-            editingProfileName ? (
-              <div className="flex flex-col">
-                <input
-                  ref={profileNameInputRef}
-                  value={profileNameValue}
-                  onChange={(e) => { setProfileNameValue(e.target.value); setProfileNameError(null); }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") handleProfileRenameCommit();
-                    if (e.key === "Escape") { setEditingProfileName(false); setProfileNameError(null); }
-                  }}
-                  onBlur={handleProfileRenameCommit}
-                  className="text-xs px-1.5 py-0.5 bg-editor border border-border rounded outline-none text-text w-28"
-                />
-                {profileNameError && (
-                  <span className="text-xs mt-0.5" style={{ color: "var(--icon-danger)" }}>{profileNameError}</span>
-                )}
-              </div>
-            ) : (
-              <span
-                className="text-xs text-comment/60 cursor-pointer select-none leading-none self-center"
-                onDoubleClick={() => { setProfileNameValue(selectedProfile); setEditingProfileName(true); }}
+            <div className="flex flex-col self-center">
+              <span className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-md border border-border text-comment select-none hover:bg-active transition-colors"
+                style={editingProfileName ? { borderColor: "var(--icon-primary)" } : undefined}
               >
-                · {selectedProfile}
+                <span className="text-comment/50">profile:</span>
+                {editingProfileName ? (
+                  <input
+                    ref={profileNameInputRef}
+                    value={profileNameValue}
+                    size={Math.max(profileNameValue.length, 1)}
+                    onChange={(e) => { setProfileNameValue(e.target.value); setProfileNameError(null); }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleProfileRenameCommit();
+                      if (e.key === "Escape") { setEditingProfileName(false); setProfileNameError(null); }
+                    }}
+                    onBlur={handleProfileRenameCommit}
+                    className="bg-transparent outline-none text-text font-medium text-xs"
+                  />
+                ) : (
+                  <span
+                    className="text-text font-medium cursor-pointer"
+                    onDoubleClick={() => { setProfileNameValue(selectedProfile); setEditingProfileName(true); }}
+                  >
+                    {selectedProfile}
+                  </span>
+                )}
               </span>
-            )
+              {profileNameError && (
+                <span className="absolute top-full left-0 mt-1 text-xs px-2 py-0.5 rounded-md bg-panel border border-border whitespace-nowrap z-50" style={{ color: "var(--icon-danger)" }}>{profileNameError}</span>
+              )}
+            </div>
           )}
         </div>
         <div className="flex items-center gap-2">
