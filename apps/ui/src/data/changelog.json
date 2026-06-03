@@ -1,7 +1,7 @@
 [
   {
     "version": "v2.0.1-beta.1",
-    "date": "2/6/2026",
+    "date": "3/6/2026",
     "title": "Plugin Independence, create-plugin & File Search",
     "description": "Core plugins are now independent repositories, decoupled from the main monorepo for cleaner versioning and contribution. Introduces @voiden/create-plugin to scaffold a plugin workspace with a single command, along with plugin UI improvements and a batch of community-contributed fixes.",
     "icon": "Plug",
@@ -21,7 +21,7 @@
       ],
       "Fixed": [
         "\"Add File\" button no longer gets hidden when two or more cURL blocks are present — the layout now adjusts correctly without requiring manual blank lines below the block — contributed by parvbajaj1",
-        "Large integers in JSON responses were silently rounded due to JavaScript's native JSON parser precision limits — response panel now uses the 'lossless-json' library to parse and render large integers accurately without rounding"
+        "Large integers in JSON responses were silently rounded due to JavaScript's native JSON parser precision limits — response panel now uses the 'lossless-json' library to parse and render large integers accurately without rounding — contributed by Uchenna"
       ]
     }
   },
