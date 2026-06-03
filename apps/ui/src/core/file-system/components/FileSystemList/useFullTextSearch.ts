@@ -7,15 +7,29 @@ import { getParentPath } from "./treeData";
 interface UseFullTextSearchArgs {
   storeIsSearching: boolean;
   openSearchTick: number;
+  openWithReplaceTick: number;
   activeFileSource: string | undefined;
   activeDirectory: string | undefined;
+  // Called with the paths whose contents were just rewritten by a replace, so
+  // open editor tabs for those files can reload from disk.
+  onFilesReplaced?: (paths: string[]) => void;
 }
+
+/**
+ * A match the user has already replaced, kept on screen as a strikethrough
+ * marker. It carries its own id (not a coordinate) so it never collides with
+ * the refreshed coordinates of the remaining live matches, and the expanded
+ * replacement text so $1-style previews render exactly as written to disk.
+ */
+export type ReplacedMatch = SearchResult & { replacement: string; markerId: number };
 
 export function useFullTextSearch({
   storeIsSearching,
   openSearchTick,
+  openWithReplaceTick,
   activeFileSource,
   activeDirectory,
+  onFilesReplaced,
 }: UseFullTextSearchArgs) {
   const [rawQuery, setRawQuery] = useState<string>("");
   const searchQuery = useDebounce(rawQuery, 300);
@@ -98,6 +112,16 @@ export function useFullTextSearch({
     }
   }, [storeIsSearching, activeFileSource, activeDirectory]);
 
+  const [rawReplaceQuery, setRawReplaceQuery] = useState("");
+  const [showReplace, setShowReplace] = useState(false);
+
+  useEffect(() => {
+    if (openWithReplaceTick > 0) setShowReplace(true);
+  }, [openWithReplaceTick]);
+  const [isReplacing, setIsReplacing] = useState(false);
+  const [replacedMatches, setReplacedMatches] = useState<ReplacedMatch[]>([]);
+  const markerIdRef = useRef(0);
+
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
@@ -119,6 +143,7 @@ export function useFullTextSearch({
 
     seenSearchResultsRef.current = new Set();
     setSearchResults([]);
+    setReplacedMatches([]);
     setIsSearching(true);
     setSearchError(null);
 
@@ -158,6 +183,92 @@ export function useFullTextSearch({
     };
   }, [searchQuery, matchCase, matchWholeWord, useRegex, useMultiline, fileMaskEnabled, debouncedFileMask, dirMaskEnabled, debouncedDirMask, includeHidden]);
 
+  // Replaces all entries for `path` in the live result list with `fresh`,
+  // keeping them where the file first appeared (so file grouping is stable).
+  const spliceFileResults = (prev: SearchResult[], path: string, fresh: SearchResult[]): SearchResult[] => {
+    const out: SearchResult[] = [];
+    let inserted = false;
+    for (const r of prev) {
+      if (r.path !== path) { out.push(r); continue; }
+      if (!inserted) { inserted = true; out.push(...fresh); }
+    }
+    if (!inserted) out.push(...fresh);
+    return out;
+  };
+
+  const refreshLiveMatches = (path: string) =>
+    window.electron?.searchInFile?.({ path, query: searchQuery, matchCase, matchWholeWord, useRegex, useMultiline });
+
+  const replaceMatch = async (path: string, line: number, col: number) => {
+    if (!searchQuery) return;
+    setIsReplacing(true);
+    try {
+      const orig = searchResults.find((r) => r.path === path && r.line === line && r.col === col);
+      const result = await window.electron?.replaceMatch?.({
+        path, line, col, query: searchQuery, replacement: rawReplaceQuery,
+        matchCase, matchWholeWord, useRegex, useMultiline,
+      });
+      if (result?.success && orig) {
+        // Reload any open editor for this file, then snapshot the replaced match
+        // as a marker and re-scan so the remaining live matches pick up
+        // coordinates shifted by the edit.
+        onFilesReplaced?.(result.updatedPaths);
+        setReplacedMatches((prev) => [...prev, { ...orig, replacement: result.replacement ?? rawReplaceQuery, markerId: markerIdRef.current++ }]);
+        const refreshed = await refreshLiveMatches(path);
+        if (refreshed?.results) setSearchResults((prev) => spliceFileResults(prev, path, refreshed.results));
+      }
+    } finally {
+      setIsReplacing(false);
+    }
+  };
+
+  const replaceInFilePaths = async (paths: string[]) => {
+    if (!searchQuery || !paths.length) return;
+    setIsReplacing(true);
+    try {
+      const result = await window.electron?.replaceInFiles?.({
+        query: searchQuery, replacement: rawReplaceQuery,
+        matchCase, matchWholeWord, useRegex, useMultiline, paths,
+      });
+      if (result?.updatedPaths?.length) {
+        onFilesReplaced?.(result.updatedPaths);
+        const updatedSet = new Set(result.updatedPaths);
+        const replacements = result.replacements ?? {};
+
+        // Snapshot the matched (pre-edit) results as markers — one expanded
+        // replacement per match, in document order.
+        setReplacedMatches((prev) => {
+          const next = [...prev];
+          for (const path of result.updatedPaths) {
+            const expanded = replacements[path] ?? [];
+            searchResults
+              .filter((r) => r.path === path)
+              .forEach((r, i) => next.push({ ...r, replacement: expanded[i] ?? rawReplaceQuery, markerId: markerIdRef.current++ }));
+          }
+          return next;
+        });
+
+        // Drop the replaced files' stale live matches, then re-scan for any that
+        // survived (e.g. when the replacement text still matches the query).
+        setSearchResults((prev) => prev.filter((r) => !updatedSet.has(r.path)));
+        for (const path of result.updatedPaths) {
+          const refreshed = await refreshLiveMatches(path);
+          if (refreshed?.results?.length) setSearchResults((prev) => [...prev, ...refreshed.results]);
+        }
+      }
+      return result;
+    } finally {
+      setIsReplacing(false);
+    }
+  };
+
+  const replaceAll = () => {
+    const paths = [...new Set(searchResults.map((r) => r.path))];
+    return replaceInFilePaths(paths);
+  };
+
+  const replaceInFile = (path: string) => replaceInFilePaths([path]);
+
   const resetSearch = () => {
     setRawQuery("");
     dirMaskUserEditedRef.current = false;
@@ -180,6 +291,11 @@ export function useFullTextSearch({
     dirMaskUserEditedRef,
     // results
     searchResults, isSearching, searchError,
+    // replace
+    rawReplaceQuery, setRawReplaceQuery,
+    showReplace, setShowReplace,
+    isReplacing, replacedMatches,
+    replaceMatch, replaceAll, replaceInFile,
     // helpers
     resetSearch,
   };

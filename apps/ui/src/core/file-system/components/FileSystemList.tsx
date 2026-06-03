@@ -308,17 +308,45 @@ export const FileSystemList = () => {
 
   // ─── Full-text search ────────────────────────────────────────────────────────
   const { closeBottomPanel } = usePanelStore();
-  const { storeIsSearching, openSearchTick } = useSearchStore(useShallow((state) => ({
+  const { storeIsSearching, openSearchTick, openWithReplaceTick } = useSearchStore(useShallow((state) => ({
     storeIsSearching: state.isSearching,
     openSearchTick: state.openTick,
+    openWithReplaceTick: state.openWithReplaceTick,
   })));
   const setStoreIsSearching = useSearchStore((state) => state.setIsSearching);
+
+  // After a replace writes to disk, reload any open tab pointing at a changed
+  // file. The main-process file watcher does not reliably fire for these
+  // programmatic writes, so refresh the affected tabs explicitly across every
+  // panel (not just main/right).
+  const handleFilesReplaced = useCallback(async (paths: string[]) => {
+    useBlockContentStore.getState().clearBlocks();
+    queryClient.removeQueries({ queryKey: ["voiden-wrapper:blockContent"] });
+    const panelQueries = queryClient.getQueryCache().findAll({ queryKey: ["panel:tabs"] });
+    for (const q of panelQueries) {
+      const panelId = q.queryKey[1] as string;
+      const data = q.state.data as { tabs?: { id: string; source: string | null }[] } | undefined;
+      for (const tab of data?.tabs ?? []) {
+        if (!tab.id) continue;
+        if (tab.source && paths.includes(tab.source)) {
+          useEditorStore.getState().clearUnsaved(tab.id);
+          queryClient.removeQueries({ queryKey: ["tab:content", panelId, tab.id] });
+          await reloadVoidenEditor(tab.id);
+        } else {
+          queryClient.invalidateQueries({ queryKey: ["tab:content", panelId, tab.id] });
+        }
+      }
+    }
+    queryClient.invalidateQueries({ queryKey: ["panel:tabs"] });
+  }, [queryClient]);
 
   const search = useFullTextSearch({
     storeIsSearching,
     openSearchTick,
+    openWithReplaceTick,
     activeFileSource: activeFile?.source,
     activeDirectory: appState?.activeDirectory,
+    onFilesReplaced: handleFilesReplaced,
   });
 
   // ─── Sync server data → treeData ─────────────────────────────────────────────
@@ -835,6 +863,10 @@ export const FileSystemList = () => {
           useRegex={search.useRegex}
           useMultiline={search.useMultiline}
           activateTab={activateTab}
+          onReplaceMatch={search.showReplace ? search.replaceMatch : undefined}
+          onReplaceInFile={search.showReplace ? search.replaceInFile : undefined}
+          isReplacing={search.isReplacing}
+          replacedMatches={search.replacedMatches}
         />
       </div>
 

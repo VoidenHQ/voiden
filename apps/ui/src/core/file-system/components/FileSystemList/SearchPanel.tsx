@@ -50,26 +50,33 @@ export function SearchPanel({ search, onClose }: SearchPanelProps) {
     dirSuggestions,
     findInputRef,
     dirMaskUserEditedRef,
+    rawReplaceQuery, setRawReplaceQuery,
+    showReplace, setShowReplace,
+    isReplacing, isSearching, searchResults,
+    replaceAll,
   } = search;
 
   return (
     <>
       <SearchPanelView
         findValue={rawQuery}
-        replaceValue=""
+        replaceValue={rawReplaceQuery}
         matchCase={matchCase}
         matchWholeWord={matchWholeWord}
         useRegex={useRegex}
         multiline={useMultiline}
-        showReplace={false}
+        showReplace={showReplace}
         hideNav
         findInputRef={findInputRef}
+        replaceDisabled={searchResults.length === 0 || isReplacing || isSearching}
         onFindChange={setRawQuery}
-        onReplaceChange={() => {}}
+        onReplaceChange={setRawReplaceQuery}
         onToggleMatchCase={() => setMatchCase((c) => !c)}
         onToggleMatchWholeWord={() => setMatchWholeWord((w) => !w)}
         onToggleRegex={() => setUseRegex((r) => !r)}
         onToggleMultiline={() => setUseMultiline((m) => !m)}
+        onToggleReplaceSection={() => setShowReplace((v) => !v)}
+        onReplaceAll={replaceAll}
         onClose={onClose}
       />
       <div className="mt-1.5 flex flex-col gap-1">

@@ -39,6 +39,8 @@ export interface SearchResult {
   line: number;
   col: number;
   preview: string;
+  colInPreview: number;
+  matchLength: number;
 }
 
 export {};
@@ -197,6 +199,9 @@ declare global {
       };
       startSearch: (args: { query: string; matchCase: boolean; matchWholeWord: boolean; useRegex: boolean; useMultiline: boolean; searchId: number; fileMask?: string; dirMask?: string; includeHidden?: boolean }) => void;
       cancelSearch: (searchId: number) => void;
+      replaceMatch: (args: { path: string; line: number; col: number; query: string; replacement: string; matchCase: boolean; matchWholeWord: boolean; useRegex: boolean; useMultiline: boolean }) => Promise<{ success: boolean; updatedPaths: string[]; replacement?: string; error?: string }>;
+      replaceInFiles: (args: { query: string; replacement: string; matchCase: boolean; matchWholeWord: boolean; useRegex: boolean; useMultiline: boolean; paths: string[] }) => Promise<{ replacedCount: number; updatedPaths: string[]; replacements?: Record<string, string[]>; error?: string }>;
+      searchInFile: (args: { path: string; query: string; matchCase: boolean; matchWholeWord: boolean; useRegex: boolean; useMultiline: boolean }) => Promise<{ results: SearchResult[] }>;
       listDirs: (parent?: string) => Promise<string[]>;
       onSearchResult: (cb: (data: { searchId: number; result: SearchResult }) => void) => () => void;
       onSearchDone: (cb: (data: { searchId: number; error?: string }) => void) => () => void;
