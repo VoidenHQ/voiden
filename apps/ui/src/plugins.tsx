@@ -200,6 +200,8 @@ export interface CorePluginUpdateInfo {
 
 interface PluginStoreState {
   isInitialized: boolean;
+  /** True permanently after the first successful initialize() — never reset to false. */
+  hasEverInitialized: boolean;
   pluginErrors: PluginError[];
   addPluginError: (extensionId: string, error: string, kind?: PluginError['kind']) => void;
   clearPluginErrors: () => void;
@@ -233,6 +235,7 @@ interface PluginStoreState {
 
 export const usePluginStore = create<PluginStoreState>((set) => ({
   isInitialized: false,
+  hasEverInitialized: false,
   pluginErrors: [],
   addPluginError: (extensionId, error, kind) =>
     set((state) => ({
@@ -247,7 +250,7 @@ export const usePluginStore = create<PluginStoreState>((set) => ({
     main: [],
     bottom: [],
   },
-  initialize: () => set({ isInitialized: true }),
+  initialize: () => set({ isInitialized: true, hasEverInitialized: true }),
   coreUpdateInfo: {},
   setCoreUpdateInfo: (info) =>
     set({ coreUpdateInfo: Object.fromEntries(info.map((i) => [i.pluginId, i])) }),
@@ -1457,17 +1460,64 @@ export const getPlugins = async () => {
       } else {
         extensionLogger.info(`Loading external extension: ${extension.id}`);
 
-        // Validate installedPath exists
         if (!extension.installedPath) {
           throw new Error(`External extension ${extension.id} missing installedPath`);
         }
 
-        const mod = await import(
-          /* @vite-ignore */
-          `${extension.installedPath}/main.js`
-        );
+        const installPath = extension.installedPath;
 
-        // Validate module exports default
+        // Read main.js via IPC and import it as a Blob URL instead of an absolute
+        // file path. When the renderer imports an absolute path, Vite's dev-server
+        // serves it (fs.strict:false) AND adds it to its HMR watch graph, so the
+        // next write to that path (e.g. reinstall) sends a full-page reload.
+        // Blob URLs bypass Vite entirely — Vite never sees the path.
+        const mainContent = await window.electron?.files?.read(`${installPath}/main.js`);
+        if (!mainContent) {
+          throw new Error(`External extension ${extension.id} main.js not found or empty`);
+        }
+
+        // Shim files are placed alongside main.js by the installer when the plugin
+        // uses bare imports (react, zustand, etc.). Relative imports like
+        // './__voiden_shim_react__.js' don't resolve when the parent is a blob URL,
+        // so we read each shim, create its own Blob URL, and patch the reference
+        // in main.js before bundling.
+        const SHIM_FILES = [
+          '__voiden_shim_react_jsx_dev_runtime__.js',
+          '__voiden_shim_react_jsx_runtime__.js',
+          '__voiden_shim_react_dom_client__.js',
+          '__voiden_shim_react_dom__.js',
+          '__voiden_shim_react__.js',
+          '__voiden_shim_sdk_ui__.js',
+          '__voiden_shim_sdk__.js',
+        ];
+
+        const shimBlobUrls: string[] = [];
+        let patchedContent = mainContent;
+        for (const shimFile of SHIM_FILES) {
+          const shimContent = await window.electron?.files?.read(`${installPath}/${shimFile}`);
+          if (shimContent) {
+            const shimBlob = new Blob([shimContent], { type: 'application/javascript' });
+            const shimBlobUrl = URL.createObjectURL(shimBlob);
+            shimBlobUrls.push(shimBlobUrl);
+            const rel = `./${shimFile}`;
+            const esc = rel.replace(/[/\\^$*+?.()|[\]{}]/g, '\\$&');
+            patchedContent = patchedContent
+              .replace(new RegExp(`'${esc}'`, 'g'), `'${shimBlobUrl}'`)
+              .replace(new RegExp(`"${esc}"`, 'g'), `"${shimBlobUrl}"`);
+          }
+        }
+
+        const mainBlob = new Blob([patchedContent], { type: 'application/javascript' });
+        const mainBlobUrl = URL.createObjectURL(mainBlob);
+        let mod: any;
+        try {
+          mod = await import(/* @vite-ignore */ mainBlobUrl);
+        } finally {
+          // Modules are cached after first import — safe to revoke immediately.
+          URL.revokeObjectURL(mainBlobUrl);
+          for (const url of shimBlobUrls) URL.revokeObjectURL(url);
+        }
+
         if (!mod || !mod.default) {
           throw new Error(`External extension ${extension.id} does not export a default function`);
         }
@@ -1481,7 +1531,6 @@ export const getPlugins = async () => {
           permissions: extension.permissions ?? [],
         });
 
-        // Validate plugin instance
         if (!pluginInstance || typeof pluginInstance.onload !== 'function') {
           throw new Error(`Plugin instance for ${extension.id} missing required onload method`);
         }
@@ -1490,6 +1539,7 @@ export const getPlugins = async () => {
 
         loadedPlugins.set(extension.id, pluginInstance);
         const loadTime = (performance.now() - startTime).toFixed(2);
+        console.log(`[Plugin Loader] ✓ Loaded ${extension.id} in ${loadTime}ms`);
       }
     } catch (error) {
       const loadTime = (performance.now() - startTime).toFixed(2);
@@ -1847,6 +1897,7 @@ const PluginErrorBoundary: React.FC<{ children: React.ReactNode }> = ({ children
 export const PluginProvider = ({ children }: { children: React.ReactNode }) => {
   const { data: extensions, isLoading: extLoading } = useGetExtensions();
   const isInitialized = usePluginStore((state) => state.isInitialized);
+  const hasEverInitialized = usePluginStore((state) => state.hasEverInitialized);
   const updateCheckRan = useRef(false);
 
   // After the first initialization, check GitHub for updated core extension bundles.
@@ -1892,10 +1943,14 @@ export const PluginProvider = ({ children }: { children: React.ReactNode }) => {
   const reloadPlugins = useCallback(async () => {
     if (reloadingRef.current) return;
     reloadingRef.current = true;
-    // IMPORTANT: Set isInitialized to false FIRST to prevent components from rendering during reload
+    // Always set isInitialized: false so that mounted editors unmount cleanly
+    // before extensions are cleared (prevents TipTap removeChild DOM errors).
+    // PanelContent and PluginProvider both use hasEverInitialized to decide
+    // whether to show the animated loading screen or just wait silently.
     usePluginStore.setState({ isInitialized: false });
 
-    // Small delay to let React process the state change
+    // Yield to React so it can process the null render from PanelContent
+    // and unmount the TipTap editor before we wipe voidenExtensions.
     await new Promise(resolve => setTimeout(resolve, 10));
 
     useEditorEnhancementStore.setState({
@@ -1974,7 +2029,7 @@ export const PluginProvider = ({ children }: { children: React.ReactNode }) => {
     }, 100);
     return () => clearTimeout(timeoutId);
   }, [extensions, extLoading]);
-  if (extLoading || !isInitialized) {
+  if (!hasEverInitialized && (extLoading || !isInitialized)) {
     return <PluginLoadingScreen />;
   }
 

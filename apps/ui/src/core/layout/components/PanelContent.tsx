@@ -739,6 +739,7 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
 export const PanelContent = ({ panelId }: { panelId: string }) => {
   // Force remount when plugin state changes to prevent stale hook references
   const isInitialized = usePluginStore((state) => state.isInitialized);
+  const hasEverInitialized = usePluginStore((state) => state.hasEverInitialized);
   const { data: tabs, dataUpdatedAt } = useGetPanelTabs(panelId);
 
   // Track re-clicks on the already-active tab so we can reset the ErrorBoundary.
@@ -760,13 +761,12 @@ export const PanelContent = ({ panelId }: { panelId: string }) => {
     prevActiveTabIdRef.current = tabs?.activeTabId;
   }, [dataUpdatedAt, tabs?.activeTabId]);
 
-  // Don't render content while plugins are reloading to prevent accessing stale references
+  // First boot: return null until plugins are ready (PluginProvider shows PluginLoadingScreen).
+  // Hot-reload: return a blank hold state — editor has already unmounted cleanly, and the
+  // reload completes in <300ms. This avoids the jarring full-panel blank seen previously.
   if (!isInitialized) {
-    return (
-      <div className="h-full w-full flex items-center justify-center text-comment">
-        <div className="text-sm">Loading plugins...</div>
-      </div>
-    );
+    if (!hasEverInitialized) return null;
+    return <div className="flex-1 bg-panel" />;
   }
 
   return (

@@ -53,6 +53,17 @@ export default defineConfig((env) => {
       fs: {
         strict: false,
       },
+      watch: {
+        // Prevent Vite from adding community/core plugin files to its HMR watch
+        // graph. Without this, importing a plugin via absolute path (before the
+        // Blob URL fix) would cause a full-page reload on the next file write
+        // (e.g. reinstall). The Blob URL loader already bypasses Vite, but this
+        // is defense-in-depth for any edge case where a path leaks through.
+        ignored: [
+          '**/plugins/community/**',
+          '**/plugins/core/**',
+        ],
+      },
     },
     clearScreen: false,
     css: {
