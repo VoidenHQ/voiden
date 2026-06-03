@@ -1483,7 +1483,7 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
           <Settings2 size={15} style={{ color: "var(--icon-primary)" }} className="self-center" />
           <h2 className="text-sm font-semibold">Environments</h2>
           {selectedProfile !== "default" && (
-            <div className="flex flex-col self-center">
+            <div className="relative flex flex-col self-center">
               <span className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-md border border-border text-comment select-none hover:bg-active transition-colors"
                 style={editingProfileName ? { borderColor: "var(--icon-primary)" } : undefined}
               >
