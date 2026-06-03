@@ -1099,6 +1099,18 @@ export const createPlugin = (
         if (!abs) throw new Error('Failed to resolve path');
         await window.electron?.files?.delete(abs);
       },
+      move: async (fromRelative: string, toRelative: string): Promise<void> => {
+        requirePermission('filesystem');
+        const projects = await getProjects();
+        const base = projects?.activeProject;
+        if (!base) throw new Error('No active project');
+        const absFrom = await window.electron?.utils?.pathJoin(base, fromRelative);
+        const absToDir = await window.electron?.utils?.pathJoin(base, toRelative.replace(/\/[^/]+$/, ''));
+        if (!absFrom || !absToDir) throw new Error('Failed to resolve path');
+        await window.electron?.files?.createDirectory(absToDir);
+        const result = await window.electron?.files?.move([absFrom], absToDir);
+        if (result && !result.success) throw new Error(result.error ?? 'Move failed');
+      },
       exists: async (relativePath: string): Promise<boolean> => {
         requirePermission('filesystem');
         const projects = await getProjects();
