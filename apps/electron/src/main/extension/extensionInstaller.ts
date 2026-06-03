@@ -161,7 +161,7 @@ export function prepareExtensionMain(main: string): { main: string; extraFiles: 
 export async function getExtensionFiles(
   repo: string,
   version: string
-): Promise<{ manifest: string; main: string; skill?: string; mainProcess?: string }> {
+): Promise<{ manifest: string; main: string; skill?: string; mainProcess?: string; changelog?: string }> {
   const apiUrl = `https://api.github.com/repos/${repo}/releases/tags/v${version}`;
   const releaseRaw = await httpsGetText(apiUrl);
   const releaseInfo = JSON.parse(releaseRaw);
@@ -206,5 +206,16 @@ export async function getExtensionFiles(
     }
   }
 
-  return { manifest, main, skill, mainProcess };
+  // Attempt to fetch changelog.json — best-effort, optional
+  let changelog: string | undefined;
+  const changelogAsset = assets.find((asset) => asset.name === "changelog.json");
+  if (changelogAsset) {
+    try {
+      changelog = await httpsGetText(changelogAsset.browser_download_url);
+    } catch {
+      // changelog.json is optional — continue without it
+    }
+  }
+
+  return { manifest, main, skill, mainProcess, changelog };
 }

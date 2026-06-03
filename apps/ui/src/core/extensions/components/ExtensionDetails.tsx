@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import * as LucideIcons from "lucide-react";
-import { proseClasses } from "@/core/editors/voiden/VoidenEditor";
+import { proseClassesSm } from "@/core/editors/voiden/VoidenEditor";
 import { GitBranch, Loader2, Shield, Users, RefreshCw, Trash2, ChevronDown, ChevronRight } from "lucide-react";
 import { openExternalLink } from "@/core/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
@@ -70,10 +71,19 @@ const ChangelogEntry = ({ entry }: { entry: any }) => {
         className="w-full flex items-center gap-3 px-4 py-3 bg-panel hover:bg-active/30 transition-colors text-left"
       >
         {open ? <ChevronDown size={14} className="text-comment flex-shrink-0" /> : <ChevronRight size={14} className="text-comment flex-shrink-0" />}
-        <div className="flex items-center gap-2 flex-1 min-w-0">
-          <span className="text-xs font-mono font-semibold text-button-primary">{entry.version}</span>
-          {entry.date && <span className="text-[11px] text-comment/60">{entry.date}</span>}
-          {entry.title && <span className="text-xs text-text/80 truncate">{entry.title}</span>}
+        <div className="flex items-center justify-between flex-1 min-w-0 gap-4">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className="text-xs font-mono font-semibold text-button-primary flex-shrink-0">{entry.version}</span>
+            {entry.title && (
+              <>
+                <span className="text-[11px] text-comment/40 flex-shrink-0">—</span>
+                <span className="text-xs text-comment truncate">{entry.title}</span>
+              </>
+            )}
+          </div>
+          {entry.date && (
+            <span className="text-[11px] text-comment/50 flex-shrink-0 tabular-nums">{entry.date}</span>
+          )}
         </div>
       </button>
       {open && (
@@ -81,8 +91,9 @@ const ChangelogEntry = ({ entry }: { entry: any }) => {
           {entry.description && (
             <p className="text-xs text-comment leading-relaxed">{entry.description}</p>
           )}
-          {entry.changes && Object.entries(entry.changes as Record<string, string[]>).map(([label, items]) => (
-            items?.length > 0 && (
+          {entry.changes && (Object.entries(entry.changes as Record<string, string[]>)
+            .filter(([, items]) => items?.length > 0)
+            .map(([label, items]) => (
               <div key={label}>
                 <p className="text-sm font-semibold text-text mb-1.5">{label}</p>
                 <ul className="space-y-1.5 ml-1">
@@ -94,8 +105,8 @@ const ChangelogEntry = ({ entry }: { entry: any }) => {
                   ))}
                 </ul>
               </div>
-            )
-          ))}
+            ))
+          )}
         </div>
       )}
     </div>
@@ -570,16 +581,32 @@ export const ExtensionDetails = ({
       </div>
 
       {/* ── Tab content ── */}
-      <div className="flex-1 overflow-y-auto px-5 py-4">
+      <div className="flex-1 overflow-y-auto px-5 py-4 bg-panel">
         {activeTab === "Documentation" && (
           readmeLoading
             ? <div className="flex items-center justify-center h-full">
                 <p className="text-xs text-comment animate-pulse">Loading documentation...</p>
               </div>
             : (readme || content)
-              ? <div className={proseClasses}>
+              ? <div className={`prose max-w-none ${proseClassesSm}`}>
                   <ReactMarkdown
-                    components={{ a: ({ href, children }) => <CustomLink href={href}>{children}</CustomLink> }}
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                      a: ({ href, children }) => <CustomLink href={href}>{children}</CustomLink>,
+                      table: ({ children }) => (
+                        <div className="overflow-x-auto my-3 rounded-md border border-border">
+                          <table className="w-full border-collapse">{children}</table>
+                        </div>
+                      ),
+                      thead: ({ children }) => <thead>{children}</thead>,
+                      th: ({ children }) => (
+                        <th className="px-3 py-2 text-left text-[11px] font-semibold text-text uppercase tracking-wider border-0 border-b border-border bg-panel">{children}</th>
+                      ),
+                      td: ({ children }) => (
+                        <td className="px-3 py-2 text-sm text-text border-0 border-b border-border">{children}</td>
+                      ),
+                      tr: ({ children }) => <tr className="hover:bg-active/30 transition-colors [&:last-child_td]:!border-b-0">{children}</tr>,
+                    }}
                   >
                     {readme || content}
                   </ReactMarkdown>

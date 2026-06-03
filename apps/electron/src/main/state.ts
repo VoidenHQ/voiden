@@ -1387,17 +1387,21 @@ export const ipcStateHandlers = () => {
   });
 
   ipcMain.handle("extensions:fetchReadme", async (_, repo: string): Promise<string> => {
-    return fetchReadme(`https://raw.githubusercontent.com/${repo}/main/README.md`);
+    return fetchReadme(repo);
   });
 
   ipcMain.handle("extensions:fetchChangelog", async (_, pluginId: string, repo: string): Promise<any[] | null> => {
-    // For installed core plugins, use the local disk cache if available
-    const localPath = path.join(coreCacheDir(), pluginId, "changelog.json");
-    if (fsSync.existsSync(localPath)) {
-      try {
-        const raw = await fs.readFile(localPath, "utf8");
-        return JSON.parse(raw);
-      } catch {}
+    // Check local disk first — core cache then community install dir
+    for (const localPath of [
+      path.join(coreCacheDir(), pluginId, "changelog.json"),
+      path.join(communityDir(), pluginId, "changelog.json"),
+    ]) {
+      if (fsSync.existsSync(localPath)) {
+        try {
+          const raw = await fs.readFile(localPath, "utf8");
+          return JSON.parse(raw);
+        } catch {}
+      }
     }
     return fetchChangelog(repo);
   });

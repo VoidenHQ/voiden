@@ -276,7 +276,7 @@ export class ExtensionManager {
     if (!extension.repo) {
       throw new Error("repo not defined");
     }
-    const { manifest, main, skill, mainProcess } = await installer.getExtensionFiles(extension.repo, extension.version);
+    const { manifest, main, skill, mainProcess, changelog } = await installer.getExtensionFiles(extension.repo, extension.version);
     const prepared = installer.prepareExtensionMain(main);
     const installPath = path.join(communityDir(), extension.id);
     await fs.mkdir(installPath, { recursive: true });
@@ -292,6 +292,9 @@ export class ExtensionManager {
     }
     if (mainProcess) {
       await fs.writeFile(path.join(installPath, "main-process.js"), mainProcess, "utf8");
+    }
+    if (changelog) {
+      await fs.writeFile(path.join(installPath, "changelog.json"), changelog, "utf8");
     }
 
     // Parse the downloaded manifest to extract rich metadata

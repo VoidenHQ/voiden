@@ -43,18 +43,23 @@ function httpsGet(url: string): Promise<string> {
   });
 }
 
-export async function fetchReadme(url: string): Promise<string> {
-  const cached = readmeCache.get(url);
+export async function fetchReadme(repo: string): Promise<string> {
+  const cacheKey = repo;
+  const cached = readmeCache.get(cacheKey);
   if (cached && Date.now() - cached.timestamp < ONE_DAY) {
     return cached.content;
   }
-  try {
-    const content = await httpsGet(url);
-    readmeCache.set(url, { content, timestamp: Date.now() });
-    return content;
-  } catch {
-    return '';
+  const branches = ['main', 'master'];
+  for (const branch of branches) {
+    try {
+      const content = await httpsGet(`https://raw.githubusercontent.com/${repo}/${branch}/README.md`);
+      readmeCache.set(cacheKey, { content, timestamp: Date.now() });
+      return content;
+    } catch {
+      // try next branch
+    }
   }
+  return '';
 }
 
 export async function fetchManifest(repo: string): Promise<Record<string, any> | null> {
@@ -71,17 +76,23 @@ export async function fetchChangelog(repo: string): Promise<any[] | null> {
   if (cached && Date.now() - cached.timestamp < ONE_DAY) {
     return cached.data;
   }
-  try {
-    const raw = await httpsGet(`https://github.com/${repo}/releases/latest/download/changelog.json`);
-    const data = JSON.parse(raw);
-    if (Array.isArray(data)) {
-      changelogCache.set(repo, { data, timestamp: Date.now() });
-      return data;
+  const urls = [
+    `https://github.com/${repo}/releases/latest/download/changelog.json`,
+    `https://raw.githubusercontent.com/${repo}/main/changelog.json`,
+  ];
+  for (const url of urls) {
+    try {
+      const raw = await httpsGet(url);
+      const data = JSON.parse(raw);
+      if (Array.isArray(data)) {
+        changelogCache.set(repo, { data, timestamp: Date.now() });
+        return data;
+      }
+    } catch {
+      // try next URL
     }
-    return null;
-  } catch {
-    return null;
   }
+  return null;
 }
 
 export async function getRemoteExtensions(): Promise<ExtensionData[]> {

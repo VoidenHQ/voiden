@@ -158,7 +158,8 @@ export const proseClasses = [
 
   // Text elements - text-base sets the editor's monospace font
   "text-base prose-p:text-text",
-  "prose-strong:font-bold",
+  "prose-headings:text-text",
+  "prose-strong:text-text prose-strong:font-bold",
   "prose-em:italic",
 
   // Lists - generous spacing for readability
@@ -201,6 +202,9 @@ export const proseClasses = [
   // Small text
   "prose-small:text-comment",
 ].join(" ");
+
+// Scaled-down variant for panels/sidebars — same colour overrides, smaller base font.
+export const proseClassesSm = proseClasses.replace("text-base", "text-sm");
 
 interface EditorStore {
   unsaved: Record<string, string>;
