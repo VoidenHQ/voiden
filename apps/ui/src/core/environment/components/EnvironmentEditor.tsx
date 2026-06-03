@@ -8,6 +8,7 @@ import { useSaveYamlEnvironments } from "@/core/environment/hooks";
 import { useProfiles } from "../hooks/useProfiles.ts";
 import { useCreateProfile } from "@/core/environment/hooks";
 import { useDeleteProfile } from "@/core/environment/hooks";
+import { useRenameProfile } from "@/core/environment/hooks";
 import type { EditableEnvNode, EditableVariable } from "./EnvironmentNode";
 import {
   type EditableEnvTree,
@@ -1010,6 +1011,28 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
   const profileParam = selectedProfile === "default" ? undefined : selectedProfile;
   const { data, isLoading } = useYamlEnvironments(profileParam);
   const { mutate: save } = useSaveYamlEnvironments(profileParam);
+  const { data: profiles } = useProfiles();
+  const { mutate: renameProfile } = useRenameProfile();
+  const [editingProfileName, setEditingProfileName] = useState(false);
+  const [profileNameValue, setProfileNameValue] = useState("");
+  const [profileNameError, setProfileNameError] = useState<string | null>(null);
+  const profileNameInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { if (editingProfileName) profileNameInputRef.current?.focus(); }, [editingProfileName]);
+
+  const handleProfileRenameCommit = () => {
+    const t = profileNameValue.trim();
+    if (!t || t === selectedProfile) { setEditingProfileName(false); setProfileNameError(null); return; }
+    if (!PROFILE_NAME_REGEX.test(t)) { setProfileNameError("Lowercase letters, numbers, hyphens only"); return; }
+    if (t === "default" || (profiles?.includes(t) && t !== selectedProfile)) { setProfileNameError("Profile already exists"); return; }
+    renameProfile({ oldName: selectedProfile, newName: t }, {
+      onSuccess: () => {
+        setSelectedProfile(t);
+        setEditingProfileName(false);
+        setProfileNameError(null);
+      },
+    });
+  };
 
   const [tree, setTree] = useState<EditableEnvTree>({});
   const [selectedEnvPath, setSelectedEnvPath] = useState<string | null>(null);
@@ -1453,9 +1476,36 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
         <div className="flex items-center gap-2">
           <Settings2 size={15} style={{ color: "var(--icon-primary)" }} />
           <h2 className="text-sm font-semibold">Environments</h2>
+          {selectedProfile !== "default" && (
+            editingProfileName ? (
+              <div className="flex flex-col">
+                <input
+                  ref={profileNameInputRef}
+                  value={profileNameValue}
+                  onChange={(e) => { setProfileNameValue(e.target.value); setProfileNameError(null); }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleProfileRenameCommit();
+                    if (e.key === "Escape") { setEditingProfileName(false); setProfileNameError(null); }
+                  }}
+                  onBlur={handleProfileRenameCommit}
+                  className="text-xs px-1.5 py-0.5 bg-editor border border-border rounded outline-none text-text w-28"
+                />
+                {profileNameError && (
+                  <span className="text-xs mt-0.5" style={{ color: "var(--icon-danger)" }}>{profileNameError}</span>
+                )}
+              </div>
+            ) : (
+              <span
+                className="text-xs text-comment/60 cursor-pointer select-none leading-none self-center"
+                onDoubleClick={() => { setProfileNameValue(selectedProfile); setEditingProfileName(true); }}
+              >
+                · {selectedProfile}
+              </span>
+            )
+          )}
         </div>
         <div className="flex items-center gap-2">
-          <ProfileSelector selectedProfile={selectedProfile} onSelectProfile={(p) => { setSelectedProfile(p); setSelectedEnvPath(null); }} />
+          <ProfileSelector selectedProfile={selectedProfile} onSelectProfile={(p) => { setSelectedProfile(p); setSelectedEnvPath(null); setEditingProfileName(false); }} />
         </div>
       </div>
 

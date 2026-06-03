@@ -398,6 +398,7 @@ declare global {
         setActiveProfile: (profile: string) => Promise<void>;
         createProfile: (profile: string) => Promise<void>;
         deleteProfile: (profile: string) => Promise<void>;
+        renameProfile: (oldName: string, newName: string) => Promise<void>;
       };
       fileLink: {
         exists: (absolutePath: string) => Promise<boolean>;

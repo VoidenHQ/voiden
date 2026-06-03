@@ -20,6 +20,7 @@ export { useProfiles } from "./useProfiles";
 export { useSetActiveProfile } from "./useSetActiveProfile";
 export { useCreateProfile } from "./useCreateProfile";
 export { useDeleteProfile } from "./useDeleteProfile";
+export { useRenameProfile } from "./useRenameProfile";
 
 export type { EnvironmentData } from "./useEnvironments";
 export type { YamlEnvNode, YamlEnvTree, YamlEnvTrees } from "./useYamlEnvironments.ts";

@@ -523,6 +523,25 @@ ipcMain.handle("env:deleteProfile", async (event, profile: string) => {
   }
 });
 
+ipcMain.handle("env:renameProfile", async (event, { oldName, newName }: { oldName: string; newName: string }) => {
+  const activeProject = await getActiveProject(event);
+  if (!activeProject || !oldName || oldName === "default") return;
+  if (!PROFILE_NAME_REGEX.test(oldName) || !PROFILE_NAME_REGEX.test(newName)) {
+    throw new Error(`Invalid profile name. Must match ${PROFILE_NAME_REGEX}`);
+  }
+  if (newName === "default") throw new Error('Cannot rename to "default"');
+  const { publicFile: oldPublic, privateFile: oldPrivate } = profileFileNames(oldName);
+  const { publicFile: newPublic, privateFile: newPrivate } = profileFileNames(newName);
+  try { await fs.rename(path.join(activeProject, oldPublic), path.join(activeProject, newPublic)); } catch { /* file may not exist */ }
+  try { await fs.rename(path.join(activeProject, oldPrivate), path.join(activeProject, newPrivate)); } catch { /* file may not exist */ }
+  // If renamed profile was active, update state
+  const appState = getAppState(event);
+  if (appState.directories[activeProject]?.activeProfile === oldName) {
+    appState.directories[activeProject].activeProfile = newName;
+    await saveState(appState);
+  }
+});
+
 // Simple handler to extend all .env files
 ipcMain.handle('env:extend-env-files', async (event, { comment, variables }) => {
   const activeProject = await getActiveProject(event);
