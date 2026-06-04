@@ -645,29 +645,20 @@ const FileLinkTippyContent = forwardRef((props: FileLinkListProps & { editor?: E
     },
   }));
 
-  // FIXED: Improved smooth scroll behavior with padding
   useEffect(() => {
     const activeItem = itemRefs.current.get(listSelectedIndex);
     const container = isBlockMode ? blockScrollContainer.current : scrollContainer.current;
 
     if (activeItem && container) {
-      const padding = 32; // Extra padding to ensure item is fully visible
-      const itemTop = activeItem.offsetTop;
-      const itemBottom = itemTop + activeItem.offsetHeight;
-      const containerScrollTop = container.scrollTop;
-      const containerHeight = container.clientHeight;
+      const itemRect = activeItem.getBoundingClientRect();
+      const containerRect = container.getBoundingClientRect();
 
-      // Item is below visible area - scroll down
-      if (itemBottom + padding > containerScrollTop + containerHeight) {
-        container.scrollTo({
-          top: itemBottom + padding - containerHeight,
-        });
-      }
-      // Item is above visible area - scroll up
-      else if (itemTop - padding < containerScrollTop) {
-        container.scrollTo({
-          top: itemTop - padding,
-        });
+      if (itemRect.bottom > containerRect.bottom) {
+        // Item's bottom is below the container's visible bottom — scroll down exactly enough
+        container.scrollTop += itemRect.bottom - containerRect.bottom;
+      } else if (itemRect.top < containerRect.top) {
+        // Item's top is above the container's visible top — scroll up exactly enough
+        container.scrollTop -= containerRect.top - itemRect.top;
       }
     }
   }, [listSelectedIndex, isBlockMode]);
@@ -888,41 +879,38 @@ const FileLinkTippyContent = forwardRef((props: FileLinkListProps & { editor?: E
     );
   }
 
-  // "Add new file" button — always shown at the bottom of the file list
   const addNewItem: FileLinkItem = { filePath: "", filename: "Add new file", isNew: true };
-  const addNewButton = !isBlockMode ? (
-    <div
-      onClick={() => command(addNewItem)}
-      className={cn(
-        "px-3 py-2.5 w-full cursor-pointer transition-colors border-l-2 border-transparent border-t border-border",
-        "hover:bg-active/50",
-      )}
-    >
-      <div className="flex items-center gap-2">
-        <Plus className="text-comment flex-shrink-0" size={14} />
-        <span className="font-medium">Add new file</span>
-        {isLoadingFiles && <span className="text-xs text-comment ml-auto">loading…</span>}
-      </div>
-    </div>
-  ) : null;
 
   // RENDERING: File mode (default)
   return (
     <div
-      className="w-[480px] bg-panel border border-border rounded-lg shadow-lg text-text text-sm"
+      className="w-[480px] bg-panel border border-border rounded-lg shadow-lg text-text text-sm flex flex-col"
+      style={{ maxHeight: "min(var(--popper-max-height, 420px), 420px)" }}
       onMouseDown={(e) => e.preventDefault()}
       onClick={() => parentEditor?.view.focus()}
     >
       {/* Header */}
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-bg">
-        <Folder className="text-accent" size={16} />
-        <span className="font-medium text-text">Link File or Block</span>
+      <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-bg flex-shrink-0">
+        <div className="flex items-center gap-2">
+          <Folder className="text-accent" size={16} />
+          <span className="font-medium text-text">Link File or Block</span>
+        </div>
+        {!isBlockMode && (
+          <button
+            onClick={() => command(addNewItem)}
+            className="flex items-center gap-1 text-[10px] bg-button-primary hover:bg-button-primary-hover text-bg rounded px-2 py-0.5 font-medium transition-colors cursor-pointer"
+          >
+            <Plus size={14} />
+            <span>Add new file</span>
+          </button>
+        )}
       </div>
 
       {/* File List */}
       <div
         ref={scrollContainer}
-        className="max-h-[400px] overflow-y-auto"
+        className="flex-1 min-h-0 overflow-y-auto"
+        style={{ maxHeight: "min(320px, 100%)" }}
       >
         {filteredItems.length > 0 ? (
           filteredItems.slice(0, 50).map((item: JSONContent | FileLinkItem, index: number) => {
@@ -1018,12 +1006,10 @@ const FileLinkTippyContent = forwardRef((props: FileLinkListProps & { editor?: E
             Searching deeper…
           </div>
         )}
-        {/* Add new file — always pinned at the bottom */}
-        {addNewButton}
       </div>
 
       {/* Footer */}
-      <div className="px-3 py-2 text-xs bg-bg border-t border-border flex justify-between items-center">
+      <div className="px-3 py-2 text-xs bg-bg border-t border-border flex justify-between items-center flex-shrink-0">
         <span className="text-comment">↵ link file • → or Space see blocks</span>
         <span className="text-comment">Shift+↵ multi-select</span>
       </div>
@@ -1294,7 +1280,7 @@ export const FileLink = Node.create<FileLinkOptions>({
               if (normalizedProject && !normalizedFilePath.startsWith(normalizedProject)) {
                 isExternal = true;
               } else if (normalizedProject) {
-                storedFilePath = normalizedFilePath.replace(normalizedProject, "");
+                storedFilePath = normalizedFilePath.slice(normalizedProject.length).replace(/^[/\\]/, "");
               }
 
               if (filename) {
@@ -1431,13 +1417,45 @@ export const FileLink = Node.create<FileLinkOptions>({
                 showOnCreate: true,
                 interactive: true,
                 trigger: "manual",
-                placement: "right-start",
+                placement: "bottom-start",
                 popperOptions: {
                   modifiers: [
                     {
                       name: "flip",
                       options: {
-                        fallbackPlacements: ["left-start", "right-start", "bottom-start", "top-start"],
+                        fallbackPlacements: ["top-start", "right-start", "left-start"],
+                        boundary: "viewport",
+                        padding: 8,
+                      },
+                    },
+                    {
+                      name: "preventOverflow",
+                      options: {
+                        boundary: "viewport",
+                        padding: 8,
+                      },
+                    },
+                    {
+                      // Compute available height in the chosen placement direction and
+                      // expose it as a CSS variable so the menu can self-constrain.
+                      name: "constrainHeight",
+                      enabled: true,
+                      phase: "beforeWrite" as const,
+                      requires: ["preventOverflow"],
+                      fn({ state }: { state: any }) {
+                        const placement = state.placement.split("-")[0];
+                        const PADDING = 8;
+                        let maxH: number;
+                        if (placement === "bottom") {
+                          maxH = window.innerHeight - state.rects.reference.y - state.rects.reference.height - PADDING;
+                        } else if (placement === "top") {
+                          maxH = state.rects.reference.y - PADDING;
+                        } else {
+                          return;
+                        }
+                        if (maxH > 0) {
+                          state.elements.popper.style.setProperty("--popper-max-height", `${maxH}px`);
+                        }
                       },
                     },
                   ],
@@ -1447,6 +1465,12 @@ export const FileLink = Node.create<FileLinkOptions>({
                 onCreate(instance) {
                   instance.popper.removeAttribute("tabindex");
                   instance.popper.style.outline = "none";
+                },
+                onMount(instance) {
+                  // Force Popper to recalculate with actual rendered content height.
+                  // showOnCreate fires before React commits the full DOM, so flip/overflow
+                  // calculations use a near-zero height without this update.
+                  requestAnimationFrame(() => instance.popperInstance?.update());
                 },
               });
             },

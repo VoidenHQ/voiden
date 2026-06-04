@@ -233,11 +233,13 @@ export function SearchPanelView({
               style={{ fieldSizing: "content", maxHeight: "calc(4 * 1.5em + 0.5rem)" } as React.CSSProperties}
             />
             <div className="flex items-center gap-0.5">
-              <Tip label="Replace" side="bottom">
-                <button onClick={onReplace} disabled={replaceDisabled} className={iconBtn(replaceDisabled)}>
-                  <Replace size={16} />
-                </button>
-              </Tip>
+              {onReplace && (
+                <Tip label="Replace" side="bottom">
+                  <button onClick={onReplace} disabled={replaceDisabled} className={iconBtn(replaceDisabled)}>
+                    <Replace size={16} />
+                  </button>
+                </Tip>
+              )}
               <Tip label="Replace All" side="bottom">
                 <button onClick={onReplaceAll} disabled={replaceDisabled} className={iconBtn(replaceDisabled)}>
                   <ReplaceAll size={16} />

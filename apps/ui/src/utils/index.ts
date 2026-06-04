@@ -2,11 +2,12 @@ import { createFileFromS3Url, getSignedUrl } from "@/apis/files";
 import { JSONContent } from "@tiptap/core";
 import { yXmlFragmentToProsemirrorJSON } from "y-prosemirror";
 import * as Y from "yjs";
+import { parse as losslessParse, stringify as losslessStringify } from "lossless-json";
 
 export function prettifyJSON(json: string) {
   try {
-    const parsedJSON = JSON.parse(json);
-    return JSON.stringify(parsedJSON, null, 2);
+    const parsed = losslessParse(json);
+    return losslessStringify(parsed, null, 2) ?? json;
   } catch (error) {
     return json;
   }

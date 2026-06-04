@@ -9,7 +9,7 @@ REM ============================================
 REM ============================================
 REM VERSION - Replaced at build time by forge.config.ts
 REM ============================================
-set "VOIDEN_VERSION=1.6.2"
+set "VOIDEN_VERSION=2.0.1-beta.1"
 
 REM ============================================
 REM Functions (using CALL with labels)

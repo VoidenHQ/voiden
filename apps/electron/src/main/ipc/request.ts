@@ -10,6 +10,7 @@ import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
 import { createClient, Client } from "graphql-ws";
 import { isAbsolute } from "node:path";
+import { executeSecureRequest, type SecureRequestAdapter } from "@voiden/executors";
 
 
 const lastByWcAndKey = new Map<string, number>();
@@ -185,112 +186,6 @@ function startWebSocketCleanup() {
       }
     }
   }, CLEANUP_INTERVAL);
-}
-/**
- * Check if a header exists (case-insensitive)
- * HTTP headers are case-insensitive per RFC 2616
- */
-function hasHeader(headers: Record<string, string>, headerName: string): boolean {
-  const lowerHeaderName = headerName.toLowerCase();
-  return Object.keys(headers).some((key) => key.toLowerCase() === lowerHeaderName);
-}
-
-/**
- * Delete a header (case-insensitive)
- * HTTP headers are case-insensitive per RFC 2616
- */
-function deleteHeader(headers: Record<string, string>, headerName: string): void {
-  const lowerHeaderName = headerName.toLowerCase();
-  for (const key of Object.keys(headers)) {
-    if (key.toLowerCase() === lowerHeaderName) {
-      delete headers[key];
-    }
-  }
-}
-
-/**
- * Add default HTTP headers that browsers/HTTP clients normally add automatically
- * This allows us to capture and display all headers that will be sent
- *
- * Note: Some headers like Connection may be overridden by undici/fetch
- */
-function addDefaultHeaders(headers: Record<string, string>, url: string, method: string, hasBody: boolean): void {
-  const parsedUrl = new URL(url);
-
-  // User-Agent - if not already set
-  if (!headers["User-Agent"] && !headers["user-agent"]) {
-    headers["User-Agent"] = "Voiden/1.0 (Electron)";
-  }
-
-  // Accept - if not already set
-  if (!headers["Accept"] && !headers["accept"]) {
-    headers["Accept"] = "*/*";
-  }
-
-  // Accept-Encoding - if not already set
-  if (!headers["Accept-Encoding"] && !headers["accept-encoding"]) {
-    headers["Accept-Encoding"] = "gzip, deflate, br";
-  }
-
-  // Host - always set from URL
-  if (!headers["Host"] && !headers["host"]) {
-    headers["Host"] = parsedUrl.host;
-  }
-
-  // Connection - undici typically uses 'close' for HTTP/1.1
-  // We'll set what undici actually uses
-  if (!headers["Connection"] && !headers["connection"]) {
-    headers["Connection"] = "close";
-  }
-
-  // Accept-Language - if not already set
-  if (!headers["Accept-Language"] && !headers["accept-language"]) {
-    headers["Accept-Language"] = "en-US,en;q=0.9";
-  }
-
-  // Sec-Fetch-Mode - added by undici for CORS requests
-  if (!headers["Sec-Fetch-Mode"] && !headers["sec-fetch-mode"]) {
-    headers["Sec-Fetch-Mode"] = "cors";
-  }
-
-  // Sec-Fetch-Site - added by undici
-  if (!headers["Sec-Fetch-Site"] && !headers["sec-fetch-site"]) {
-    headers["Sec-Fetch-Site"] = "cross-site";
-  }
-
-  // Sec-Fetch-Dest - added by undici for non-navigation requests
-  if (!headers["Sec-Fetch-Dest"] && !headers["sec-fetch-dest"]) {
-    headers["Sec-Fetch-Dest"] = "empty";
-  }
-
-  // Content-Length - will be set automatically by fetch for body requests
-  // We don't set it manually as fetch handles it better
-}
-
-/**
- * Get MIME type from file extension
- */
-function getMimeType(filePath: string): string {
-  const ext = path.extname(filePath).toLowerCase();
-  const mimeTypes: Record<string, string> = {
-    ".txt": "text/plain",
-    ".html": "text/html",
-    ".css": "text/css",
-    ".js": "application/javascript",
-    ".json": "application/json",
-    ".xml": "application/xml",
-    ".pdf": "application/pdf",
-    ".zip": "application/zip",
-    ".jpg": "image/jpeg",
-    ".jpeg": "image/jpeg",
-    ".png": "image/png",
-    ".gif": "image/gif",
-    ".svg": "image/svg+xml",
-    ".mp4": "video/mp4",
-    ".mp3": "audio/mpeg",
-    ".wav": "audio/wav",
-  };
-  return mimeTypes[ext] || "application/octet-stream";
 }
 
 function createMultipartBlob(bytes: ArrayBuffer | ArrayLike<number>, type?: string): Blob {
@@ -737,479 +632,180 @@ export function registerRequestIpcHandler() {
   /**
    * Secure request handler that replaces environment variables in Electron.
    * UI sends raw request with {{variables}}, Electron replaces and executes.
+   * Variable replacement and HTTP execution are delegated to the shared
+   * executeSecureRequest() from @voiden/executors. This handler only manages
+   * the Electron-specific registries for WS, gRPC, and GraphQL subscriptions.
    *
    * @security Environment values never exposed to UI
    */
   ipcMain.handle("send-secure-request", async (_event, { requestState, signalState }) => {
     const settings = getSettings();
     const activeProject = await getActiveProject();
-    const controller = new AbortController();
-    const signal = controller.signal;
 
-    // Declare variables outside try block so they're accessible in catch
-    let url = requestState.url;
-    let headers: Record<string, string> = {};
-    let protocol;
-    if (signalState?.aborted) {
-      controller.abort();
-    }
+    if (signalState?.aborted) return { ok: false, status: 0, statusText: "aborted", error: "Request aborted" };
+
+    const followRedirects = requestState.metadata?.follow_redirects !== undefined
+      ? requestState.metadata.follow_redirects
+      : settings?.requests?.follow_redirects ?? true;
+
+    const adapter: SecureRequestAdapter = {
+      replaceVar: activeProject
+        ? (text: string) => replaceVariablesSecure(text, activeProject)
+        : (text: string) => Promise.resolve(text),
+
+      readFile: async (filePath: string) => {
+        // Determine whether the stored path is genuinely absolute.
+        // On Windows, /foo/bar is "root-relative" (path.isAbsolute returns true) but should be
+        // treated as project-relative — only a drive letter (C:/) or UNC (//server) is truly absolute.
+        // On Mac/Linux, path.isAbsolute('/foo') is true, but legacy .void files stored project-relative
+        // paths with a leading slash (e.g. "/subfolder/file.png" instead of "subfolder/file.png").
+        const isGenuinelyAbsolute = process.platform === 'win32'
+          ? /^([A-Za-z]:[/\\]|[/\\]{2})/.test(filePath)
+          : path.isAbsolute(filePath);
+
+        if (activeProject && !isGenuinelyAbsolute) {
+          // Clearly relative — resolve against the project directory.
+          return fs.readFile(path.join(activeProject, filePath));
+        }
+
+        // Absolute path: use as-is. But fall back to project-relative on ENOENT so that
+        // legacy .void files with a spurious leading "/" still work on all platforms.
+        try {
+          return await fs.readFile(filePath);
+        } catch (err: any) {
+          if (err?.code === 'ENOENT' && activeProject) {
+            return fs.readFile(path.join(activeProject, filePath));
+          }
+          throw err;
+        }
+      },
+
+      getDispatcher: (url: string) => getDispatcher(settings, url),
+      followRedirects,
+      isElectron: true,
+    };
+
     try {
-      // 1. Replace variables in URL
-      if (activeProject) {
-        url = await replaceVariablesSecure(url, activeProject);
-      }
+      const result = await executeSecureRequest(requestState, adapter);
 
-      // 2. Replace variables in headers
-      for (const header of requestState.headers || []) {
-        if (header.enabled !== false) {
-          let key = header.key;
-          let value = header.value;
+      // ── Protocol handoff — handle with Electron-side registries ─────────────
+      if (result.kind === "handoff") {
+        const { protocol, resolvedUrl, resolvedHeaders, resolvedBody } = result;
 
-          if (activeProject) {
-            key = await replaceVariablesSecure(key, activeProject);
-            value = await replaceVariablesSecure(value, activeProject);
-          }
-
-          headers[key] = value;
-        }
-      }
-
-      // 3. Replace variables in query params (add to URL)
-      if (requestState.queryParams && requestState.queryParams.length > 0) {
-        const queryParts: string[] = [];
-        for (const param of requestState.queryParams) {
-          if (param.enabled !== false) {
-            let key = param.key;
-            let value = param.value;
-
-            if (activeProject) {
-              key = await replaceVariablesSecure(key, activeProject);
-              value = await replaceVariablesSecure(value, activeProject);
-            }
-
-            queryParts.push(`${encodeURIComponent(key)}=${encodeURIComponent(value)}`);
-          }
+        if (protocol === "ws" || protocol === "wss") {
+          const { dispatcher, proxyInfo } = getDispatcher(settings, resolvedUrl);
+          return handleWsConnection(resolvedUrl, {
+            headers: resolvedHeaders,
+            dispatcher,
+            proxyInfo,
+            dedupeKey: String(requestState?.url || ""),
+            originalRequestMeta: { method: requestState?.method, url: requestState?.url },
+          });
         }
 
-        if (queryParts.length > 0) {
-          const queryString = queryParts.join("&");
-          url += url.includes("?") ? `&${queryString}` : `?${queryString}`;
-        }
-      }
-
-      // 4. Replace variables in path params
-      if (requestState.pathParams && requestState.pathParams.length > 0) {
-        for (const param of requestState.pathParams) {
-          if (param.enabled !== false) {
-            let key = param.key;
-            let value = param.value;
-
-            if (activeProject) {
-              key = await replaceVariablesSecure(key, activeProject);
-              value = await replaceVariablesSecure(value, activeProject);
-            }
-            url = url.replace(`{${key}}`, encodeURIComponent(value));
-          }
-        }
-      }
-
-      // 5. Replace variables in body
-      let body = requestState.body;
-      if (body && activeProject) {
-        body = await replaceVariablesSecure(body, activeProject);
-      }
-
-      // 6. Build fetch options
-      // Determine redirect mode: per-request metadata overrides global setting
-      const followRedirects = requestState.metadata?.follow_redirects !== undefined
-        ? requestState.metadata.follow_redirects
-        : settings?.requests?.follow_redirects ?? true;
-
-      const fetchOptions: RequestInit = {
-        method: requestState.method || "GET",
-        headers,
-        signal,
-        redirect: followRedirects ? "follow" : "manual",
-      };
-
-      // 6. Handle binary file upload (for restFile nodes)
-      if (requestState.binary) {
-        if (typeof requestState.binary === "string") {
-          // Binary is a file path string
-          let filePath = requestState.binary;
-
-          // If the path is relative, resolve it relative to activeProject
-          if (filePath.startsWith("/") && activeProject && !filePath.startsWith(activeProject)) {
-            filePath = path.join(activeProject, filePath);
-          }
-
-          try {
-            // Read file from filesystem
-            const fileBuffer = await fs.readFile(filePath);
-            fetchOptions.body = fileBuffer as any;
-
-            // Set Content-Type if not already set
-            if (!hasHeader(headers, "Content-Type")) {
-              headers["Content-Type"] = getMimeType(filePath);
-            }
-          } catch (error) {
-            throw new Error(`Failed to read binary file: ${filePath}`);
-          }
-        } else {
-          const binaryValue = requestState.binary as any;
-
-          if (binaryValue && typeof binaryValue.arrayBuffer === "function") {
-            fetchOptions.body = Buffer.from(await binaryValue.arrayBuffer()) as any;
-          } else if (binaryValue && typeof binaryValue === "object" && "buffer" in binaryValue) {
-            fetchOptions.body = Buffer.from(binaryValue.buffer) as any;
-          } else {
-            fetchOptions.body = binaryValue;
-          }
-        }
-      }
-      // Add body for non-GET requests
-      else if (requestState.method !== "GET" && body) {
-        fetchOptions.body = body;
-
-        // Fallback: Set Content-Type header from contentType field if not already present
-        // Note: Extensions should set Content-Type via pipeline hooks (RequestCompilation stage)
-        // This is a fallback to ensure the header is set even if extensions aren't loaded
-        if (requestState.contentType && !hasHeader(headers, "Content-Type")) {
-          headers["Content-Type"] = requestState.contentType;
-        }
-      }
-
-      // 7. Configure dispatcher (proxy or TLS agent)
-      const { dispatcher, proxyInfo } = getDispatcher(settings, url);
-      if (dispatcher) {
-        (fetchOptions as RequestInit & { dispatcher?: Agent | ProxyAgent }).dispatcher = dispatcher;
-      }
-
-      // 8. Ensure URL has protocol
-      if (
-        !url.startsWith("http://") &&
-        !url.startsWith("https://") &&
-        !url.startsWith("ws://") &&
-        !url.startsWith("wss://") &&
-        !url.startsWith("grpc://") &&
-        !url.startsWith("grpcs://")
-      ) {
-        url = `http://${url}`;
-      }
-
-      // 7. Handle body params (multipart/url-encoded)
-
-      if (requestState.bodyParams && requestState.bodyParams.length > 0) {
-        if (requestState.contentType === "multipart/form-data") {
-          // Build FormData
-          const formData = new FormData();
-          for (const param of requestState.bodyParams) {
-            if (param.enabled !== false) {
-              if (param.type === "file" && param.value) {
-                // Handle file - param.value is now a file path string
-                let filePath = param.value as string;
-
-                if(isAbsolute(filePath)){
-                  filePath = filePath
-                }
-                // If the path is relative (starts with /), resolve it relative to activeProject
-                else if (activeProject && !filePath.startsWith(activeProject)) {
-                  filePath = path.join(activeProject, filePath);
-                }
-
-                try {
-                  // Read file from filesystem
-                  console.log(`Reading file for multipart upload: ${filePath}`);
-                  const fileBuffer = await fs.readFile(filePath);
-                  const fileName = path.basename(filePath);
-                  formData.append(
-                    param.key,
-                    createMultipartBlob(fileBuffer, getMimeType(filePath)),
-                    fileName,
-                  );
-                } catch (error) {
-                  throw new Error(`Failed to read file: ${error}`);
-                }
-              } else if (param.type === "text") {
-                // Handle text value
-                let value = param.value as string;
-                if (activeProject) {
-                  value = await replaceVariablesSecure(value, activeProject);
-                }
-                formData.append(param.key, value);
-              }
-            }
-          }
-          fetchOptions.body = formData as any;
-
-          // Remove Content-Type header - browser will set it with boundary
-          deleteHeader(headers, "Content-Type");
-        } else if (requestState.contentType === "application/x-www-form-urlencoded") {
-          // Build URLSearchParams
-          const params = new URLSearchParams();
-          for (const param of requestState.bodyParams) {
-            if (param.enabled !== false && param.type === "text") {
-              let value = param.value as string;
-              if (activeProject) {
-                value = await replaceVariablesSecure(value, activeProject);
-              }
-              params.append(param.key, value);
-            }
-          }
-          fetchOptions.body = params.toString();
-          // Only set Content-Type if not already present
-          if (!hasHeader(headers, "Content-Type")) {
-            headers["Content-Type"] = "application/x-www-form-urlencoded";
-          }
-        }
-      }
-
-      // --- New: if the final compiled URL is WS(S), open a WebSocket and return immediately ---
-      protocol = new URL(url).protocol;
-      if (protocol === "ws:" || protocol === "wss:") {
-        const headersForWs = fetchOptions?.headers ?? undefined;
-        const key = String(requestState?.url || "");
-        return handleWsConnection(url, {
-          headers: headersForWs as any,
-          dispatcher: (fetchOptions as any).dispatcher,
-          proxyInfo,
-          dedupeKey: key,
-          originalRequestMeta: {
-            method: requestState?.method,
-            url: requestState?.url,
-          },
-        });
-      }
-      // --- End WS path ---
-
-      if (requestState.protocolType === 'grpc' && requestState.grpc) {
-        return await handleGrpcRequest(requestState, settings, activeProject || '');
-      }
-
-      // Handle GraphQL subscriptions - don't execute, just store config
-      if (requestState.protocolType === 'graphql' && requestState.operationType === 'subscription') {
-        // Extract GraphQL query and variables from body
-        let query = '';
-        let variables = {};
-        
-        if (requestState.body) {
-          try {
-            const parsed = JSON.parse(requestState.body);
-            query = parsed.query || '';
-            variables = parsed.variables || {};
-          } catch (e) {
-            // Failed to parse GraphQL body
-          }
+        if (protocol === "grpc" || protocol === "grpcs") {
+          return await handleGrpcRequest(requestState, settings, activeProject || "");
         }
 
-        // Generate subscription ID from URL + query
-        const subscriptionId = `gql_${Buffer.from(requestState.url + query).toString('base64').slice(0, 32)}`;
-        
-        // Check if subscription already exists and close it first
-        const existingConnection = gqlSubscriptionRegistry.get(subscriptionId);
-        if (existingConnection) {
-          try {
-            // Dispose of the subscription and client
-            existingConnection.dispose();
-            existingConnection.client.dispose();
-            
-            // Remove from registries
-            gqlSubscriptionRegistry.delete(subscriptionId);
-            gqlSubscriptionConnectedState.delete(subscriptionId);
-            gqlSubscriptionClosedConnections.delete(subscriptionId);
-            
-            // Send close event to UI
-            sendToWindow('graphql-subscription-close', {
-              subscriptionId,
-              reason: 'Replaced by new subscription',
-              code: 1000,
-            });
-            
-            // Wait a bit to ensure cleanup is complete
-            await new Promise(resolve => setTimeout(resolve, 500));
-          } catch (e) {
-            // Error closing existing subscription
+        if (protocol === "graphql-subscription") {
+          let query = "";
+          let variables: any = {};
+          if (resolvedBody) {
+            try {
+              const parsed = JSON.parse(resolvedBody);
+              query = parsed.query || "";
+              variables = parsed.variables || {};
+            } catch { /* malformed GQL body — proceed with empty query */ }
           }
-        }
-        
-        // Store configuration for later connection with protocol fallback support
-        gqlSubscriptionConfigs.set(subscriptionId, {
-          url: requestState.url,
-          query,
-          variables,
-          headers: requestState.headers || [],
-          protocol: 'graphql-ws', // Default protocol, will fallback to others if needed
-          createdAt: Date.now(),
-        });
 
-        // Return immediately with subscription ID (similar to wsId and grpcId)
-        return {
-          ok: true,
-          status: 200,
-          protocol: 'graphql',
-          operationType: 'subscription',
-          subscriptionId,
-          statusText: 'Subscription Ready',
-          headers: [],
-          requestMeta: {
+          const subscriptionId = `gql_${Buffer.from(requestState.url + query).toString("base64").slice(0, 32)}`;
+          const existingConnection = gqlSubscriptionRegistry.get(subscriptionId);
+          if (existingConnection) {
+            try {
+              existingConnection.dispose();
+              existingConnection.client.dispose();
+              gqlSubscriptionRegistry.delete(subscriptionId);
+              gqlSubscriptionConnectedState.delete(subscriptionId);
+              gqlSubscriptionClosedConnections.delete(subscriptionId);
+              sendToWindow("graphql-subscription-close", { subscriptionId, reason: "Replaced by new subscription", code: 1000 });
+              await new Promise(resolve => setTimeout(resolve, 500));
+            } catch { /* ignore cleanup errors */ }
+          }
+
+          gqlSubscriptionConfigs.set(subscriptionId, {
             url: requestState.url,
-            method: requestState.method,
+            query,
+            variables,
             headers: requestState.headers || [],
-          },
+            protocol: "graphql-ws",
+            createdAt: Date.now(),
+          });
+
+          return {
+            ok: true,
+            status: 200,
+            protocol: "graphql",
+            operationType: "subscription",
+            subscriptionId,
+            statusText: "Subscription Ready",
+            headers: [],
+            requestMeta: {
+              url: requestState.url,
+              method: requestState.method,
+              headers: requestState.headers || [],
+            },
+          };
+        }
+      }
+
+      // ── HTTP result ──────────────────────────────────────────────────────────
+      if (result.kind === "http") {
+        return {
+          status: result.status,
+          statusText: result.statusText,
+          headers: result.headers,
+          body: result.body,
+          protocol: result.protocol,
+          operationType: result.operationType,
+          requestMeta: result.requestMeta,
         };
       }
-
-      // 9. Add default HTTP headers explicitly (after all other processing)
-      // This allows us to capture and display ALL headers that will be sent
-      const hasBody = fetchOptions.body !== undefined;
-      addDefaultHeaders(headers, url, requestState.method || "GET", hasBody);
-
-      // 10. Execute request
-
-      const response = await fetch(url, fetchOptions);
-      const buffer = response.body ? await response.arrayBuffer() : null;
-
-      // Capture headers from fetchOptions to ensure we get all modifications
-      const finalHeaders = (fetchOptions.headers as Record<string, string>) || {};
-      const requestMetaHeaders = Object.entries(finalHeaders).map(([k, v]) => ({ key: k, value: v as string }));
-
-      // Determine TLS info based on URL and response
-      const parsedUrl = new URL(url);
-      const isHttps = parsedUrl.protocol === "https:";
-      const tlsInfo = isHttps
-        ? {
-          protocol: "TLS 1.3", // Modern default
-          cipher: "TLS_AES_128_GCM_SHA256", // Common cipher suite
-          isSecure: true,
-          // Note: fetch API doesn't expose certificate details
-          // In a production app, you'd use undici's request() to get actual TLS info
-        }
-        : undefined;
-
-      // Determine protocol type - check for GraphQL first, then default to rest
-      const responseProtocol = requestState.protocolType === 'graphql' ? 'graphql' : 'rest';
-
-      // Build a displayable version of the request body (no binary data)
-      let requestBodySent: string | null = null;
-      let requestBodyContentType: string | null = null;
-      if (body && typeof body === 'string') {
-        requestBodySent = body;
-        requestBodyContentType = requestState.contentType || headers['Content-Type'] || null;
-      } else if (requestState.bodyParams && requestState.bodyParams.length > 0) {
-        if (requestState.contentType === 'multipart/form-data') {
-          // Summarize multipart params (exclude binary content)
-          const parts = requestState.bodyParams
-            .filter((p: any) => p.enabled !== false)
-            .map((p: any) => p.type === 'file'
-              ? `${p.key}: [file] ${typeof p.value === 'string' ? p.value.split('/').pop() : 'binary'}`
-              : `${p.key}: ${p.value}`);
-          requestBodySent = parts.join('\n');
-          requestBodyContentType = 'multipart/form-data';
-        } else if (requestState.contentType === 'application/x-www-form-urlencoded') {
-          const parts = requestState.bodyParams
-            .filter((p: any) => p.enabled !== false && p.type === 'text')
-            .map((p: any) => `${p.key}=${p.value}`);
-          requestBodySent = parts.join('&');
-          requestBodyContentType = 'application/x-www-form-urlencoded';
-        }
-      }
-
-      return {
-        status: response.status,
-        protocol: responseProtocol,
-        operationType: requestState.operationType, // Include operation type for GraphQL (query/mutation/subscription)
-        statusText: response.statusText,
-        headers: [...response.headers.entries()],
-        body: buffer && buffer.byteLength > 0 ? Buffer.from(buffer) : null,
-        requestMeta: {
-          method: fetchOptions.method,
-          url,
-          headers: requestMetaHeaders,
-          httpVersion: (response as Response & { httpVersion?: string }).httpVersion || "HTTP/1.1",
-          proxy: proxyInfo,
-          tlsInfo,
-          body: requestBodySent,
-          bodyContentType: requestBodyContentType,
-        },
-      };
     } catch (error: any) {
-      // Build requestMeta from the request state even on error
-      let requestMetaHeaders: { key: string; value: string }[] = [];
-      try {
-        // Try to include headers if they were set before the error
-        if (typeof headers !== "undefined") {
-          requestMetaHeaders = Object.entries(headers).map(([k, v]) => ({ key: k, value: v as string }));
-        } else if (requestState.headers) {
-          // Fallback to original request headers
-          requestMetaHeaders = requestState.headers.filter((h) => h.enabled !== false).map((h) => ({ key: h.key, value: h.value }));
-        }
-      } catch { }
-
       const errorMessage = error?.message || "Request failed";
-      const protocolType: string = requestState.protocolType || protocol?.replace(':', '') || '';
+      const protocolType: string = requestState.protocolType || "";
 
-      // Return error response based on protocol type
-      if (protocolType.toLowerCase() === 'graphql') {
+      if (protocolType.toLowerCase() === "graphql") {
         return {
-          ok: false,
-          status: 0,
-          statusText: "graphql-error",
-          error: errorMessage,
-          protocol: 'graphql',
-          operationType: requestState.operationType,
+          ok: false, status: 0, statusText: "graphql-error", error: errorMessage,
+          protocol: "graphql", operationType: requestState.operationType,
+          requestMeta: { url: requestState.url, method: requestState.method, headers: [] },
+        };
+      }
+      if (protocolType.toLowerCase() === "grpc" || protocolType.toLowerCase() === "grpcs") {
+        return {
+          ok: false, status: 0, statusText: "grpc-error", error: errorMessage,
+          protocol: "grpc",
           requestMeta: {
-            url: requestState.url || url,
-            method: requestState.method,
-            headers: requestMetaHeaders,
+            url: requestState.url || "grpc://unknown",
+            method: requestState.grpc?.["method"] || "unknown",
+            service: requestState.grpc?.["service"] || "unknown",
+            target: requestState.grpc?.["target"] || "unknown",
+            headers: [],
           },
         };
       }
-
-      if (protocolType.toLowerCase() === 'grpc' || protocolType.toLowerCase() === 'grpcs') {
+      if (protocolType.toLowerCase() === "ws" || protocolType.toLowerCase() === "wss") {
         return {
-          ok: false,
-          status: 0,
-          statusText: "grpc-error",
-          error: errorMessage,
-          protocol: 'grpc',
-          requestMeta: {
-            url: requestState.url || 'grpc://unknown',
-            method: requestState.grpc?.method || 'unknown',
-            service: requestState.grpc?.service || 'unknown',
-            target: requestState.grpc?.target || 'unknown',
-            headers: requestMetaHeaders,
-          },
+          ok: false, status: 0, wsId: null, error: errorMessage,
+          protocol: "ws",
+          requestMeta: { url: requestState.url || "ws://unknown", headers: [] },
         };
       }
-
-      if (protocolType.toLowerCase() === 'ws' || protocolType.toLowerCase() === 'wss') {
-        return {
-          ok: false,
-          status: 0,
-          wsId: null,
-          error: errorMessage,
-          protocol: 'ws',
-          requestMeta: {
-            url: requestState.url || 'ws://unknown',
-            headers: requestMetaHeaders,
-          },
-        };
-      }
-      // Default REST/HTTP error response
       return {
-        ok: false,
-        status: 0,
-        statusText: errorMessage,
-        error: errorMessage,
-        protocol: protocolType || protocol || 'rest',
-        protocolType: protocolType || 'rest',
-        operationType: requestState.operationType, // Include for GraphQL
-        requestMeta: {
-          method: requestState.method || "GET",
-          url: url || requestState.url,
-          headers: requestMetaHeaders,
-          httpVersion: "HTTP/1.1",
-        },
+        ok: false, status: 0, statusText: errorMessage, error: errorMessage,
+        protocol: protocolType || "rest", protocolType: protocolType || "rest",
+        operationType: requestState.operationType,
+        requestMeta: { method: requestState.method || "GET", url: requestState.url, headers: [], httpVersion: "HTTP/1.1" },
       };
     }
   });
@@ -1869,20 +1465,28 @@ export function registerRequestIpcHandler() {
       };
 
     } catch (err: any) {
+      const errMsg = err?.message || "gRPC connection error";
       addGrpcMessage(grpcId, "stream-error", {
-        error: err?.message || "gRPC connection error",
+        error: errMsg,
         code: err?.code,
       });
       sendToWindow("grpc-stream-error", {
         grpcId,
-        error: err?.message || "gRPC connection error",
+        error: errMsg,
         code: err?.code,
       });
-      grpcRegistry.delete(grpcId);
+      // Keep the registry entry so subsequent grpc:send calls get a meaningful
+      // error rather than "connection not found". Only remove the (failed) client.
+      const existing = grpcRegistry.get(grpcId);
+      if (existing) {
+        try { existing.client?.close(); } catch { }
+        existing.client = null as any;
+        grpcRegistry.set(grpcId, existing);
+      }
       return {
         ok: false,
         grpcId,
-        error: err?.message || "gRPC connection error",
+        error: errMsg,
       };
     }
   });
@@ -2489,11 +2093,29 @@ async function handleGrpcRequest(
     // Generate unique ID for this gRPC session
     const grpcId = makeId();
 
+    // Resolve proto file path against the active project.
+    // On Windows, /foo/bar is root-relative but should be project-relative.
+    // On Mac/Linux, legacy .void files may store project-relative paths with a leading slash;
+    // fall back to project-join when the absolute path doesn't exist on disk.
+    const isProtoGenuinelyAbsolute = process.platform === 'win32'
+      ? /^([A-Za-z]:[/\\]|[/\\]{2})/.test(protoFilePath ?? '')
+      : isAbsolute(protoFilePath ?? '');
+    let resolvedProtoPath = protoFilePath;
+    if (protoFilePath && activeProject && !isProtoGenuinelyAbsolute) {
+      resolvedProtoPath = path.join(activeProject, protoFilePath);
+    } else if (protoFilePath && activeProject && isProtoGenuinelyAbsolute) {
+      try {
+        await fs.access(protoFilePath);
+      } catch {
+        resolvedProtoPath = path.join(activeProject, protoFilePath);
+      }
+    }
+
     // Store minimal info in registry (no client yet, no proto needed)
     grpcRegistry.set(grpcId, {
       client: null as any, // Will be created on connect
       method,
-      protoFilePath,
+      protoFilePath: resolvedProtoPath,
       package: packageName,
       target: address,
       service,
@@ -2922,25 +2544,37 @@ function getGrpcTypes(
   service: string,
   method: string
 ) {
-  const packageDefinition = protoLoader.loadSync(protoFilePath, {
-    keepCase: true,
-    longs: String,
-    enums: String,
-    defaults: true,
-    oneofs: true,
-  });
+  let packageDefinition: ReturnType<typeof protoLoader.loadSync>;
+  try {
+    packageDefinition = protoLoader.loadSync(protoFilePath, {
+      keepCase: true,
+      longs: String,
+      enums: String,
+      defaults: true,
+      oneofs: true,
+    });
+  } catch (err: any) {
+    if (err.code === 'ENOENT') {
+      throw new Error(
+        `Proto file not found: "${protoFilePath}". ` +
+        `Check that the file exists and the path in your request is correct.`
+      );
+    }
+    throw err;
+  }
 
-  const proto: grpc.GrpcObject | any =
-    grpc.loadPackageDefinition(packageDefinition);
+  const proto: grpc.GrpcObject | any = grpc.loadPackageDefinition(packageDefinition);
 
-  const svc = proto[packageName][service];
-  const methodInfo = svc.service[method];
+  const svc = proto[packageName]?.[service];
+  if (!svc) {
+    throw new Error(`Service "${packageName}.${service}" not found in proto file: "${protoFilePath}".`);
+  }
+  const methodInfo = svc.service?.[method];
+  if (!methodInfo) {
+    throw new Error(`Method "${method}" not found in service "${packageName}.${service}".`);
+  }
 
-  // ✔ Use the serializer/deserializer generated by grpc
-  const serialize = methodInfo.requestSerialize;
-  const deserialize = methodInfo.responseDeserialize;
-
-  return { serialize, deserialize };
+  return { serialize: methodInfo.requestSerialize, deserialize: methodInfo.responseDeserialize };
 }
 
 function deleteGrpcRegistryAndMessageCache(grpcId: string) {

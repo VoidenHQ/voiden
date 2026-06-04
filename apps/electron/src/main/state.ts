@@ -9,8 +9,10 @@ import {
   Tab
 } from "src/shared/types";
 import { ExtensionManager } from "./extension/extensionManager";
-import { getRemoteExtensions } from "./extension/extensionFetcher";
-import { BrowserWindow, dialog, ipcMain, IpcMainInvokeEvent } from "electron";
+import { getRemoteExtensions, fetchReadme, fetchChangelog, fetchManifest } from "./extension/extensionFetcher";
+import { migratePluginPaths, coreCacheDir, communityDir } from "./extension/paths";
+import { fetchAndUpdateCoreRegistry, coreExtensions, remoteNewPlugins } from "./config/coreExtensions";
+import { app, BrowserWindow, dialog, ipcMain, IpcMainInvokeEvent } from "electron";
 import {
   loadState,
   saveState,
@@ -33,6 +35,7 @@ import { updateFileWatcher } from "./fileWatcher";
 import { windowManager } from "./windowManager";
 import { getSettings } from "./settings";
 import { recomposeAndInstall } from "./skillsInstaller";
+import { reloadMainProcessExtension } from "./extensionLoader";
 import { logger } from "./logger";
 
 function maybeRecomposeSkills(state: AppState): void {
@@ -44,7 +47,7 @@ function maybeRecomposeSkills(state: AppState): void {
 
 let appState: AppState;
 let appSettings: AppSettings;
-let extensionManager: ExtensionManager;
+export let extensionManager: ExtensionManager;
 
 export const updateWindowState = () => {
   try {
@@ -58,6 +61,8 @@ export const initializeState = async (
 ): Promise<AppState> => {
   const startupTimer = Date.now();
   logger.info('system', 'STARTUP [1/5] initializeState begin', { skipDefault });
+
+  await migratePluginPaths();
 
   const t0 = Date.now();
   appState = await loadState(skipDefault);
@@ -725,6 +730,47 @@ export const ipcStateHandlers = () => {
             (ext) => ext.id === tab.meta!.extensionId,
           );
         }
+        // Final fallback: core registry in-memory array (populated by fetchRegistry).
+        // Covers the case where syncCoreExtensions ran after the tab was opened.
+        if (!extension) {
+          extension = coreExtensions.find(
+            (ext) => ext.id === tab.meta!.extensionId,
+          );
+        }
+        // Also check remoteNewPlugins — plugins visible in the browser that aren't
+        // in the local snapshot yet (e.g. when the registry JSON failed to load).
+        if (!extension) {
+          extension = remoteNewPlugins.find(
+            (ext) => ext.id === tab.meta!.extensionId,
+          ) as typeof extension;
+        }
+        // Last resort: read installed.json directly — handles the startup race where
+        // loadInstalledCommunityExtensions hasn't populated appState.extensions yet.
+        if (!extension) {
+          try {
+            const raw = await fs.readFile(path.join(communityDir(), "installed.json"), "utf8");
+            const installed: any[] = JSON.parse(raw);
+            const found = installed.find((e) => e.id === tab.meta!.extensionId);
+            if (found) {
+              // Enrich with on-disk manifest so readme/capabilities are current
+              try {
+                const manifestRaw = await fs.readFile(
+                  path.join(communityDir(), found.id, "manifest.json"), "utf8"
+                );
+                const manifest = JSON.parse(manifestRaw);
+                extension = {
+                  ...found,
+                  readme: manifest.readme || found.readme || "",
+                  capabilities: manifest.capabilities || found.capabilities,
+                  features: manifest.features || found.features,
+                  icon: manifest.icon || found.icon,
+                };
+              } catch {
+                extension = found;
+              }
+            }
+          } catch { /* installed.json not readable — fall through */ }
+        }
         if (!extension) {
           throw new Error(
             `Extension with id ${tab.meta.extensionId} not found`,
@@ -1075,26 +1121,22 @@ export const ipcStateHandlers = () => {
     // initializeState() which is async. Return an empty array if called
     // before initialization completes; the renderer will retry.
     if (!extensionManager) return [];
-    const localExtensions = await extensionManager.getAllExtensions();
-    const remoteExtensions = await getRemoteExtensions();
-    const mergedExtensions = localExtensions.map((ext) => {
-      const remoteExt = remoteExtensions.find((r) => r.id === ext.id);
-      if (remoteExt && remoteExt.version !== ext.version) {
-        // Attach latestVersion if remote version differs from local version
-        return { ...ext, latestVersion: remoteExt.version };
-      }
-      return ext;
-    });
-    return mergedExtensions;
+    return await extensionManager.getAllExtensions();
+  });
+
+  ipcMain.handle("extensions:updateCoreMeta", (_event, pluginId: string, meta: Record<string, any>) => {
+    if (!extensionManager) return;
+    extensionManager.updateCoreExtensionMeta(pluginId, meta);
   });
 
   ipcMain.handle("extensions:install", async (_, extension: ExtensionData) => {
     if (extension.type !== "community") {
       throw new Error("only community extensions can be installed");
     }
-    await extensionManager.installCommunityExtension(extension);
+    const installed = await extensionManager.installCommunityExtension(extension);
     await saveState(appState);
     maybeRecomposeSkills(appState);
+    reloadMainProcessExtension(installed).catch(() => {});
     return { success: true };
   });
 
@@ -1111,6 +1153,7 @@ export const ipcStateHandlers = () => {
     const ext = await extensionManager.installFromZip(result.filePaths[0]);
     await saveState(appState);
     maybeRecomposeSkills(appState);
+    reloadMainProcessExtension(ext).catch(() => {});
     return { success: true, extension: ext };
   });
 
@@ -1127,6 +1170,27 @@ export const ipcStateHandlers = () => {
 
     removeExtensionTabsFromSidebars(appState.sidebars, extensionId);
     await extensionManager.uninstallCommunityExtension(extensionId);
+    await saveState(appState);
+    maybeRecomposeSkills(appState);
+    return { success: true };
+  });
+
+  ipcMain.handle("extensions:uninstallCore", async (_, pluginId: string) => {
+    const appState = getAppState();
+    removeExtensionTabsFromLayout(appState.unsaved.layout, pluginId);
+    for (const dir of Object.values(appState.directories)) {
+      if (dir.layout) removeExtensionTabsFromLayout(dir.layout, pluginId);
+    }
+    removeExtensionTabsFromSidebars(appState.sidebars, pluginId);
+    await extensionManager.uninstallCoreExtension(pluginId);
+    await saveState(appState);
+    maybeRecomposeSkills(appState);
+    return { success: true };
+  });
+
+  ipcMain.handle("extensions:reinstallCore", async (_, pluginId: string) => {
+    const appState = getAppState();
+    await extensionManager.reinstallCoreExtension(pluginId);
     await saveState(appState);
     maybeRecomposeSkills(appState);
     return { success: true };
@@ -1170,6 +1234,18 @@ export const ipcStateHandlers = () => {
       }
 
     await extensionManager.setExtensionEnabled(extensionId, enabled);
+    // Re-sync core extensions so isLocallyAvailable is refreshed (e.g. after OTA install).
+    const targetExt = appState.extensions.find((e) => e.id === extensionId);
+    if (targetExt?.type === "core") {
+      extensionManager.syncCoreExtensions();
+    }
+    // Reload (or unload) the main-process bundle immediately — no restart needed.
+    const freshExt = appState.extensions.find((e) => e.id === extensionId);
+    if (freshExt) {
+      reloadMainProcessExtension(freshExt).catch((err) =>
+        logger.warn("plugin", `[state] Failed to reload main-process for ${extensionId}`, { error: String(err) })
+      );
+    }
     await saveState(appState);
     maybeRecomposeSkills(appState);
     return { extensionId, enabled };
@@ -1306,7 +1382,41 @@ export const ipcStateHandlers = () => {
       await extensionManager.installCommunityExtension(remoteExt);
     await saveState(appState);
     maybeRecomposeSkills(appState);
+    reloadMainProcessExtension(updatedExtension).catch(() => {});
     return { success: true, updatedExtension };
+  });
+
+  ipcMain.handle("extensions:fetchReadme", async (_, repo: string): Promise<string> => {
+    return fetchReadme(repo);
+  });
+
+  ipcMain.handle("extensions:fetchChangelog", async (_, pluginId: string, repo: string): Promise<any[] | null> => {
+    // Check local disk first — core cache then community install dir
+    for (const localPath of [
+      path.join(coreCacheDir(), pluginId, "changelog.json"),
+      path.join(communityDir(), pluginId, "changelog.json"),
+    ]) {
+      if (fsSync.existsSync(localPath)) {
+        try {
+          const raw = await fs.readFile(localPath, "utf8");
+          return JSON.parse(raw);
+        } catch {}
+      }
+    }
+    return fetchChangelog(repo);
+  });
+
+  ipcMain.handle("extensions:fetchManifest", async (_, pluginId: string, repo: string): Promise<Record<string, any> | null> => {
+    // For installed community plugins, read from disk (already has the manifest)
+    const localPath = path.join(communityDir(), pluginId, "manifest.json");
+    if (fsSync.existsSync(localPath)) {
+      try {
+        const raw = await fs.readFile(localPath, "utf8");
+        return JSON.parse(raw);
+      } catch {}
+    }
+    // For uninstalled: fetch from the plugin's latest GitHub release
+    return fetchManifest(repo);
   });
 
   ipcMain.handle("terminal:new", async (event, panelId: string) => {

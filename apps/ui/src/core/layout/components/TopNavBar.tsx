@@ -5,6 +5,7 @@ import { useGetPanelTabs, useAddPanelTab, useActivateTab } from "@/core/layout/h
 import { HamburgerMenu } from "./HamburgerMenu";
 import { useEffect, useState } from "react";
 import logo from "@/assets/logo-dark.png";
+import { usePluginStore } from "@/plugins";
 
 interface TopNavBarProps {
   onShowAbout?: () => void;
@@ -14,6 +15,7 @@ export const TopNavBar = ({ onShowAbout }: TopNavBarProps) => {
   const { mutate: addPanelTab } = useAddPanelTab();
   const { mutate: activateTab } = useActivateTab();
   const { data: mainTabs } = useGetPanelTabs("main");
+  const topBarItems = usePluginStore((state) => state.topBarItems);
 
   const isMac = !!(navigator && navigator.platform && navigator.platform.toUpperCase().includes('MAC'));
 
@@ -70,10 +72,24 @@ export const TopNavBar = ({ onShowAbout }: TopNavBarProps) => {
         <div></div>
         <RecentProjectsSelector />
         <EnvSelector />
+        {topBarItems
+          .filter((item) => (item.position ?? 'right') === 'left')
+          .map((item) => (
+            <button key={item.id} onClick={item.onClick} title={item.tooltip} className="h-full px-2 no-drag hover:bg-active flex items-center justify-center">
+              <item.icon size={14} />
+            </button>
+          ))}
       </div>
 
       {/* Settings Button */}
-      <div className={`h-full ml-auto`}>
+      <div className={`h-full ml-auto flex items-center`}>
+        {topBarItems
+          .filter((item) => (item.position ?? 'right') === 'right')
+          .map((item) => (
+            <button key={item.id} onClick={item.onClick} title={item.tooltip} className="h-full px-2 no-drag hover:bg-active flex items-center justify-center">
+              <item.icon size={14} />
+            </button>
+          ))}
         <button className={`h-full px-2 no-drag hover:bg-active w-8 ${isMac?'':'mr-[10px]'}`} onClick={handleOpenSettings}>
           <Settings size={14} />
         </button>

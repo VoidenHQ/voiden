@@ -51,6 +51,20 @@ tokensInfo.json# Font files
 
 # Generated at build time — do not commit
 apps/electron/skills/core/
+apps/electron/bundled-plugins/
+apps/electron/bundled-main-plugins/
+apps/electron/src/bundled-plugins/
+apps/electron/src/bundled-main-plugins/
+apps/electron/src/extensions.json
 
-# Local Windows native module patches (not needed on CI/macOS/Linux)
-patches/win-native-fixes/
+packages/voiden-runner/dist
+packages/executors/dist
+
+# core-extensions is fetched from VoidenHQ/core-extensions by cleanup.sh
+core-extensions/
+
+# Plugin repos cloned for local development
+plugins/
+
+# Local Electron user-data directory created during dev runs
+apps/electron/.voiden/

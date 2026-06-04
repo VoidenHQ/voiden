@@ -1,952 +1,119 @@
-import React, { useState, useRef, useEffect, useLayoutEffect, useContext, useCallback } from "react";
-import * as Tooltip from "@radix-ui/react-tooltip";
-// Debounce hook
-function useDebounce<T>(value: T, delay: number): T {
-  const [debounced, setDebounced] = useState<T>(value);
-  useEffect(() => {
-    const handler = setTimeout(() => setDebounced(value), delay);
-    return () => clearTimeout(handler);
-  }, [value, delay]);
-  return debounced;
-}
-import { NodeRendererProps, Tree, NodeApi, TreeApi } from "react-arborist";
-import { Tip } from "@/core/components/ui/Tip";
-import {
-  Infinity,
-  FileText,
-  FileSpreadsheet,
-  Image,
-  Braces,
-  Container,
-  GitBranch,
-  Info,
-  ChevronRight,
-  ChevronsDownUp,
-  ChevronsUpDown,
-  File,
-  Loader,
-  Settings2,
-  FileCode,
-  Database,
-  Hash,
-} from "lucide-react";
-import { cn } from "@/core/lib/utils";
-import { FileTree } from "@/types";
-import type { SearchResult } from "@/types";
-import { useFileTree, useMove, usePrefetchFileList } from "@/core/file-system/hooks";
-import { useEditorStore, reloadVoidenEditor } from "@/core/editors/voiden/VoidenEditor";
-import { toast } from "@/core/components/ui/sonner";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { NodeApi, Tree, TreeApi } from "react-arborist";
+import { Loader } from "lucide-react";
 import useResizeObserver from "use-resize-observer";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useActivateTab, useBottomPanel } from "@/core/layout/hooks";
+import { useQueryClient } from "@tanstack/react-query";
+import { useShallow } from "zustand/react/shallow";
+
+import { cn } from "@/core/lib/utils";
+import { toast } from "@/core/components/ui/sonner";
+import { useFileTree, useMove, usePrefetchFileList } from "@/core/file-system/hooks";
+import { reloadVoidenEditor, useEditorStore } from "@/core/editors/voiden/VoidenEditor";
+import { useActivateTab } from "@/core/layout/hooks";
 import { useGetActiveDocument } from "@/core/documents/hooks";
 import { useGetAppState } from "@/core/state/hooks";
-import { useOpenProject, useCloseActiveProject } from "@/core/projects/hooks";
 import { useElectronEvent } from "@/core/providers";
-import { useFocusStore } from "@/core/stores/focusStore";
 import { useSearchStore } from "@/core/stores/searchStore";
-import { useSearchStore as useEditorSearchStore } from "@/core/stores/searchParamsStore";
-import { useShallow } from "zustand/react/shallow";
 import { useBlockContentStore } from "@/core/stores/blockContentStore";
-import { SearchPanelView } from "@/core/editors/code/lib/components/SearchPanelView";
-import { useSetActiveProject } from "@/core/projects/hooks";
 import { usePanelStore } from "@/core/stores/panelStore";
-
-/*
-  Extend your base FileTree type to include the properties we need.
-  (You can also add these fields to your FileTree definition if appropriate.)
-*/
-type ExtendedFileTree = FileTree & {
-  id: string;
-  parent?: string;
-  isTemporary?: boolean;
-  fileKind?: "file" | "void" | undefined;
-  children?: ExtendedFileTree[];
-  lazy?: boolean;
-};
-
-interface RenameInputProps {
-  node: any;
-  error: string | null;
-  setError: (msg: string | null) => void;
-  onSubmit: (newName: string) => void;
-  setIsRenaming: (renaming: boolean) => void;
-}
-
-function RenameInput({ node, error, setError, onSubmit, setIsRenaming }: RenameInputProps) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [name, setName] = useState(node.data.name);
-
-  useLayoutEffect(() => {
-    setIsRenaming(true);
-    setName(node.data.name);
-    inputRef.current?.focus();
-  }, [node.data.name, setIsRenaming]);
-
-  return (
-    <div className="flex flex-col flex-1">
-      <input
-        autoFocus
-        ref={inputRef}
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        onFocus={(e) => {
-          if (node.data.type === "file") {
-            const text = name.split(".")[0];
-            e.target.setSelectionRange(0, text.length);
-          }
-          setError(null);
-        }}
-        onMouseDown={(e) => {
-          e.stopPropagation();
-        }}
-        onBlur={(e) => onSubmit(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === "Escape") {
-            onSubmit(name);
-          }
-        }}
-        onClick={(e) => e.stopPropagation()}
-        className={`px-1 py-0 border rounded h-5 bg-stone-800 text-stone-200 focus:outline-none focus:ring-1 ${error ? "border-red-500 focus:ring-red-500" : "border-stone-700 focus:ring-orange-500"
-          }`}
-      />
-      {error && <span className="bg-red-500 text-xs text-white absolute top-7 left-12 p-1 rounded z-10">{error}</span>}
-    </div>
-  );
-}
-
-// ─── TREE NODE COMPONENT ─────────────────────────────────────────────
-
-interface TreeNodeProps extends NodeRendererProps<ExtendedFileTree> {
-  activeFile: { source: string } | null;
-  removeTemporaryNode: (nodeId: string) => void;
-  onFolderToggle: (node: any) => void;
-  refreshDir: (dirPath: string) => Promise<void>;
-  expandedDirsRef: React.MutableRefObject<Set<string>>;
-  treeRef: React.RefObject<TreeApi<ExtendedFileTree>>;
-}
-
-const DragOverContext = React.createContext<{
-  dragOverParentId: string | null;
-  setDragOverParentId: (id: string | null) => void;
-}>({
-  dragOverParentId: null,
-  setDragOverParentId: () => { },
-});
-
-const TreeActionsContext = React.createContext<{
-  expandAllRecursive: (startPath: string) => Promise<void>;
-  collapseAllFromFolder: (folderNode: NodeApi<ExtendedFileTree>) => Promise<void>;
-}>({
-  expandAllRecursive: async () => { },
-  collapseAllFromFolder: async () => { },
-});
-
-function TreeNode({ node, style, dragHandle, activeFile, removeTemporaryNode, onFolderToggle, refreshDir, expandedDirsRef, treeRef }: TreeNodeProps) {
-  const [error, setError] = useState<string | null>(null);
-  const [isDragOver, setIsDragOver] = useState(false);
-  const dragOverTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const [isContextMenuOpen, setIsContextMenuOpen] = useState(false);
-  const { dragOverParentId, setDragOverParentId } = useContext(DragOverContext);
-  const { expandAllRecursive } = useContext(TreeActionsContext);
-  const queryClient = useQueryClient();
-  const setIsRenaming = useFocusStore((state) => state.setIsRenaming);
-  const { mutate: activateTab } = useActivateTab();
-
-  const isInternalTreeDrag = (e: React.DragEvent) => e.dataTransfer.types.includes("application/x-arborist-node");
-  const isExternalFileDrag = (e: React.DragEvent) => e.dataTransfer.types.includes("Files") && !isInternalTreeDrag(e);
-  const isKnownFileSystemDrag = (e: React.DragEvent) => isInternalTreeDrag(e) || isExternalFileDrag(e);
-  const isInternalDropTargetFolder = node.data.type === "folder" && Boolean(node.willReceiveDrop);
-
-  useEffect(() => {
-    if (!isInternalDropTargetFolder) return;
-    setIsDragOver(true);
-    setDragOverParentId(null);
-    if (!node.isOpen && !dragOverTimerRef.current) {
-      dragOverTimerRef.current = setTimeout(() => {
-        dragOverTimerRef.current = null;
-        if (!node.isOpen) onFolderToggle(node);
-      }, 800);
-    }
-  }, [isInternalDropTargetFolder, node, setDragOverParentId, onFolderToggle]);
-
-  useEffect(() => {
-    return () => {
-      if (dragOverTimerRef.current) {
-        clearTimeout(dragOverTimerRef.current);
-        dragOverTimerRef.current = null;
-      }
-    };
-  }, []);
-
-  const getGitStatusClass = (gitStatus: any) => {
-    if (!gitStatus) return "";
-    if ((gitStatus.working_dir && gitStatus.working_dir.startsWith("?")) || (gitStatus.index && gitStatus.index.startsWith("?")))
-      return "text-vcs-added";
-    if (gitStatus.working_dir === "M" || gitStatus.index === "M") return "text-vcs-modified";
-    if (gitStatus.working_dir === "A" || gitStatus.index === "A") return "text-vcs-added";
-    if (gitStatus.working_dir === "D" || gitStatus.index === "D") return "text-red-500";
-    if (gitStatus.working_dir === "R" || gitStatus.index === "R") return "text-vcs-modified";
-    return "";
-  };
-
-  // Mutation to create a file via Electron.
-  const createFileMutation = useMutation({
-    mutationFn: async (newName: string) => {
-      const result = await window.electron?.files.create(node.data.parent!, newName);
-      if (!result) throw new Error("File creation failed");
-
-      const newTab = {
-        id: crypto.randomUUID(),
-        type: "document" as const,
-        title: result.name,
-        source: result.path,
-        directory: null,
-      };
-
-      const response = await window.electron?.state.addPanelTab("main", newTab);
-      if (response?.tabId) {
-        await window.electron?.state.activatePanelTab("main", response.tabId);
-        queryClient.invalidateQueries({ queryKey: ["panel:tabs"] });
-      }
-      return result;
-    },
-    onSuccess: (result) => {
-      node.submit(result.name);
-      // Surgically refresh only the parent directory — no full tree refetch
-      refreshDir(node.data.parent!);
-      queryClient.invalidateQueries({ queryKey: ["env"] });
-    },
-    onError: (error) => {
-      setError(error.message || "Error creating file");
-      node.edit();
-    },
-  });
-
-  // Mutation to create a void file via Electron.
-  const createVoidFileMutation = useMutation({
-    mutationFn: async (newName: string) => {
-      const result = await window.electron?.files.createVoid(node.data.parent!, newName);
-      if (!result) throw new Error("File creation failed");
-
-      const newTab = {
-        id: crypto.randomUUID(),
-        type: "document" as const,
-        title: result.name,
-        source: result.path,
-        directory: null,
-      };
-
-      const response = await window.electron?.state.addPanelTab("main", newTab);
-      if (response?.tabId) {
-        await window.electron?.state.activatePanelTab("main", response.tabId);
-        queryClient.invalidateQueries({ queryKey: ["panel:tabs"] });
-      }
-      return result;
-    },
-    onSuccess: (result) => {
-      node.submit(result.name);
-      // Surgically refresh only the parent directory — no full tree refetch
-      refreshDir(node.data.parent!);
-      queryClient.invalidateQueries({ queryKey: ["env"] });
-    },
-    onError: (error) => {
-      setError(error.message || "Error creating file");
-      node.edit();
-    },
-  });
-
-  // Mutation to create a directory via Electron.
-  const createDirectoryMutation = useMutation({
-    mutationFn: async (newName: string) => {
-      const result = await window.electron?.files.createDirectory(node.data.parent!, newName);
-      if (!result) throw new Error("Directory creation failed");
-      return result;
-    },
-    onSuccess: (result) => {
-      node.submit(result);
-      // Surgically refresh only the parent directory — no full tree refetch
-      refreshDir(node.data.parent!);
-    },
-    onError: (error) => {
-      setError(error.message || "Error creating directory");
-      node.edit();
-    },
-  });
-
-  // Mutation to rename a file or directory via Electron.
-  const renameMutation = useMutation({
-    mutationFn: async ({ oldPath, newName }: { oldPath: string; newName: string }) => {
-      const result = await window.electron?.state.renameFile(oldPath, newName);
-      if (!result?.success) {
-        throw new Error(result?.error || "Renaming failed");
-      }
-      return result;
-    },
-    onSuccess: async (result, { oldPath, newName }) => {
-      node.submit(newName);
-      
-      // Preserve expanded state for folders: track if folder was open before rename
-      const wasFolderOpen = node.data.type === "folder" && node.isOpen;
-      const newPath = result.data.path;
-      
-      // Get the parent path to refresh the containing directory
-      const parentPath = node.data.parent || getParentPath(oldPath);
-      
-      if (parentPath) {
-        // If the renamed item was an expanded folder, add its new path to expanded dirs
-        // before refreshing the parent so it gets re-opened
-        if (wasFolderOpen) {
-          expandedDirsRef.current.add(newPath);
-        }
-        
-        // Remove old path from expanded dirs if it's a folder
-        if (node.data.type === "folder") {
-          expandedDirsRef.current.delete(oldPath);
-        }
-        
-        // Refresh parent directory to see renamed node with new name
-        await refreshDir(parentPath);
-        
-        // After refresh, re-open the renamed folder if it was expanded.
-        // Use onFolderToggle (expandLazyNode) — not raw open() — so children
-        // are fetched from disk first (the renamed folder is a lazy stub after refresh).
-        if (wasFolderOpen) {
-          setTimeout(() => {
-            const renamedNode = treeRef.current?.get(newPath);
-            if (renamedNode && !renamedNode.isOpen) {
-              onFolderToggle(renamedNode);
-            }
-          }, 0);
-        }
-      }
-      
-      // Invalidate queries to update UI with new paths/names and references
-      queryClient.invalidateQueries({ queryKey: ["panel:tabs"] });
-      queryClient.invalidateQueries({ queryKey: ["tab:content"] });
-      queryClient.invalidateQueries({ queryKey: ["voiden-wrapper:blockContent"] });
-      queryClient.invalidateQueries({ queryKey: ["file:exists"] });
-      queryClient.invalidateQueries({ queryKey: ["app:state"] });
-    },
-    onError: (error) => {
-      setError(error.message || "Error renaming file");
-      node.edit();
-    },
-  });
-
-  // Mutation to drop files
-  const dropFilesMutation = useMutation({
-    mutationFn: async ({ files, targetPath }: { files: File[]; targetPath: string }) => {
-      const results = [];
-      for (const file of files) {
-        const arrayBuffer = await file.arrayBuffer();
-        const uint8Array = new Uint8Array(arrayBuffer);
-        const result = await window.electron?.files.drop(targetPath, file.name, uint8Array);
-        if (!result) throw new Error(`Failed to upload ${file.name}`);
-        results.push(result);
-      }
-      return results;
-    },
-    onSuccess: (_, { targetPath }) => {
-      // Surgically refresh only the drop target directory — no full tree refetch
-      refreshDir(targetPath);
-      queryClient.invalidateQueries({ queryKey: ["env"] });
-    },
-    onError: (error) => {
-      console.error("File drop error:", error);
-      setError(error.message || "Error drop files");
-    },
-  });
-
-  const onSubmit = async (newName: string) => {
-    setIsRenaming(false);
-
-    if (node.data.isTemporary) {
-      if (!newName || newName.trim() === "") {
-        removeTemporaryNode(node.id);
-        return;
-      }
-      if (node.parent) {
-        const siblings = node.parent.children || [];
-        const effectiveName = node.data.fileKind === "void" ? `${newName}.void` : newName;
-        const duplicate = siblings.find((sibling) => sibling.id !== node.id && sibling.data.name === effectiveName);
-        if (duplicate) {
-          setError("Name already exists");
-          node.edit();
-          setIsRenaming(true);
-          return;
-        }
-      }
-      if (node.data.type === "folder") {
-        createDirectoryMutation.mutate(newName);
-      } else if (node.data.fileKind === "void") {
-        createVoidFileMutation.mutate(newName);
-      } else {
-        createFileMutation.mutate(newName);
-      }
-      return;
-    }
-
-    // ── Existing node rename ──────────────────────────────────────────
-    if (newName === node.data.name) {
-      node.reset();
-      return;
-    }
-
-    if (node.parent) {
-      const siblings = node.parent.children || [];
-      const duplicate = siblings.find((sibling) => sibling.id !== node.id && sibling.data.name === newName);
-      if (duplicate) {
-        setError("Name already exists");
-        node.edit();
-        setIsRenaming(true);
-        return;
-      }
-    }
-
-    // Capture the current path before any state update and pass it explicitly
-    renameMutation.mutate({ oldPath: node.data.path, newName });
-  };
-
-  const handleDrop = async (e: React.DragEvent) => {
-    setIsDragOver(false);
-    setDragOverParentId(null);
-    if (dragOverTimerRef.current) {
-      clearTimeout(dragOverTimerRef.current);
-      dragOverTimerRef.current = null;
-    }
-
-    if (!isExternalFileDrag(e)) {
-      return;
-    }
-
-    e.preventDefault();
-    e.stopPropagation();
-
-    let targetFolder = node;
-    let targetPath = node.data.path;
-
-    if (node.data.type === "file") {
-      if (node.parent) {
-        targetFolder = node.parent;
-        targetPath = node.parent.data.path;
-      }
-    }
-
-    const regularFiles: File[] = [];
-    const folderPaths: string[] = [];
-
-    for (const item of Array.from(e.dataTransfer.items)) {
-      const entry = item.webkitGetAsEntry?.();
-      if (entry?.isDirectory) {
-        const file = item.getAsFile() as (File & { path?: string }) | null;
-        if (file?.path) {
-          folderPaths.push(file.path);
-        }
-      } else {
-        const file = item.getAsFile();
-        if (file) regularFiles.push(file);
-      }
-    }
-
-    try {
-      if (regularFiles.length > 0) {
-        await dropFilesMutation.mutateAsync({ files: regularFiles, targetPath });
-      }
-
-      for (const folderPath of folderPaths) {
-        const result = await window.electron?.files.dropFolder(targetPath, folderPath);
-        if (result && !result.success) {
-          throw new Error(result.error ?? `Failed to drop folder "${folderPath}"`);
-        }
-      }
-
-      if (folderPaths.length > 0) {
-        // Refresh only the target directory instead of the whole tree
-        await refreshDir(targetPath);
-        queryClient.invalidateQueries({ queryKey: ["env"] });
-      }
-
-      if (targetFolder.data.type === "folder" && !targetFolder.isOpen) {
-        targetFolder.open();
-      }
-    } catch (error) {
-      console.error("Failed to drop items:", error);
-    }
-  };
-
-  const isSiblingHighlight = dragOverParentId === node.parent?.id;
-
-  const handleDragOver = (e: React.DragEvent) => {
-    if (!isKnownFileSystemDrag(e)) {
-      return;
-    }
-
-    if (isInternalTreeDrag(e)) {
-      if (node.data.type !== "folder") {
-        return;
-      }
-
-      setIsDragOver(true);
-      setDragOverParentId(null);
-
-      if (!node.isOpen && !dragOverTimerRef.current) {
-        dragOverTimerRef.current = setTimeout(() => {
-          dragOverTimerRef.current = null;
-          if (!node.isOpen) onFolderToggle(node);
-        }, 800);
-      }
-      return;
-    }
-
-    e.preventDefault();
-    e.stopPropagation();
-
-    setIsDragOver(true);
-
-    let parentId = null;
-    if (node.data.type === "folder") {
-      parentId = node.id;
-    } else if (node.parent) {
-      parentId = node.parent.id;
-    }
-
-    setDragOverParentId(parentId);
-
-    if (node.data.type === "folder" && !node.isOpen && !dragOverTimerRef.current) {
-      dragOverTimerRef.current = setTimeout(() => {
-        dragOverTimerRef.current = null;
-        if (!node.isOpen) onFolderToggle(node);
-      }, 800);
-    } else if (node.data.type === "folder") {
-      const closeAllDescendants = (parentNode: typeof node) => {
-        if (!parentNode.children) return;
-        parentNode.children.forEach((child) => {
-          if (child.data.type === "folder" && child.isOpen) {
-            child.close();
-            closeAllDescendants(child);
-          }
-        });
-      };
-      closeAllDescendants(node);
-    }
-  };
-
-  const handleDragLeave = (e: React.DragEvent) => {
-    if (!isKnownFileSystemDrag(e)) {
-      return;
-    }
-
-    if (isExternalFileDrag(e)) {
-      e.preventDefault();
-      e.stopPropagation();
-    }
-
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX;
-    const y = e.clientY;
-
-    if (x < rect.left || x >= rect.right || y < rect.top || y >= rect.bottom) {
-      setIsDragOver(false);
-      setDragOverParentId(null);
-
-      if (dragOverTimerRef.current) {
-        clearTimeout(dragOverTimerRef.current);
-        dragOverTimerRef.current = null;
-      }
-    }
-  };
-
-  const getFileIcon = (name: string, path: string): JSX.Element => {
-    const lower = name.toLowerCase();
-
-    if (name.startsWith(".env")) return <Settings2 size={14} style={{ color: "#ecd53f" }} />;
-    if (lower === ".gitignore" || lower === ".gitattributes")
-      return <GitBranch size={14} style={{ color: "#f54d27" }} />;
-    if (name.startsWith("Dockerfile") || lower.startsWith("docker-compose"))
-      return <Container size={14} style={{ color: "#0db7ed" }} />;
-    if (lower === "readme.md") return <Info size={14} style={{ color: "#519aba" }} />;
-    if (lower === "package.json" || lower === "package-lock.json")
-      return <Braces size={14} style={{ color: "#cc3e44" }} />;
-    if (lower === "tsconfig.json" || lower.startsWith("tsconfig."))
-      return <Braces size={14} style={{ color: "#3178c6" }} />;
-
-    const extMatch = path.match(/\.([0-9a-z]+)$/i);
-    const ext = extMatch?.[1]?.toLowerCase();
-
-    const iconMap: Record<string, JSX.Element> = {
-      void: <Infinity size={14} className="text-accent" />,
-      ts: <FileCode size={14} style={{ color: "#3178c6" }} />,
-      tsx: <FileCode size={14} style={{ color: "#61dafb" }} />,
-      js: <FileCode size={14} style={{ color: "#f7df1e" }} />,
-      jsx: <FileCode size={14} style={{ color: "#61dafb" }} />,
-      mjs: <FileCode size={14} style={{ color: "#f7df1e" }} />,
-      cjs: <FileCode size={14} style={{ color: "#f7df1e" }} />,
-      html: <FileCode size={14} style={{ color: "#e34c26" }} />,
-      htm: <FileCode size={14} style={{ color: "#e34c26" }} />,
-      css: <Hash size={14} style={{ color: "#563d7c" }} />,
-      scss: <Hash size={14} style={{ color: "#c6538c" }} />,
-      sass: <Hash size={14} style={{ color: "#c6538c" }} />,
-      less: <Hash size={14} style={{ color: "#1d365d" }} />,
-      json: <Braces size={14} style={{ color: "#cbcb41" }} />,
-      yml: <Braces size={14} style={{ color: "#cc3e44" }} />,
-      yaml: <Braces size={14} style={{ color: "#cc3e44" }} />,
-      toml: <Braces size={14} style={{ color: "#9c4221" }} />,
-      xml: <FileCode size={14} style={{ color: "#f4a261" }} />,
-      csv: <FileSpreadsheet size={14} style={{ color: "#1e7a1e" }} />,
-      sql: <Database size={14} style={{ color: "#e38c00" }} />,
-      py: <FileCode size={14} style={{ color: "#3776ab" }} />,
-      go: <FileCode size={14} style={{ color: "#00add8" }} />,
-      rs: <FileCode size={14} style={{ color: "#dea584" }} />,
-      java: <FileCode size={14} style={{ color: "#ea2d2e" }} />,
-      rb: <FileCode size={14} style={{ color: "#cc342d" }} />,
-      php: <FileCode size={14} style={{ color: "#8892be" }} />,
-      swift: <FileCode size={14} style={{ color: "#f05138" }} />,
-      kt: <FileCode size={14} style={{ color: "#7f52ff" }} />,
-      c: <FileCode size={14} style={{ color: "#a8b9cc" }} />,
-      cpp: <FileCode size={14} style={{ color: "#00427b" }} />,
-      cc: <FileCode size={14} style={{ color: "#00427b" }} />,
-      h: <FileCode size={14} style={{ color: "#a8b9cc" }} />,
-      cs: <FileCode size={14} style={{ color: "#9b4f96" }} />,
-      lua: <FileCode size={14} style={{ color: "#000080" }} />,
-      r: <FileCode size={14} style={{ color: "#276dc3" }} />,
-      sh: <FileCode size={14} style={{ color: "#89e051" }} />,
-      bash: <FileCode size={14} style={{ color: "#89e051" }} />,
-      zsh: <FileCode size={14} style={{ color: "#89e051" }} />,
-      fish: <FileCode size={14} style={{ color: "#89e051" }} />,
-      md: <FileText size={14} style={{ color: "#519aba" }} />,
-      txt: <FileText size={14} style={{ color: "#a0adb8" }} />,
-      pdf: <FileText size={14} style={{ color: "#e74c3c" }} />,
-      png: <Image size={14} style={{ color: "#a074c4" }} />,
-      jpg: <Image size={14} style={{ color: "#a074c4" }} />,
-      jpeg: <Image size={14} style={{ color: "#a074c4" }} />,
-      gif: <Image size={14} style={{ color: "#a074c4" }} />,
-      svg: <Image size={14} style={{ color: "#ffb13b" }} />,
-      ico: <Image size={14} style={{ color: "#a074c4" }} />,
-      webp: <Image size={14} style={{ color: "#a074c4" }} />,
-      lock: <File size={14} style={{ color: "#a0adb8" }} />,
-      log: <File size={14} style={{ color: "#a0adb8" }} />,
-    };
-
-    return iconMap[ext ?? ""] ?? <File size={14} style={{ color: "#a0adb8" }} />;
-  };
-
-  const handleSelect = async (event: React.MouseEvent<HTMLDivElement>) => {
-    if (event.shiftKey) {
-      node.selectContiguous();
-    } else if (event.metaKey || event.ctrlKey) {
-      node.selectMulti();
-    } else {
-      node.select();
-      if (node.data.type === "file") {
-        const newTab = {
-          id: crypto.randomUUID(),
-          type: "document" as const,
-          title: node.data.name,
-          source: node.data.path,
-          directory: null,
-        };
-
-        try {
-          const { tabId = null } = (await window.electron?.state.addPanelTab("main", newTab)) ?? {};
-          if (tabId) {
-            activateTab({ panelId: "main", tabId });
-          }
-        } catch (error) {
-          // ignore
-        }
-      } else {
-        onFolderToggle(node);
-      }
-    }
-  };
-
-  useEffect(() => {
-    if (!isContextMenuOpen) return;
-    const reset = () => setIsContextMenuOpen(false);
-    window.addEventListener("mousedown", reset, { once: true });
-    return () => {
-      window.removeEventListener("mousedown", reset);
-    };
-  }, [isContextMenuOpen]);
-
-  const handleContextMenu = (event: React.MouseEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    event.stopPropagation();
-    setIsContextMenuOpen(true);
-
-    if (!node.isSelected) {
-      node.select();
-    }
-    const selectedNodes = node.tree.selectedNodes;
-    if (selectedNodes.length > 1) {
-      window.electron?.files.showBulkDeleteMenu(
-        selectedNodes.map((n) => ({
-          path: n.data.path,
-          type: n.data.type,
-          name: n.data.name,
-        })),
-      );
-    } else {
-      window.electron?.files.showFileContextMenu({
-        path: node.data.path,
-        type: node.data.type,
-        name: node.data.name,
-        isProjectRoot: node.level === 0,
-      });
-    }
-  };
-
-  const { collapseAllFromFolder } = useContext(TreeActionsContext);
-
-  return (
-    <div
-      style={style}
-      ref={dragHandle}
-      className={cn(
-        "group h-6 overflow-hidden transition-colors border border-transparent",
-        !isDragOver && activeFile?.source !== node.data.path && !node.isSelected && "hover:bg-hover",
-        isContextMenuOpen && "border-active",
-        activeFile?.source === node.data.path && !isDragOver && "bg-active",
-        node.isSelected && node.tree.selectedNodes.length > 1 && activeFile?.source !== node.data.path && !isDragOver && "bg-accent/20",
-        node.isFocused && !isDragOver && "ring-0",
-        (isDragOver  || isInternalDropTargetFolder) && `bg-accent/30 ${node.data.type ==='folder' ? 'border-l-2 border-accent' : ''}`,
-        isSiblingHighlight && !isDragOver && !isInternalDropTargetFolder && "bg-accent/30 hover:bg-accent/30",
-      )}
-      onClick={handleSelect}
-      onContextMenu={handleContextMenu}
-      onDrop={handleDrop}
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-    >
-      <div className="absolute left-0 h-full">
-        {Array.from({ length: node.level }).map((_, i) => (
-          <div key={i} className="absolute w-px bg-active h-6" style={{ left: `${(i + 1) * 12 + 3}px` }} />
-        ))}
-      </div>
-      <div className="pl-2 relative flex items-center justify-between gap-2">
-        <div className={`flex items-center ${node.data.type === "folder" ? "gap-1" : "gap-2"} w-full`}>
-          {node.data.type === "folder" && (
-            <div className="w-30 flex items-center">
-              {/* Chevron rotates whenever the folder is open, including empty folders */}
-              <ChevronRight size={14} className={`transition-transform ${node.isOpen ? "rotate-90" : ""}`} />
-            </div>
-          )}
-          <div className="w-30">{node.data.type !== "folder" && getFileIcon(node.data.name, node.data.path)}</div>
-          {node.isEditing ? (
-            <RenameInput node={node} error={error} setError={setError} onSubmit={onSubmit} setIsRenaming={setIsRenaming} />
-          ) : (
-            <span
-              className={cn(
-                "truncate text-ui-fg",
-                activeFile?.source === node.data.path && !node.data.git
-                  ? ""
-                  : node.data.type === "file"
-                    ? node.data.git
-                      ? getGitStatusClass(node.data.git)
-                      : ""
-                    : node.data.type === "folder"
-                      ? node.data.aggregatedGitStatus
-                        ? getGitStatusClass(node.data.aggregatedGitStatus)
-                        : ""
-                      : "",
-              )}
-            >
-              {node.data.name}
-            </span>
-          )}
-        </div>
-        {node.data.type === "folder" && (
-          <div className="flex items-center px-2 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity">
-            <Tip label="Collapse all" side="bottom" align="end">
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  collapseAllFromFolder(node);
-                }}
-                className="p-0.5 rounded hover:bg-hover ml-1"
-              >
-                <ChevronsDownUp size={12} />
-              </button>
-            </Tip>
-            <Tip label="Expand all" side="bottom" align="end">
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  expandAllRecursive(node.data.path);
-                }}
-                className="p-0.5 rounded hover:bg-hover"
-              >
-                <ChevronsUpDown size={12} />
-              </button>
-            </Tip>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// Helper to recursively update tree data when creating a new node.
-const updateTreeData = (nodes: ExtendedFileTree[], parentId: string, newNode: ExtendedFileTree): ExtendedFileTree[] => {
-  return nodes.map((node) => {
-    if (node.path === parentId) {
-      return { ...node, children: [...(node.children || []), newNode] };
-    }
-    if (node.children) {
-      return { ...node, children: updateTreeData(node.children, parentId, newNode) };
-    }
-    return node;
-  });
-};
-
-// Helper to recursively remove a node from tree data.
-const removeNodeFromTreeData = (nodes: ExtendedFileTree[], nodeId: string): ExtendedFileTree[] => {
-  return nodes
-    .filter((node) => node.id !== nodeId)
-    .map((node) => (node.children ? { ...node, children: removeNodeFromTreeData(node.children, nodeId) } : node));
-};
-
-// Recursively injects children into the node at targetPath, clearing its lazy flag.
-function injectChildren(nodes: ExtendedFileTree[], targetPath: string, children: ExtendedFileTree[]): ExtendedFileTree[] {
-  return nodes.map((node) => {
-    if (node.path === targetPath) {
-      return { ...node, children: children as ExtendedFileTree[], lazy: false };
-    }
-    if (node.children && node.children.length > 0) {
-      return { ...node, children: injectChildren(node.children, targetPath, children) };
-    }
-    return node;
-  });
-}
-
-function getParentPath(path: string): string {
-  if (!path) return "";
-  const sep = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
-  if (sep === -1) return "";
-  return path.slice(0, sep);
-}
-
-// Finds a node anywhere in the tree by its path.
-function findNodeByPath(nodes: ExtendedFileTree[], targetPath: string): ExtendedFileTree | undefined {
-  for (const node of nodes) {
-    if (node.path === targetPath) return node;
-    if (node.children) {
-      const found = findNodeByPath(node.children, targetPath);
-      if (found) return found;
-    }
-  }
-  return undefined;
-}
-
-function ensureFolderExpanded(folderNode: NodeApi<ExtendedFileTree> | undefined, path: string, expandedDirsRef: React.MutableRefObject<Set<string>>) {
-  if (!folderNode) return;
-  if (!folderNode.isOpen) {
-    folderNode.open();
-    expandedDirsRef.current.add(path);
-  }
-}
-
-function removeNodeByPath(nodes: ExtendedFileTree[], targetPath: string): ExtendedFileTree[] {
-  return nodes
-    .filter((node) => node.path !== targetPath)
-    .map((node) => (node.children ? { ...node, children: removeNodeByPath(node.children, targetPath) } : node));
-}
+import { emitPluginEvent, getContextMenuItems } from "@/plugins";
+
+import { ExtendedFileTree } from "./FileSystemList/types";
+import { DragOverContext, TreeActionsContext } from "./FileSystemList/contexts";
+import {
+  ensureFolderExpanded,
+  findNodeByPath,
+  getParentPath,
+  injectChildren,
+  removeNodeByPath,
+  removeNodeFromTreeData,
+  updateTreeData,
+} from "./FileSystemList/treeData";
+import { TreeNode } from "./FileSystemList/TreeNode";
+import { useFullTextSearch } from "./FileSystemList/useFullTextSearch";
+import { SearchPanel } from "./FileSystemList/SearchPanel";
+import { SearchResults } from "./FileSystemList/SearchResults";
+import { EmptyState } from "./FileSystemList/EmptyState";
 
 export const FileSystemList = () => {
   const { data, isPending, isFetching, dataUpdatedAt } = useFileTree();
   usePrefetchFileList();
   const { data: appState } = useGetAppState();
+  const queryClient = useQueryClient();
 
   const [showDeleteProgress, setShowDeleteProgress] = useState(false);
   const [isTreeBusy, setIsTreeBusy] = useState(false);
-  useElectronEvent("file:delete-start", () => {
-    setShowDeleteProgress(true);
-  });
-  useElectronEvent("file:delete-complete", () => {
-    setShowDeleteProgress(false);
-  });
-  useElectronEvent("file:bulk-delete-complete", () => {
-    setShowDeleteProgress(false);
-  });
+  const [treeData, setTreeData] = useState<ExtendedFileTree[]>([]);
+  const [loadingDirs, setLoadingDirs] = useState<Set<string>>(new Set());
+  const [dragOverParentId, setDragOverParentId] = useState<string | null>(null);
+
+  const { ref, width, height } = useResizeObserver();
+  const { mutateAsync: move } = useMove();
+  const { data: activeFile } = useGetActiveDocument();
+  const { mutateAsync: activateTab } = useActivateTab();
+  const treeRef = useRef<TreeApi<ExtendedFileTree>>(null);
+  const dndRootElement = useRef<HTMLDivElement>(null);
+  const expandedDirsRef = useRef<Set<string>>(new Set());
+  const pendingDuplicateRenamePathRef = useRef<string | null>(null);
+  const pendingFileKindRef = useRef<"void" | null>(null);
+  // Guards against the `data` effect resetting the whole tree on subsequent refetches.
+  const isFirstLoadRef = useRef(true);
+
+  // ─── Delete progress / file deletion events ──────────────────────────────────
+  useElectronEvent("file:delete-start", () => setShowDeleteProgress(true));
+  useElectronEvent("file:delete-complete", () => setShowDeleteProgress(false));
+  useElectronEvent("file:bulk-delete-complete", () => setShowDeleteProgress(false));
   useElectronEvent<{ path: string }>("file:delete", (eventData) => {
     if (!eventData?.path) return;
     setTreeData((prev) => removeNodeByPath(prev, eventData.path));
     queryClient.invalidateQueries({ queryKey: ["panel:tabs"] });
     queryClient.invalidateQueries({ queryKey: ["app:state"] });
+    emitPluginEvent('file:deleted', {
+      filePath: eventData.path,
+      name: eventData.name ?? eventData.path.split('/').pop() ?? '',
+      type: 'file',
+    });
   });
-
   useElectronEvent<{ path: string }>("directory:delete", (eventData) => {
     if (!eventData?.path) return;
     setTreeData((prev) => removeNodeByPath(prev, eventData.path));
     expandedDirsRef.current.delete(eventData.path);
     queryClient.invalidateQueries({ queryKey: ["panel:tabs"] });
     queryClient.invalidateQueries({ queryKey: ["app:state"] });
+    emitPluginEvent('directory:deleted', {
+      filePath: eventData.path,
+      name: eventData.name ?? eventData.path.split('/').pop() ?? '',
+      type: 'directory',
+    });
   });
+
+  // Route plugin file context menu actions back to the registered plugin handlers
+  useEffect(() => {
+    const unsub = window.electron?.files.onPluginFileContextAction?.((data) => {
+      const items = getContextMenuItems('file', data.target);
+      items.find((item) => item.id === data.id)?.action(data.target);
+    });
+    return () => unsub?.();
+  }, []);
+
   useEffect(() => {
     // Fallback: also clear if the tree finishes a refetch (e.g. single-file delete via context menu).
     if (!isFetching) setShowDeleteProgress(false);
   }, [isFetching]);
 
-  const { ref, width, height } = useResizeObserver();
-  const { mutateAsync: move } = useMove();
-  const { data: activeFile } = useGetActiveDocument();
-  const { mutateAsync: openProject } = useOpenProject();
-  const { mutateAsync: closeProject } = useCloseActiveProject();
-  const { mutateAsync: setActiveProject } = useSetActiveProject();
-  const { mutateAsync: activateTab } = useActivateTab();
-  const treeRef = useRef<TreeApi<ExtendedFileTree>>(null);
-  const expandedDirsRef = useRef<Set<string>>(new Set());
-  const pendingDuplicateRenamePathRef = useRef<string | null>(null);
-  // Track whether the tree has been initialized at least once — used to guard
-  // against the `data` effect resetting the whole tree on subsequent refetches.
-  const isFirstLoadRef = useRef(true);
-
-  const handleActivate = async (node: NodeApi<ExtendedFileTree>) => {
-    if (node.data.type === "file") {
-      const newTab = {
-        id: crypto.randomUUID(),
-        type: "document" as const,
-        title: node.data.name,
-        source: node.data.path,
-        directory: null,
-      };
-      try {
-        const { tabId = null } = (await window.electron?.state.addPanelTab("main", newTab)) ?? {};
-        if (tabId) {
-          activateTab({ panelId: "main", tabId });
-        }
-      } catch {
-        // ignore
-      }
-    } else {
-      expandLazyNode(node);
-    }
-  };
-
-  const dndRootElement = useRef<HTMLDivElement>(null);
-  const pendingFileKindRef = useRef<"void" | null>(null);
-  const queryClient = useQueryClient();
-
-  const [treeData, setTreeData] = useState<ExtendedFileTree[]>([]);
-  const [loadingDirs, setLoadingDirs] = useState<Set<string>>(new Set());
-
   // ─── refreshDir ──────────────────────────────────────────────────────────────
   // Surgically re-fetches a single directory's children and injects them into
-  // treeData without touching the rest of the tree.  This replaces
-  // invalidateQueries({ queryKey: ["files:tree"] }) for local mutations so that
-  // expanded state, scroll position, and sibling nodes are all preserved.
+  // treeData without touching the rest of the tree. Replaces full-tree
+  // invalidation so expanded state, scroll position, and siblings are preserved.
   const refreshDir = useCallback(async (dirPath: string) => {
     const electronFiles = window.electron?.files;
     if (!electronFiles) return;
-    // Capture open state BEFORE the async fetch so we restore it correctly
     const wasOpen = treeRef.current?.get(dirPath)?.isOpen ?? false;
     try {
-      const children = await (electronFiles as any).expandDir(dirPath);
+      const children = await electronFiles.expandDir(dirPath);
       if (children) {
         setTreeData((prev) => {
-          // Preserve already-expanded siblings: if a new child folder is currently
-          // expanded, keep its existing children so it doesn't collapse.
+          // Preserve already-expanded siblings.
           const mergedChildren = (children as ExtendedFileTree[]).map((newChild) => {
             if (newChild.type === "folder" && expandedDirsRef.current.has(newChild.path)) {
               const existing = findNodeByPath(prev, newChild.path);
@@ -960,9 +127,8 @@ export const FileSystemList = () => {
         });
         if (wasOpen) {
           expandedDirsRef.current.add(dirPath);
-          // Re-open the folder and any previously-expanded siblings after render.
-          // Skip lazy nodes — they need children fetched before opening; the caller
-          // is responsible for those (e.g. rename mutation calls expandLazyNode).
+          // Re-open dir + previously-expanded siblings after render.
+          // Skip lazy nodes — caller fetches their children first.
           setTimeout(() => {
             treeRef.current?.get(dirPath)?.open();
             for (const expandedPath of expandedDirsRef.current) {
@@ -987,27 +153,24 @@ export const FileSystemList = () => {
   }, []);
 
   const expandAllRecursive = useCallback(async (startPath: string) => {
-    const ipcExpandDirAll = (window.electron as any)?.files?.expandDirAll as
-      | ((dirPath: string) => Promise<Record<string, ExtendedFileTree[]>>)
-      | undefined;
+    // expandDirAll isn't in the electron typings yet; cast via unknown to keep it type-safe.
+    const ipcExpandDirAll = (window.electron?.files as unknown as {
+      expandDirAll?: (dirPath: string) => Promise<Record<string, ExtendedFileTree[]>>;
+    } | undefined)?.expandDirAll;
     if (!ipcExpandDirAll) return;
 
     setIsTreeBusy(true);
-    const frame = () => new Promise<void>((resolve) => requestAnimationFrame(resolve));
+    const frame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 
     try {
-      // Phase 1 — one IPC call gets the entire subtree at once.
-      // Previously this was N calls (one per directory), causing N round-trips
-      // and N separate IPC-triggered refreshes. Now it's a single round-trip.
+      // Phase 1: one IPC call fetches the entire subtree (was N calls, one per dir).
       const allChildren = await ipcExpandDirAll(startPath);
-
       if (!allChildren || Object.keys(allChildren).length === 0) {
         setIsTreeBusy(false);
         return;
       }
 
-      // Rebuild BFS level order from the returned flat map so we can inject
-      // and open parents before children (injectChildren requires parent first).
+      // Rebuild BFS level order so we inject and open parents before children.
       const leveledPaths: string[][] = [];
       let currentLevel = [startPath];
       while (currentLevel.length > 0) {
@@ -1021,7 +184,7 @@ export const FileSystemList = () => {
         currentLevel = nextLevel;
       }
 
-      // Phase 2 — inject all data in one setTreeData call (one React render).
+      // Phase 2: inject all data in one setTreeData call (one React render).
       setTreeData((prev) => {
         let updated = prev;
         for (const levelPaths of leveledPaths) {
@@ -1034,8 +197,8 @@ export const FileSystemList = () => {
       });
       await frame();
 
-      // Phase 3 — open level by level. react-arborist.get() is visibility-limited
-      // so we must open parents before children can be found.
+      // Phase 3: open level by level. react-arborist.get() is visibility-limited
+      // so parents must open before children become findable.
       for (const levelPaths of leveledPaths) {
         for (const dirPath of levelPaths) {
           expandedDirsRef.current.add(dirPath);
@@ -1049,10 +212,9 @@ export const FileSystemList = () => {
   }, []);
 
   const collapseAllFromFolder = useCallback(async (folderNode: NodeApi<ExtendedFileTree>) => {
-    // Collect all open folder nodes first (BFS read — no DOM writes yet).
     const toClose: NodeApi<ExtendedFileTree>[] = [];
-    const collect = (node: NodeApi<ExtendedFileTree>) => {
-      node.children?.forEach((child) => {
+    const collect = (n: NodeApi<ExtendedFileTree>) => {
+      n.children?.forEach((child) => {
         if (child.data.type === "folder") {
           collect(child);
           if (child.isOpen) toClose.push(child);
@@ -1065,8 +227,8 @@ export const FileSystemList = () => {
 
     setIsTreeBusy(true);
     try {
-      // Close in batches of 20 per animation frame so the browser stays
-      // responsive on huge trees (1000+ open nodes).
+      // Close in batches of 20 per frame so the browser stays responsive
+      // on huge trees (1000+ open nodes).
       const BATCH = 20;
       for (let i = 0; i < toClose.length; i += BATCH) {
         toClose.slice(i, i + BATCH).forEach((n) => {
@@ -1081,7 +243,7 @@ export const FileSystemList = () => {
   }, []);
 
   const expandLazyNode = useCallback(
-    async (node: any) => {
+    async (node: NodeApi<ExtendedFileTree>) => {
       const nodePath: string = node.data.path;
       if (loadingDirs.has(nodePath)) return;
       if (!node.data.lazy) {
@@ -1122,140 +284,77 @@ export const FileSystemList = () => {
     [loadingDirs],
   );
 
-  const [dragOverParentId, setDragOverParentId] = useState<string | null>(null);
-
-  // --- NEW PROJECT CREATION STATE & HANDLERS ---
-  const [isNewProjectMode, setIsNewProjectMode] = useState(false);
-  const [tempProjectName, setTempProjectName] = useState("");
-  const [newProjectError, setNewProjectError] = useState<string | null>(null);
-  const newProjectInputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (isNewProjectMode) {
-      newProjectInputRef.current?.focus();
-      setNewProjectError(null);
-    }
-  }, [isNewProjectMode]);
-
-  const handleCreateNewProject = async (name: string) => {
-    const trimmedName = name.trim();
-    if (trimmedName === "") {
-      setIsNewProjectMode(false);
-      setTempProjectName("");
-      return;
-    }
-
-    try {
-      const result = await window.electron?.files.createProjectDirectory(trimmedName);
-
-      if (!result) {
-        throw new Error("Project directory creation failed: Electron API unavailable or unknown error.");
+  const handleActivate = async (node: NodeApi<ExtendedFileTree>) => {
+    if (node.data.type === "file") {
+      const newTab = {
+        id: crypto.randomUUID(),
+        type: "document" as const,
+        title: node.data.name,
+        source: node.data.path,
+        directory: null,
+      };
+      try {
+        const { tabId = null } = (await window.electron?.state.addPanelTab("main", newTab)) ?? {};
+        if (tabId) {
+          activateTab({ panelId: "main", tabId });
+        }
+      } catch {
+        // ignore
       }
-
-      await setActiveProject(result);
-
-      queryClient.invalidateQueries({ queryKey: ["projects"] });
-      queryClient.invalidateQueries({ queryKey: ["app:state"] });
-
-      setIsNewProjectMode(false);
-      setTempProjectName("");
-    } catch (error) {
-      const errorMessage = (error as Error).message || "Error creating project";
-      setNewProjectError(errorMessage);
-      setTempProjectName(trimmedName);
-      newProjectInputRef.current?.focus();
+    } else {
+      expandLazyNode(node);
     }
   };
 
-  // Full-text search state & hook
-  const [rawQuery, setRawQuery] = useState<string>("");
-  const searchQuery = useDebounce(rawQuery, 300);
-  const [matchCase, setMatchCase] = useState(false);
-  const [matchWholeWord, setMatchWholeWord] = useState(false);
-  const [useRegex, setUseRegex] = useState(false);
-  const [useMultiline, setUseMultiline] = useState(false);
-
-  useEffect(() => {
-    if (rawQuery.includes("\n")) setUseMultiline(true);
-  }, [rawQuery]);
-
+  // ─── Full-text search ────────────────────────────────────────────────────────
   const { closeBottomPanel } = usePanelStore();
-  const { storeIsSearching, openSearchTick } = useSearchStore(useShallow((state) => ({
+  const { storeIsSearching, openSearchTick, openWithReplaceTick } = useSearchStore(useShallow((state) => ({
     storeIsSearching: state.isSearching,
     openSearchTick: state.openTick,
+    openWithReplaceTick: state.openWithReplaceTick,
   })));
   const setStoreIsSearching = useSearchStore((state) => state.setIsSearching);
-  const findInputRef = useRef<HTMLTextAreaElement>(null);
 
-  useEffect(() => {
-    if (storeIsSearching) {
-      setTimeout(() => findInputRef.current?.focus(), 0);
-    }
-  }, [openSearchTick, storeIsSearching]);
-
-  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
-  const [searchError, setSearchError] = useState<string | null>(null);
-  const searchIdRef = useRef(0);
-  const seenSearchResultsRef = useRef(new Set<string>());
-
-  useEffect(() => {
-    // Cancel the previous search unconditionally
-    window.electron?.cancelSearch?.(searchIdRef.current);
-
-    if (!searchQuery) {
-      setSearchResults([]);
-      setIsSearching(false);
-      setSearchError(null);
-      return;
-    }
-
-    searchIdRef.current += 1;
-    const currentId = searchIdRef.current;
-
-    seenSearchResultsRef.current = new Set();
-    setSearchResults([]);
-    setIsSearching(true);
-    setSearchError(null);
-
-    window.electron?.startSearch?.({ query: searchQuery, matchCase, matchWholeWord, useRegex, useMultiline, searchId: currentId });
-
-    let firstResult = true;
-    const unsubResult = window.electron?.onSearchResult?.((data) => {
-      if (data.searchId !== currentId) return;
-      const key = `${data.result.path}:${data.result.line}:${data.result.col}`;
-      if (!seenSearchResultsRef.current.has(key)) {
-        seenSearchResultsRef.current.add(key);
-        if (firstResult) {
-          firstResult = false;
-          setSearchResults([data.result]);
+  // After a replace writes to disk, reload any open tab pointing at a changed
+  // file. The main-process file watcher does not reliably fire for these
+  // programmatic writes, so refresh the affected tabs explicitly across every
+  // panel (not just main/right).
+  const handleFilesReplaced = useCallback(async (paths: string[]) => {
+    useBlockContentStore.getState().clearBlocks();
+    queryClient.removeQueries({ queryKey: ["voiden-wrapper:blockContent"] });
+    const panelQueries = queryClient.getQueryCache().findAll({ queryKey: ["panel:tabs"] });
+    for (const q of panelQueries) {
+      const panelId = q.queryKey[1] as string;
+      const data = q.state.data as { tabs?: { id: string; source: string | null }[] } | undefined;
+      for (const tab of data?.tabs ?? []) {
+        if (!tab.id) continue;
+        if (tab.source && paths.includes(tab.source)) {
+          useEditorStore.getState().clearUnsaved(tab.id);
+          queryClient.removeQueries({ queryKey: ["tab:content", panelId, tab.id] });
+          await reloadVoidenEditor(tab.id);
         } else {
-          setSearchResults((prev) => [...prev, data.result]);
+          queryClient.invalidateQueries({ queryKey: ["tab:content", panelId, tab.id] });
         }
       }
-    });
+    }
+    queryClient.invalidateQueries({ queryKey: ["panel:tabs"] });
+  }, [queryClient]);
 
-    const unsubDone = window.electron?.onSearchDone?.((data) => {
-      if (data.searchId !== currentId) return;
-      setIsSearching(false);
-      if (data.error) setSearchError(data.error);
-      if (firstResult) setSearchResults([]);
-    });
-
-    return () => {
-      unsubResult?.();
-      unsubDone?.();
-      window.electron?.cancelSearch?.(currentId);
-    };
-  }, [searchQuery, matchCase, matchWholeWord, useRegex, useMultiline]);
+  const search = useFullTextSearch({
+    storeIsSearching,
+    openSearchTick,
+    openWithReplaceTick,
+    activeFileSource: activeFile?.source,
+    activeDirectory: appState?.activeDirectory,
+    onFilesReplaced: handleFilesReplaced,
+  });
 
   // ─── Sync server data → treeData ─────────────────────────────────────────────
-  // On the FIRST load we initialise treeData from the server response and then
-  // re-expand any directories that were open before (e.g. after a project switch).
+  // First load: initialise treeData from server response, then re-expand any
+  // directories that were open before (e.g. after a project switch).
   //
-  // On SUBSEQUENT server refetches (triggered by delete events, etc.) we merge in
-  // new root children while preserving expanded subtrees so open folders don't
-  // collapse.  This keeps the tree responsive without losing expansion state.
+  // Subsequent refetches (delete events, etc.): merge in new root children while
+  // preserving expanded subtrees so open folders don't collapse.
   useEffect(() => {
     if (!data) return;
 
@@ -1263,8 +362,6 @@ export const FileSystemList = () => {
       isFirstLoadRef.current = false;
       setTreeData([data as ExtendedFileTree]);
 
-      // Track root so refreshDir's re-open loop can restore it if react-arborist
-      // resets its open state when treeData changes.
       if ((data as ExtendedFileTree).type === "folder") {
         expandedDirsRef.current.add((data as ExtendedFileTree).path);
       }
@@ -1305,8 +402,7 @@ export const FileSystemList = () => {
       return;
     }
 
-    // Subsequent refetches: merge in new root children while preserving expanded
-    // subtrees so open folders don't collapse.
+    // Subsequent refetches: merge in new root children while preserving expanded subtrees.
     setTreeData((prev) => {
       if (prev.length === 0) return [data as ExtendedFileTree];
 
@@ -1340,9 +436,8 @@ export const FileSystemList = () => {
     });
 
     // Re-fetch all expanded dirs so changes in deep folders are reflected.
-    // dataUpdatedAt (not data) drives this — React Query's structural sharing
-    // keeps the data reference the same when only deep children changed, but
-    // dataUpdatedAt always increments on every successful refetch.
+    // dataUpdatedAt (not data) drives this — React Query's structural sharing keeps
+    // the data reference the same when only deep children changed.
     const dirsToRefresh = [...expandedDirsRef.current];
     if (dirsToRefresh.length > 0) {
       const electronFiles = window.electron?.files;
@@ -1352,7 +447,7 @@ export const FileSystemList = () => {
           await Promise.all(
             dirsToRefresh.map(async (dirPath) => {
               try {
-                const children = await (electronFiles as any).expandDir(dirPath);
+                const children = await electronFiles.expandDir(dirPath);
                 if (children) results.push({ dirPath, children: children as ExtendedFileTree[] });
               } catch {
                 expandedDirsRef.current.delete(dirPath);
@@ -1376,11 +471,10 @@ export const FileSystemList = () => {
         })();
       }
     }
-
   }, [data, dataUpdatedAt]);
 
-  // Reset the first-load guard whenever the active project changes so that
-  // switching projects re-initialises the tree correctly.
+  // Reset first-load guard whenever the active project changes so switching
+  // projects re-initialises the tree correctly.
   useEffect(() => {
     isFirstLoadRef.current = true;
     expandedDirsRef.current.clear();
@@ -1406,22 +500,26 @@ export const FileSystemList = () => {
   }, []);
 
   // External file/folder additions detected by the file watcher.
-  // `files:tree` invalidation alone doesn't work here because the subsequent-
-  // refetch handler keeps existing children and discards incoming data to
-  // preserve expanded state. refreshDir surgically updates the parent dir instead.
+  // `files:tree` invalidation alone doesn't work — the subsequent-refetch handler
+  // discards incoming data to preserve expanded state. refreshDir patches the parent.
   useElectronEvent<{ path: string }>("file:new", (eventData) => {
     const newPath = eventData?.path;
     if (!newPath) return;
-    // Walk up from the immediate parent until we find an ancestor already
-    // rendered in the tree. Needed when a deep path (e.g. from OpenAPI import)
-    // is created before its intermediate directories exist in the tree.
+    // Walk up until we find an ancestor already rendered. Needed when a deep
+    // path (e.g. from OpenAPI import) is created before intermediate dirs exist.
     let target = getParentPath(newPath);
     while (target && !treeRef.current?.get(target)) {
       const parent = getParentPath(target);
-      if (!parent || parent === target) { target = ''; break; }
+      if (!parent || parent === target) { target = ""; break; }
       target = parent;
     }
     if (target) refreshDir(target);
+    const isDir = eventData?.type === 'directory' || eventData?.type === 'folder';
+    emitPluginEvent(isDir ? 'directory:created' : 'file:created', {
+      filePath: newPath,
+      name: eventData?.name ?? newPath.split('/').pop() ?? '',
+      type: isDir ? 'directory' : 'file',
+    });
   });
 
   useElectronEvent<{ path: string }>("file:duplicate", (eventData) => {
@@ -1457,7 +555,6 @@ export const FileSystemList = () => {
       const tree = treeRef.current;
       if (!tree) return;
 
-      // Build ancestor paths top-down (from project root down to direct parent)
       const ancestors: string[] = [];
       let cursor = getParentPath(activeFile.source);
       while (cursor) {
@@ -1472,12 +569,10 @@ export const FileSystemList = () => {
         if (!node) continue;
 
         if (node.data.lazy) {
-          // Lazy folder: fetch children, inject into tree, then open
           const children = await window.electron?.files.expandDir(ancestorPath);
           if (children) {
             setTreeData((prev) => injectChildren(prev, ancestorPath, children as ExtendedFileTree[]));
             expandedDirsRef.current.add(ancestorPath);
-            // Wait for the state update to render before opening / continuing
             await new Promise<void>((resolve) =>
               setTimeout(() => {
                 treeRef.current?.get(ancestorPath)?.open();
@@ -1491,7 +586,6 @@ export const FileSystemList = () => {
         }
       }
 
-      // Scroll to the file after all ancestors are expanded
       setTimeout(() => {
         treeRef.current?.scrollTo(activeFile.source, "auto");
       }, 50);
@@ -1508,7 +602,7 @@ export const FileSystemList = () => {
     return openState;
   };
 
-  const handleCreate = ({ parentId, index, type }: { parentId: string | null; index: number; type: "leaf" | "internal" }): ExtendedFileTree => {
+  const handleCreate = ({ parentId, type }: { parentId: string | null; index: number; type: "leaf" | "internal" }): ExtendedFileTree => {
     if (!parentId) {
       throw new Error("parentId cannot be null");
     }
@@ -1520,7 +614,7 @@ export const FileSystemList = () => {
       name: "",
       path: newId,
       isTemporary: true,
-      fileKind: fileKind,
+      fileKind,
       parent: parentId,
       type: type === "internal" ? "folder" : "file",
       children: type === "internal" ? [] : undefined,
@@ -1555,7 +649,6 @@ export const FileSystemList = () => {
       return;
     }
 
-    // Refresh source directories for each moved node
     const sourceDirs = new Set(
       dragIds
         .map((id) => parentNode.tree.get(id)?.data.parent)
@@ -1564,21 +657,11 @@ export const FileSystemList = () => {
     for (const dir of sourceDirs) {
       await refreshDir(dir);
     }
-    // Refresh the target directory
     await refreshDir(parentId);
 
-    // Invalidate tab content for all open panels to reflect moved file changes
-    // and ensure references are resolved with new paths
-    for (const panelId of ["main", "right"]) {
-      const panelTabs = queryClient.getQueryData<{ tabs: { id: string; source: string | null }[]; activeTabId: string }>(["panel:tabs", panelId]);
-      for (const tab of panelTabs?.tabs ?? []) {
-        if (tab.source) {
-          queryClient.invalidateQueries({ queryKey: ["tab:content", panelId, tab.id] });
-        }
-      }
-    }
-    
-    // Also invalidate block content and other reference-related queries
+    // Invalidate tab content for all open panels so moved files refresh
+    // and references resolve with new paths.
+    invalidateAllPanelTabContent(queryClient);
     queryClient.invalidateQueries({ queryKey: ["voiden-wrapper:blockContent"] });
     queryClient.invalidateQueries({ queryKey: ["file:exists"] });
 
@@ -1590,19 +673,9 @@ export const FileSystemList = () => {
           onClick: async () => {
             const replaceResult = await window.electron?.files.moveForce([conflict]);
             if (replaceResult?.success) {
-              // Refresh only the affected directories after a forced replace
               for (const dir of sourceDirs) await refreshDir(dir);
               await refreshDir(parentId);
-              
-              // Invalidate tab content after force move
-              for (const panelId of ["main", "right"]) {
-                const panelTabs = queryClient.getQueryData<{ tabs: { id: string; source: string | null }[]; activeTabId: string }>(["panel:tabs", panelId]);
-                for (const tab of panelTabs?.tabs ?? []) {
-                  if (tab.source) {
-                    queryClient.invalidateQueries({ queryKey: ["tab:content", panelId, tab.id] });
-                  }
-                }
-              }
+              invalidateAllPanelTabContent(queryClient);
               queryClient.invalidateQueries({ queryKey: ["voiden-wrapper:blockContent"] });
               queryClient.invalidateQueries({ queryKey: ["file:exists"] });
             } else {
@@ -1616,10 +689,7 @@ export const FileSystemList = () => {
 
   useEffect(() => {
     const off = window.electron?.files.onReferencesUpdated(async (updatedPaths: string[]) => {
-      // Clear linkedBlock cache so updated references are refetched
       useBlockContentStore.getState().clearBlocks();
-      
-      // Remove caches for block content and file existence checks
       queryClient.removeQueries({ queryKey: ["voiden-wrapper:blockContent"] });
       queryClient.removeQueries({ queryKey: ["file:exists"] });
 
@@ -1628,9 +698,9 @@ export const FileSystemList = () => {
         for (const tab of panelTabs?.tabs ?? []) {
           if (!tab.id) continue;
           if (tab.source && updatedPaths.includes(tab.source)) {
-            // This tab's file was rewritten on disk with updated references.
-            // Clear any stale unsaved content so the editor isn't blocked from reloading,
-            // remove the cached query data, then force a reload from disk.
+            // Tab's file was rewritten on disk with updated references.
+            // Clear stale unsaved content so editor isn't blocked, remove cached query
+            // data, then force reload from disk.
             useEditorStore.getState().clearUnsaved(tab.id);
             queryClient.removeQueries({ queryKey: ["tab:content", panelId, tab.id] });
             await reloadVoidenEditor(tab.id);
@@ -1678,54 +748,32 @@ export const FileSystemList = () => {
 
   useElectronEvent<{ path: string; type: string }>("file:create-void", async (eventData) => {
     const tree = treeRef.current;
-    if (tree) {
-      const folderNode = tree.get(eventData.path);
-      if (folderNode) {
-        ensureFolderExpanded(folderNode, eventData.path, expandedDirsRef);
-        const index = folderNode.children ? folderNode.children.length : 0;
-        pendingFileKindRef.current = "void";
-        await tree.create({
-          type: "leaf",
-          parentId: eventData.path,
-          index,
-        });
-
-        const updatedFolder = tree.get(eventData.path);
-        if (updatedFolder && updatedFolder.children) {
-          const newNode = updatedFolder.children.find((child) => child.data.isTemporary);
-          if (newNode) {
-            newNode.edit();
-          }
-        }
-      }
-    }
+    if (!tree) return;
+    const folderNode = tree.get(eventData.path);
+    if (!folderNode) return;
+    ensureFolderExpanded(folderNode, eventData.path, expandedDirsRef);
+    const index = folderNode.children ? folderNode.children.length : 0;
+    pendingFileKindRef.current = "void";
+    await tree.create({ type: "leaf", parentId: eventData.path, index });
+    const updatedFolder = tree.get(eventData.path);
+    const newNode = updatedFolder?.children?.find((child) => child.data.isTemporary);
+    if (newNode) newNode.edit();
   });
 
   useElectronEvent<{ path: string; type: string }>("directory:create", async (eventData) => {
     const tree = treeRef.current;
-    if (tree) {
-      const folderNode = tree.get(eventData.path);
-      if (folderNode) {
-        ensureFolderExpanded(folderNode, eventData.path, expandedDirsRef);
-        const index = folderNode.children ? folderNode.children.length : 0;
-        await tree.create({
-          type: "internal",
-          parentId: eventData.path,
-          index,
-        });
-
-        const updatedFolder = tree.get(eventData.path);
-        if (updatedFolder && updatedFolder.children) {
-          const newNode = updatedFolder.children.find((child) => child.data.isTemporary);
-          if (newNode) {
-            newNode.edit();
-          }
-        }
-      }
-    }
+    if (!tree) return;
+    const folderNode = tree.get(eventData.path);
+    if (!folderNode) return;
+    ensureFolderExpanded(folderNode, eventData.path, expandedDirsRef);
+    const index = folderNode.children ? folderNode.children.length : 0;
+    await tree.create({ type: "internal", parentId: eventData.path, index });
+    const updatedFolder = tree.get(eventData.path);
+    const newNode = updatedFolder?.children?.find((child) => child.data.isTemporary);
+    if (newNode) newNode.edit();
   });
 
-  useElectronEvent<{ path: string; type: string }>("directory:close-project", async (eventData) => {
+  useElectronEvent<{ path: string; type: string }>("directory:close-project", async () => {
     closeBottomPanel();
     await window.electron?.state.emptyActiveProject();
     queryClient.removeQueries({ queryKey: ["files:tree"] });
@@ -1744,12 +792,9 @@ export const FileSystemList = () => {
 
   useElectronEvent<{ path: string }>("file:rename", async (eventData) => {
     const tree = treeRef.current;
-    if (tree) {
-      const nodeToRename = tree.get(eventData.path);
-      if (nodeToRename) {
-        nodeToRename.edit();
-      }
-    }
+    if (!tree) return;
+    const nodeToRename = tree.get(eventData.path);
+    if (nodeToRename) nodeToRename.edit();
   });
 
   if (isPending && appState?.activeDirectory) {
@@ -1763,69 +808,13 @@ export const FileSystemList = () => {
   }
 
   if (!data) {
-    if (isNewProjectMode) {
-      return (
-        <div className="flex flex-col h-full w-full p-2">
-          <div className="flex flex-col">
-            <input
-              autoFocus
-              ref={newProjectInputRef}
-              type="text"
-              className={`px-2 py-1 border rounded h-7 bg-stone-800 text-stone-200 focus:outline-none focus:ring-1 ${newProjectError ? "border-red-500 focus:ring-red-500" : "border-stone-700 focus:ring-orange-500"
-                }`}
-              placeholder="Enter new project name..."
-              value={tempProjectName}
-              onChange={(e) => {
-                setTempProjectName(e.target.value);
-                setNewProjectError(null);
-              }}
-              onBlur={(e) => {
-                if (!newProjectError) {
-                  handleCreateNewProject(e.target.value);
-                }
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  handleCreateNewProject(tempProjectName);
-                } else if (e.key === "Escape") {
-                  setIsNewProjectMode(false);
-                  setTempProjectName("");
-                  setNewProjectError(null);
-                }
-              }}
-              onClick={(e) => e.stopPropagation()}
-            />
-            {newProjectError && <span className="text-red-500 text-xs mt-1">{newProjectError}</span>}
-          </div>
-        </div>
-      );
-    }
-
-    return (
-      <div className="flex flex-col h-full w-full px-4 py-2 gap-4">
-        <div className="text-sm text-text flex flex-col gap-2 mt-4">
-          Create a new Voiden project to get started.
-          <button
-            style={{ maxWidth: "200px" }}
-            className="bg-button-primary hover:bg-button-primary-hover rounded transition px-2 py-1"
-            onClick={() => setIsNewProjectMode(true)}
-          >
-            New Voiden project
-          </button>
-        </div>
-        <div className="text-sm text-text flex flex-col gap-2 mt-4">
-          Or open an existing project.
-          <button
-            style={{ maxWidth: "200px" }}
-            className="bg-button-primary hover:bg-button-primary-hover transition px-2 py-1"
-            onClick={() => openProject("~/")}
-          >
-            Open a project
-          </button>
-        </div>
-      </div>
-    );
+    return <EmptyState />;
   }
+
+  const onSearchClose = () => {
+    setStoreIsSearching(false);
+    search.resetSearch();
+  };
 
   return (
     <div
@@ -1834,44 +823,28 @@ export const FileSystemList = () => {
         event.preventDefault();
         event.stopPropagation();
         if (data) {
+          const _rootTarget = { path: data.path, type: data.type, name: data.name };
           window.electron?.files.showFileContextMenu({
-            path: data.path,
-            type: data.type,
-            name: data.name,
+            ..._rootTarget,
             isProjectRoot: true,
+            pluginItems: getContextMenuItems('file', _rootTarget).map((i) => ({ id: i.id, label: i.label })),
           });
         }
       }}
     >
-      {/* Loading progress bar — always reserve the space to prevent layout shift */}
+      {/* Loading progress bar — always reserve space to prevent layout shift */}
       <div className="h-0.5 w-full overflow-hidden flex-shrink-0 relative">
-        {(showDeleteProgress || isSearching || isTreeBusy) && (
+        {(showDeleteProgress || search.isSearching || isTreeBusy) && (
           <div
             className="absolute h-full w-1/3 bg-accent rounded-full"
             style={{ animation: "fileTreeProgress 1.2s ease-in-out infinite", transform: "translateX(-100%)" }}
           />
         )}
       </div>
+
       {/* Search Panel — always rendered, visibility controlled by CSS */}
       <div className={cn("p-2", !storeIsSearching && "hidden")}>
-        <SearchPanelView
-          findValue={rawQuery}
-          replaceValue=""
-          matchCase={matchCase}
-          matchWholeWord={matchWholeWord}
-          useRegex={useRegex}
-          multiline={useMultiline}
-          showReplace={false}
-          hideNav
-          findInputRef={findInputRef}
-          onFindChange={setRawQuery}
-          onReplaceChange={() => {}}
-          onToggleMatchCase={() => setMatchCase((c) => !c)}
-          onToggleMatchWholeWord={() => setMatchWholeWord((w) => !w)}
-          onToggleRegex={() => setUseRegex((r) => !r)}
-          onToggleMultiline={() => setUseMultiline((m) => !m)}
-          onClose={() => { setStoreIsSearching(false); setRawQuery(""); }}
-        />
+        <SearchPanel search={search} onClose={onSearchClose} />
       </div>
 
       {/* Search Results — always rendered, visibility controlled by CSS */}
@@ -1879,98 +852,22 @@ export const FileSystemList = () => {
         className={cn("flex flex-col flex-1 overflow-y-auto p-2", !storeIsSearching && "hidden")}
         onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); }}
       >
-        {searchError && <div className="text-red-500 text-sm">Error running search: {searchError}</div>}
-        {!searchError && searchQuery && (() => {
-          const matchCount = searchResults.length;
-          const fileCount = new Set(searchResults.map((r) => r.path)).size;
-          return (
-            <div className="flex items-center gap-2 text-xs text-gray-400 px-2 mb-1">
-              {!isSearching && matchCount === 0 && rawQuery === searchQuery && <span>No results for "{rawQuery}"</span>}
-              {matchCount > 0 && <span>{matchCount} match{matchCount === 1 ? "" : "es"} in {fileCount} file{fileCount === 1 ? "" : "s"}</span>}
-              {isSearching && <Loader size={12} className="animate-spin text-accent shrink-0" />}
-            </div>
-          );
-        })()}
-        {searchResults.length > 0 && (() => {
-          const firstLine = searchQuery.split(/\r?\n/).find((l) => l.length > 0) ?? "";
-          const rawPattern = useRegex
-            ? firstLine
-            : firstLine.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-          const wrapped = matchWholeWord ? `\\b(?:${rawPattern})\\b` : rawPattern;
-          let splitter: RegExp | null = null;
-          try {
-            splitter = rawPattern ? new RegExp(`(${wrapped})`, matchCase ? "" : "i") : null;
-          } catch { splitter = null; }
-
-          const openMatch = async (path: string, line: number, col: number, matchIndex: number) => {
-            const editorSearch = useEditorSearchStore.getState();
-            // Set search params before opening the tab so CM knows what to highlight.
-            editorSearch.setTerm(searchQuery);
-            editorSearch.setMatchCase(matchCase);
-            editorSearch.setMatchWholeWord(matchWholeWord);
-            editorSearch.setUseRegex(useRegex);
-            editorSearch.setUseMultiline(useMultiline);
-            const newTab = {
-              id: crypto.randomUUID(),
-              type: "document" as const,
-              title: path.split("/").pop() || path,
-              source: path,
-              directory: null,
-            };
-            const response = await window.electron?.state.addPanelTab("main", newTab);
-            const tabId = response?.tabId;
-            if (tabId) await activateTab({ panelId: "main", tabId });
-            // Set all target info AFTER activateTab in the same React batch as
-            // requestOpenSearchPanel so navigation effects fire last and win.
-            editorSearch.setTargetLine(line);
-            editorSearch.setTargetCol(col);
-            editorSearch.setTargetPath(path);
-            editorSearch.setTargetMatchIndex(matchIndex);
-            editorSearch.requestOpenSearchPanel();
-          };
-
-          // Group all matches by file path.
-          const byFile = searchResults.reduce<Record<string, typeof searchResults>>((acc, r) => {
-            (acc[r.path] ??= []).push(r);
-            return acc;
-          }, {});
-
-          return (
-            <div className="space-y-1">
-              {Object.entries(byFile).map(([filePath, matches]) => (
-                <div key={filePath} className="rounded-lg border border-border overflow-hidden">
-                  {/* File header — clicking opens to the first match in the file */}
-                  <div
-                    className="flex items-center gap-2 px-3 py-1.5 bg-active cursor-pointer hover:bg-hover transition-colors"
-                    onClick={() => openMatch(filePath, matches[0].line, matches[0].col, 0)}
-                  >
-                    <span className="text-xs font-medium text-text truncate flex-1">{filePath.split("/").pop() || filePath}</span>
-                    <span className="text-xs text-comment shrink-0">{matches.length} match{matches.length !== 1 ? "es" : ""}</span>
-                  </div>
-                  {/* All individual line matches */}
-                  {matches.map(({ line, col, preview }, matchIndex) => (
-                    <div
-                      key={`${line}:${col}`}
-                      className="flex items-start gap-3 px-3 py-1.5 border-t border-border cursor-pointer hover:bg-hover transition-colors"
-                      onClick={() => openMatch(filePath, line, col, matchIndex)}
-                    >
-                      <span className="text-xs text-comment shrink-0 tabular-nums w-5 text-right">{line}</span>
-                      <p className="text-xs text-text break-all leading-5">
-                        {splitter
-                          ? preview.trim().split(splitter).map((part, idx) => (
-                              <React.Fragment key={idx}>
-                                {idx % 2 === 1 ? <mark className="bg-accent/60 text-text rounded px-0.5">{part}</mark> : part}
-                              </React.Fragment>
-                            ))
-                          : preview.trim()}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              ))}
-            </div>
-          );
-        })()}
+        <SearchResults
+          rawQuery={search.rawQuery}
+          searchQuery={search.searchQuery}
+          searchResults={search.searchResults}
+          isSearching={search.isSearching}
+          searchError={search.searchError}
+          matchCase={search.matchCase}
+          matchWholeWord={search.matchWholeWord}
+          useRegex={search.useRegex}
+          useMultiline={search.useMultiline}
+          activateTab={activateTab}
+          onReplaceMatch={search.showReplace ? search.replaceMatch : undefined}
+          onReplaceInFile={search.showReplace ? search.replaceInFile : undefined}
+          isReplacing={search.isReplacing}
+          replacedMatches={search.replacedMatches}
+        />
       </div>
 
       {/* File System Tree — always rendered, visibility controlled by CSS */}
@@ -2023,7 +920,7 @@ export const FileSystemList = () => {
             </div>
           </DragOverContext.Provider>
         </TreeActionsContext.Provider>
-        {/* Empty space at bottom to ensure context menu is always accessible */}
+        {/* Empty space at bottom to keep context menu accessible */}
         <div
           className="min-h-[200px]"
           onContextMenu={(event) => {
@@ -2043,3 +940,14 @@ export const FileSystemList = () => {
     </div>
   );
 };
+
+function invalidateAllPanelTabContent(queryClient: ReturnType<typeof useQueryClient>) {
+  for (const panelId of ["main", "right"]) {
+    const panelTabs = queryClient.getQueryData<{ tabs: { id: string; source: string | null }[]; activeTabId: string }>(["panel:tabs", panelId]);
+    for (const tab of panelTabs?.tabs ?? []) {
+      if (tab.source) {
+        queryClient.invalidateQueries({ queryKey: ["tab:content", panelId, tab.id] });
+      }
+    }
+  }
+}

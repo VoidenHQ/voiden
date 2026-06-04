@@ -19,7 +19,7 @@ import { SectionIndicatorExtension } from "./extensions/sectionIndicator";
 import { voidenExtensions } from "./extensions";
 import { preserveUnknownNodesInJSON, DocumentPreserver } from "./extensions/DocumentPreserver";
 import { create } from "zustand";
-import { useEditorEnhancementStore } from "@/plugins";
+import { useEditorEnhancementStore, emitPluginEvent } from "@/plugins";
 import { parseMarkdown } from "./markdownConverter";
 import UniqueID from "./extensions/uniqueId";
 import { VoidenDragMenu } from "./components/VoidenDragMenu";
@@ -158,7 +158,8 @@ export const proseClasses = [
 
   // Text elements - text-base sets the editor's monospace font
   "text-base prose-p:text-text",
-  "prose-strong:font-bold",
+  "prose-headings:text-text",
+  "prose-strong:text-text prose-strong:font-bold",
   "prose-em:italic",
 
   // Lists - generous spacing for readability
@@ -201,6 +202,9 @@ export const proseClasses = [
   // Small text
   "prose-small:text-comment",
 ].join(" ");
+
+// Scaled-down variant for panels/sidebars — same colour overrides, smaller base font.
+export const proseClassesSm = proseClasses.replace("text-base", "text-sm");
 
 interface EditorStore {
   unsaved: Record<string, string>;
@@ -650,7 +654,8 @@ const VoidenEditorInner = ({
           try {
             const savedContent = parseMarkdown(content, memoizedSchema);
             const santizedContent = sanitizeDoc(savedContent);
-            applyContent(santizedContent);
+            const preserved = preserveUnknownNodesInJSON(santizedContent, memoizedSchema);
+            applyContent(preserved);
           } catch {
             const fallbackContent = { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: content }] }] };
             console.log('[VoidenEditor] setContent — doLoad: fallback (parse error)', { tabId, source });
@@ -776,7 +781,9 @@ const VoidenEditorInner = ({
           autoSaveTimerRef.current = window.setTimeout(() => {
             autoSaveTimerRef.current = null;
             if (window.electron?.autosave?.save) {
-              window.electron.autosave.save(tabId, contentString).catch(console.error);
+              window.electron.autosave.save(tabId, contentString)
+                .then(() => emitPluginEvent('file:saved', { filePath: tabId, tabId }))
+                .catch(console.error);
             }
           }, 1000);
         }

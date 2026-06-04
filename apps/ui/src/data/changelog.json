@@ -1,7 +1,51 @@
 [
   {
+    "version": "v2.0.1-beta.1",
+    "date": "3/6/2026",
+    "title": "Plugin Independence, create-plugin & File Search",
+    "description": "Core plugins are now independent repositories, decoupled from the main monorepo for cleaner versioning and contribution. Introduces @voiden/create-plugin to scaffold a plugin workspace with a single command, along with plugin UI improvements and a batch of community-contributed fixes.",
+    "icon": "Plug",
+    "iconColor": "text-violet-400",
+    "bgColor": "bg-gradient-to-br from-violet-900 to-slate-900",
+    "changes": {
+      "Added": [
+        "@voiden/create-plugin — new standalone package to scaffold a Voiden plugin workspace with a single command, making it easier to build and publish plugins without manual boilerplate setup"
+      ],
+      "Improved": [
+        "Core plugins refactored into independent repositories — each plugin now lives in its own repo for cleaner versioning, isolated releases, and easier community contribution",
+        "Plugin install and update UI — clearer status indicators, improved install flow, and more reliable update detection in the extension manager",
+        "@voiden/sdk v1.1.0 — plugins can now register top bar icon buttons (registerTopBarItem), help panel commands (registerHelpCommand), and declarative settings fields (text, number, select, toggle) auto-saved to userData per plugin; a relative-path file system API (context.fs) is available for reading, writing, creating, deleting, and listing project files; all capabilities are gated behind a manifest permission system — plugins must declare which permissions they use (filesystem, settings, commandPalette, contextMenus, events)",
+        "Environment variable editor — improved layout, usability, and naming consistency",
+        "Identifier and file naming standardized to kebab-case across the plugin system",
+        "File system search — added file mask, directory mask, and hidden files toggle; FileSystemList refactored from a single 2000+ line file into smaller focused modules — contributed by Lars Benedetto"
+      ],
+      "Fixed": [
+        "\"Add File\" button no longer gets hidden when two or more cURL blocks are present — the layout now adjusts correctly without requiring manual blank lines below the block — contributed by parvbajaj1",
+        "Large integers in JSON responses were silently rounded due to JavaScript's native JSON parser precision limits — response panel now uses the 'lossless-json' library to parse and render large integers accurately without rounding — contributed by Uchenna"
+      ]
+    }
+  },
+  {
+    "version": "v2.0.0-beta.1",
+    "date": "18/05/2026",
+    "title": "Architecture Refactor & Voiden Runner",
+    "description": "Major refactor restructuring the core request engine and plugin system. Protocol-specific logic for REST, WebSocket, and gRPC now lives entirely within each plugin. Introduces voiden-runner — a standalone CLI for executing .void files headlessly.",
+    "icon": "Wrench",
+    "iconColor": "text-blue-400",
+    "bgColor": "bg-gradient-to-br from-slate-900 to-blue-950",
+    "changes": {
+      "Added": [
+        "voiden-runner — standalone CLI package (@voiden/runner) for executing .void files from the terminal without the desktop app",
+        "Multiple file uploads on a single key in multipart form and binary body — a key can now have more than one file attached to it"
+      ],
+      "Improved": [
+        "REST, WebSocket, and gRPC protocol logic moved into their respective plugins — core request engine is now protocol-agnostic"
+      ]
+    }
+  },
+  {
     "version": "v1.6.3",
-    "date": "19/05/2026",
+    "date": "18/05/2026",
     "title": "gRPC Reliability, OAuth2 & Runtime Variable Fixes",
     "description": "Patch release fixing response header lookups in runtime variables, gRPC connection error surfacing, protocol detection for imported gRPC files, native proto file selection via Electron dialog, theme-aware borders across gRPC and WebSocket UI components, OAuth2 error toasts, and bulk delete of runtime variables.",
     "icon": "Wrench",

@@ -20,6 +20,7 @@ import {
   PostProcessingContext,
 } from './types';
 import { hookRegistry } from './HookRegistry';
+import { parseJsonSafe, stringifyJsonSafe } from '../parseJsonSafe';
 
 /**
  * Hybrid pipeline executor that splits execution between UI and Electron
@@ -221,7 +222,7 @@ export class HybridPipelineExecutor {
 
       if (contentType.includes('json')) {
         try {
-          body = JSON.parse(buffer.toString());
+          body = stringifyJsonSafe(parseJsonSafe(buffer.toString()), 2);
         } catch {
           body = buffer.toString();
         }
@@ -233,7 +234,7 @@ export class HybridPipelineExecutor {
     }
 
     // Calculate size
-    const bodyString = typeof body === 'string' ? body : JSON.stringify(body);
+    const bodyString = typeof body === 'string' ? body : stringifyJsonSafe(body);
     const bytesContent = new TextEncoder().encode(bodyString).length;
 
     return {

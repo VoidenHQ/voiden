@@ -46,12 +46,19 @@ export interface ExtensionData {
   version: string;
   enabled: boolean;
   readme: string;
-  repo?: string; // for community extensions
-  installedPath?: string; // for installed community extensions
+  repo?: string;
+  icon?: string;
+  voidenVersion?: string;
+  bundled?: boolean;
+  installedPath?: string;
   capabilities?: any; // capabilities from manifest
   features?: string[]; // features from manifest
   dependencies?: any; // dependencies from manifest
   mainProcess?: boolean; // whether this extension has a main-process entry point
+  isLocallyAvailable?: boolean; // core extensions only: true if a local bundle exists (bundled or OTA-cached)
+  permissions?: string[];
+  incompatibleLatestVersion?: string; // community only: a newer version exists but requires a newer Voiden
+  requiredVoidenVersion?: string; // community only: the voidenVersion constraint blocking the update
 }
 
 // SIDEBAR PANELS LOGIC

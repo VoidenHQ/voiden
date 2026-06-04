@@ -4,7 +4,7 @@ import { useHistoryStore } from '../historyStore';
 import { readAllHistory, clearAllHistory, removeEntriesFromHistory, checkAttachmentChanges, AttachmentChange } from '../historyManager';
 import { FileAttachmentMeta, HistoryEntryWithFile } from '../types';
 import { getProjectPathFn, importCurlFn } from '../pipelineHooks';
-import { buildCurlForEntry, getHistoryRenderer, buildVoidFileForEntry, useEditorEnhancementStore } from '@/plugins';
+import { buildCurlForEntry, getHistoryRenderer, buildVoidFileForEntry, useEditorEnhancementStore, subscribePluginEvent } from '@/plugins';
 import { historyAdapterRegistry } from '../adapterRegistry';
 import { getSchema } from '@tiptap/core';
 import { voidenExtensions } from '@/core/editors/voiden/extensions';
@@ -600,6 +600,16 @@ export const GlobalHistorySidebar: React.FC = () => {
   }, [setAllEntries, setAllEntriesLoading]);
 
   useEffect(() => { loadAll(); }, [loadAll]);
+
+  // Reload history when the active project changes so we never show stale entries
+  // from a previously-opened project (or export to the wrong directory).
+  useEffect(() => {
+    return subscribePluginEvent('project:changed', () => {
+      setAllEntries([]);
+      setProjectPath(null);
+      loadAll();
+    });
+  }, [loadAll, setAllEntries]);
 
   useEffect(() => {
     if (!menuOpen) return;

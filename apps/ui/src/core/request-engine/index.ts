@@ -10,8 +10,8 @@ export * from "./hooks";
 // Components
 export { SendRequest } from "./components/SendRequest";
 
-// Core functions
-export { sendRequest, replaceBaseUrl, updateLocalStorageValue, replacePathParams } from "./requestState";
+// Generic utilities (REST execution lives in core-extensions/src/voiden-rest-api/lib/execution.ts)
+export { replaceBaseUrl, updateLocalStorageValue, replacePathParams } from "./requestState";
 export type { Electron, Environment, EnvironmentVariable } from "./requestState";
 
 export { getRequest, replaceEnvVariables, replaceEnvVariablesInRequest, getRequestWithPathParams } from "./getRequestFromJson";

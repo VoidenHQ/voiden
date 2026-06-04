@@ -1,4 +1,4 @@
-import { mergeAttributes, NodeViewProps } from "@tiptap/core";
+import { InputRule, mergeAttributes, NodeViewProps } from "@tiptap/core";
 import CodeBlock from "@tiptap/extension-code-block";
 import { NodeViewWrapper, ReactNodeViewRenderer } from "@tiptap/react";
 import { CodeEditor } from "@/core/editors/code/lib/components/CodeEditor";
@@ -112,6 +112,33 @@ export const CustomCodeBlock = CodeBlock.extend({
         },
       },
     };
+  },
+
+  addInputRules() {
+    // The parent CodeBlock uses setBlockType which requires a textblock.
+    // Since this node has content: "" (non-textblock), we use replaceWith instead.
+    return [
+      new InputRule({
+        find: /^`{3,}([a-zA-Z]*)?[\s\n]$/,
+        handler: ({ state, range, match }) => {
+          const language = match[1] || "plaintext";
+          const $from = state.doc.resolve(range.from);
+          const blockStart = $from.before($from.depth);
+          const blockEnd = $from.after($from.depth);
+          state.tr.replaceWith(blockStart, blockEnd, this.type.create({ language, body: "" }));
+        },
+      }),
+      new InputRule({
+        find: /^~{3,}([a-zA-Z]*)?[\s\n]$/,
+        handler: ({ state, range, match }) => {
+          const language = match[1] || "plaintext";
+          const $from = state.doc.resolve(range.from);
+          const blockStart = $from.before($from.depth);
+          const blockEnd = $from.after($from.depth);
+          state.tr.replaceWith(blockStart, blockEnd, this.type.create({ language, body: "" }));
+        },
+      }),
+    ];
   },
 
   addNodeView() {

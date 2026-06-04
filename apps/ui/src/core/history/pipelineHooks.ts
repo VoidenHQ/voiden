@@ -12,6 +12,7 @@ import { useHistoryStore } from './historyStore';
 import { appendToHistory } from './historyManager';
 import { useResponseStore } from '@/core/request-engine/stores/responseStore';
 import { historyAdapterRegistry } from './adapterRegistry';
+import { stringifyJsonSafe } from '@/core/request-engine/parseJsonSafe';
 
 /** Cached between pre-processing and post-processing within a single request */
 let cachedFilePath: string | null = null;
@@ -230,7 +231,7 @@ async function buildFallbackEntry(requestState: any, responseState: any, project
     try {
       const raw = typeof responseState.body === 'string'
         ? responseState.body
-        : JSON.stringify(responseState.body, null, 2);
+        : stringifyJsonSafe(responseState.body, 2);
       responseBody = raw.length > 102400 ? raw.slice(0, 102400) + '\n… (truncated)' : raw;
     } catch { /* skip */ }
   }

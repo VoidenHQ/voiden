@@ -11,9 +11,16 @@ export const coreApi = {
       fetchOptions,
       signalState,
     }),
-  startSearch: (args: { query: string; matchCase: boolean; matchWholeWord: boolean; useRegex: boolean; useMultiline: boolean; searchId: number }) =>
+  startSearch: (args: { query: string; matchCase: boolean; matchWholeWord: boolean; useRegex: boolean; useMultiline: boolean; searchId: number; fileMask?: string; dirMask?: string; includeHidden?: boolean }) =>
     ipcRenderer.send("search-files:start", args),
+  listDirs: (parent?: string): Promise<string[]> => ipcRenderer.invoke("files:dirList", parent),
   cancelSearch: (searchId: number) => ipcRenderer.send("search-files:cancel", searchId),
+  replaceMatch: (args: { path: string; line: number; col: number; query: string; replacement: string; matchCase: boolean; matchWholeWord: boolean; useRegex: boolean; useMultiline: boolean }): Promise<{ success: boolean; updatedPaths: string[]; replacement?: string; error?: string }> =>
+    ipcRenderer.invoke("files:replaceMatch", args),
+  replaceInFiles: (args: { query: string; replacement: string; matchCase: boolean; matchWholeWord: boolean; useRegex: boolean; useMultiline: boolean; paths: string[] }): Promise<{ replacedCount: number; updatedPaths: string[]; replacements?: Record<string, string[]>; error?: string }> =>
+    ipcRenderer.invoke("files:replaceInFiles", args),
+  searchInFile: (args: { path: string; query: string; matchCase: boolean; matchWholeWord: boolean; useRegex: boolean; useMultiline: boolean }): Promise<{ results: { path: string; line: number; col: number; preview: string; colInPreview: number; matchLength: number }[] }> =>
+    ipcRenderer.invoke("files:searchInFile", args),
   onSearchResult: (cb: (data: { searchId: number; result: { path: string; line: number; col: number; preview: string } }) => void) => {
     const handler = (_: Electron.IpcRendererEvent, data: any) => cb(data);
     ipcRenderer.on("search-files:result", handler);

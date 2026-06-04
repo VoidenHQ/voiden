@@ -11,17 +11,23 @@ export const RecentProjectsSelector = () => {
   const { data: projects, refetch } = useGetProjects();
   const setActiveProject = useSetActiveProject();
   const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+
+  const closeModal = () => {
+    setOpen(false);
+    setSearch("");
+  };
 
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
       if (matchesShortcut("ToggleRecentProjectsSelector", e)) {
         e.preventDefault();
-        setOpen((open) => !open);
+        setOpen((prev) => { if (prev) setSearch(""); return !prev; });
       }
       if (e.key === "Escape" && open) {
         e.preventDefault();
         e.stopPropagation();
-        setOpen(false);
+        closeModal();
       }
     };
 
@@ -35,14 +41,13 @@ export const RecentProjectsSelector = () => {
 
   const handleProjectSelect = (projectPath: string) => {
     setActiveProject.mutate(projectPath);
-    setOpen(false);
+    closeModal();
   };
 
   const handleProjectRemove = async (projectPath: string) => {
     await removeProjectFromList(projectPath);
     refetch();
   };
-  const [search, setSearch] = useState("");
 
   if (!projects) return null;
   return (
@@ -63,7 +68,7 @@ export const RecentProjectsSelector = () => {
         open && (
           <div
             className="fixed inset-0 z-[9999] flex items-start justify-center pt-[20vh] bg-black/50"
-            onClick={() => setOpen(false)}
+            onClick={closeModal}
           >
             <div className="w-full max-w-2xl mx-4" onClick={(e) => e.stopPropagation()}>
 

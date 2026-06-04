@@ -1,4 +1,5 @@
 import { parseCookies } from "@voiden/sdk/shared";
+import { parseJsonSafe, stringifyJsonSafe } from './parseJsonSafe';
 
 interface RuntimeVariable {
     key: string;
@@ -65,21 +66,14 @@ function safeJsonParse(value: any): any {
     if (typeof value !== 'string') return value;
 
     try {
-        // First, try standard JSON parse
-        return JSON.parse(value);
+        return parseJsonSafe(value);
     } catch (error) {
-        // If standard parse fails, try to fix common issues
         try {
-            // Fix trailing commas in objects and arrays
             const fixedJson = value
-                // Remove trailing commas in objects
                 .replace(/,\s*}/g, '}')
-                // Remove trailing commas in arrays  
                 .replace(/,\s*]/g, ']')
-                // Remove trailing commas before end of string
                 .replace(/,\s*$/, '');
-
-            return JSON.parse(fixedJson);
+            return parseJsonSafe(fixedJson);
         } catch {
             // If still fails, return original value
             return value;
@@ -156,7 +150,7 @@ function getValueByPath(obj: any, path: string): any {
             }
             if (value) {
                 try {
-                    current = JSON.parse(value);
+                    current = parseJsonSafe(value);
                 } catch {
                     current=value;
                 }
@@ -273,9 +267,9 @@ function replaceTemplateExpressions(
 
         // Replace the expression with the actual value
         if (extractedValue !== undefined && extractedValue !== null) {
-            // Convert to string for replacement
-            const stringValue = typeof extractedValue === 'object'
-                ? JSON.stringify(extractedValue)
+            // Convert to string for replacement (LosslessNumber is object but toString() gives full-precision string)
+            const stringValue = typeof extractedValue === 'object' && !extractedValue?.isLosslessNumber
+                ? stringifyJsonSafe(extractedValue)
                 : String(extractedValue);
 
             result = result.replace(expression, stringValue);
@@ -372,7 +366,7 @@ function replaceProcessVariables(text: string, variables: Record<string, any>, p
 
         if (value !== undefined && value !== null) {
             // Convert to string for replacement
-            return typeof value === 'object' ? JSON.stringify(value) : String(value);
+            return (typeof value === 'object' && !value?.isLosslessNumber) ? stringifyJsonSafe(value) : String(value);
         } else {
             // If variable not found, keep the original expression or replace with empty string
             console.warn(`Process variable not found: ${trimmedPath}`);
@@ -468,10 +462,10 @@ export async function preSendProcessHook(requestState: any): Promise<any> {
                 }
             } else if (typeof requestState.body === 'object') {
                 // Body is already parsed as JSON, stringify -> replace -> parse back
-                const bodyString = JSON.stringify(requestState.body);
+                const bodyString = stringifyJsonSafe(requestState.body);
                 const replacedString = replaceProcessVariables(bodyString, processVariables);
                 try {
-                    requestState.body = JSON.parse(replacedString);
+                    requestState.body = parseJsonSafe(replacedString);
                 } catch (e) {
                     // If parsing fails, keep as string
                     requestState.body = replacedString;
@@ -495,7 +489,7 @@ export async function preSendProcessHook(requestState: any): Promise<any> {
                     // Convert to string for form params (they're always strings in HTTP)
                     return {
                         ...param,
-                        value: typeof replacedValue === 'object' ? JSON.stringify(replacedValue) : String(replacedValue),
+                        value: (typeof replacedValue === 'object' && !replacedValue?.isLosslessNumber) ? stringifyJsonSafe(replacedValue) : String(replacedValue),
                     };
                 } else {
                     // Multiple templates or mixed text

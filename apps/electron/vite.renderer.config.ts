@@ -26,7 +26,7 @@ export default defineConfig((env) => {
     },
     plugins: [pluginExposeRenderer(name), nodePolyfills()],
     resolve: {
-      preserveSymlinks: false, // Allow Vite to follow symlinks for workspace packages
+      preserveSymlinks: false,
       alias: {
         "@": path.resolve(__dirname, "../ui/src"),
         "voiden-wrapper": path.resolve(__dirname, "../../packages/voiden-wrapper/dist"),
@@ -34,7 +34,7 @@ export default defineConfig((env) => {
     },
     optimizeDeps: {
       exclude: [
-        '@voiden/core-extensions',
+
         '@voiden/sdk',
         '@tiptap/core',
         '@tiptap/react',
@@ -52,6 +52,17 @@ export default defineConfig((env) => {
     server: {
       fs: {
         strict: false,
+      },
+      watch: {
+        // Prevent Vite from adding community/core plugin files to its HMR watch
+        // graph. Without this, importing a plugin via absolute path (before the
+        // Blob URL fix) would cause a full-page reload on the next file write
+        // (e.g. reinstall). The Blob URL loader already bypasses Vite, but this
+        // is defense-in-depth for any edge case where a path leaks through.
+        ignored: [
+          '**/plugins/community/**',
+          '**/plugins/core/**',
+        ],
       },
     },
     clearScreen: false,

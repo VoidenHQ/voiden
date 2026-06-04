@@ -1292,7 +1292,8 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
 
   // Rename commit
   const handleCommitRename = (path: string) => {
-    const trimmed = renameValue.trim();
+    // Dots are the path separator for nested envs — strip them from segment names
+    const trimmed = renameValue.trim().replace(/\./g, "-");
     const lastSegment = path.split(".").pop()!;
     if (!trimmed) {
       const node = getNodeAtPath(tree, path);

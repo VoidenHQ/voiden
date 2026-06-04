@@ -1,13 +1,12 @@
-import path from "path";
-import fs from "fs/promises";
 import * as https from "https";
 import { app } from "electron";
 import { ExtensionData } from "src/shared/types";
 
-const EXTENSIONS_REPO = "VoidenHQ/plugins";
-const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
-const remoteExtensionsPath = path.join(app.getPath("userData"), "remoteExtensions.json");
+const COMMUNITY_REGISTRY_URL = "https://raw.githubusercontent.com/VoidenHQ/plugin-registry/main/extensions.json";
+
 const readmeCache = new Map<string, { content: string; timestamp: number }>();
+const changelogCache = new Map<string, { data: any[]; timestamp: number }>();
+const ONE_DAY = 24 * 60 * 60 * 1000;
 
 // Use Node.js https instead of fetch() — fetch() in the Electron main process
 // routes through Chromium's network service which can crash under load at startup.
@@ -17,6 +16,8 @@ function httpsGet(url: string): Promise<string> {
       headers: {
         'User-Agent': `Voiden/${app.getVersion()} (${process.platform}; ${process.arch})`,
         'Accept': 'application/vnd.github.v3+json',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache',
       },
     };
     https.get(url, reqOptions, (res) => {
@@ -42,57 +43,89 @@ function httpsGet(url: string): Promise<string> {
   });
 }
 
-export async function fetchReadme(url: string): Promise<string> {
-  const cached = readmeCache.get(url);
-  if (cached && Date.now() - cached.timestamp < 24 * 60 * 60 * 1000) {
+export async function fetchReadme(repo: string): Promise<string> {
+  const cacheKey = repo;
+  const cached = readmeCache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < ONE_DAY) {
     return cached.content;
   }
+  const branches = ['main', 'master'];
+  for (const branch of branches) {
+    try {
+      const content = await httpsGet(`https://raw.githubusercontent.com/${repo}/${branch}/README.md`);
+      readmeCache.set(cacheKey, { content, timestamp: Date.now() });
+      return content;
+    } catch {
+      // try next branch
+    }
+  }
+  return '';
+}
+
+export async function fetchManifest(repo: string): Promise<Record<string, any> | null> {
+  // Try GitHub release first; fall back to raw branch file for plugins without a release yet.
   try {
-    const content = await httpsGet(url);
-    readmeCache.set(url, { content, timestamp: Date.now() });
-    return content;
+    const raw = await httpsGet(`https://github.com/${repo}/releases/latest/download/manifest.json`);
+    return JSON.parse(raw);
   } catch {
-    return '';
+    for (const branch of ['main', 'master']) {
+      try {
+        const raw = await httpsGet(`https://raw.githubusercontent.com/${repo}/${branch}/manifest.json`);
+        return JSON.parse(raw);
+      } catch {
+        // try next branch
+      }
+    }
+    return null;
   }
 }
 
+export async function fetchChangelog(repo: string): Promise<any[] | null> {
+  const cached = changelogCache.get(repo);
+  if (cached && Date.now() - cached.timestamp < ONE_DAY) {
+    return cached.data;
+  }
+  const urls = [
+    `https://github.com/${repo}/releases/latest/download/changelog.json`,
+    `https://raw.githubusercontent.com/${repo}/main/changelog.json`,
+  ];
+  for (const url of urls) {
+    try {
+      const raw = await httpsGet(url);
+      const data = JSON.parse(raw);
+      if (Array.isArray(data)) {
+        changelogCache.set(repo, { data, timestamp: Date.now() });
+        return data;
+      }
+    } catch {
+      // try next URL
+    }
+  }
+  return null;
+}
+
 export async function getRemoteExtensions(): Promise<ExtensionData[]> {
-  let cachedData: { timestamp: number; data: ExtensionData[] } | null = null;
-
   try {
-    const fileContent = await fs.readFile(remoteExtensionsPath, "utf8");
-    cachedData = JSON.parse(fileContent);
-  } catch {
-    cachedData = null;
-  }
+    const raw = await httpsGet(COMMUNITY_REGISTRY_URL);
+    const parsed = JSON.parse(raw);
+    const remoteExtensionsRaw: any[] = (Array.isArray(parsed) ? parsed : [])
+      .filter((e: any) => e.type === 'community');
 
-  const now = Date.now();
-  if (cachedData && cachedData.timestamp && now - cachedData.timestamp < CACHE_DURATION) {
-    return cachedData.data;
-  }
-
-  try {
-    const raw = await httpsGet(`https://api.github.com/repos/${EXTENSIONS_REPO}/contents/extensions.json?ref=main`);
-    const fileJson = JSON.parse(raw);
-    const remoteJsonString = Buffer.from(fileJson.content, "base64").toString("utf8");
-    const remoteExtensionsRaw: ExtensionData[] = JSON.parse(remoteJsonString);
-
-    const remoteExtensions: ExtensionData[] = remoteExtensionsRaw.map(
+    return remoteExtensionsRaw.map(
       (ext): Omit<ExtensionData, "enabled"> => ({
         id: ext.id,
         name: ext.name,
         description: ext.description,
         author: ext.author,
         version: ext.version,
-        type: "community",
+        type: ext.type ?? "community",
         readme: "",
         repo: ext.repo,
+        icon: ext.icon,
+        voidenVersion: ext.voidenVersion,
       }),
     );
-
-    await fs.writeFile(remoteExtensionsPath, JSON.stringify({ timestamp: now, data: remoteExtensions }), "utf8");
-    return remoteExtensions;
   } catch {
-    return cachedData ? cachedData.data : [];
+    return [];
   }
 }
