@@ -6,6 +6,7 @@ import { SidePanelTabs } from "./components/SidePanelTabs";
 import { SidePanelContent } from "./components/SidePanelContent";
 import { ResizeHandle } from "./components/ResizeHandle";
 import { TopNavBar } from "./components/TopNavBar";
+import { PluginDevToolbar } from "./components/PluginDevToolbar";
 import { StatusBar } from "./components/StatusBar";
 import OnboardingModal from "@/core/screens/OnboardingModal";
 import AboutModal from "@/core/screens/AboutModal";
@@ -442,6 +443,8 @@ export const AppLayout = () => {
     <div className="h-screen w-screen bg-bg font-sans text-text text-base flex flex-col overflow-hidden select-none">
       {/* Top Navigation Bar */}
       <TopNavBar onShowAbout={() => { hideSlashMenu(); setIsAboutModalOpen(true); }} />
+      {/* Floating plugin dev widget — renders via portal, position independent */}
+      <PluginDevToolbar />
 
       {/* Main Content Area with Resizable Panels */}
       <div className="flex-1 min-h-0">

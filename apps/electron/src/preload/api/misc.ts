@@ -99,6 +99,14 @@ export const extensionsApi = {
     ipcRenderer.invoke("extensions:openDetails", extension),
   update: (extensionId: string) =>
     ipcRenderer.invoke("extensions:update", extensionId),
+  devInstall: (): Promise<{ success: boolean; canceled?: boolean; extension?: any; error?: string; details?: string }> =>
+    ipcRenderer.invoke("extensions:devInstall"),
+  devInstallFromPath: (sourcePath: string): Promise<{ success: boolean; extension?: any; error?: string; details?: string }> =>
+    ipcRenderer.invoke("extensions:devInstallFromPath", sourcePath),
+  devOpenPreviewWindow: (): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke("extensions:devOpenPreviewWindow"),
+  devReload: (extensionId: string): Promise<{ success: boolean; extension?: any; error?: string; details?: string }> =>
+    ipcRenderer.invoke("extensions:devReload", extensionId),
   fetchReadme: (repo: string): Promise<string> =>
     ipcRenderer.invoke("extensions:fetchReadme", repo),
   fetchChangelog: (pluginId: string, repo: string): Promise<any[] | null> =>
@@ -336,6 +344,18 @@ export const pluginSettingsApi = {
     ipcRenderer.on('pluginSettings:changed', handler);
     return () => ipcRenderer.removeListener('pluginSettings:changed', handler);
   },
+};
+
+export const pluginDevApi = {
+  build: (sourcePath: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke("pluginDev:build", sourcePath),
+  onBuildOutput: (cb: (line: string) => void) => {
+    const handler = (_: Electron.IpcRendererEvent, line: string) => cb(line);
+    ipcRenderer.on("pluginDev:buildOutput", handler);
+    return () => ipcRenderer.removeListener("pluginDev:buildOutput", handler);
+  },
+  checkProject: (dirPath: string): Promise<{ isPlugin: boolean; pluginId?: string; pluginName?: string }> =>
+    ipcRenderer.invoke("pluginDev:checkProject", dirPath),
 };
 
 export const fontsApi = {

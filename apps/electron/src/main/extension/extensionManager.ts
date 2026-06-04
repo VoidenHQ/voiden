@@ -10,7 +10,7 @@ import { coreExtensions, remoteVersions, remoteNewPlugins } from "../config/core
 import { satisfiesVersionRange } from "../ipc/coreExtensions";
 import AdmZip from "adm-zip";
 
-import { coreCacheDir, communityDir, coreDisabledPath, coreUninstalledPath } from './paths';
+import { coreCacheDir, communityDir, devPluginsDir, coreDisabledPath, coreUninstalledPath } from './paths';
 
 function readDisabledCorePluginsSync(): Set<string> {
   try {
@@ -228,7 +228,8 @@ export class ExtensionManager {
   }
 
   async saveInstalledCommunityExtensions(): Promise<void> {
-    const communityExtensions = this.store.extensions.filter((ext) => ext.type === "community");
+    // Dev extensions are session-only — never persist them to installed.json
+    const communityExtensions = this.store.extensions.filter((ext) => ext.type === "community" && !ext.isDev);
     await fs.mkdir(communityDir(), { recursive: true });
     await fs.writeFile(path.join(communityDir(), "installed.json"), JSON.stringify(communityExtensions), "utf8");
   }
@@ -490,6 +491,116 @@ export class ExtensionManager {
       this.store.extensions.push(extension);
     }
     await this.saveInstalledCommunityExtensions();
+
+    return extension;
+  }
+
+  /**
+   * Install a plugin directly from a source directory for local development.
+   * Reads compiled output from dist/ if present, otherwise from the directory root.
+   * Marks the extension with isDev so the UI can show a DEV badge.
+   * Persists to installed.json so all open windows see it immediately.
+   */
+  async installDevExtension(sourcePath: string): Promise<ExtensionData> {
+    const distDir = path.join(sourcePath, "dist");
+    const hasDistDir = existsSync(distDir);
+    const baseDir = hasDistDir && existsSync(path.join(distDir, "manifest.json")) ? distDir : sourcePath;
+
+    const manifestPath = path.join(baseDir, "manifest.json");
+    if (!existsSync(manifestPath)) {
+      throw new Error(
+        `manifest.json not found in ${baseDir}.\nRun "npm run build" in your plugin directory first, then try again.`
+      );
+    }
+
+    let manifest: any;
+    try {
+      manifest = JSON.parse(await fs.readFile(manifestPath, "utf8"));
+    } catch {
+      throw new Error("manifest.json is not valid JSON.");
+    }
+
+    if (!manifest.id || !manifest.name || !manifest.version) {
+      throw new Error("manifest.json must contain id, name, and version fields.");
+    }
+
+    const isCoreExt = coreExtensions.some((ext) => ext.id === manifest.id);
+    if (isCoreExt) {
+      throw new Error(`Cannot load: "${manifest.id}" conflicts with a core extension.`);
+    }
+
+    const mainJsName = existsSync(path.join(baseDir, `${manifest.id}.js`))
+      ? `${manifest.id}.js`
+      : "main.js";
+    const mainJsPath = path.join(baseDir, mainJsName);
+    if (!existsSync(mainJsPath)) {
+      throw new Error(
+        `${manifest.id}.js (or main.js) not found in ${baseDir}.\nRun "npm run build" in your plugin directory first, then try again.`
+      );
+    }
+
+    // Dev plugins go to a separate dev/ directory, never into community/
+    const installPath = path.join(devPluginsDir(), manifest.id);
+    await fs.mkdir(installPath, { recursive: true });
+
+    await fs.writeFile(path.join(installPath, "manifest.json"), await fs.readFile(manifestPath));
+
+    const mainSource = await fs.readFile(mainJsPath, "utf8");
+    const prepared = installer.prepareExtensionMain(mainSource);
+    await fs.writeFile(path.join(installPath, "main.js"), prepared.main, "utf8");
+    await Promise.all(
+      Object.entries(prepared.extraFiles).map(([filename, source]) =>
+        fs.writeFile(path.join(installPath, filename), source, "utf8")
+      )
+    );
+
+    const skillPath = path.join(baseDir, "skill.md");
+    if (existsSync(skillPath)) {
+      await fs.writeFile(path.join(installPath, "skill.md"), await fs.readFile(skillPath));
+    }
+
+    const mainProcessEntry = [
+      `${manifest.id}-main.cjs`,
+      `${manifest.id}-main.js`,
+      "main-process.js",
+    ]
+      .map((name) => path.join(baseDir, name))
+      .find((p) => existsSync(p));
+
+    if (mainProcessEntry) {
+      await fs.writeFile(
+        path.join(installPath, "main-process.js"),
+        await fs.readFile(mainProcessEntry)
+      );
+    }
+
+    const extension: ExtensionData = {
+      id: manifest.id,
+      type: "community",
+      name: manifest.name,
+      description: manifest.description || "",
+      author: manifest.author || "Unknown",
+      version: manifest.version,
+      enabled: true,
+      icon: manifest.icon,
+      readme: manifest.readme || "",
+      installedPath: installPath,
+      capabilities: manifest.capabilities,
+      features: manifest.features,
+      dependencies: manifest.dependencies,
+      mainProcess: manifest.mainProcess ?? !!mainProcessEntry,
+      permissions: manifest.permissions ?? [],
+      isDev: true,
+      devSourcePath: sourcePath,
+    };
+
+    const index = this.store.extensions.findIndex((ext) => ext.id === extension.id);
+    if (index > -1) {
+      this.store.extensions[index] = extension;
+    } else {
+      this.store.extensions.push(extension);
+    }
+    // Dev extensions are in-memory only — do NOT write to installed.json
 
     return extension;
   }

@@ -59,6 +59,8 @@ export interface ExtensionData {
   permissions?: string[];
   incompatibleLatestVersion?: string; // community only: a newer version exists but requires a newer Voiden
   requiredVoidenVersion?: string; // community only: the voidenVersion constraint blocking the update
+  isDev?: boolean; // loaded from a local source directory for development/preview
+  devSourcePath?: string; // absolute path to the plugin source directory (when isDev is true)
 }
 
 // SIDEBAR PANELS LOGIC

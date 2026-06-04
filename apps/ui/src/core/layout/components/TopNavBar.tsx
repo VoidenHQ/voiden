@@ -6,6 +6,11 @@ import { HamburgerMenu } from "./HamburgerMenu";
 import { useEffect, useState } from "react";
 import logo from "@/assets/logo-dark.png";
 import { usePluginStore } from "@/plugins";
+import { useDevModeStore } from "@/core/layout/devModeStore";
+import { useGetAppState } from "@/core/state/hooks";
+import { toast } from "@/core/components/ui/sonner";
+import { cn } from "@/core/lib/utils";
+import { Tip } from "@/core/components/ui/Tip";
 
 interface TopNavBarProps {
   onShowAbout?: () => void;
@@ -16,6 +21,26 @@ export const TopNavBar = ({ onShowAbout }: TopNavBarProps) => {
   const { mutate: activateTab } = useActivateTab();
   const { data: mainTabs } = useGetPanelTabs("main");
   const topBarItems = usePluginStore((state) => state.topBarItems);
+  const { isDevMode, setDevMode } = useDevModeStore();
+  const { data: appState } = useGetAppState();
+
+  const handleToggleDevMode = async () => {
+    if (isDevMode) {
+      setDevMode(false);
+      return;
+    }
+    const activeDir = (appState as any)?.activeDirectory as string | undefined;
+    if (!activeDir) {
+      toast.warning("Open a plugin project directory first.");
+      return;
+    }
+    const result = await (window as any).electron?.pluginDev?.checkProject?.(activeDir);
+    if (result?.isPlugin) {
+      setDevMode(true);
+    } else {
+      toast.warning("Not a plugin project — no valid manifest.json or build script found.");
+    }
+  };
 
   const isMac = !!(navigator && navigator.platform && navigator.platform.toUpperCase().includes('MAC'));
 
@@ -90,6 +115,22 @@ export const TopNavBar = ({ onShowAbout }: TopNavBarProps) => {
               <item.icon size={14} />
             </button>
           ))}
+        <div className="h-full px-3 flex items-center border-r border-border no-drag">
+          <Tip label="Plugin mode" side="bottom">
+            <button
+              onClick={handleToggleDevMode}
+              className="relative h-4 w-7 rounded-full transition flex-shrink-0"
+              style={{ backgroundColor: isDevMode ? 'var(--icon-primary)' : 'rgb(107 114 128)' }}
+              aria-pressed={isDevMode}
+            >
+              <span
+                className={`absolute top-0.5 h-3 w-3 rounded-full bg-editor shadow transform transition ${
+                  isDevMode ? "translate-x-0" : "translate-x-[-0.75rem]"
+                }`}
+              />
+            </button>
+          </Tip>
+        </div>
         <button className={`h-full px-2 no-drag hover:bg-active w-8 ${isMac?'':'mr-[10px]'}`} onClick={handleOpenSettings}>
           <Settings size={14} />
         </button>

@@ -1157,6 +1157,324 @@ export const ipcStateHandlers = () => {
     return { success: true, extension: ext };
   });
 
+  // Dev plugin: install directly from a known path (used by plugin dev toolbar — no folder picker).
+  ipcMain.handle("extensions:devInstallFromPath", async (event, sourcePath: string) => {
+    try {
+      const state = getAppState(event);
+      const ext = await extensionManager.installDevExtension(sourcePath);
+      await saveState(state);
+      reloadMainProcessExtension(ext).catch(() => {});
+      return { success: true, extension: ext };
+    } catch (e: any) {
+      return { success: false, error: e.message ?? "Unknown error", details: e.stack ?? "" };
+    }
+  });
+
+  // Dev plugin: open a folder picker and install directly from the chosen directory.
+  ipcMain.handle("extensions:devInstall", async () => {
+    const focusedWindow = BrowserWindow.getFocusedWindow();
+    const result = await dialog.showOpenDialog(focusedWindow!, {
+      title: "Select Plugin Project Directory",
+      properties: ["openDirectory"],
+    });
+    if (result.canceled || result.filePaths.length === 0) {
+      return { success: false, canceled: true };
+    }
+    try {
+      const ext = await extensionManager.installDevExtension(result.filePaths[0]);
+      await saveState(appState);
+      reloadMainProcessExtension(ext).catch(() => {});
+      return { success: true, extension: ext };
+    } catch (e: any) {
+      return { success: false, error: e.message ?? "Unknown error", details: e.stack ?? "" };
+    }
+  });
+
+  // Dev plugin: scaffold a new plugin project directly (no external CLI, no prompts, instant).
+  ipcMain.handle(
+    "extensions:devScaffold",
+    async (_, { name, parentDir }: { name: string; parentDir: string }) => {
+      try {
+        const pluginId = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "my-plugin";
+        const projectDir = path.join(parentDir, pluginId);
+        const srcDir = path.join(projectDir, "src");
+        await fs.mkdir(srcDir, { recursive: true });
+
+        // manifest.json at root (also read by build script)
+        await fs.writeFile(
+          path.join(projectDir, "manifest.json"),
+          JSON.stringify({
+            id: pluginId,
+            name,
+            description: "",
+            version: "1.0.0",
+            voidenVersion: ">=2.0.0",
+            author: "",
+            icon: "Plug",
+            type: "community",
+            priority: 30,
+            permissions: [],
+            capabilities: {},
+            features: [],
+          }, null, 2)
+        );
+
+        // src/plugin.ts — entry point
+        const fnSuffix = name.replace(/[^a-zA-Z0-9]/g, "") || "Plugin";
+        await fs.writeFile(
+          path.join(srcDir, "plugin.ts"),
+`import type { CorePluginContext } from '@voiden/sdk/ui';
+import manifest from '../manifest.json';
+
+export default function create${fnSuffix}(context: CorePluginContext) {
+  return {
+    onload: async () => {
+      // Register your plugin functionality here
+    },
+
+    onunload: async () => {
+      // Clean up subscriptions and listeners here
+    },
+
+    metadata: manifest,
+  };
+}
+`
+        );
+
+        // src/voiden.d.ts — compile-time stubs for all packages shimmed by Voiden at runtime.
+        // react, react-dom, and @voiden/sdk are ALL provided via window.__voiden_shims__
+        // when the plugin is loaded, so none of them need to be installed from npm.
+        await fs.writeFile(
+          path.join(srcDir, "voiden.d.ts"),
+`// ── Voiden runtime shims ──────────────────────────────────────────────────────
+// These packages are injected by Voiden at runtime via window.__voiden_shims__.
+// They are externalized from the build and must NOT be installed from npm.
+
+declare module 'react' {
+  export = React;
+  export as namespace React;
+  namespace React {
+    type ReactNode = any;
+    type FC<P = {}> = (props: P) => ReactNode;
+    type CSSProperties = { [key: string]: any };
+    function useState<T>(init: T | (() => T)): [T, (v: T | ((prev: T) => T)) => void];
+    function useEffect(fn: () => void | (() => void), deps?: any[]): void;
+    function useRef<T>(init?: T): { current: T };
+    function useCallback<T extends (...args: any[]) => any>(fn: T, deps: any[]): T;
+    function useMemo<T>(fn: () => T, deps: any[]): T;
+    function useContext<T>(ctx: React.Context<T>): T;
+    function createContext<T>(def: T): Context<T>;
+    function createElement(type: any, props?: any, ...children: any[]): ReactNode;
+    function forwardRef<T, P>(fn: (props: P, ref: any) => ReactNode): FC<P & { ref?: any }>;
+    function memo<T extends FC<any>>(fn: T): T;
+    interface Context<T> { Provider: FC<{ value: T; children?: ReactNode }> }
+    [key: string]: any;
+  }
+}
+
+declare module 'react/jsx-runtime' { export const jsx: any; export const jsxs: any; export const Fragment: any; }
+declare module 'react/jsx-dev-runtime' { export const jsxDEV: any; export const Fragment: any; }
+
+declare module 'react-dom' {
+  export function render(element: any, container: Element): void;
+  export function unmountComponentAtNode(container: Element): boolean;
+  export function createPortal(children: any, container: Element): any;
+  export const version: string;
+}
+
+declare module 'react-dom/client' {
+  export function createRoot(container: Element): { render(el: any): void; unmount(): void };
+}
+
+declare module '@voiden/sdk/ui' {
+  export interface CorePluginContext {
+    registerVoidenExtension: (ext: any) => void;
+    addVoidenSlashGroup: (group: any) => void;
+    registerSidebarTab: (opts: any) => void;
+    registerCommand: (opts: any) => void;
+    registerContextMenu: (opts: any) => void;
+    events: { on: (event: string, handler: (...args: any[]) => void) => () => void };
+    fs: { read: (p: string) => Promise<string>; write: (p: string, content: string) => Promise<void>; [k: string]: any };
+    settings: { get: (key: string) => Promise<any>; set: (key: string, value: any) => Promise<void>; [k: string]: any };
+    ui: { registerSettings: (opts: any) => void; [k: string]: any };
+    [key: string]: any;
+  }
+}
+
+declare module '@voiden/sdk' { export * from '@voiden/sdk/ui'; }
+`
+        );
+
+        // package.json — only vite + typescript needed; @voiden/sdk is shimmed by Voiden at runtime
+        await fs.writeFile(
+          path.join(projectDir, "package.json"),
+          JSON.stringify({
+            name: pluginId,
+            version: "1.0.0",
+            type: "module",
+            scripts: {
+              build: "node build.mjs",
+              zip: "node zip.mjs",
+            },
+            devDependencies: {
+              vite: "^6.0.0",
+              typescript: "^5.0.0",
+            },
+          }, null, 2)
+        );
+
+        // tsconfig.json
+        await fs.writeFile(
+          path.join(projectDir, "tsconfig.json"),
+          JSON.stringify({
+            compilerOptions: {
+              target: "ES2020",
+              module: "ESNext",
+              moduleResolution: "bundler",
+              jsx: "react-jsx",
+              strict: true,
+              declaration: true,
+              resolveJsonModule: true,
+            },
+            include: ["src/**/*", "manifest.json"],
+          }, null, 2)
+        );
+
+        // build.mjs — Vite build, copies manifest.json to dist/
+        await fs.writeFile(
+          path.join(projectDir, "build.mjs"),
+`import { build } from 'vite';
+import { readFileSync, copyFileSync, mkdirSync } from 'fs';
+
+const manifest = JSON.parse(readFileSync('./manifest.json', 'utf8'));
+const pluginId = manifest.id;
+
+// All packages listed here are provided by Voiden's shim system at runtime.
+// They must be externalized — do NOT bundle them.
+const VOIDEN_SHIMS = [
+  'react',
+  'react-dom',
+  'react-dom/client',
+  'react/jsx-runtime',
+  'react/jsx-dev-runtime',
+  '@voiden/sdk',
+  '@voiden/sdk/ui',
+];
+
+await build({
+  build: {
+    lib: {
+      entry: './src/plugin.ts',
+      formats: ['es'],
+      fileName: () => \`\${pluginId}.js\`,
+    },
+    outDir: './dist',
+    rollupOptions: {
+      external: VOIDEN_SHIMS,
+    },
+  },
+});
+
+mkdirSync('./dist', { recursive: true });
+copyFileSync('./manifest.json', './dist/manifest.json');
+console.log(\`Built \${pluginId} → dist/\${pluginId}.js\`);
+`
+        );
+
+        // changelog.json
+        await fs.writeFile(
+          path.join(projectDir, "changelog.json"),
+          JSON.stringify([{
+            version: "1.0.0",
+            date: new Date().toISOString().split("T")[0],
+            changes: ["Initial release"],
+          }], null, 2)
+        );
+
+        return { success: true, projectPath: projectDir, pluginId };
+      } catch (e: any) {
+        return { success: false, error: e.message ?? "Scaffold failed", details: e.stack ?? "" };
+      }
+    }
+  );
+
+  // Dev plugin: check whether a directory looks like a valid plugin project.
+  ipcMain.handle("pluginDev:checkProject", (_, dirPath: string) => {
+    try {
+      const manifestPath = path.join(dirPath, "manifest.json");
+      const pkgPath = path.join(dirPath, "package.json");
+      if (!fsSync.existsSync(manifestPath) || !fsSync.existsSync(pkgPath)) return { isPlugin: false };
+      const manifest = JSON.parse(fsSync.readFileSync(manifestPath, "utf8"));
+      const pkg = JSON.parse(fsSync.readFileSync(pkgPath, "utf8"));
+      if (!manifest.id || !manifest.name || !manifest.version) return { isPlugin: false };
+      if (!pkg.scripts?.build) return { isPlugin: false };
+      return { isPlugin: true, pluginId: manifest.id as string, pluginName: manifest.name as string };
+    } catch {
+      return { isPlugin: false };
+    }
+  });
+
+  // Dev plugin: open a new Voiden window to preview the loaded dev extension.
+  ipcMain.handle("extensions:devOpenPreviewWindow", async () => {
+    await windowManager.createWindow();
+    return { success: true };
+  });
+
+  // Dev plugin: run npm run build in the plugin source directory, streaming output line-by-line.
+  ipcMain.handle("pluginDev:build", async (event, sourcePath: string) => {
+    const { spawn } = await import("child_process");
+    const sender = event.sender;
+
+    const runStep = (args: string[]): Promise<{ success: boolean; error?: string; output: string }> =>
+      new Promise((resolve) => {
+        const proc = spawn("npm", args, {
+          cwd: sourcePath,
+          shell: true,
+          env: { ...process.env, FORCE_COLOR: "0" },
+        });
+        let output = "";
+        const collect = (d: Buffer) => {
+          const text = d.toString();
+          output += text;
+          text.split("\n").forEach((l) => { if (l.trim() && !sender.isDestroyed()) sender.send("pluginDev:buildOutput", l); });
+        };
+        proc.stdout?.on("data", collect);
+        proc.stderr?.on("data", collect);
+        proc.on("close", (code) => resolve(code === 0 ? { success: true, output } : { success: false, error: `exited with code ${code}`, output }));
+        proc.on("error", (err: Error) => resolve({ success: false, error: err.message, output }));
+      });
+
+    // Step 1: npm install — --legacy-peer-deps avoids eresolve conflicts from npm 7+
+    const installResult = await runStep(["install", "--legacy-peer-deps"]);
+    if (!installResult.success) {
+      return { success: false, error: `npm install failed: ${installResult.error}` };
+    }
+
+    // Step 2: npm run build
+    const buildResult = await runStep(["run", "build"]);
+    return buildResult.success
+      ? { success: true }
+      : { success: false, error: `npm run build failed: ${buildResult.error}` };
+  });
+
+  // Dev plugin: re-read files from the original source directory and reinstall.
+  ipcMain.handle("extensions:devReload", async (_, extensionId: string) => {
+    const state = getAppState();
+    const ext = state.extensions.find((e) => e.id === extensionId && e.isDev);
+    if (!ext?.devSourcePath) {
+      return { success: false, error: "Extension not found or not a dev extension." };
+    }
+    try {
+      const reloaded = await extensionManager.installDevExtension(ext.devSourcePath);
+      await saveState(state);
+      reloadMainProcessExtension(reloaded).catch(() => {});
+      return { success: true, extension: reloaded };
+    } catch (e: any) {
+      return { success: false, error: e.message ?? "Unknown error", details: e.stack ?? "" };
+    }
+  });
+
   ipcMain.handle("extensions:uninstall", async (_, extensionId: string) => {
     const appState = getAppState();
 

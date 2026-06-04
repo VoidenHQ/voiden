@@ -359,6 +359,10 @@ declare global {
         update: (extensionId: string) => Promise<any>;
         updateCoreMeta: (pluginId: string, meta: Record<string, any>) => Promise<void>;
         reinstallCore: (pluginId: string) => Promise<{ success: boolean }>;
+        devInstall: () => Promise<{ success: boolean; canceled?: boolean; extension?: any; error?: string; details?: string }>;
+        devInstallFromPath: (sourcePath: string) => Promise<{ success: boolean; extension?: any; error?: string; details?: string }>;
+        devOpenPreviewWindow: () => Promise<{ success: boolean }>;
+        devReload: (extensionId: string) => Promise<{ success: boolean; extension?: any; error?: string; details?: string }>;
       };
       ipc: {
         on: (
@@ -466,6 +470,11 @@ declare global {
         getActive: () => Promise<any[]>;
         clearHistory: () => Promise<boolean>;
         subscribe: (callback: (processes: any[]) => void) => () => void;
+      };
+      pluginDev: {
+        build: (sourcePath: string) => Promise<{ success: boolean; error?: string }>;
+        onBuildOutput: (cb: (line: string) => void) => () => void;
+        checkProject: (dirPath: string) => Promise<{ isPlugin: boolean; pluginId?: string; pluginName?: string }>;
       };
     };
     platform: NodeJS.Platform;

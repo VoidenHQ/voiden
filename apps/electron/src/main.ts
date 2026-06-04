@@ -27,6 +27,7 @@ import { registerPythonScriptIpcHandler } from "./main/ipc/pythonScript";
 import { registerNodeScriptIpcHandler } from "./main/ipc/nodeScript";
 import { registerCoreExtensionsIpcHandlers, watchBundledPluginsForDevReload, seedBundledPluginsToCache } from "./main/ipc/coreExtensions";
 import { loadMainProcessExtensions, unloadMainProcessExtensions } from "./main/extensionLoader";
+import { clearDevPlugins } from "./main/extension/paths";
 import { recomposeAndInstall } from "./main/skillsInstaller";
 import { setupLoggerIPC, logger } from "./main/logger";
 import { initializeIntegratedLogging } from "./main/loggerIntegration";
@@ -110,6 +111,9 @@ app.on("web-contents-created", (_, contents) => {
 
 // App ready event
 app.on("ready", async () => {
+  // Wipe any dev plugin files left over from a previous session before state loads
+  await clearDevPlugins();
+
   const appReadyTime = Date.now();
   // Create splash screen - will be destroyed by createWindow
   const splashWindow = new BrowserWindow({
@@ -267,6 +271,7 @@ app.on("activate", async () => {
 // Cleanup on quit
 app.on("before-quit", async () => {
   await unloadMainProcessExtensions();
+  await clearDevPlugins();
   closeAllWatchers();
 });
 

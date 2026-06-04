@@ -1,4 +1,4 @@
-import { Search, Settings, Loader2, Users, Upload, RefreshCw, Trash2, Cpu, Globe, RotateCw, HardDrive, ArrowUpCircle, ChevronDown, Check } from "lucide-react";
+import { Search, Settings, Loader2, Users, Upload, RefreshCw, Trash2, Cpu, Globe, RotateCw, HardDrive, ArrowUpCircle, ChevronDown, Check, ExternalLink, RotateCcw, AlertTriangle, Terminal } from "lucide-react";
 import * as LucideIcons from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -22,6 +22,74 @@ import logo from "@/assets/logo-dark.png";
 // Module-level timestamps — survive component unmount/remount.
 let _lastRegistryFetch = 0;
 let _lastUpdateCheck = 0;
+
+// ─── Dev plugin error popup ───────────────────────────────────────────────────
+
+const DevErrorDialog = ({
+  open,
+  onClose,
+  error,
+  details,
+}: {
+  open: boolean;
+  onClose: () => void;
+  error: string;
+  details?: string;
+}) => {
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); onClose(); } };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [open, onClose]);
+
+  if (!open) return null;
+  return (
+    <div
+      className="fixed inset-0 z-[10000] flex items-start justify-center pt-[22vh] bg-black/50"
+      onClick={onClose}
+    >
+      <div className="w-full max-w-lg mx-4" onClick={(e) => e.stopPropagation()}>
+        <div className="bg-editor border border-border rounded-lg shadow-lg overflow-hidden">
+          <div className="px-4 py-3 border-b border-border">
+            <div className="flex items-center">
+              <h2 className="text-base font-semibold text-red-400 flex items-center gap-2">
+                <AlertTriangle size={15} />
+                Plugin Load Error
+              </h2>
+              <span className="text-xs text-comment ml-auto">ESC to close</span>
+            </div>
+            <p className="text-xs text-comment mt-0.5">Something went wrong while loading the plugin</p>
+          </div>
+
+          <div className="px-4 py-3 flex flex-col gap-3">
+            <p className="text-sm text-text whitespace-pre-wrap">{error}</p>
+            {details && (
+              <div className="rounded-md bg-bg border border-border overflow-hidden">
+                <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-border text-[11px] text-comment">
+                  <Terminal size={11} />
+                  Details
+                </div>
+                <pre className="text-[11px] text-comment/80 font-mono p-3 overflow-x-auto max-h-48 overflow-y-auto whitespace-pre-wrap break-all leading-relaxed">
+                  {details}
+                </pre>
+              </div>
+            )}
+          </div>
+
+          <div className="px-4 py-2.5 border-t border-border bg-editor/50 flex justify-end">
+            <button
+              onClick={onClose}
+              className="px-3 py-1.5 text-xs bg-active hover:bg-active/80 border border-border rounded-md text-text transition-colors"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const ExtensionIcon = ({ extension, size = "md" }: { extension: Extension; size?: "sm" | "md" | "lg" }) => {
   const dim = size === "sm" ? "w-8 h-8" : size === "lg" ? "w-14 h-14" : "w-10 h-10";
@@ -91,6 +159,26 @@ const ExtensionItem = ({ extension }: { extension: Extension }) => {
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
   const [isUninstallingCore, setIsUninstallingCore] = useState(false);
   const [isCheckingCommunityUpdate, setIsCheckingCommunityUpdate] = useState(false);
+  const [isReloading, setIsReloading] = useState(false);
+  const [devError, setDevError] = useState<{ error: string; details?: string } | null>(null);
+
+  const handleDevReload = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsReloading(true);
+    const result = await (window as any).electron?.extensions?.devReload?.(extension.id);
+    setIsReloading(false);
+    if (result?.success) {
+      await queryClient.invalidateQueries({ queryKey: ["extensions"] });
+      toast.success(`${extension.name} reloaded from source.`);
+    } else if (result?.error) {
+      setDevError({ error: result.error, details: result.details });
+    }
+  };
+
+  const handleDevPreview = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    await (window as any).electron?.extensions?.devOpenPreviewWindow?.();
+  };
 
   const coreIsLocallyAvailable = extension.type !== "core" || extension.isLocallyAvailable !== false;
   const displayVersion = (window as any).__voiden_ota_manifests__?.[extension.id]?.version ?? extension.version;
@@ -385,6 +473,12 @@ const ExtensionItem = ({ extension }: { extension: Extension }) => {
                 </button>
               </Tip>
             ) : null}
+            {/* DEV badge */}
+            {(extension as any).isDev && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded border border-amber-500/30 text-amber-300 bg-amber-500/10 flex-shrink-0 font-mono">
+                DEV
+              </span>
+            )}
             {/* Context menu — only for installed plugins */}
             {isInstalled && renderActions()}
           </div>
@@ -470,6 +564,28 @@ const ExtensionItem = ({ extension }: { extension: Extension }) => {
                   </button>
                 )
               )}
+              {/* Dev plugin: Reload + Preview buttons */}
+              {(extension as any).isDev && (
+                <>
+                  <Tip label="Reload from source directory" side="top">
+                    <button
+                      onClick={handleDevReload}
+                      disabled={isReloading}
+                      className="h-6 w-6 flex items-center justify-center rounded hover:bg-active border border-transparent hover:border-border transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      {isReloading ? <Loader2 size={11} className="animate-spin text-comment" /> : <RotateCcw size={11} className="text-comment" />}
+                    </button>
+                  </Tip>
+                  <Tip label="Preview in new window" side="top">
+                    <button
+                      onClick={handleDevPreview}
+                      className="h-6 w-6 flex items-center justify-center rounded hover:bg-active border border-transparent hover:border-border transition-colors"
+                    >
+                      <ExternalLink size={11} className="text-comment" />
+                    </button>
+                  </Tip>
+                </>
+              )}
               {/* Enabled/Disabled badge for installed plugins */}
               {isInstalled && (
                 <span className={cn(
@@ -486,6 +602,14 @@ const ExtensionItem = ({ extension }: { extension: Extension }) => {
 
         </div>
       </div>
+      {devError && (
+        <DevErrorDialog
+          open={!!devError}
+          onClose={() => setDevError(null)}
+          error={devError.error}
+          details={devError.details}
+        />
+      )}
     </div>
   );
 };
@@ -728,6 +852,7 @@ export const ExtensionBrowser = () => {
           )}
         </div>
       </div>
+
     </div>
   );
 };

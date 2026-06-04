@@ -30,7 +30,8 @@ import {
   skillsApi,
   variablesApi,
   projectApi,
-  mainWindow
+  mainWindow,
+  pluginDevApi,
 } from "./misc";
 
 export const electronApi = {
@@ -68,4 +69,5 @@ export const electronApi = {
   logger: loggerAPI,
   processMonitor: processMonitorAPI,
   platform: process.platform,
+  pluginDev: pluginDevApi,
 };
