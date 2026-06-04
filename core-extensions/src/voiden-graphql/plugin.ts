@@ -77,9 +77,11 @@ export default function createGraphQLPlugin(context: PluginContext) {
           // Environment variables will be replaced securely in Electron (Stage 3)
           // Faker variables will be replaced at Stage 5 (Pre-Send) by the faker extension
           request = await getRequest(editorJson, undefined, undefined);
-          // Only handle documents with a gqlquery node
-          const gqlNode = editorJson.content?.find(
-            (n: any) => n.type === 'gqlquery'
+          const { resolveGraphQLBlocks, parseGraphQLVariablesBody } = await import(
+            /* @vite-ignore */ '@/core/request-engine/graphqlBlocks'
+          );
+          const { queryNode: gqlNode, variablesNode: gqlVariablesNode } = resolveGraphQLBlocks(
+            editorJson.content,
           );
           if (!gqlNode) return request; // Not a GraphQL doc, pass through
 
@@ -98,18 +100,7 @@ export default function createGraphQLPlugin(context: PluginContext) {
             operationName = match[2];
           }
 
-          // Get variables from gqlvariables block
-          const gqlVariablesNode = editorJson.content?.find(
-            (n: any) => n.type === 'gqlvariables'
-          );
-          let variables: any = {};
-          if (gqlVariablesNode) {
-            try {
-              variables = JSON.parse(gqlVariablesNode.attrs?.body || '{}');
-            } catch (e) {
-              // ignore parse errors
-            }
-          }
+          const variables = parseGraphQLVariablesBody(gqlVariablesNode?.attrs?.body);
 
           // URL: from gqlurl child text, or legacy attrs.endpoint, or schemaUrl
           const gqlUrlText = gqlUrlChild?.content?.[0]?.text || gqlUrlChild?.content || '';

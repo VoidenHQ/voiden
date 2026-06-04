@@ -3,6 +3,7 @@ import { BodyParam, ContentType, PreRequestResult, Request, RequestParam, TestRe
 import { v4 } from "uuid";
 
 import { executeScriptInContext as preRequestExecutor } from "@/core/request-engine/components/worker";
+import { parseGraphQLVariablesBody, resolveGraphQLBlocks } from "./graphqlBlocks";
 
 /**
  * Strip comments from JSONC (JSON with Comments)
@@ -368,8 +369,7 @@ export const getRequest = async (
 
   // Detect protocol type from editor
   const getProtocolType = (editor: Doc)=> {
-    // Check for GraphQL query node
-    const gqlQueryNode = findNode(editor, "gqlquery");
+    const { queryNode: gqlQueryNode } = resolveGraphQLBlocks(editor.content);
     if (gqlQueryNode) {
       return 'graphql';
     }
@@ -968,7 +968,7 @@ export const getRequest = async (
 
   // Helper to get GraphQL data
   const getGraphQLData = () => {
-    const gqlQueryNode = findNode(editor, "gqlquery");
+    const { queryNode: gqlQueryNode, variablesNode: gqlVariablesNode } = resolveGraphQLBlocks(editor.content);
     if (!gqlQueryNode) return null;
 
     // Support new format (gqlbody child) and old format (direct attrs)
@@ -983,16 +983,7 @@ export const getRequest = async (
       operationName = operationMatch[2];
     }
 
-    // Get variables
-    const gqlVariablesNode = findNode(editor, "gqlvariables");
-    let variables: any = {};
-    if (gqlVariablesNode) {
-      try {
-        variables = JSON.parse(gqlVariablesNode.attrs?.body || '{}');
-      } catch (e) {
-        console.error('Failed to parse GraphQL variables:', e);
-      }
-    }
+    const variables = parseGraphQLVariablesBody(gqlVariablesNode?.attrs?.body as string | undefined);
 
     return {
       query,
