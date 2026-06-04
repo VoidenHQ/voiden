@@ -163,6 +163,8 @@ export const envApi = {
     ipcRenderer.invoke("env:createProfile", profile),
   deleteProfile: (profile: string) =>
     ipcRenderer.invoke("env:deleteProfile", profile),
+  renameProfile: (oldName: string, newName: string) =>
+    ipcRenderer.invoke("env:renameProfile", oldName, newName),
 };
 
 export const requestApi = {

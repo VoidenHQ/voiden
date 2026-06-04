@@ -8,6 +8,7 @@ import { useSaveYamlEnvironments } from "@/core/environment/hooks";
 import { useProfiles } from "../hooks/useProfiles.ts";
 import { useCreateProfile } from "@/core/environment/hooks";
 import { useDeleteProfile } from "@/core/environment/hooks";
+import { useRenameProfile } from "@/core/environment/hooks/useRenameProfile.ts";
 import type { EditableEnvNode, EditableVariable } from "./EnvironmentNode";
 import {
   type EditableEnvTree,
@@ -150,8 +151,10 @@ const ProfileSelector = ({
   const { data: profiles } = useProfiles();
   const { mutate: createProfile } = useCreateProfile();
   const { mutate: deleteProfile } = useDeleteProfile();
+  const { mutate: renameProfile } = useRenameProfile();
   const [open, setOpen] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [renaming, setRenaming] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
   const [nameError, setNameError] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
@@ -161,7 +164,7 @@ const ProfileSelector = ({
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false); setCreating(false); setNewName(""); setNameError(null);
+        setOpen(false); setCreating(false); setRenaming(null); setNewName(""); setNameError(null);
       }
     };
     if (open) document.addEventListener("mousedown", handler);
@@ -175,6 +178,19 @@ const ProfileSelector = ({
     if (t === "default" || profiles?.includes(t)) { setNameError("Profile already exists"); return; }
     createProfile(t); onSelectProfile(t);
     setCreating(false); setNewName(""); setNameError(null); setOpen(false);
+  };
+
+  const handleRename = () => {
+    const t = newName.trim();
+    if (!renaming || !t) return;
+    if (!PROFILE_NAME_REGEX.test(t)) { setNameError("Lowercase letters, numbers, hyphens only"); return; }
+    if (t === "default" || (profiles?.includes(t) && t !== renaming)) {
+      setNameError("Profile already exists");
+      return;
+    }
+    renameProfile({ oldName: renaming, newName: t });
+    if (selectedProfile === renaming) onSelectProfile(t);
+    setRenaming(null); setNewName(""); setNameError(null); setOpen(false);
   };
 
   return (
@@ -191,26 +207,57 @@ const ProfileSelector = ({
           <div className="px-3 py-1.5 text-xs text-comment font-semibold uppercase tracking-wider border-b border-border">Profile</div>
           <div className="max-h-40 overflow-y-auto py-1">
             {profiles?.map((p) => (
-              <div
-                key={p}
-                className="flex items-center px-3 py-1.5 text-sm hover:bg-active cursor-pointer group"
-                onClick={() => { onSelectProfile(p); setOpen(false); }}
-              >
-                <span className="flex-1 truncate">{p}</span>
-                {p === selectedProfile && <Check size={13} style={{ color: "var(--icon-success)" }} />}
-                {p !== "default" && (
-                  <button
-                    className="p-0.5 rounded hover:bg-border opacity-0 group-hover:opacity-100 ml-1"
-                    onClick={(e) => { e.stopPropagation(); deleteProfile(p); if (selectedProfile === p) onSelectProfile("default"); setOpen(false); }}
-                  >
-                    <Trash2 size={11} className="text-comment" />
-                  </button>
-                )}
-              </div>
+              renaming === p ? (
+                <div key={p} className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
+                  <input
+                    ref={inputRef}
+                    value={newName}
+                    onChange={(e) => { setNewName(e.target.value); setNameError(null); }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleRename();
+                      if (e.key === "Escape") { setRenaming(null); setNewName(""); setNameError(null); }
+                    }}
+                    className="w-full text-sm px-2 py-1 bg-editor border border-border rounded outline-none text-text"
+                  />
+                  {nameError && <p className="text-xs mt-1" style={{ color: "var(--icon-danger)" }}>{nameError}</p>}
+                </div>
+              ) : (
+                <div
+                  key={p}
+                  className="flex items-center px-3 py-1.5 text-sm hover:bg-active cursor-pointer group"
+                  onClick={() => { onSelectProfile(p); setOpen(false); }}
+                >
+                  <span className="flex-1 truncate">{p}</span>
+                  {p === selectedProfile && <Check size={13} style={{ color: "var(--icon-success)" }} />}
+                  {p !== "default" && (
+                    <>
+                      <button
+                        className="p-0.5 rounded hover:bg-border opacity-0 group-hover:opacity-100 ml-1"
+                        title="Rename profile"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setRenaming(p);
+                          setNewName(p);
+                          setCreating(false);
+                          setNameError(null);
+                        }}
+                      >
+                        <Pencil size={11} className="text-comment" />
+                      </button>
+                      <button
+                        className="p-0.5 rounded hover:bg-border opacity-0 group-hover:opacity-100 ml-1"
+                        onClick={(e) => { e.stopPropagation(); deleteProfile(p); if (selectedProfile === p) onSelectProfile("default"); setOpen(false); }}
+                      >
+                        <Trash2 size={11} className="text-comment" />
+                      </button>
+                    </>
+                  )}
+                </div>
+              )
             ))}
           </div>
           <div className="border-t border-border px-3 py-2">
-            {creating ? (
+            {creating && !renaming ? (
               <div>
                 <input
                   ref={inputRef}
@@ -222,11 +269,11 @@ const ProfileSelector = ({
                 />
                 {nameError && <p className="text-xs mt-1" style={{ color: "var(--icon-danger)" }}>{nameError}</p>}
               </div>
-            ) : (
-              <button onClick={() => setCreating(true)} className="flex items-center gap-1.5 text-sm text-comment hover:text-text w-full">
+            ) : !renaming ? (
+              <button onClick={() => { setCreating(true); setNewName(""); }} className="flex items-center gap-1.5 text-sm text-comment hover:text-text w-full">
                 <Plus size={13} /> New profile
               </button>
-            )}
+            ) : null}
           </div>
         </div>
       )}

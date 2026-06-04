@@ -504,6 +504,45 @@ ipcMain.handle("env:createProfile", async (event, profile: string) => {
   try { const { ensureVoidenGitignore } = await import('./git'); await ensureVoidenGitignore(activeProject); } catch { }
 });
 
+ipcMain.handle("env:renameProfile", async (event, oldName: string, newName: string) => {
+  const activeProject = await getActiveProject(event);
+  if (!activeProject || !oldName || !newName || oldName === "default" || newName === "default") {
+    throw new Error("Cannot rename the default profile or use reserved name");
+  }
+  if (!PROFILE_NAME_REGEX.test(oldName) || !PROFILE_NAME_REGEX.test(newName)) {
+    throw new Error(`Invalid profile name. Must match ${PROFILE_NAME_REGEX}`);
+  }
+  if (oldName === newName) return;
+
+  const profiles = await discoverProfiles(activeProject);
+  if (!profiles.includes(oldName)) {
+    throw new Error(`Profile "${oldName}" does not exist`);
+  }
+  if (profiles.includes(newName)) {
+    throw new Error(`Profile "${newName}" already exists`);
+  }
+
+  const oldFiles = profileFileNames(oldName);
+  const newFiles = profileFileNames(newName);
+  const renames: [string, string][] = [
+    [path.join(activeProject, oldFiles.publicFile), path.join(activeProject, newFiles.publicFile)],
+    [path.join(activeProject, oldFiles.privateFile), path.join(activeProject, newFiles.privateFile)],
+  ];
+  for (const [from, to] of renames) {
+    try {
+      await fs.rename(from, to);
+    } catch (e: any) {
+      if (e.code !== "ENOENT") throw e;
+    }
+  }
+
+  const appState = getAppState(event);
+  if (appState.directories[activeProject]?.activeProfile === oldName) {
+    appState.directories[activeProject].activeProfile = newName;
+    await saveState(appState);
+  }
+});
+
 ipcMain.handle("env:deleteProfile", async (event, profile: string) => {
   const activeProject = await getActiveProject(event);
   if (!activeProject || !profile || profile === "default") return;
