@@ -22,6 +22,10 @@ import {
 } from '@voiden/core-extensions/voiden-rest-api/help';
 import { SimpleAssertionsHelp } from '@voiden/core-extensions/simple-assertions/help';
 import { RuntimeVariablesHelp } from '@/core/editors/voiden/nodes/help';
+import {
+  shouldHideFromFileSearch,
+  type FileSearchFilterOptions,
+} from '@/core/components/fileSearchFilters';
 
 interface CommandPaletteProps {
   isFocused: boolean;
@@ -50,6 +54,9 @@ interface Command {
 
 export const CommandPalette: React.FC<CommandPaletteProps> = ({ isFocused, mode, onFocus, onBlur, onShowHelp }) => {
   const [searchQuery, setSearchQuery] = useState('');
+  const [hideJsonFiles, setHideJsonFiles] = useState(false);
+  const [hideVoidFiles, setHideVoidFiles] = useState(false);
+  const [fileMask, setFileMask] = useState('');
   const [filteredFiles, setFilteredFiles] = useState<FileItem[]>([]);
   const [isLoadingFiles, setIsLoadingFiles] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -169,6 +176,15 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isFocused, mode,
     return () => clearTimeout(t);
   }, [searchQuery]);
 
+  const fileSearchFilters = useMemo<FileSearchFilterOptions>(
+    () => ({
+      hideJson: hideJsonFiles,
+      hideVoid: hideVoidFiles,
+      fileMask: fileMask.trim() || undefined,
+    }),
+    [hideJsonFiles, hideVoidFiles, fileMask],
+  );
+
   // Session id regenerated each time the files picker opens so the main-process
   // cache knows when to reload vs. reuse the previously-collected file list.
   // Cleanup closes the server-side session so it can release its cached paths.
@@ -203,7 +219,10 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isFocused, mode,
           if (cancelled) return;
           setIsLoadingFiles(false);
           if (!list) return;
-          const incoming: FileItem[] = list.map((f) => {
+          const visible = list.filter(
+            (f) => !shouldHideFromFileSearch(f.name, fileSearchFilters),
+          );
+          const incoming: FileItem[] = visible.map((f) => {
             const normPath = f.path.replace(/\\/g, '/');
             const normDir = activeDirectory.replace(/\\/g, '/');
             const rel = normPath.startsWith(normDir)
@@ -222,7 +241,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isFocused, mode,
 
           // Update folder suggestions
           const folderSet = new Set<string>();
-          for (const f of list) {
+          for (const f of visible) {
             const relative = f.path.startsWith(activeDirectory)
                 ? f.path.slice(activeDirectory.length + 1)
                 : f.path;
@@ -237,7 +256,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isFocused, mode,
         });
 
     return () => { cancelled = true; };
-  }, [isFocused, activeDirectory, debouncedQuery, mode]);
+  }, [isFocused, activeDirectory, debouncedQuery, mode, fileSearchFilters]);
 
   // Calculate autocomplete suggestion based on current input
   useEffect(() => {
@@ -941,6 +960,50 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isFocused, mode,
           />
           <span className="text-xs text-comment">ESC to close</span>
         </div>
+
+        {mode === 'files' && (
+          <div className="flex flex-wrap items-center gap-2 px-4 py-2 bg-editor border-x border-border text-xs">
+            <button
+              type="button"
+              className={cn(
+                'rounded px-2 py-1 border transition-colors',
+                hideJsonFiles
+                  ? 'border-accent bg-accent/15 text-text'
+                  : 'border-border text-comment hover:text-text',
+              )}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                setHideJsonFiles((v) => !v);
+              }}
+            >
+              Hide .json
+            </button>
+            <button
+              type="button"
+              className={cn(
+                'rounded px-2 py-1 border transition-colors',
+                hideVoidFiles
+                  ? 'border-accent bg-accent/15 text-text'
+                  : 'border-border text-comment hover:text-text',
+              )}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                setHideVoidFiles((v) => !v);
+              }}
+            >
+              Hide .void
+            </button>
+            <input
+              type="text"
+              value={fileMask}
+              onChange={(e) => setFileMask(e.target.value)}
+              onMouseDown={(e) => e.stopPropagation()}
+              placeholder="File mask (e.g. *.ts, !*.json)"
+              className="min-w-[12rem] flex-1 rounded px-2 py-1 bg-bg border border-border text-text placeholder:text-comment outline-none"
+              aria-label="File mask filter"
+            />
+          </div>
+        )}
 
         {/* Dropdown Results */}
         <div className="bg-editor border-x border-b border-border rounded-b-lg shadow-lg max-h-[400px] overflow-hidden">
