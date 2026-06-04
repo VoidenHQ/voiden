@@ -1,6 +1,4 @@
 export interface FileSearchFilterOptions {
-  hideJson: boolean;
-  hideVoid: boolean;
   /** IntelliJ-style mask, e.g. `*.ts`, `!*.json`, comma-separated */
   fileMask?: string;
 }
@@ -10,15 +8,6 @@ export function shouldHideFromFileSearch(
   fileName: string,
   options: FileSearchFilterOptions,
 ): boolean {
-  const lower = fileName.toLowerCase();
-
-  if (options.hideJson && (lower.endsWith('.json') || lower.endsWith('.jsonc'))) {
-    return true;
-  }
-  if (options.hideVoid && lower.endsWith('.void')) {
-    return true;
-  }
-
   const mask = options.fileMask?.trim();
   if (!mask) {
     return false;

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, startTransition } from 'react';
-import { Search, File, Folder, FilePlus, Terminal, Settings, FolderPlus, HelpCircle, Sparkles } from 'lucide-react';
+import { Search, File, Folder, FilePlus, Terminal, Settings, FolderPlus, HelpCircle, Sparkles, SlidersHorizontal } from 'lucide-react';
 import type { MatchedFragment } from '@voiden/fuzzy-search';
 import { highlightText } from '@/core/editors/voiden/extensions/MatchedFragment';
 import { useAddPanelTab } from '@/core/layout/hooks';
@@ -46,10 +46,9 @@ interface Command {
 
 export const CommandPalette: React.FC<CommandPaletteProps> = ({ isFocused, mode, onFocus, onBlur, onShowHelp }) => {
   const [searchQuery, setSearchQuery] = useState('');
-  const [hideJsonFiles, setHideJsonFiles] = useState(false);
-  const [hideVoidFiles, setHideVoidFiles] = useState(false);
   const [fileMask, setFileMask] = useState('');
-  const [filteredFiles, setFilteredFiles] = useState<FileItem[]>([]);
+  const [showFileFilters, setShowFileFilters] = useState(false);
+  const [rawFileList, setRawFileList] = useState<FileItem[]>([]);
   const [isLoadingFiles, setIsLoadingFiles] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [showDropdown, setShowDropdown] = useState(false);
@@ -172,11 +171,17 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isFocused, mode,
 
   const fileSearchFilters = useMemo<FileSearchFilterOptions>(
     () => ({
-      hideJson: hideJsonFiles,
-      hideVoid: hideVoidFiles,
       fileMask: fileMask.trim() || undefined,
     }),
-    [hideJsonFiles, hideVoidFiles, fileMask],
+    [fileMask],
+  );
+
+  const filteredFiles = useMemo(
+    () =>
+      rawFileList.filter(
+        (f) => !shouldHideFromFileSearch(f.name, fileSearchFilters),
+      ),
+    [rawFileList, fileSearchFilters],
   );
 
   // Session id regenerated each time the files picker opens so the main-process
@@ -213,10 +218,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isFocused, mode,
           if (cancelled) return;
           setIsLoadingFiles(false);
           if (!list) return;
-          const visible = list.filter(
-            (f) => !shouldHideFromFileSearch(f.name, fileSearchFilters),
-          );
-          const incoming: FileItem[] = visible.map((f) => {
+          const incoming: FileItem[] = list.map((f) => {
             const normPath = f.path.replace(/\\/g, '/');
             const normDir = activeDirectory.replace(/\\/g, '/');
             const rel = normPath.startsWith(normDir)
@@ -231,11 +233,11 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isFocused, mode,
               filenameFragments: f.filenameFragments,
             };
           });
-          startTransition(() => setFilteredFiles(incoming));
+          startTransition(() => setRawFileList(incoming));
 
           // Update folder suggestions
           const folderSet = new Set<string>();
-          for (const f of visible) {
+          for (const f of list) {
             const relative = f.path.startsWith(activeDirectory)
                 ? f.path.slice(activeDirectory.length + 1)
                 : f.path;
@@ -250,7 +252,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isFocused, mode,
         });
 
     return () => { cancelled = true; };
-  }, [isFocused, activeDirectory, debouncedQuery, mode, fileSearchFilters]);
+  }, [isFocused, activeDirectory, debouncedQuery, mode]);
 
   // Calculate autocomplete suggestion based on current input
   useEffect(() => {
@@ -899,46 +901,35 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isFocused, mode,
         </div>
 
         {mode === 'files' && (
-          <div className="flex flex-wrap items-center gap-2 px-4 py-2 bg-editor border-x border-border text-xs">
+          <div className="flex items-center gap-2 px-4 py-2 bg-editor border-x border-border text-xs">
             <button
               type="button"
               className={cn(
-                'rounded px-2 py-1 border transition-colors',
-                hideJsonFiles
+                'rounded p-1.5 border transition-colors',
+                showFileFilters || fileMask
                   ? 'border-accent bg-accent/15 text-text'
                   : 'border-border text-comment hover:text-text',
               )}
               onMouseDown={(e) => {
                 e.preventDefault();
-                setHideJsonFiles((v) => !v);
+                setShowFileFilters((v) => !v);
               }}
+              aria-label="Toggle file mask filter"
+              aria-expanded={showFileFilters}
             >
-              Hide .json
+              <SlidersHorizontal size={14} />
             </button>
-            <button
-              type="button"
-              className={cn(
-                'rounded px-2 py-1 border transition-colors',
-                hideVoidFiles
-                  ? 'border-accent bg-accent/15 text-text'
-                  : 'border-border text-comment hover:text-text',
-              )}
-              onMouseDown={(e) => {
-                e.preventDefault();
-                setHideVoidFiles((v) => !v);
-              }}
-            >
-              Hide .void
-            </button>
-            <input
-              type="text"
-              value={fileMask}
-              onChange={(e) => setFileMask(e.target.value)}
-              onMouseDown={(e) => e.stopPropagation()}
-              placeholder="File mask (e.g. *.ts, !*.json)"
-              className="min-w-[12rem] flex-1 rounded px-2 py-1 bg-bg border border-border text-text placeholder:text-comment outline-none"
-              aria-label="File mask filter"
-            />
+            {showFileFilters && (
+              <input
+                type="text"
+                value={fileMask}
+                onChange={(e) => setFileMask(e.target.value)}
+                onMouseDown={(e) => e.stopPropagation()}
+                placeholder="File mask (e.g. *.ts, !*.json, !*.void)"
+                className="min-w-[12rem] flex-1 rounded px-2 py-1 bg-bg border border-border text-text placeholder:text-comment outline-none"
+                aria-label="File mask filter"
+              />
+            )}
           </div>
         )}
 

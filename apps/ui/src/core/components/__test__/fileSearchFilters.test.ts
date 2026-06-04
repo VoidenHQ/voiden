@@ -2,59 +2,28 @@ import { describe, expect, it } from 'vitest';
 import { shouldHideFromFileSearch } from '../fileSearchFilters';
 
 describe('shouldHideFromFileSearch', () => {
-  it('shows all files when no filters are enabled', () => {
-    expect(
-      shouldHideFromFileSearch('docs/api.json', {
-        hideJson: false,
-        hideVoid: false,
-      }),
-    ).toBe(false);
-  });
-
-  it('hides json and jsonc when hideJson is enabled', () => {
-    const opts = { hideJson: true, hideVoid: false };
-    expect(shouldHideFromFileSearch('api.json', opts)).toBe(true);
-    expect(shouldHideFromFileSearch('config.jsonc', opts)).toBe(true);
-    expect(shouldHideFromFileSearch('handler.ts', opts)).toBe(false);
-  });
-
-  it('hides void files when hideVoid is enabled', () => {
-    const opts = { hideJson: false, hideVoid: true };
-    expect(shouldHideFromFileSearch('request.void', opts)).toBe(true);
-    expect(shouldHideFromFileSearch('readme.md', opts)).toBe(false);
+  it('shows all files when no mask is set', () => {
+    expect(shouldHideFromFileSearch('docs/api.json', {})).toBe(false);
   });
 
   it('applies include patterns from file mask', () => {
     expect(
-      shouldHideFromFileSearch('handler.ts', {
-        hideJson: false,
-        hideVoid: false,
-        fileMask: '*.ts',
-      }),
+      shouldHideFromFileSearch('handler.ts', { fileMask: '*.ts' }),
     ).toBe(false);
     expect(
-      shouldHideFromFileSearch('api.json', {
-        hideJson: false,
-        hideVoid: false,
-        fileMask: '*.ts',
-      }),
+      shouldHideFromFileSearch('api.json', { fileMask: '*.ts' }),
     ).toBe(true);
   });
 
   it('applies exclude patterns from file mask', () => {
     expect(
-      shouldHideFromFileSearch('api.json', {
-        hideJson: false,
-        hideVoid: false,
-        fileMask: '!*.json',
-      }),
+      shouldHideFromFileSearch('api.json', { fileMask: '!*.json' }),
     ).toBe(true);
     expect(
-      shouldHideFromFileSearch('handler.ts', {
-        hideJson: false,
-        hideVoid: false,
-        fileMask: '!*.json',
-      }),
+      shouldHideFromFileSearch('handler.ts', { fileMask: '!*.json' }),
     ).toBe(false);
+    expect(
+      shouldHideFromFileSearch('request.void', { fileMask: '!*.json, !*.void' }),
+    ).toBe(true);
   });
 });
