@@ -5,6 +5,7 @@
  */
 
 import type { PluginContext } from '@voiden/sdk/ui';
+import { parseGraphQLVariablesBody, resolveGraphQLBlocks } from './lib/graphqlBlocks';
 import { parseGraphQLOperation } from './lib/utils';
 import manifest from './manifest.json';
 
@@ -77,9 +78,6 @@ export default function createGraphQLPlugin(context: PluginContext) {
           // Environment variables will be replaced securely in Electron (Stage 3)
           // Faker variables will be replaced at Stage 5 (Pre-Send) by the faker extension
           request = await getRequest(editorJson, undefined, undefined);
-          const { resolveGraphQLBlocks, parseGraphQLVariablesBody } = await import(
-            /* @vite-ignore */ '@/core/request-engine/graphqlBlocks'
-          );
           const { queryNode: gqlNode, variablesNode: gqlVariablesNode } = resolveGraphQLBlocks(
             editorJson.content,
           );
