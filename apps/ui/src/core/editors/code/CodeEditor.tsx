@@ -60,7 +60,7 @@ export const config = {
   background: "var(--editor-bg)",
   foreground: "var(--editor-fg)",
   caret: "var(--editor-fg)",
-  selection: "var(--selection)",
+  selection: "var(--editor-selection-bg)",
   lineHighlight: "transparent",
 
   keyword: "var(--syntax-keyword)",
@@ -83,7 +83,7 @@ const defaultSettingsQuietlight: CreateThemeOptions["settings"] = {
   foreground: config.foreground,
   caret: config.caret,
   selection: config.selection,
-  selectionMatch: "var(--editor-selection)",
+  selectionMatch: "var(--editor-selection-match)",
   gutterBackground: config.background,
   gutterForeground: "var(--editor-gutter-normal)",
   gutterBorder: "transparent",

@@ -350,6 +350,8 @@ input[type="week"]::-webkit-datetime-edit-year-field:focus {
     --menu-separator: var(--border, #171b24);
 
     --editor-selection: var(--selection, #409fff40);
+    --editor-selection-bg: var(--selection-bg, #409fff60);
+    --editor-selection-match: var(--selection-match, #409fff22);
     --code-selection: var(--selection, #409fff40);
     --ui-selection-normal: var(--selection, #409fff40);
     --ui-hover: var(--hover, #ffffff14);

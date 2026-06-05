@@ -12,6 +12,7 @@
     "--fg-secondary": "#565f89",
     "--border": "#1d1e2a",
     "--selection": "#283457",
+    "--selection-bg": "#3d4f7c",
     "--hover": "#ffffff0a",
 
     "_section_semantic": "=== SEMANTIC COLORS (13) ===",
