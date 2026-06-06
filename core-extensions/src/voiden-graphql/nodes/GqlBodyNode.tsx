@@ -22,6 +22,7 @@ import {
 } from "../utils/graphql-parser";
 import { extractOperations, parseQuerySelections } from "../utils/query-parser";
 import { generateQuery } from "../utils/query-generator";
+import { resolveGraphQLBlocks } from "../lib/graphqlBlocks";
 
 export const createGqlBodyNode = (NodeViewWrapper: any, CodeEditor: any) => {
   const getDefaultTemplate = (type: string) => {
@@ -676,26 +677,72 @@ export const createGqlBodyNode = (NodeViewWrapper: any, CodeEditor: any) => {
       }
     }, [selectedOperations, operationFieldSelections, fieldArgSelections, operationArgSelections, nestedFieldSelections, schema, activeTab, mode]);
 
+    const getActiveGqlQueryIndex = React.useCallback(() => {
+      if (typeof props.getPos !== 'function') return undefined;
+      const pos = props.getPos();
+      if (typeof pos !== 'number') return undefined;
+
+      let queryIndex = 0;
+      let activeIndex: number | undefined;
+      props.editor.state.doc.forEach((child: any, offset: number) => {
+        if (child.type.name !== 'gqlquery') return;
+        const nodeStart = offset + 1;
+        const nodeEnd = nodeStart + child.nodeSize;
+        if (pos >= nodeStart && pos < nodeEnd) {
+          activeIndex = queryIndex;
+        }
+        queryIndex++;
+      });
+      return activeIndex;
+    }, [props.editor, props.getPos]);
+
     const syncVariables = React.useCallback(() => {
       const firstOperation = availableOperations[0]?.name;
       if (!firstOperation || !props.node.attrs.body) return;
+
+      const editorJson = props.editor.getJSON();
+      const { variablesOrdinal } = resolveGraphQLBlocks(
+        editorJson.content,
+        getActiveGqlQueryIndex(),
+      );
+      if (variablesOrdinal === undefined) return;
+
       const doc = props.editor.state.doc;
       let variablesNodePos: number | null = null;
       let variablesNode: any = null;
+      let ordinal = 0;
       doc.descendants((node: any, pos: number) => {
-        if (node.type.name === 'gqlvariables') { variablesNode = node; variablesNodePos = pos; return false; }
+        if (node.type.name !== 'gqlvariables') return;
+        if (ordinal === variablesOrdinal) {
+          variablesNode = node;
+          variablesNodePos = pos;
+          return false;
+        }
+        ordinal++;
       });
+
       if (variablesNode && variablesNodePos !== null) {
         const selectedArgs = operationArgSelections[firstOperation] || new Set();
         const currentVariables = variablesNode.attrs.body;
-        const newVariables = generateVariablesFromQuery(props.node.attrs.body, currentVariables, firstOperation, selectedArgs);
+        const newVariables = generateVariablesFromQuery(
+          props.node.attrs.body,
+          currentVariables,
+          firstOperation,
+          selectedArgs,
+        );
         if (newVariables !== currentVariables) {
           const tr = props.editor.state.tr;
           tr.setNodeMarkup(variablesNodePos, null, { ...variablesNode.attrs, body: newVariables });
           props.editor.view.dispatch(tr);
         }
       }
-    }, [props.node.attrs.body, availableOperations, operationArgSelections, props.editor]);
+    }, [
+      props.node.attrs.body,
+      availableOperations,
+      operationArgSelections,
+      props.editor,
+      getActiveGqlQueryIndex,
+    ]);
 
     React.useEffect(() => { syncVariables(); }, [syncVariables]);
 

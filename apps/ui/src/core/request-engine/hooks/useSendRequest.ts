@@ -18,6 +18,24 @@ import { toast } from "@/core/components/ui/sonner";
 import { useVoidenEditorStore } from "@/core/editors/voiden/VoidenEditor";
 import { expandLinkedFilesInDoc } from "@/core/editors/voiden/utils/expandLinkedBlocks";
 
+function getGqlQueryIndexAtPos(editor: Editor, pos: number): number | undefined {
+  let queryIndex = 0;
+  let activeIndex: number | undefined;
+
+  editor.state.doc.forEach((child, offset) => {
+    if (child.type.name !== "gqlquery") return;
+
+    const nodeStart = offset + 1;
+    const nodeEnd = nodeStart + child.nodeSize;
+    if (pos >= nodeStart && pos < nodeEnd) {
+      activeIndex = queryIndex;
+    }
+    queryIndex++;
+  });
+
+  return activeIndex;
+}
+
 export const useSendRestRequest = (_editor: Editor) => {
   // Always use the main VoidenEditor, not the passed editor.
   // This is critical for imported/linked blocks whose editor prop
@@ -28,6 +46,7 @@ export const useSendRestRequest = (_editor: Editor) => {
   const activeEnv = useActiveEnvironment();
   const abortControllerRef = useRef<AbortController | null>(null);
   const sectionIndexOverrideRef = useRef<number | undefined>(undefined);
+  const gqlQueryIndexOverrideRef = useRef<number | undefined>(undefined);
   const queryClient = useQueryClient();
 
   /** Open the response panel and activate the response tab. */
@@ -95,9 +114,11 @@ export const useSendRestRequest = (_editor: Editor) => {
         // use it directly. Otherwise detect from DOM or ProseMirror selection.
         let sectionIndex: number | undefined = sectionIndexOverrideRef.current;
         sectionIndexOverrideRef.current = undefined; // Clear after reading
+        let gqlQueryIndex: number | undefined = gqlQueryIndexOverrideRef.current;
+        gqlQueryIndexOverrideRef.current = undefined;
 
+        const nodePos = editor.state.selection.$from.pos;
         if (sectionIndex === undefined) {
-          const nodePos = editor.state.selection.$from.pos;
           sectionIndex = 0;
           editor.state.doc.forEach((child: any, offset: number) => {
             if (child.type.name === "request-separator" && offset < nodePos) {
@@ -105,14 +126,14 @@ export const useSendRestRequest = (_editor: Editor) => {
             }
           });
         }
-        // Fallback to ProseMirror selection
-        const cursorPos = sectionIndex !== undefined ? undefined : editor.state.selection.$from.pos;
-        console.log('[useSendRequest] sectionIndex:', sectionIndex, 'cursorPos:', cursorPos);
+        if (gqlQueryIndex === undefined) {
+          gqlQueryIndex = getGqlQueryIndexAtPos(editor, nodePos);
+        }
         const response = await requestOrchestrator.executeRequest(
           editor,
           activeEnv,
           abortControllerRef.current.signal,
-          sectionIndex !== undefined ? { sectionIndex } : { sectionPos: cursorPos }
+          { sectionIndex, gqlQueryIndex }
         );
 
         // sendRequestHybrid returns error responses instead of throwing.
@@ -282,6 +303,9 @@ export const useSendRestRequest = (_editor: Editor) => {
             sibling = sibling.nextElementSibling;
           }
           sectionIndexOverrideRef.current = idx;
+
+          const domPos = editor.view.posAtDOM(topLevelNode, 0);
+          gqlQueryIndexOverrideRef.current = getGqlQueryIndexAtPos(editor, domPos);
         }
       } catch {
         // Ignore — section detection will fall back to cursor/DOM-based approach
