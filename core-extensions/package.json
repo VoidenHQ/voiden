@@ -54,6 +54,7 @@
     "@faker-js/faker": "^9.0.3",
     "@voiden/sdk": "^1.0.9",
     "js-yaml": "^4.1.0",
+    "lossless-json": "^4.0.2",
     "selfsigned": "^5.5.0",
     "shell-quote": "^1.8.1",
     "xlsx-js-style": "^1.2.0"

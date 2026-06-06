@@ -1,4 +1,9 @@
 import { parseCookies } from "@voiden/sdk/shared";
+import {
+  losslessValueToString,
+  parseJsonLossless,
+  stringifyJsonLossless,
+} from "@/utils/losslessJson";
 
 interface RuntimeVariable {
     key: string;
@@ -66,7 +71,7 @@ function safeJsonParse(value: any): any {
 
     try {
         // First, try standard JSON parse
-        return JSON.parse(value);
+        return parseJsonLossless(value);
     } catch (error) {
         // If standard parse fails, try to fix common issues
         try {
@@ -79,7 +84,7 @@ function safeJsonParse(value: any): any {
                 // Remove trailing commas before end of string
                 .replace(/,\s*$/, '');
 
-            return JSON.parse(fixedJson);
+            return parseJsonLossless(fixedJson);
         } catch {
             // If still fails, return original value
             return value;
@@ -156,7 +161,7 @@ function getValueByPath(obj: any, path: string): any {
             }
             if (value) {
                 try {
-                    current = JSON.parse(value);
+                    current = parseJsonLossless(value);
                 } catch {
                     current=value;
                 }
@@ -274,9 +279,7 @@ function replaceTemplateExpressions(
         // Replace the expression with the actual value
         if (extractedValue !== undefined && extractedValue !== null) {
             // Convert to string for replacement
-            const stringValue = typeof extractedValue === 'object'
-                ? JSON.stringify(extractedValue)
-                : String(extractedValue);
+            const stringValue = losslessValueToString(extractedValue);
 
             result = result.replace(expression, stringValue);
         } else {
@@ -372,7 +375,7 @@ function replaceProcessVariables(text: string, variables: Record<string, any>, p
 
         if (value !== undefined && value !== null) {
             // Convert to string for replacement
-            return typeof value === 'object' ? JSON.stringify(value) : String(value);
+            return losslessValueToString(value);
         } else {
             // If variable not found, keep the original expression or replace with empty string
             console.warn(`Process variable not found: ${trimmedPath}`);
@@ -468,10 +471,10 @@ export async function preSendProcessHook(requestState: any): Promise<any> {
                 }
             } else if (typeof requestState.body === 'object') {
                 // Body is already parsed as JSON, stringify -> replace -> parse back
-                const bodyString = JSON.stringify(requestState.body);
+                const bodyString = stringifyJsonLossless(requestState.body);
                 const replacedString = replaceProcessVariables(bodyString, processVariables);
                 try {
-                    requestState.body = JSON.parse(replacedString);
+                    requestState.body = parseJsonLossless(replacedString);
                 } catch (e) {
                     // If parsing fails, keep as string
                     requestState.body = replacedString;
@@ -495,7 +498,7 @@ export async function preSendProcessHook(requestState: any): Promise<any> {
                     // Convert to string for form params (they're always strings in HTTP)
                     return {
                         ...param,
-                        value: typeof replacedValue === 'object' ? JSON.stringify(replacedValue) : String(replacedValue),
+                        value: losslessValueToString(replacedValue),
                     };
                 } else {
                     // Multiple templates or mixed text
