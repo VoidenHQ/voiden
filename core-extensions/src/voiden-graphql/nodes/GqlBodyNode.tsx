@@ -22,7 +22,7 @@ import {
 } from "../utils/graphql-parser";
 import { extractOperations, parseQuerySelections } from "../utils/query-parser";
 import { generateQuery } from "../utils/query-generator";
-import { resolveGraphQLBlocks } from "../lib/graphqlBlocks";
+import { getGqlQueryIndexAtPos, resolveGraphQLBlocks } from "../lib/graphqlBlocks";
 
 export const createGqlBodyNode = (NodeViewWrapper: any, CodeEditor: any) => {
   const getDefaultTemplate = (type: string) => {
@@ -681,19 +681,7 @@ export const createGqlBodyNode = (NodeViewWrapper: any, CodeEditor: any) => {
       if (typeof props.getPos !== 'function') return undefined;
       const pos = props.getPos();
       if (typeof pos !== 'number') return undefined;
-
-      let queryIndex = 0;
-      let activeIndex: number | undefined;
-      props.editor.state.doc.forEach((child: any, offset: number) => {
-        if (child.type.name !== 'gqlquery') return;
-        const nodeStart = offset + 1;
-        const nodeEnd = nodeStart + child.nodeSize;
-        if (pos >= nodeStart && pos < nodeEnd) {
-          activeIndex = queryIndex;
-        }
-        queryIndex++;
-      });
-      return activeIndex;
+      return getGqlQueryIndexAtPos(props.editor.state.doc, pos);
     }, [props.editor, props.getPos]);
 
     const syncVariables = React.useCallback(() => {
