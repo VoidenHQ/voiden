@@ -66,4 +66,17 @@ describe('resolveGraphQLBlocks', () => {
     expect(queryNode?.attrs?.uid).toBe('q2');
     expect(variablesNode?.attrs?.body).toBe('{"second":true}');
   });
+
+  it('pairs the first query in a section when activeQueryIndex is 0', () => {
+    const sectionContent = [
+      { type: 'gqlquery', attrs: { uid: 'q2' } },
+      { type: 'gqlvariables', attrs: { body: '{"b":2}' } },
+      { type: 'gqlquery', attrs: { uid: 'q3' } },
+      { type: 'gqlvariables', attrs: { body: '{"c":3}' } },
+    ];
+
+    const { queryNode, variablesNode } = resolveGraphQLBlocks(sectionContent, 0);
+    expect(queryNode?.attrs?.uid).toBe('q2');
+    expect(variablesNode?.attrs?.body).toBe('{"b":2}');
+  });
 });
