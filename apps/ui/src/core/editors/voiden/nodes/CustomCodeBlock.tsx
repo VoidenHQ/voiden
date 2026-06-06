@@ -1,5 +1,9 @@
-import { mergeAttributes, NodeViewProps } from "@tiptap/core";
-import CodeBlock from "@tiptap/extension-code-block";
+import { InputRule, mergeAttributes, NodeViewProps } from "@tiptap/core";
+import CodeBlock, {
+  backtickInputRegex,
+  tildeInputRegex,
+} from "@tiptap/extension-code-block";
+import { Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
 import { NodeViewWrapper, ReactNodeViewRenderer } from "@tiptap/react";
 import { CodeEditor } from "@/core/editors/code/lib/components/CodeEditor";
 import { RequestBlockHeader } from "@/core/editors/voiden/nodes/RequestBlockHeader";
@@ -112,6 +116,93 @@ export const CustomCodeBlock = CodeBlock.extend({
         },
       },
     };
+  },
+
+  addInputRules() {
+    const createCodeBlockInputRule = (find: RegExp) =>
+      new InputRule({
+        find,
+        handler: ({ state, range, match }) => {
+          const $start = state.doc.resolve(range.from);
+          const depth = $start.depth;
+
+          if (
+            !$start
+              .node(depth - 1)
+              .canReplaceWith(
+                $start.index(depth - 1),
+                $start.indexAfter(depth - 1),
+                this.type,
+              )
+          ) {
+            return null;
+          }
+
+          const language = match[1] || "plaintext";
+
+          state.tr.replaceWith(
+            $start.before(depth),
+            $start.after(depth),
+            this.type.create({ language, body: "" }),
+          );
+        },
+      });
+
+    return [
+      createCodeBlockInputRule(backtickInputRegex),
+      createCodeBlockInputRule(tildeInputRegex),
+    ];
+  },
+
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: new PluginKey("codeBlockVSCodeHandler"),
+        props: {
+          handlePaste: (view, event) => {
+            if (!event.clipboardData) {
+              return false;
+            }
+
+            if (this.editor.isActive(this.type.name)) {
+              return false;
+            }
+
+            const text = event.clipboardData.getData("text/plain");
+            const vscode = event.clipboardData.getData("vscode-editor-data");
+            const vscodeData = vscode ? JSON.parse(vscode) : undefined;
+            const language = vscodeData?.mode;
+
+            if (!text || !language) {
+              return false;
+            }
+
+            const { tr } = view.state;
+
+            tr.replaceSelectionWith(
+              this.type.create({
+                language,
+                body: text.replace(/\r\n?/g, "\n"),
+              }),
+            );
+
+            if (tr.selection.$from.parent.type !== this.type) {
+              tr.setSelection(
+                TextSelection.near(
+                  tr.doc.resolve(Math.max(0, tr.selection.from - 2)),
+                ),
+              );
+            }
+
+            tr.setMeta("paste", true);
+
+            view.dispatch(tr);
+
+            return true;
+          },
+        },
+      }),
+    ];
   },
 
   addNodeView() {
