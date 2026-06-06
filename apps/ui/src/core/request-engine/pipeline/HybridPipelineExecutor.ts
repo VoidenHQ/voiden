@@ -9,6 +9,7 @@
  */
 
 import { Editor } from '@tiptap/core';
+import { parseJsonLossless } from '@/utils/losslessJson';
 import {
   PipelineStage,
   RestApiRequestState,
@@ -221,7 +222,7 @@ export class HybridPipelineExecutor {
 
       if (contentType.includes('json')) {
         try {
-          body = JSON.parse(buffer.toString());
+          body = parseJsonLossless(buffer.toString());
         } catch {
           body = buffer.toString();
         }

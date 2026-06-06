@@ -9195,6 +9195,7 @@ __metadata:
     "@types/shell-quote": "npm:^1.7.1"
     "@voiden/sdk": "npm:^1.0.9"
     js-yaml: "npm:^4.1.0"
+    lossless-json: "npm:^4.0.2"
     react: "npm:^18.2.0"
     react-dom: "npm:^18.2.0"
     sass: "npm:^1.89.2"
@@ -15540,6 +15541,13 @@ __metadata:
   bin:
     loose-envify: cli.js
   checksum: 10c0/655d110220983c1a4b9c0c679a2e8016d4b67f6e9c7b5435ff5979ecdb20d0813f4dec0a08674fcbdd4846a3f07edbb50a36811fd37930b94aaa0d9daceb017e
+  languageName: node
+  linkType: hard
+
+"lossless-json@npm:^4.0.2":
+  version: 4.3.0
+  resolution: "lossless-json@npm:4.3.0"
+  checksum: 10c0/b561eb7f77ef99dbaa0df32fa2407ddcc2c61a0d53297240f0fdd6c2e5f2e0f7d224fb055f84e76467f5ec65547540662c265fcf7a1705497a2d44e323c517df
   languageName: node
   linkType: hard
 
@@ -22210,6 +22218,7 @@ __metadata:
     js-base64: "npm:^3.7.7"
     js-cookie: "npm:^3.0.5"
     jsdom: "npm:^27.3.0"
+    lossless-json: "npm:^4.0.2"
     lucide-react: "npm:^0.474.0"
     marked: "npm:^14.1.2"
     next-themes: "npm:^0.3.0"
