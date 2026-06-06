@@ -12,6 +12,7 @@ import * as React from "react";
 import { Node } from "@tiptap/core";
 import { ReactNodeViewRenderer } from "@tiptap/react";
 import { AlertCircle, Check, ChevronDown, Copy, Download, Eye, FileDown, FileText, WrapText } from "lucide-react";
+import { prettifyJsonLossless, stringifyJsonLossless } from "../../utils/losslessJson";
 
 type LangOption = { label: string; value: string };
 const LANG_OPTIONS: LangOption[] = [
@@ -49,7 +50,7 @@ const PRETTIFIABLE_LANGS = new Set(["json", "xml", "html", "yaml", "javascript",
 const prettifyContent = (text: string, lang: string): string => {
   try {
     if (lang === "json") {
-      return JSON.stringify(JSON.parse(text), null, 2);
+      return prettifyJsonLossless(text);
     }
     if (lang === "xml" || lang === "html") {
       return prettifyHtml(text);
@@ -167,11 +168,11 @@ export const createResponseBodyNode = (
       }
       let text: string;
       if (isJson) {
-        text = typeof body === "string" ? body : JSON.stringify(body, null, 2);
+        text = typeof body === "string" ? body : stringifyJsonLossless(body, 2);
       } else if (isXml || isHtml || isText) {
         text = typeof body === "string" ? body : String(body);
       } else if (typeof body === "object") {
-        text = JSON.stringify(body, null, 2);
+        text = stringifyJsonLossless(body, 2);
       } else {
         text = String(body);
       }

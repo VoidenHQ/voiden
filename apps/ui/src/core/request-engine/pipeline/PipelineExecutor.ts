@@ -18,6 +18,7 @@ import {
 } from './types';
 import { hookRegistry } from './HookRegistry';
 import type { Environment } from '../requestState';
+import { parseJsonLossless } from '@/utils/losslessJson';
 
 /**
  * Main pipeline executor class
@@ -293,7 +294,7 @@ export class PipelineExecutor {
 
     try {
       if (contentType?.includes('json')) {
-        body = await response.json();
+        body = parseJsonLossless(await response.text());
       } else if (contentType?.includes('text')) {
         body = await response.text();
       } else {

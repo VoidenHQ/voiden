@@ -1,4 +1,9 @@
 import { parseCookies } from "@voiden/sdk/shared";
+import {
+    losslessValueToString,
+    parseJsonLossless,
+    stringifyJsonLossless,
+} from "@/utils/losslessJson";
 
 interface RuntimeVariable {
     key: string;
@@ -65,8 +70,7 @@ function safeJsonParse(value: any): any {
     if (typeof value !== 'string') return value;
 
     try {
-        // First, try standard JSON parse
-        return JSON.parse(value);
+        return parseJsonLossless(value);
     } catch (error) {
         // If standard parse fails, try to fix common issues
         try {
@@ -79,7 +83,7 @@ function safeJsonParse(value: any): any {
                 // Remove trailing commas before end of string
                 .replace(/,\s*$/, '');
 
-            return JSON.parse(fixedJson);
+            return parseJsonLossless(fixedJson);
         } catch {
             // If still fails, return original value
             return value;
@@ -156,7 +160,7 @@ function getValueByPath(obj: any, path: string): any {
             }
             if (value) {
                 try {
-                    current = JSON.parse(value);
+                    current = parseJsonLossless(value);
                 } catch {
                     current=value;
                 }
@@ -275,8 +279,8 @@ function replaceTemplateExpressions(
         if (extractedValue !== undefined && extractedValue !== null) {
             // Convert to string for replacement
             const stringValue = typeof extractedValue === 'object'
-                ? JSON.stringify(extractedValue)
-                : String(extractedValue);
+                ? stringifyJsonLossless(extractedValue)
+                : losslessValueToString(extractedValue);
 
             result = result.replace(expression, stringValue);
         } else {
