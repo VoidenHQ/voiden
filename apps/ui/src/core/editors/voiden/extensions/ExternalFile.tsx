@@ -20,6 +20,10 @@ import * as Tooltip from "@radix-ui/react-tooltip";
 import { useElectronEvent } from "@/core/providers";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getLinkableNodeTypes, getNodeDisplayName } from "@/plugins";
+import {
+  fileLinkConstrainHeightModifierFn,
+  scrollSelectedItemIntoView,
+} from "./fileLinkPopper";
 
 /**
  * TYPES & INTERFACES
@@ -645,30 +649,12 @@ const FileLinkTippyContent = forwardRef((props: FileLinkListProps & { editor?: E
     },
   }));
 
-  // FIXED: Improved smooth scroll behavior with padding
   useEffect(() => {
     const activeItem = itemRefs.current.get(listSelectedIndex);
     const container = isBlockMode ? blockScrollContainer.current : scrollContainer.current;
 
     if (activeItem && container) {
-      const padding = 32; // Extra padding to ensure item is fully visible
-      const itemTop = activeItem.offsetTop;
-      const itemBottom = itemTop + activeItem.offsetHeight;
-      const containerScrollTop = container.scrollTop;
-      const containerHeight = container.clientHeight;
-
-      // Item is below visible area - scroll down
-      if (itemBottom + padding > containerScrollTop + containerHeight) {
-        container.scrollTo({
-          top: itemBottom + padding - containerHeight,
-        });
-      }
-      // Item is above visible area - scroll up
-      else if (itemTop - padding < containerScrollTop) {
-        container.scrollTo({
-          top: itemTop - padding,
-        });
-      }
+      scrollSelectedItemIntoView(container, activeItem);
     }
   }, [listSelectedIndex, isBlockMode]);
 
@@ -909,12 +895,13 @@ const FileLinkTippyContent = forwardRef((props: FileLinkListProps & { editor?: E
   // RENDERING: File mode (default)
   return (
     <div
-      className="w-[480px] bg-panel border border-border rounded-lg shadow-lg text-text text-sm"
+      className="w-[480px] bg-panel border border-border rounded-lg shadow-lg text-text text-sm flex flex-col overflow-hidden"
+      style={{ maxHeight: "var(--popper-max-height, min(80vh, 520px))" }}
       onMouseDown={(e) => e.preventDefault()}
       onClick={() => parentEditor?.view.focus()}
     >
       {/* Header */}
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-bg">
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-bg flex-shrink-0">
         <Folder className="text-accent" size={16} />
         <span className="font-medium text-text">Link File or Block</span>
       </div>
@@ -922,7 +909,7 @@ const FileLinkTippyContent = forwardRef((props: FileLinkListProps & { editor?: E
       {/* File List */}
       <div
         ref={scrollContainer}
-        className="max-h-[400px] overflow-y-auto"
+        className="flex-1 min-h-0 overflow-y-auto"
       >
         {filteredItems.length > 0 ? (
           filteredItems.slice(0, 50).map((item: JSONContent | FileLinkItem, index: number) => {
@@ -1018,12 +1005,13 @@ const FileLinkTippyContent = forwardRef((props: FileLinkListProps & { editor?: E
             Searching deeper…
           </div>
         )}
-        {/* Add new file — always pinned at the bottom */}
-        {addNewButton}
       </div>
 
+      {/* Add new file — pinned outside the scroll area so it stays visible */}
+      {addNewButton}
+
       {/* Footer */}
-      <div className="px-3 py-2 text-xs bg-bg border-t border-border flex justify-between items-center">
+      <div className="px-3 py-2 text-xs bg-bg border-t border-border flex justify-between items-center flex-shrink-0">
         <span className="text-comment">↵ link file • → or Space see blocks</span>
         <span className="text-comment">Shift+↵ multi-select</span>
       </div>
@@ -1433,12 +1421,26 @@ export const FileLink = Node.create<FileLinkOptions>({
                 trigger: "manual",
                 placement: "right-start",
                 popperOptions: {
+                  strategy: "fixed",
                   modifiers: [
                     {
                       name: "flip",
                       options: {
-                        fallbackPlacements: ["left-start", "right-start", "bottom-start", "top-start"],
+                        fallbackPlacements: ["left-start", "bottom-start", "top-start", "right-start"],
                       },
+                    },
+                    {
+                      name: "preventOverflow",
+                      options: {
+                        padding: 8,
+                        altAxis: true,
+                      },
+                    },
+                    {
+                      name: "fileLinkConstrainHeight",
+                      enabled: true,
+                      phase: "beforeWrite",
+                      fn: fileLinkConstrainHeightModifierFn,
                     },
                   ],
                 },
