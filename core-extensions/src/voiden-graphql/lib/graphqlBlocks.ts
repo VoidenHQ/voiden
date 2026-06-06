@@ -12,6 +12,12 @@ export interface GraphQLBlockPair {
   variablesOrdinal?: number;
 }
 
+type ProseMirrorDoc = {
+  forEach: (
+    fn: (child: { type: { name: string }; nodeSize: number }, offset: number) => void,
+  ) => void;
+};
+
 /**
  * Pair gqlvariables with a specific gqlquery in the active request context.
  *
@@ -87,17 +93,57 @@ export function resolveGraphQLBlocks(
   return { queryNode, variablesNode, variablesOrdinal };
 }
 
+export function getSectionIndexAtPos(doc: ProseMirrorDoc, pos: number): number {
+  let sectionIndex = 0;
+  doc.forEach((child, offset) => {
+    if (child.type.name === 'request-separator' && offset < pos) {
+      sectionIndex++;
+    }
+  });
+  return sectionIndex;
+}
+
 /**
  * Return the 0-based index of the gqlquery block containing doc position `pos`.
+ * Counts all gqlquery blocks in the document (for full-editor JSON).
  */
-export function getGqlQueryIndexAtPos(
-  doc: { forEach: (fn: (child: { type: { name: string }; nodeSize: number }, offset: number) => void) => void },
-  pos: number,
-): number | undefined {
+export function getGqlQueryIndexAtPos(doc: ProseMirrorDoc, pos: number): number | undefined {
   let queryIndex = 0;
   let activeIndex: number | undefined;
 
   doc.forEach((child, offset) => {
+    if (child.type.name !== 'gqlquery') return;
+
+    const nodeStart = offset + 1;
+    const nodeEnd = nodeStart + child.nodeSize;
+    if (pos >= nodeStart && pos < nodeEnd) {
+      activeIndex = queryIndex;
+    }
+    queryIndex++;
+  });
+
+  return activeIndex;
+}
+
+/**
+ * Return the 0-based gqlquery index within a specific request section.
+ * Use when the orchestrator scopes editor JSON to a single section.
+ */
+export function getGqlQueryIndexAtPosInSection(
+  doc: ProseMirrorDoc,
+  pos: number,
+  sectionIndex: number,
+): number | undefined {
+  let section = 0;
+  let queryIndex = 0;
+  let activeIndex: number | undefined;
+
+  doc.forEach((child, offset) => {
+    if (child.type.name === 'request-separator') {
+      section++;
+      return;
+    }
+    if (section !== sectionIndex) return;
     if (child.type.name !== 'gqlquery') return;
 
     const nodeStart = offset + 1;
