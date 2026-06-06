@@ -41,4 +41,29 @@ describe("runtime variables with large integers", () => {
       "default",
     );
   });
+
+  it("captures string-serialized large IDs without coercion (#408)", async () => {
+    const rawBody = '{"response":[{"big_number_id":"333333333333333333"}]}';
+    const resObject = {
+      body: parseJsonPreserveIntegers(rawBody),
+    };
+
+    await saveRuntimeVariables(
+      undefined,
+      resObject,
+      [
+        {
+          key: "big_number_id",
+          value: "{{$res.body.response[0].big_number_id}}",
+          enabled: true,
+        },
+      ],
+      "/tmp/project",
+    );
+
+    expect(mergeVariables).toHaveBeenCalledWith(
+      { big_number_id: "333333333333333333" },
+      "default",
+    );
+  });
 });

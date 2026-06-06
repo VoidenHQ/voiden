@@ -1,5 +1,5 @@
 import { parseCookies } from "@voiden/sdk/shared";
-import { parseJsonPreserveIntegers } from "./parseJsonPreserveIntegers";
+import { looksLikeJsonStructure, parseJsonPreserveIntegers } from "./parseJsonPreserveIntegers";
 
 interface RuntimeVariable {
     key: string;
@@ -64,6 +64,8 @@ function findInKeyValueInKeyValue(arr: any[] | undefined, searchKey: string): an
  */
 function safeJsonParse(value: any): any {
     if (typeof value !== 'string') return value;
+
+    if (!looksLikeJsonStructure(value)) return value;
 
     try {
         return parseJsonPreserveIntegers(value);

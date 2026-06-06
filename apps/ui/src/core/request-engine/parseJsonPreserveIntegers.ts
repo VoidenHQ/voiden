@@ -13,3 +13,13 @@ export function parseJsonPreserveIntegers(text: string): unknown {
   );
   return JSON.parse(normalized);
 }
+
+/** True when a string looks like JSON object/array/quoted value, not a bare primitive. */
+export function looksLikeJsonStructure(value: string): boolean {
+  const trimmed = value.trim();
+  return (
+    trimmed.startsWith("{") ||
+    trimmed.startsWith("[") ||
+    trimmed.startsWith('"')
+  );
+}

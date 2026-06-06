@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseJsonPreserveIntegers } from "../parseJsonPreserveIntegers";
+import { looksLikeJsonStructure, parseJsonPreserveIntegers } from "../parseJsonPreserveIntegers";
 
 describe("parseJsonPreserveIntegers", () => {
   it("preserves integers larger than MAX_SAFE_INTEGER as strings", () => {
@@ -33,5 +33,12 @@ describe("parseJsonPreserveIntegers", () => {
       '{"response":[{"big_number_id":"333333333333333333"}]}',
     ) as { response: Array<{ big_number_id: string }> };
     expect(parsed.response[0].big_number_id).toBe("333333333333333333");
+  });
+
+  it("identifies JSON structures vs bare numeric strings", () => {
+    expect(looksLikeJsonStructure("333333333333333333")).toBe(false);
+    expect(looksLikeJsonStructure('{"id":1}')).toBe(true);
+    expect(looksLikeJsonStructure("[1,2]")).toBe(true);
+    expect(looksLikeJsonStructure('"hello"')).toBe(true);
   });
 });
