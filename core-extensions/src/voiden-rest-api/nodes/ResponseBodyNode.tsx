@@ -46,10 +46,22 @@ export interface ResponseBodyAttrs {
 
 const PRETTIFIABLE_LANGS = new Set(["json", "xml", "html", "yaml", "javascript", "python", "css"]);
 
+/** Preserve integers beyond MAX_SAFE_INTEGER when prettifying JSON for display. */
+const prettifyJsonText = (text: string): string => {
+  const normalized = text.replace(
+    /(?<=^|[\[{:,]\s*)(-?\d+)(?=\s*[,\}\]])/g,
+    (digits) => {
+      const n = Number(digits);
+      return Number.isSafeInteger(n) ? digits : `"${digits}"`;
+    },
+  );
+  return JSON.stringify(JSON.parse(normalized), null, 2);
+};
+
 const prettifyContent = (text: string, lang: string): string => {
   try {
     if (lang === "json") {
-      return JSON.stringify(JSON.parse(text), null, 2);
+      return prettifyJsonText(text);
     }
     if (lang === "xml" || lang === "html") {
       return prettifyHtml(text);

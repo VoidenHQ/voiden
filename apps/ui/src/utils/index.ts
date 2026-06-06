@@ -3,9 +3,11 @@ import { JSONContent } from "@tiptap/core";
 import { yXmlFragmentToProsemirrorJSON } from "y-prosemirror";
 import * as Y from "yjs";
 
+import { parseJsonPreserveIntegers } from "@/core/request-engine/parseJsonPreserveIntegers";
+
 export function prettifyJSON(json: string) {
   try {
-    const parsedJSON = JSON.parse(json);
+    const parsedJSON = parseJsonPreserveIntegers(json);
     return JSON.stringify(parsedJSON, null, 2);
   } catch (error) {
     return json;

@@ -17,6 +17,7 @@ import {
   PostProcessingContext,
 } from './types';
 import { hookRegistry } from './HookRegistry';
+import { parseJsonPreserveIntegers } from '../parseJsonPreserveIntegers';
 import type { Environment } from '../requestState';
 
 /**
@@ -293,7 +294,8 @@ export class PipelineExecutor {
 
     try {
       if (contentType?.includes('json')) {
-        body = await response.json();
+        const text = await response.text();
+        body = parseJsonPreserveIntegers(text);
       } else if (contentType?.includes('text')) {
         body = await response.text();
       } else {
