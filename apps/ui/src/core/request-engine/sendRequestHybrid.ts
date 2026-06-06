@@ -15,6 +15,7 @@ import { preSendProcessHook, replaceProcessVariablesInText, saveRuntimeVariables
 import { get } from "http";
 import { getRuntimeVariablesMap } from "./getRequestFromJson";
 import { expandLinkedBlocksInDoc } from "../editors/voiden/utils/expandLinkedBlocks";
+import { parseJsonLossless, stringifyJsonLossless } from "@/utils/losslessJson";
 
 
 /**
@@ -414,7 +415,7 @@ export async function sendRequestHybrid(
 
       if (contentType.includes("json")) {
         try {
-          body = JSON.parse(buffer.toString());
+          body = parseJsonLossless(buffer.toString());
         } catch {
           body = buffer.toString();
         }
@@ -426,7 +427,7 @@ export async function sendRequestHybrid(
     }
 
     // Calculate size
-    const bodyString = typeof body === "string" ? body : JSON.stringify(body);
+    const bodyString = typeof body === "string" ? body : stringifyJsonLossless(body);
     const bytesContent = new TextEncoder().encode(bodyString).length;
 
     const endTime = performance.now();

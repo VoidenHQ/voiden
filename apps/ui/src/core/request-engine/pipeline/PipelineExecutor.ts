@@ -18,6 +18,7 @@ import {
 } from './types';
 import { hookRegistry } from './HookRegistry';
 import type { Environment } from '../requestState';
+import { parseJsonLossless, stringifyJsonLossless } from '@/utils/losslessJson';
 
 /**
  * Main pipeline executor class
@@ -293,7 +294,7 @@ export class PipelineExecutor {
 
     try {
       if (contentType?.includes('json')) {
-        body = await response.json();
+        body = parseJsonLossless(await response.text());
       } else if (contentType?.includes('text')) {
         body = await response.text();
       } else {
@@ -312,7 +313,7 @@ export class PipelineExecutor {
     }));
 
     // Calculate size
-    const bodyString = typeof body === 'string' ? body : JSON.stringify(body);
+    const bodyString = typeof body === 'string' ? body : stringifyJsonLossless(body);
     const bytesContent = new TextEncoder().encode(bodyString).length;
 
     const responseState: RestApiResponseState = {
