@@ -1,4 +1,5 @@
 import { parseCookies } from "@voiden/sdk/shared";
+import { parseJsonPreserveIntegers } from "./parseJsonPreserveIntegers";
 
 interface RuntimeVariable {
     key: string;
@@ -65,8 +66,7 @@ function safeJsonParse(value: any): any {
     if (typeof value !== 'string') return value;
 
     try {
-        // First, try standard JSON parse
-        return JSON.parse(value);
+        return parseJsonPreserveIntegers(value);
     } catch (error) {
         // If standard parse fails, try to fix common issues
         try {

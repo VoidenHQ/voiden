@@ -11,6 +11,7 @@ import { Request, BaseResponse } from "@/core/types";
 import { RestApiRequestState, RestApiResponseState } from "./pipeline/types";
 import { hookRegistry, PipelineStage } from "./pipeline";
 import { Buffer } from "buffer";
+import { parseJsonPreserveIntegers } from "./parseJsonPreserveIntegers";
 import { preSendProcessHook, replaceProcessVariablesInText, saveRuntimeVariables } from "./runtimeVariables";
 import { get } from "http";
 import { getRuntimeVariablesMap } from "./getRequestFromJson";
@@ -414,7 +415,7 @@ export async function sendRequestHybrid(
 
       if (contentType.includes("json")) {
         try {
-          body = JSON.parse(buffer.toString());
+          body = parseJsonPreserveIntegers(buffer.toString("utf-8"));
         } catch {
           body = buffer.toString();
         }
