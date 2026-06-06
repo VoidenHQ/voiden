@@ -66,4 +66,19 @@ describe("losslessJson", () => {
     expect(parsed.big_number_id).toBe("333333333333333333");
     expect(losslessValueToString(parsed.big_number_id)).toBe("333333333333333333");
   });
+
+  it("end-to-end: parse, extract nested path, and stringify for display (#395)", () => {
+    const responseText = '{"args":{"id":174322306148984899}}';
+    const parsed = parseJsonLossless(responseText) as {
+      args: { id: bigint };
+    };
+
+    const extractedId = parsed.args.id;
+    expect(losslessValueToString(extractedId)).toBe("174322306148984899");
+    expect(losslessValueToString(extractedId)).not.toBe(String(ROUNDED_ID));
+
+    const historySnapshot = stringifyJsonLossless(parsed, 2);
+    expect(historySnapshot).toContain("174322306148984899");
+    expect(historySnapshot).not.toContain(String(ROUNDED_ID));
+  });
 });

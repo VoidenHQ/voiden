@@ -10,6 +10,7 @@
  */
 
 import type { VdApi, ScriptLog, ScriptExecutionResult, ScriptLanguage } from './types';
+import { stringifyJsonLossless } from '../../utils/losslessJson';
 
 const SCRIPT_TIMEOUT_MS = 5_000;
 
@@ -630,7 +631,7 @@ function buildBashScript(params: {
     `export VOIDEN_REQUEST_PATH_PARAMS=${q(JSON.stringify(request?.pathParams ?? []))}`,
     `export VOIDEN_RESPONSE_STATUS=${q(has ? String(response?.status ?? '') : '')}`,
     `export VOIDEN_RESPONSE_STATUS_TEXT=${q(has ? String(response?.statusText ?? '') : '')}`,
-    `export VOIDEN_RESPONSE_BODY=${q(has && response?.body != null ? (typeof response.body === 'object' ? JSON.stringify(response.body) : String(response.body)) : '')}`,
+    `export VOIDEN_RESPONSE_BODY=${q(has && response?.body != null ? (typeof response.body === 'object' ? stringifyJsonLossless(response.body) : String(response.body)) : '')}`,
     `export VOIDEN_RESPONSE_HEADERS=${q(has ? JSON.stringify(response?.headers ?? {}) : '{}')}`,
     `export VOIDEN_RESPONSE_TIME=${q(has ? String(response?.time ?? 0) : '0')}`,
     `export VOIDEN_RESPONSE_SIZE=${q(has ? String(response?.size ?? 0) : '0')}`,
