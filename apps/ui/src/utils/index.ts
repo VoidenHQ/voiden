@@ -2,11 +2,11 @@ import { createFileFromS3Url, getSignedUrl } from "@/apis/files";
 import { JSONContent } from "@tiptap/core";
 import { yXmlFragmentToProsemirrorJSON } from "y-prosemirror";
 import * as Y from "yjs";
+import { prettifyJsonText } from "@/core/request-engine/parseJsonPreserveIntegers";
 
 export function prettifyJSON(json: string) {
   try {
-    const parsedJSON = JSON.parse(json);
-    return JSON.stringify(parsedJSON, null, 2);
+    return prettifyJsonText(json);
   } catch (error) {
     return json;
   }

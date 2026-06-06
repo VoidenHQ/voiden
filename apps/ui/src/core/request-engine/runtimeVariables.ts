@@ -1,4 +1,5 @@
 import { parseCookies } from "@voiden/sdk/shared";
+import { parseJsonPreserveIntegers } from "./parseJsonPreserveIntegers";
 
 interface RuntimeVariable {
     key: string;
@@ -66,7 +67,7 @@ function safeJsonParse(value: any): any {
 
     try {
         // First, try standard JSON parse
-        return JSON.parse(value);
+        return parseJsonPreserveIntegers(value);
     } catch (error) {
         // If standard parse fails, try to fix common issues
         try {
@@ -79,7 +80,7 @@ function safeJsonParse(value: any): any {
                 // Remove trailing commas before end of string
                 .replace(/,\s*$/, '');
 
-            return JSON.parse(fixedJson);
+            return parseJsonPreserveIntegers(fixedJson);
         } catch {
             // If still fails, return original value
             return value;
@@ -156,7 +157,7 @@ function getValueByPath(obj: any, path: string): any {
             }
             if (value) {
                 try {
-                    current = JSON.parse(value);
+                    current = parseJsonPreserveIntegers(value);
                 } catch {
                     current=value;
                 }
