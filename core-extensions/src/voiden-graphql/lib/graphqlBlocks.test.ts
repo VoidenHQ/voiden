@@ -27,4 +27,28 @@ describe('resolveGraphQLBlocks', () => {
     const { variablesNode } = resolveGraphQLBlocks(content);
     expect(variablesNode?.attrs?.body).toBe('{"x":9}');
   });
+
+  it('pairs variables with the middle gqlquery when scoped to that section', () => {
+    const content = [
+      { type: 'gqlquery', attrs: { uid: 'q2' } },
+      { type: 'gqlvariables', attrs: { body: '{"b":2}' } },
+    ];
+
+    const { queryNode, variablesNode } = resolveGraphQLBlocks(content);
+    expect(queryNode?.attrs?.uid).toBe('q2');
+    expect(variablesNode?.attrs?.body).toBe('{"b":2}');
+  });
+
+  it('does not pair variables from a different query section', () => {
+    const content = [
+      { type: 'gqlquery', attrs: { uid: 'q1' } },
+      { type: 'gqlvariables', attrs: { body: '{"first":true}' } },
+      { type: 'gqlquery', attrs: { uid: 'q2' } },
+      { type: 'gqlvariables', attrs: { body: '{"second":true}' } },
+    ];
+
+    const { queryNode, variablesNode } = resolveGraphQLBlocks(content);
+    expect(queryNode?.attrs?.uid).toBe('q2');
+    expect(variablesNode?.attrs?.body).toBe('{"second":true}');
+  });
 });
