@@ -11,6 +11,7 @@
  */
 
 import React, { useState } from 'react';
+import { stringifyJsonLossless } from '../utils/losslessJson';
 
 // ─── Adapter contract types (mirrors adapterRegistry — defined locally to avoid cross-rootDir import) ──
 
@@ -360,7 +361,7 @@ async function captureEntry(pipelineContext: any): Promise<HistoryPluginEntry & 
     try {
       const raw = typeof responseState.body === 'string'
         ? responseState.body
-        : JSON.stringify(responseState.body, null, 2);
+        : stringifyJsonLossless(responseState.body, 2);
       responseBody = raw.length > 102400 ? raw.slice(0, 102400) + '\n… (truncated)' : raw;
     } catch { /* skip */ }
   }

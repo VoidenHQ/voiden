@@ -43,6 +43,8 @@ export interface RequestExecuteOptions {
   sectionPos?: number;
   /** Direct section index (0-based), used when DOM-based detection is available */
   sectionIndex?: number;
+  /** 0-based index of the active gqlquery when multiple queries share a section */
+  gqlQueryIndex?: number;
 }
 
 class RequestOrchestratorImpl implements RequestOrchestrator {
@@ -76,6 +78,7 @@ class RequestOrchestratorImpl implements RequestOrchestrator {
     requestLogger.info(`Building request through ${this.requestHandlers.length} plugin handler(s)`);
     let request: any = {
       __sectionPos: options?.sectionPos,
+      __gqlQueryIndex: options?.gqlQueryIndex,
     };
 
     // For multi-request documents, create a scoped editor proxy so all handlers
@@ -195,9 +198,14 @@ class RequestOrchestratorImpl implements RequestOrchestrator {
     for (const handler of this.requestHandlers) {
       try {
         request = await handler(request, handlerEditor);
-        // Preserve __sectionPos across handler chain
-        if (sectionPos !== undefined && request) {
-          request.__sectionPos = sectionPos;
+        // Preserve section context across handler chain
+        if (request) {
+          if (sectionPos !== undefined) {
+            request.__sectionPos = sectionPos;
+          }
+          if (options?.gqlQueryIndex !== undefined) {
+            request.__gqlQueryIndex = options.gqlQueryIndex;
+          }
         }
       } catch (error) {
         requestLogger.error("Error in plugin request handler:", error);
