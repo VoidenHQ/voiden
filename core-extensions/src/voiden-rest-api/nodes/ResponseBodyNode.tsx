@@ -12,6 +12,7 @@ import * as React from "react";
 import { Node } from "@tiptap/core";
 import { ReactNodeViewRenderer } from "@tiptap/react";
 import { AlertCircle, Check, ChevronDown, Copy, Download, Eye, FileDown, FileText, WrapText } from "lucide-react";
+import { losslessValueToString, prettifyJsonLossless, stringifyJsonLossless } from "../../utils/losslessJson";
 
 type LangOption = { label: string; value: string };
 const LANG_OPTIONS: LangOption[] = [
@@ -49,7 +50,7 @@ const PRETTIFIABLE_LANGS = new Set(["json", "xml", "html", "yaml", "javascript",
 const prettifyContent = (text: string, lang: string): string => {
   try {
     if (lang === "json") {
-      return JSON.stringify(JSON.parse(text), null, 2);
+      return prettifyJsonLossless(text);
     }
     if (lang === "xml" || lang === "html") {
       return prettifyHtml(text);
@@ -167,11 +168,11 @@ export const createResponseBodyNode = (
       }
       let text: string;
       if (isJson) {
-        text = typeof body === "string" ? body : JSON.stringify(body, null, 2);
+        text = typeof body === "string" ? body : stringifyJsonLossless(body, 2);
       } else if (isXml || isHtml || isText) {
         text = typeof body === "string" ? body : String(body);
       } else if (typeof body === "object") {
-        text = JSON.stringify(body, null, 2);
+        text = stringifyJsonLossless(body, 2);
       } else {
         text = String(body);
       }
@@ -261,7 +262,7 @@ export const createResponseBodyNode = (
           const uint8Array = new Uint8Array(body.data);
           blob = new Blob([uint8Array as any], { type: contentType || "application/octet-stream" });
         } else {
-          blob = new Blob([JSON.stringify(body, null, 2)], { type: "application/json" });
+          blob = new Blob([stringifyJsonLossless(body, 2)], { type: "application/json" });
         }
 
         const url = URL.createObjectURL(blob);
@@ -281,7 +282,7 @@ export const createResponseBodyNode = (
     // Copy handler
     const handleCopy = async () => {
       try {
-        const textToCopy = typeof body === "string" ? body : JSON.stringify(body, null, 2);
+        const textToCopy = typeof body === "string" ? body : losslessValueToString(body);
         await navigator.clipboard.writeText(textToCopy);
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
@@ -615,7 +616,7 @@ export const createResponseBodyNode = (
       if (typeof body === "object" && body.type === "Buffer" && Array.isArray(body.data)) {
         return new Uint8Array(body.data);
       }
-      return new TextEncoder().encode(typeof body === "string" ? body : JSON.stringify(body, null, 2));
+      return new TextEncoder().encode(typeof body === "string" ? body : losslessValueToString(body));
     };
 
     // Render hex dump view

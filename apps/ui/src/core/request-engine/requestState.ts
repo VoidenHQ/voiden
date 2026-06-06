@@ -19,6 +19,7 @@ import { Proxy } from "@/core/types";
 import { Buffer } from "buffer";
 import { RestApiRequestState } from "./pipeline/types";
 import { replaceProcessVariablesInText } from "./runtimeVariables";
+import { parseJsonLossless } from "@/utils/losslessJson";
 
 export interface EnvironmentVariable {
   key: string;
@@ -311,7 +312,8 @@ async function parseBody(response: Response): Promise<Buffer | string | object |
   // JSON
   if (contentType.includes("json")) {
     try {
-      return await response.json();
+      const text = await response.text();
+      return parseJsonLossless(text);
     } catch (e) {
       return await response.text(); // fallback if parsing fails
     }
@@ -332,7 +334,7 @@ async function parseBodyFromBytes(bytes: Buffer, contentType: string | null): Pr
   // Handle JSON content type.
   if (contentType?.includes("json")) {
     try {
-      return JSON.parse(bytes.toString());
+      return parseJsonLossless(bytes.toString());
     } catch (error) {
       // Fallback to returning the raw string if JSON parsing fails.
       return bytes.toString();
@@ -819,7 +821,7 @@ export async function sendRequestSecure(
 
       if (contentType.includes("json")) {
         try {
-          body = JSON.parse(buffer.toString());
+          body = parseJsonLossless(buffer.toString());
         } catch {
           body = buffer.toString();
         }
