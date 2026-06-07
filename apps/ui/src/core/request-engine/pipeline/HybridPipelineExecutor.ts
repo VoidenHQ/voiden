@@ -20,6 +20,7 @@ import {
   PostProcessingContext,
 } from './types';
 import { hookRegistry } from './HookRegistry';
+import { parseJsonPreserveIntegers } from "../parseJsonPreserveIntegers";
 
 /**
  * Hybrid pipeline executor that splits execution between UI and Electron
@@ -221,7 +222,7 @@ export class HybridPipelineExecutor {
 
       if (contentType.includes('json')) {
         try {
-          body = JSON.parse(buffer.toString());
+          body = parseJsonPreserveIntegers(buffer.toString("utf-8"));
         } catch {
           body = buffer.toString();
         }

@@ -1,4 +1,5 @@
 import { parseCookies } from "@voiden/sdk/shared";
+import { parseJsonPreserveIntegers, safeParseJsonString } from "./parseJsonPreserveIntegers";
 
 interface RuntimeVariable {
     key: string;
@@ -61,12 +62,11 @@ function findInKeyValueInKeyValue(arr: any[] | undefined, searchKey: string): an
  * @param value - The value to parse
  * @returns Parsed object or original value
  */
-function safeJsonParse(value: any): any {
+export function safeJsonParse(value: any): any {
     if (typeof value !== 'string') return value;
 
     try {
-        // First, try standard JSON parse
-        return JSON.parse(value);
+        return safeParseJsonString(value);
     } catch (error) {
         // If standard parse fails, try to fix common issues
         try {
@@ -79,7 +79,7 @@ function safeJsonParse(value: any): any {
                 // Remove trailing commas before end of string
                 .replace(/,\s*$/, '');
 
-            return JSON.parse(fixedJson);
+            return parseJsonPreserveIntegers(fixedJson);
         } catch {
             // If still fails, return original value
             return value;
@@ -94,7 +94,7 @@ function safeJsonParse(value: any): any {
  * @param path - Dot notation path (e.g., "headers.Authorization" or "body.data.id")
  * @returns The extracted value or undefined
  */
-function getValueByPath(obj: any, path: string): any {
+export function getValueByPath(obj: any, path: string): any {
     if (!obj || !path) return undefined;
     const keys = path.split(".");
     let current = obj;
@@ -156,7 +156,7 @@ function getValueByPath(obj: any, path: string): any {
             }
             if (value) {
                 try {
-                    current = JSON.parse(value);
+                    current = safeParseJsonString(value);
                 } catch {
                     current=value;
                 }

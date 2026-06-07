@@ -1,0 +1,51 @@
+import { describe, expect, it } from "vitest";
+import {
+  parseJsonPreserveIntegers,
+  safeParseJsonString,
+} from "../parseJsonPreserveIntegers";
+
+describe("parseJsonPreserveIntegers", () => {
+  it("preserves integers larger than MAX_SAFE_INTEGER as strings", () => {
+    const parsed = parseJsonPreserveIntegers(
+      '{"args":{"id":174322306148984899}}',
+    ) as { args: { id: string } };
+    expect(parsed.args.id).toBe("174322306148984899");
+  });
+
+  it("keeps safe integers as numbers", () => {
+    const parsed = parseJsonPreserveIntegers('{"count":42}') as {
+      count: number;
+    };
+    expect(parsed.count).toBe(42);
+  });
+
+  it("does not alter strings that look like numbers", () => {
+    const parsed = parseJsonPreserveIntegers('{"id":"174322306148984899"}') as {
+      id: string;
+    };
+    expect(parsed.id).toBe("174322306148984899");
+  });
+
+  it("preserves large unquoted integers at top level", () => {
+    const parsed = parseJsonPreserveIntegers(
+      '{"id":333333333333333333}',
+    ) as { id: string };
+    expect(parsed.id).toBe("333333333333333333");
+    expect(typeof parsed.id).toBe("string");
+  });
+});
+
+describe("safeParseJsonString", () => {
+  it('does not coerce bare big integer string to number', () => {
+    const result = safeParseJsonString("333333333333333333");
+    expect(result).toBe("333333333333333333");
+    expect(typeof result).toBe("string");
+  });
+
+  it("parses JSON objects with large integers as strings", () => {
+    const result = safeParseJsonString(' {"id":333333333333333333} ') as {
+      id: string;
+    };
+    expect(result.id).toBe("333333333333333333");
+  });
+});

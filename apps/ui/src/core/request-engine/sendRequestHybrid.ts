@@ -9,6 +9,7 @@
 import { Editor, JSONContent } from "@tiptap/core";
 import { Request, BaseResponse } from "@/core/types";
 import { RestApiRequestState, RestApiResponseState } from "./pipeline/types";
+import { parseJsonPreserveIntegers } from "./parseJsonPreserveIntegers";
 import { hookRegistry, PipelineStage } from "./pipeline";
 import { Buffer } from "buffer";
 import { preSendProcessHook, replaceProcessVariablesInText, saveRuntimeVariables } from "./runtimeVariables";
@@ -414,7 +415,7 @@ export async function sendRequestHybrid(
 
       if (contentType.includes("json")) {
         try {
-          body = JSON.parse(buffer.toString());
+          body = parseJsonPreserveIntegers(buffer.toString("utf-8"));
         } catch {
           body = buffer.toString();
         }
