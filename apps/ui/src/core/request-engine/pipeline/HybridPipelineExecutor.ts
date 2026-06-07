@@ -9,6 +9,7 @@
  */
 
 import { Editor } from '@tiptap/core';
+import { parseJsonPreserveIntegers } from '../parseJsonPreserveIntegers';
 import {
   PipelineStage,
   RestApiRequestState,
@@ -221,7 +222,7 @@ export class HybridPipelineExecutor {
 
       if (contentType.includes('json')) {
         try {
-          body = JSON.parse(buffer.toString());
+          body = parseJsonPreserveIntegers(buffer.toString("utf-8"));
         } catch {
           body = buffer.toString();
         }
