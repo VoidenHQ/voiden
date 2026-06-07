@@ -19,6 +19,7 @@ import {
   PreSendContext,
   PostProcessingContext,
 } from './types';
+import { parseJsonPreserveIntegers } from '../parseJsonPreserveIntegers';
 import { hookRegistry } from './HookRegistry';
 
 /**
@@ -221,7 +222,7 @@ export class HybridPipelineExecutor {
 
       if (contentType.includes('json')) {
         try {
-          body = JSON.parse(buffer.toString());
+          body = parseJsonPreserveIntegers(buffer.toString());
         } catch {
           body = buffer.toString();
         }

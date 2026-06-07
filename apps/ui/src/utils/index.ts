@@ -1,15 +1,11 @@
 import { createFileFromS3Url, getSignedUrl } from "@/apis/files";
+import { prettifyJsonPreserveIntegers } from "@/core/request-engine/parseJsonPreserveIntegers";
 import { JSONContent } from "@tiptap/core";
 import { yXmlFragmentToProsemirrorJSON } from "y-prosemirror";
 import * as Y from "yjs";
 
 export function prettifyJSON(json: string) {
-  try {
-    const parsedJSON = JSON.parse(json);
-    return JSON.stringify(parsedJSON, null, 2);
-  } catch (error) {
-    return json;
-  }
+  return prettifyJsonPreserveIntegers(json);
 }
 
 export const getFileIfNotExist = async (docId: string, fileId: string, fileName: string): Promise<File | null> => {
