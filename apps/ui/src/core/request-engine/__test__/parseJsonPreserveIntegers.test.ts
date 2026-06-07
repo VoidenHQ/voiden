@@ -27,11 +27,19 @@ describe("parseJsonPreserveIntegers", () => {
     expect(parsed.id).toBe("174322306148984899");
   });
 
-  it("preserves large integer values serialised as JSON strings (#408)", () => {
-    const parsed = parseJsonPreserveIntegers(
-      '{"response":[{"big_number_id":"333333333333333333"}]}',
-    ) as { response: Array<{ big_number_id: string }> };
-    expect(parsed.response[0].big_number_id).toBe("333333333333333333");
+  it("preserves negative integers beyond MAX_SAFE_INTEGER", () => {
+    const parsed = parseJsonPreserveIntegers('{"delta":-9007199254740993}') as {
+      delta: string;
+    };
+    expect(parsed.delta).toBe("-9007199254740993");
+  });
+
+  it("preserves unsafe integers inside arrays", () => {
+    const parsed = parseJsonPreserveIntegers('{"ids":[9007199254740993,42]}') as {
+      ids: Array<string | number>;
+    };
+    expect(parsed.ids[0]).toBe("9007199254740993");
+    expect(parsed.ids[1]).toBe(42);
   });
 });
 

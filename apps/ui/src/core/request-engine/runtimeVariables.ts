@@ -1,5 +1,5 @@
 import { parseCookies } from "@voiden/sdk/shared";
-import { safeJsonParse } from "./parseJsonPreserveIntegers";
+import { parseJsonPreserveIntegers, safeJsonParse } from "./parseJsonPreserveIntegers";
 
 interface RuntimeVariable {
     key: string;
@@ -440,7 +440,7 @@ export async function preSendProcessHook(requestState: any): Promise<any> {
                 const bodyString = JSON.stringify(requestState.body);
                 const replacedString = replaceProcessVariables(bodyString, processVariables);
                 try {
-                    requestState.body = JSON.parse(replacedString);
+                    requestState.body = parseJsonPreserveIntegers(replacedString);
                 } catch (e) {
                     // If parsing fails, keep as string
                     requestState.body = replacedString;
