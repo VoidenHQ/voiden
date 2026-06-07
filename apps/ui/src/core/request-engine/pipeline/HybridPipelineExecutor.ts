@@ -9,6 +9,7 @@
  */
 
 import { Editor } from '@tiptap/core';
+import { parseJsonLossless, stringifyJsonLossless } from '@/utils/losslessJson';
 import {
   PipelineStage,
   RestApiRequestState,
@@ -221,7 +222,7 @@ export class HybridPipelineExecutor {
 
       if (contentType.includes('json')) {
         try {
-          body = JSON.parse(buffer.toString());
+          body = parseJsonLossless(buffer.toString());
         } catch {
           body = buffer.toString();
         }
@@ -233,7 +234,7 @@ export class HybridPipelineExecutor {
     }
 
     // Calculate size
-    const bodyString = typeof body === 'string' ? body : JSON.stringify(body);
+    const bodyString = typeof body === 'string' ? body : stringifyJsonLossless(body);
     const bytesContent = new TextEncoder().encode(bodyString).length;
 
     return {
