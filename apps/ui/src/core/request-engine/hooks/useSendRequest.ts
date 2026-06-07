@@ -17,34 +17,7 @@ import { requestOrchestrator } from "../requestOrchestrator";
 import { toast } from "@/core/components/ui/sonner";
 import { useVoidenEditorStore } from "@/core/editors/voiden/VoidenEditor";
 import { expandLinkedFilesInDoc } from "@/core/editors/voiden/utils/expandLinkedBlocks";
-
-function getGqlQueryIndexAtPosInSection(
-  editor: Editor,
-  pos: number,
-  sectionIndex: number,
-): number | undefined {
-  let section = 0;
-  let queryIndex = 0;
-  let activeIndex: number | undefined;
-
-  editor.state.doc.forEach((child, offset) => {
-    if (child.type.name === "request-separator") {
-      section++;
-      return;
-    }
-    if (section !== sectionIndex) return;
-    if (child.type.name !== "gqlquery") return;
-
-    const nodeStart = offset + 1;
-    const nodeEnd = nodeStart + child.nodeSize;
-    if (pos >= nodeStart && pos < nodeEnd) {
-      activeIndex = queryIndex;
-    }
-    queryIndex++;
-  });
-
-  return activeIndex;
-}
+import { getGqlQueryIndexAtPosInSection } from "@voiden/core-extensions/voiden-graphql/lib/graphqlBlocks";
 
 export const useSendRestRequest = (_editor: Editor) => {
   // Always use the main VoidenEditor, not the passed editor.
@@ -137,7 +110,7 @@ export const useSendRestRequest = (_editor: Editor) => {
           });
         }
         if (gqlQueryIndex === undefined) {
-          gqlQueryIndex = getGqlQueryIndexAtPosInSection(editor, nodePos, sectionIndex);
+          gqlQueryIndex = getGqlQueryIndexAtPosInSection(editor.state.doc, nodePos, sectionIndex);
         }
         const response = await requestOrchestrator.executeRequest(
           editor,
@@ -315,7 +288,7 @@ export const useSendRestRequest = (_editor: Editor) => {
           sectionIndexOverrideRef.current = idx;
 
           const domPos = editor.view.posAtDOM(element, 0);
-          gqlQueryIndexOverrideRef.current = getGqlQueryIndexAtPosInSection(editor, domPos, idx);
+          gqlQueryIndexOverrideRef.current = getGqlQueryIndexAtPosInSection(editor.state.doc, domPos, idx);
         }
       } catch {
         // Ignore — section detection will fall back to cursor/DOM-based approach
