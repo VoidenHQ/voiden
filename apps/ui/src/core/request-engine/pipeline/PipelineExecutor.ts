@@ -18,6 +18,7 @@ import {
 } from './types';
 import { hookRegistry } from './HookRegistry';
 import type { Environment } from '../requestState';
+import { parseJsonPreserveIntegers } from '../parseJsonPreserveIntegers';
 
 /**
  * Main pipeline executor class
@@ -293,7 +294,8 @@ export class PipelineExecutor {
 
     try {
       if (contentType?.includes('json')) {
-        body = await response.json();
+        const jsonText = await response.text();
+        body = parseJsonPreserveIntegers(jsonText);
       } else if (contentType?.includes('text')) {
         body = await response.text();
       } else {

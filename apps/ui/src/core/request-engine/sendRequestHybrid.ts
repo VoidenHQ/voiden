@@ -15,6 +15,7 @@ import { preSendProcessHook, replaceProcessVariablesInText, saveRuntimeVariables
 import { get } from "http";
 import { getRuntimeVariablesMap } from "./getRequestFromJson";
 import { expandLinkedBlocksInDoc } from "../editors/voiden/utils/expandLinkedBlocks";
+import { parseJsonPreserveIntegers } from "./parseJsonPreserveIntegers";
 
 
 /**
@@ -414,7 +415,7 @@ export async function sendRequestHybrid(
 
       if (contentType.includes("json")) {
         try {
-          body = JSON.parse(buffer.toString());
+          body = parseJsonPreserveIntegers(buffer.toString("utf-8"));
         } catch {
           body = buffer.toString();
         }

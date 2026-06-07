@@ -19,6 +19,7 @@ import { Proxy } from "@/core/types";
 import { Buffer } from "buffer";
 import { RestApiRequestState } from "./pipeline/types";
 import { replaceProcessVariablesInText } from "./runtimeVariables";
+import { parseJsonPreserveIntegers } from "./parseJsonPreserveIntegers";
 
 export interface EnvironmentVariable {
   key: string;
@@ -332,7 +333,7 @@ async function parseBodyFromBytes(bytes: Buffer, contentType: string | null): Pr
   // Handle JSON content type.
   if (contentType?.includes("json")) {
     try {
-      return JSON.parse(bytes.toString());
+      return parseJsonPreserveIntegers(bytes.toString());
     } catch (error) {
       // Fallback to returning the raw string if JSON parsing fails.
       return bytes.toString();
@@ -819,7 +820,7 @@ export async function sendRequestSecure(
 
       if (contentType.includes("json")) {
         try {
-          body = JSON.parse(buffer.toString());
+          body = parseJsonPreserveIntegers(buffer.toString("utf-8"));
         } catch {
           body = buffer.toString();
         }

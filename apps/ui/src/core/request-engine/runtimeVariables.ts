@@ -1,4 +1,5 @@
 import { parseCookies } from "@voiden/sdk/shared";
+import { safeJsonParse } from "./parseJsonPreserveIntegers";
 
 interface RuntimeVariable {
     key: string;
@@ -53,38 +54,6 @@ function findInKeyValueInKeyValue(arr: any[] | undefined, searchKey: string): an
             item.key.toLowerCase() === searchKey.toLowerCase()
     );
     return found ? found['value'] : undefined;
-}
-
-/**
- * Safely parses JSON string, returns original value if not valid JSON
- * Handles common JSON issues like trailing commas
- * @param value - The value to parse
- * @returns Parsed object or original value
- */
-function safeJsonParse(value: any): any {
-    if (typeof value !== 'string') return value;
-
-    try {
-        // First, try standard JSON parse
-        return JSON.parse(value);
-    } catch (error) {
-        // If standard parse fails, try to fix common issues
-        try {
-            // Fix trailing commas in objects and arrays
-            const fixedJson = value
-                // Remove trailing commas in objects
-                .replace(/,\s*}/g, '}')
-                // Remove trailing commas in arrays  
-                .replace(/,\s*]/g, ']')
-                // Remove trailing commas before end of string
-                .replace(/,\s*$/, '');
-
-            return JSON.parse(fixedJson);
-        } catch {
-            // If still fails, return original value
-            return value;
-        }
-    }
 }
 
 /**
@@ -156,7 +125,7 @@ function getValueByPath(obj: any, path: string): any {
             }
             if (value) {
                 try {
-                    current = JSON.parse(value);
+                    current = safeJsonParse(value);
                 } catch {
                     current=value;
                 }

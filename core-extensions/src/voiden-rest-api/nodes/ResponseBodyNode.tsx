@@ -12,6 +12,7 @@ import * as React from "react";
 import { Node } from "@tiptap/core";
 import { ReactNodeViewRenderer } from "@tiptap/react";
 import { AlertCircle, Check, ChevronDown, Copy, Download, Eye, FileDown, FileText, WrapText } from "lucide-react";
+import { prettifyJsonText } from "@/core/request-engine/parseJsonPreserveIntegers";
 
 type LangOption = { label: string; value: string };
 const LANG_OPTIONS: LangOption[] = [
@@ -49,7 +50,7 @@ const PRETTIFIABLE_LANGS = new Set(["json", "xml", "html", "yaml", "javascript",
 const prettifyContent = (text: string, lang: string): string => {
   try {
     if (lang === "json") {
-      return JSON.stringify(JSON.parse(text), null, 2);
+      return prettifyJsonText(text);
     }
     if (lang === "xml" || lang === "html") {
       return prettifyHtml(text);
