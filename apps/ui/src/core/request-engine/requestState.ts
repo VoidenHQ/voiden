@@ -312,7 +312,7 @@ async function parseBody(response: Response): Promise<Buffer | string | object |
   // JSON
   if (contentType.includes("json")) {
     try {
-      return await response.json();
+      return parseJsonPreserveIntegers(await response.text());
     } catch (e) {
       return await response.text(); // fallback if parsing fails
     }

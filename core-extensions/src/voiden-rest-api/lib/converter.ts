@@ -6,6 +6,7 @@
  */
 
 import { Editor, JSONContent } from "@tiptap/core";
+import { prettifyJsonPreserveIntegers } from "../utils/parseJsonPreserveIntegers";
 
 /**
  * REST API request node types
@@ -158,13 +159,7 @@ export const convertToUrlTableNode = (data: TwoDimensionalArray) => {
  * Prettify JSON string to multi-line format
  * This ensures proper YAML serialization with |- block style
  */
-const prettifyJson = (text: string): string => {
-  try {
-    return JSON.stringify(JSON.parse(text), null, 2);
-  } catch {
-    return text;
-  }
-};
+const prettifyJson = (text: string): string => prettifyJsonPreserveIntegers(text);
 
 /**
  * Create JSON body node

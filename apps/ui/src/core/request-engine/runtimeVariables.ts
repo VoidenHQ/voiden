@@ -79,7 +79,7 @@ function safeJsonParse(value: any): any {
                 // Remove trailing commas before end of string
                 .replace(/,\s*$/, '');
 
-            return JSON.parse(fixedJson);
+            return parseJsonPreserveIntegers(fixedJson);
         } catch {
             // If still fails, return original value
             return value;
@@ -94,7 +94,7 @@ function safeJsonParse(value: any): any {
  * @param path - Dot notation path (e.g., "headers.Authorization" or "body.data.id")
  * @returns The extracted value or undefined
  */
-function getValueByPath(obj: any, path: string): any {
+export function getValueByPath(obj: any, path: string): any {
     if (!obj || !path) return undefined;
     const keys = path.split(".");
     let current = obj;
@@ -156,7 +156,7 @@ function getValueByPath(obj: any, path: string): any {
             }
             if (value) {
                 try {
-                    current = JSON.parse(value);
+                    current = parseJsonPreserveIntegers(value);
                 } catch {
                     current=value;
                 }
@@ -471,7 +471,7 @@ export async function preSendProcessHook(requestState: any): Promise<any> {
                 const bodyString = JSON.stringify(requestState.body);
                 const replacedString = replaceProcessVariables(bodyString, processVariables);
                 try {
-                    requestState.body = JSON.parse(replacedString);
+                    requestState.body = parseJsonPreserveIntegers(replacedString);
                 } catch (e) {
                     // If parsing fails, keep as string
                     requestState.body = replacedString;
