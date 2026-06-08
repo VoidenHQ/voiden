@@ -15646,6 +15646,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"lossless-json@npm:^4.0.2":
+  version: 4.3.0
+  resolution: "lossless-json@npm:4.3.0"
+  checksum: 10c0/b561eb7f77ef99dbaa0df32fa2407ddcc2c61a0d53297240f0fdd6c2e5f2e0f7d224fb055f84e76467f5ec65547540662c265fcf7a1705497a2d44e323c517df
+  languageName: node
+  linkType: hard
+
 "loupe@npm:^3.1.0, loupe@npm:^3.1.2":
   version: 3.1.3
   resolution: "loupe@npm:3.1.3"
@@ -22320,6 +22327,7 @@ __metadata:
     js-base64: "npm:^3.7.7"
     js-cookie: "npm:^3.0.5"
     jsdom: "npm:^27.3.0"
+    lossless-json: "npm:^4.0.2"
     lucide-react: "npm:^0.474.0"
     marked: "npm:^14.1.2"
     next-themes: "npm:^0.3.0"

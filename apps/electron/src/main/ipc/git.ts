@@ -4,7 +4,7 @@ import { getActiveProject } from "../state";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
-import { invalidateGitCache, getCachedIsRepo, invalidateRepoCache, getSharedGit } from "../git";
+import { invalidateGitCache, getCachedIsRepo, invalidateRepoCache, getSharedGit, ensureVoidenGitignore } from "../git";
 import { setCloning } from "../fileWatcher";
 import { logger } from "../logger";
 
@@ -253,6 +253,10 @@ export function registerGitIpcHandlers() {
       const git = getSharedGit(activeProject);
       await git.init();
       invalidateRepoCache(activeProject);
+      // Make sure .voiden/* (except public env YAMLs) is ignored from the very
+      // first commit — the file watcher's .gitignore handler then invalidates
+      // the git/tree caches when this write lands.
+      await ensureVoidenGitignore(activeProject).catch(() => {});
       return true;
     } catch (error) {
       console.error("Error initializing git repository:", error);

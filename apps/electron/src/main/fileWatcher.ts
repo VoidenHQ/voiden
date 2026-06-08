@@ -1,7 +1,7 @@
 import chokidar from "chokidar";
 import path from "node:path";
 import eventBus from "./eventBus";
-import { invalidateGitCache, ensureVoidenGitignore } from "./git";
+import { invalidateGitCache, ensureVoidenGitignore, getCachedIsRepo } from "./git";
 import { clearTreeResultCache } from "./ipc/files";
 import { logger } from "./logger";
 
@@ -81,6 +81,14 @@ function startWatching(projectPath: string, watcherId: string) {
   watcher.on("ready", () => {
     logger.info("system", "FileWatcher: ready — adding git/env paths", { projectPath, watcherId });
     watcher.add(gitPaths);
+
+    // Project may already be (or have become, e.g. via move/clone/git init outside
+    // the app) a git repo — make sure .voiden/* is ignored from the start. Any
+    // resulting write to .gitignore is picked up by the watcher's own handlers,
+    // which invalidate the git/tree caches.
+    getCachedIsRepo(projectPath)
+      .then((isRepo) => { if (isRepo) return ensureVoidenGitignore(projectPath); })
+      .catch(() => {});
   });
 
   watcher.on("error", (error: any) => {
@@ -106,6 +114,18 @@ function startWatching(projectPath: string, watcherId: string) {
   const isGitRelated = (f: string) => f.includes(`${path.sep}.git${path.sep}`);
   const isVoidFile = (f: string) => f.endsWith(".void");
   const isVoidenYaml = (f: string) => f.includes(`${path.sep}.voiden${path.sep}`) && f.endsWith(".yaml");
+  const isGitignoreFile = (f: string) => path.basename(f) === ".gitignore" && path.dirname(f) === projectPath;
+
+  const refreshGitignoreState = (filePath: string) => {
+    invalidateGitCache(projectPath);
+    clearTreeResultCache();
+    emit("git:changed", { path: filePath, project: projectPath, watcherId });
+  };
+
+  const handleGitignoreChange = (filePath: string) => {
+    ensureVoidenGitignore(projectPath).catch(() => {});
+    refreshGitignoreState(filePath);
+  };
 
   watcher
     .on("add", (filePath) => {
@@ -113,9 +133,7 @@ function startWatching(projectPath: string, watcherId: string) {
       if (isCloningActive(filePath)) return;
       if (isGitRelated(filePath)) emitGitChangedDebounced({ path: filePath });
       else {
-        if (path.basename(filePath) === ".gitignore" && path.dirname(filePath) === projectPath) {
-          ensureVoidenGitignore(projectPath).catch(() => {});
-        }
+        if (isGitignoreFile(filePath)) handleGitignoreChange(filePath);
         emit("file:new", { path: filePath, project: projectPath, watcherId });
       }
     })
@@ -136,6 +154,9 @@ function startWatching(projectPath: string, watcherId: string) {
         emit("env:changed", { path: filePath, project: projectPath, watcherId });
       } else if (isGitRelated(filePath)) {
         emitGitChangedDebounced({ path: filePath });
+      } else if (isGitignoreFile(filePath)) {
+        handleGitignoreChange(filePath);
+        emit("file:changed", { path: filePath, project: projectPath, watcherId });
       } else {
         emit("file:changed", { path: filePath, project: projectPath, watcherId });
       }
@@ -144,7 +165,10 @@ function startWatching(projectPath: string, watcherId: string) {
       logger.info("system", "FileWatcher: unlink", { filePath });
       if (isDeletingActive(filePath)) return;
       if (isGitRelated(filePath)) emitGitChangedDebounced({ path: filePath });
-      else emit("file:delete", { path: filePath, project: projectPath, watcherId });
+      else {
+        if (isGitignoreFile(filePath)) refreshGitignoreState(filePath);
+        emit("file:delete", { path: filePath, project: projectPath, watcherId });
+      }
     })
     .on("unlinkDir", (dirPath) => {
       logger.info("system", "FileWatcher: unlinkDir", { dirPath });

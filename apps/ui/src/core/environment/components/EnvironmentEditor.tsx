@@ -19,6 +19,7 @@ import {
   renameKey,
 } from "./envTreeUtils";
 import { useEditorStore } from "@/core/editors/voiden/VoidenEditor";
+import { toast } from "@/core/components/ui/sonner";
 import { useGetAppState } from "@/core/state/hooks";
 
 const DEBOUNCE_MS = 800;
@@ -729,7 +730,7 @@ const RuntimePanel = ({
 }: {
   vars: Record<string, any>;
   onRefresh: () => void;
-  onDelete: (key: string) => void;
+  onDelete: (key: string) => Promise<boolean>;
   selectedKeys: Set<string>;
   onSelectionChange: (keys: Set<string>) => void;
 }) => {
@@ -751,10 +752,28 @@ const RuntimePanel = ({
   const allSelected = entries.length > 0 && entries.every(([k]) => selectedKeys.has(k));
   const toggleAll = () =>
     onSelectionChange(allSelected ? new Set() : new Set(entries.map(([k]) => k)));
-  const handleBulkDelete = () => {
-    selectedKeys.forEach((k) => onDelete(k));
-    onSelectionChange(new Set());
+  const handleBulkDelete = async () => {
+    const keys = Array.from(selectedKeys);
     setConfirmBulkDelete(false);
+
+    const results = await Promise.all(keys.map(async (k) => ({ key: k, ok: await onDelete(k) })));
+    const failed = results.filter((r) => !r.ok).map((r) => r.key);
+    const succeededCount = results.length - failed.length;
+
+    // Keep failed keys selected so the user can see and retry them.
+    onSelectionChange(new Set(failed));
+
+    if (failed.length === 0) {
+      toast.success(`Deleted ${succeededCount} variable${succeededCount === 1 ? "" : "s"}`);
+    } else if (succeededCount === 0) {
+      toast.error(`Couldn't delete ${failed.length} variable${failed.length === 1 ? "" : "s"}`, {
+        description: failed.join(", "),
+      });
+    } else {
+      toast.warning(`Deleted ${succeededCount} of ${keys.length} variables`, {
+        description: `Couldn't delete: ${failed.join(", ")}`,
+      });
+    }
   };
 
   return (
@@ -1301,15 +1320,25 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
     handleUpdateTree(updateNodeAtPath(tree, selectedEnvPath, updated));
   }, [selectedEnvPath, tree, handleUpdateTree]);
 
-  // Delete a single runtime variable from the selected env bucket
-  const handleDeleteRuntimeVar = async (key: string) => {
+  // Delete a single runtime variable from the selected env bucket.
+  // Returns whether the delete actually succeeded so bulk delete can report
+  // partial failures back to the user.
+  const handleDeleteRuntimeVar = async (key: string): Promise<boolean> => {
+    const envKey = selectedEnvPath || "__global__";
+    try {
+      await (window as any).electron?.variables?.deleteKey?.(key, envKey);
+    } catch (error) {
+      toast.error(`Couldn't delete "${key}"`, {
+        description: error instanceof Error ? error.message : String(error),
+      });
+      return false;
+    }
     setRuntimeVars((prev) => {
       const updated = { ...prev };
       delete updated[key];
       return updated;
     });
-    const envKey = selectedEnvPath || "__global__";
-    await (window as any).electron?.variables?.deleteKey?.(key, envKey);
+    return true;
   };
 
   // Clear all runtime variables for the currently viewed bucket

@@ -454,6 +454,30 @@ const VOIDEN_IGNORE_BLOCK = [
   '!.voiden/env-*-public.yaml',
 ];
 
+// Matches the basenames let through by the negation lines above.
+const VOIDEN_PUBLIC_ENV_RE = /^env(-[^/]+)?-public\.yaml$/;
+
+// .gitignore only affects untracked files — files committed before the rule
+// existed (e.g. process.env.json, history retention) keep showing as
+// "modified" forever unless removed from git's index. `git rm --cached`
+// removes them from tracking while leaving the working-tree copy untouched;
+// the removal then shows up as a normal staged change for the user to commit.
+async function untrackIgnoredVoidenFiles(rootDir: string): Promise<void> {
+  try {
+    const git = getSharedGit(rootDir);
+    const lsOutput = await git.raw(['ls-files', '-z', '--', '.voiden/']);
+    const tracked = lsOutput.split('\0').filter(Boolean);
+    const toUntrack = tracked.filter((rel) => !VOIDEN_PUBLIC_ENV_RE.test(path.basename(rel)));
+    if (toUntrack.length === 0) return;
+
+    await git.raw(['rm', '--cached', '-q', '--', ...toUntrack]);
+    invalidateGitCache(rootDir);
+    logger.info('git', `ensureVoidenGitignore: untracked ${toUntrack.length} ignored .voiden file(s)`, { rootDir, files: toUntrack });
+  } catch {
+    // not a repo yet, or nothing under .voiden/ — nothing to do
+  }
+}
+
 export async function ensureVoidenGitignore(rootDir: string): Promise<void> {
   const gitignorePath = path.join(rootDir, '.gitignore');
 
@@ -471,12 +495,13 @@ export async function ensureVoidenGitignore(rootDir: string): Promise<void> {
 
   const lines = content.split('\n').map((l) => l.trim());
   const missing = VOIDEN_IGNORE_BLOCK.filter((p) => !lines.includes(p));
-  if (missing.length === 0) return;
+  if (missing.length > 0) {
+    if (content && !content.endsWith('\n')) content += '\n';
+    content += '\n# Voiden\n' + missing.join('\n') + '\n';
+    await fs.promises.writeFile(gitignorePath, content, 'utf8');
+  }
 
-  if (content && !content.endsWith('\n')) content += '\n';
-  content += '\n# Voiden\n' + missing.join('\n') + '\n';
-
-  await fs.promises.writeFile(gitignorePath, content, 'utf8');
+  await untrackIgnoredVoidenFiles(rootDir);
 }
 
 export async function updateGitignore(filePatterns: string | string[], rootDir = '.') {
