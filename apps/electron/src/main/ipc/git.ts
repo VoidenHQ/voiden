@@ -7,6 +7,7 @@ import * as os from "os";
 import { invalidateGitCache, getCachedIsRepo, invalidateRepoCache, getSharedGit, ensureVoidenGitignore } from "../git";
 import { setCloning } from "../fileWatcher";
 import { logger } from "../logger";
+import { getSettings, getDefaultProjectsDirectory } from "../settings";
 
 // In-flight deduplication: prevents polling intervals from stacking up
 // concurrent git processes when a call takes longer than the poll interval.
@@ -149,7 +150,12 @@ export function registerGitIpcHandlers() {
 
     try {
       let cloneUrl = repoUrl;
-      let cloneEnv: NodeJS.ProcessEnv | undefined;
+      // Always suppress interactive terminal prompts regardless of auth mode.
+      // Without this, git can hang waiting for keyboard input inside Electron.
+      const baseEnv: NodeJS.ProcessEnv = { ...process.env, GIT_TERMINAL_PROMPT: '0' };
+      let cloneEnv: NodeJS.ProcessEnv = baseEnv;
+      // Extra args prepended to every git clone call (auth-mode specific).
+      let extraCloneArgs: string[] = [];
 
       if (token) {
         let parsed: URL;
@@ -163,7 +169,7 @@ export function registerGitIpcHandlers() {
           throw new Error("Access tokens only work with HTTPS URLs. For SSH, configure an SSH key instead.");
         }
 
-        // GIT_ASKPASS script echoes credentials without putting them on the command line
+        // GIT_ASKPASS script echoes credentials without putting them on the command line.
         const scriptPath = await writeTempScript([
           '#!/bin/sh',
           'case "$1" in',
@@ -171,16 +177,20 @@ export function registerGitIpcHandlers() {
           `  *) echo ${JSON.stringify(token)} ;;`,
           'esac',
         ].join('\n') + '\n');
-        cloneEnv = { ...process.env, GIT_ASKPASS: scriptPath, GIT_TERMINAL_PROMPT: '0' };
+
+        // Disable the system credential helper (-c credential.helper=) so GIT_ASKPASS
+        // is the ONLY credential source. Without this, osxkeychain/etc. takes precedence
+        // and the provided token is silently ignored when the system has cached credentials.
+        extraCloneArgs = ['-c', 'credential.helper='];
+        cloneEnv = { ...baseEnv, GIT_ASKPASS: scriptPath };
         cloneUrl = parsed.toString(); // credential-free URL
       } else if (useSshAgent) {
         // SSH agent mode — no specific key, let the agent supply credentials.
         // StrictHostKeyChecking=accept-new avoids interactive prompts for new hosts.
         // BatchMode=yes makes ssh fail immediately instead of prompting when no key matches.
         cloneEnv = {
-          ...process.env,
+          ...baseEnv,
           GIT_SSH_COMMAND: 'ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes',
-          GIT_TERMINAL_PROMPT: '0',
         };
       } else if (sshKeyPath) {
         // Specific key file — use it exclusively (IdentitiesOnly=yes ignores agent keys).
@@ -193,16 +203,20 @@ export function registerGitIpcHandlers() {
             `echo ${JSON.stringify(sshPassphrase)}`,
           ].join('\n') + '\n');
           cloneEnv = {
-            ...process.env,
+            ...baseEnv,
             GIT_SSH_COMMAND: sshCmd,
             SSH_ASKPASS: passScript,
             SSH_ASKPASS_REQUIRE: 'force',
             DISPLAY: process.env.DISPLAY ?? '',
-            GIT_TERMINAL_PROMPT: '0',
           };
         } else {
-          cloneEnv = { ...process.env, GIT_SSH_COMMAND: sshCmd, GIT_TERMINAL_PROMPT: '0' };
+          cloneEnv = { ...baseEnv, GIT_SSH_COMMAND: sshCmd };
         }
+      } else {
+        // Auto mode — let the OS credential helper (osxkeychain, Windows
+        // Credential Manager, etc.) supply credentials automatically.
+        // If the user has previously authenticated with the host, this just works.
+        // extraCloneArgs and cloneEnv stay as their defaults (empty / baseEnv).
       }
 
       const baseName = repoUrl.replace(/\.git$/, "").split("/").pop() || "repo";
@@ -228,7 +242,8 @@ export function registerGitIpcHandlers() {
         });
 
       if (!activeProject) {
-        const voidenHome = path.join(os.homedir(), "Voiden");
+        const settings = getSettings();
+        const voidenHome = settings.projects.default_directory || getDefaultProjectsDirectory();
         await fs.promises.mkdir(voidenHome, { recursive: true });
 
         let newFolderName = baseName;
@@ -244,7 +259,7 @@ export function registerGitIpcHandlers() {
         setCloning(newProjectPath, true);
         let newLfsWarning = false;
         try {
-          await gitParent.clone(cloneUrl, newFolderName, ["--depth", "1", "--no-local"]);
+          await gitParent.clone(cloneUrl, newFolderName, [...extraCloneArgs, "--depth", "1", "--no-local"]);
         } catch (cloneErr: any) {
           const msg: string = cloneErr?.message || String(cloneErr);
           if (msg.includes("Clone succeeded, but checkout failed") || (msg.includes("git-lfs") && msg.includes("command not found"))) {
@@ -256,6 +271,17 @@ export function registerGitIpcHandlers() {
           setCloning(newProjectPath, false);
         }
 
+        // Detect empty repos — git clone exits 0 for repos with no commits,
+        // so we have to check explicitly. `git log` throws on an empty repo.
+        let newIsEmptyRepo = false;
+        try {
+          const clonedGit = simpleGit(newProjectPath);
+          const log = await clonedGit.log({ maxCount: 1 });
+          newIsEmptyRepo = log.all.length === 0;
+        } catch {
+          newIsEmptyRepo = true;
+        }
+
         const voidenDir = path.join(newProjectPath, ".voiden");
         await fs.promises.mkdir(voidenDir, { recursive: true });
         await fs.promises.writeFile(
@@ -263,7 +289,7 @@ export function registerGitIpcHandlers() {
           JSON.stringify({ project: newFolderName })
         );
 
-        return { clonedPath: newProjectPath, clonedInPlace: false, isNewProject: true, lfsWarning: newLfsWarning };
+        return { clonedPath: newProjectPath, clonedInPlace: false, isNewProject: true, lfsWarning: newLfsWarning, emptyRepo: newIsEmptyRepo };
       }
 
       let folderName = baseName;
@@ -278,7 +304,7 @@ export function registerGitIpcHandlers() {
       setCloning(clonedPath, true);
       let lfsWarning = false;
       try {
-        await gitWithProgress.clone(cloneUrl, folderName, ["--depth", "1", "--no-local"]);
+        await gitWithProgress.clone(cloneUrl, folderName, [...extraCloneArgs, "--depth", "1", "--no-local"]);
       } catch (cloneErr: any) {
         const msg: string = cloneErr?.message || String(cloneErr);
         if (msg.includes("Clone succeeded, but checkout failed") || (msg.includes("git-lfs") && msg.includes("command not found"))) {
@@ -289,7 +315,18 @@ export function registerGitIpcHandlers() {
       } finally {
         setCloning(clonedPath, false);
       }
-      return { clonedPath, clonedInPlace: false, isNewProject: false, lfsWarning };
+
+      // Detect empty repos — git clone exits 0 for repos with no commits.
+      let isEmptyRepo = false;
+      try {
+        const clonedGit = simpleGit(clonedPath);
+        const log = await clonedGit.log({ maxCount: 1 });
+        isEmptyRepo = log.all.length === 0;
+      } catch {
+        isEmptyRepo = true;
+      }
+
+      return { clonedPath, clonedInPlace: false, isNewProject: false, lfsWarning, emptyRepo: isEmptyRepo };
     } catch (error: any) {
       // Sanitize before logging — error message from git may contain the repo URL
       const raw: string = redact(error?.message || String(error));
@@ -297,7 +334,7 @@ export function registerGitIpcHandlers() {
 
       // Translate common git errors into friendly messages
       if (raw.includes("Repository not found") || raw.includes("does not exist")) {
-        throw new Error("Repository not found. Check the URL and make sure it exists.");
+        throw new Error("Repository not found. If this is a private repo, make sure you are authenticated (Access Token or SSH Key).");
       }
       if (raw.includes("Permission denied (publickey)") || raw.includes("Host key verification failed") || raw.includes("No such identity")) {
         if (useSshAgent) {

@@ -43,7 +43,7 @@ export const GitSourceControl = () => {
   const [cloneToken, setCloneToken] = useState("");
   const [cloneSshKeyPath, setCloneSshKeyPath] = useState("");
   const [cloneSshPassphrase, setCloneSshPassphrase] = useState("");
-  const [authMode, setAuthMode] = useState<"none" | "token" | "ssh">("none");
+  const [authMode, setAuthMode] = useState<"auto" | "token" | "ssh">("auto");
   const [clonedProjectPath, setClonedProjectPath] = useState<string | null>(null);
   const [cloneProgress, setCloneProgress] = useState<{ stage: string; progress: number } | null>(null);
 
@@ -61,7 +61,7 @@ export const GitSourceControl = () => {
     if (/^(git@|ssh:\/\/)/.test(value.trim()) && authMode !== "ssh") {
       setAuthMode("ssh");
     } else if (/^https?:\/\//.test(value.trim()) && authMode === "ssh") {
-      setAuthMode("token");
+      setAuthMode("auto");
     }
   };
   const [commitMessage, setCommitMessage] = useState("");
@@ -275,6 +275,13 @@ export const GitSourceControl = () => {
       return;
     }
 
+    if (authMode === "auto" && isSsh) {
+      toast.error("SSH URLs require SSH key authentication", {
+        description: "Switch to 'SSH Key' mode or use an https:// URL with Auto.",
+      });
+      return;
+    }
+
     if (authMode === "token" && !isHttps) {
       toast.error("Token authentication requires an HTTPS URL", {
         description: "Change the URL to https:// or switch to SSH key authentication.",
@@ -307,11 +314,15 @@ export const GitSourceControl = () => {
           setCloneToken("");
           setCloneSshKeyPath("");
           setCloneSshPassphrase("");
-          setAuthMode("none");
+          setAuthMode("auto");
           setShowSshAdvanced(false);
           setShowCloneForm(false);
 
-          if (result?.lfsWarning) {
+          if (result?.emptyRepo) {
+            toast.warning("Repository is empty", {
+              description: "The repo was cloned successfully but has no commits yet.",
+            });
+          } else if (result?.lfsWarning) {
             toast.warning("Cloned without LFS files", {
               description: "git-lfs is not installed. Run `git lfs install` then `git lfs pull` inside the repo.",
             });
@@ -419,7 +430,7 @@ export const GitSourceControl = () => {
 
             {/* Auth mode selector */}
             <div className="flex gap-0.5 bg-editor border border-border rounded p-0.5">
-              {(["none", "token", "ssh"] as const).map((mode) => (
+              {(["auto", "token", "ssh"] as const).map((mode) => (
                 <button
                   key={mode}
                   onClick={() => setAuthMode(mode)}
@@ -430,7 +441,7 @@ export const GitSourceControl = () => {
                   )}
                 >
                   {mode === "ssh" && <Key size={10} />}
-                  {mode === "none" ? "None" : mode === "token" ? "Access Token" : "SSH Key"}
+                  {mode === "auto" ? "Auto" : mode === "token" ? "Access Token" : "SSH Key"}
                 </button>
               ))}
             </div>
@@ -572,7 +583,7 @@ export const GitSourceControl = () => {
                 setCloneToken("");
                 setCloneSshKeyPath("");
                 setCloneSshPassphrase("");
-                setAuthMode("none");
+                setAuthMode("auto");
                 setShowSshAdvanced(false);
               }}
               disabled={isCloning}
