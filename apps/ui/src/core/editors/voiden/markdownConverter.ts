@@ -199,17 +199,10 @@ const codeBlockSerializer = (state: MarkdownSerializerState, node: Node) => {
   state.closeBlock(node);
 };
 
-// --- NEW: Custom serializer for paragraphs ---
-// When a paragraph is empty it outputs two newlines, otherwise it renders normally.
 const paragraphSerializer = (state: MarkdownSerializerState, node: Node) => {
   if (node.type.name !== "paragraph") return;
-  if (node.content.size === 0) {
-    state.write(EMPTY_LINE_MARKER);
-    state.closeBlock(node);
-  } else {
-    state.renderInline(node);
-    state.closeBlock(node);
-  }
+  state.renderInline(node);
+  state.closeBlock(node);
 };
 
 // Inline serializer for fileLink nodes – writes a compact token that survives
@@ -838,8 +831,6 @@ const convertMdastNode = (node: any, schema?: any, definitions?: Record<string, 
   }
 };
 
-const EMPTY_LINE_MARKER = "%%EMPTY_LINE%%";
-
 // --- Helpers for protecting fallback blocks ---
 
 function extractFallbackBlocks(markdown: string) {
@@ -863,43 +854,8 @@ function reinsertFallbackBlocks(markdown: string, fallbackBlocks: string[], plac
   return result;
 }
 
-// --- NEW: Updated insertEmptyLineMarkers function ---
-// This version always outputs at least one blank line when a group of blank lines is encountered,
-// and for each extra blank line (beyond the first) it inserts a marker.
 function insertEmptyLineMarkers(markdown: string) {
-  const lines = markdown.split(/\r?\n/);
-  const resultLines: string[] = [];
-  let previousWasEmpty = false;
-  let inFencedBlock = false;
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (/^```/.test(trimmed)) {
-      inFencedBlock = !inFencedBlock;
-      resultLines.push(line);
-      previousWasEmpty = false;
-      continue;
-    }
-
-    if (inFencedBlock) {
-      resultLines.push(line);
-      previousWasEmpty = false;
-      continue;
-    }
-
-    if (line.trim() === "") {
-      if (previousWasEmpty) {
-        resultLines.push("%%EMPTY_LINE%%");
-      } else {
-        resultLines.push("");
-      }
-      previousWasEmpty = true;
-    } else {
-      resultLines.push(line);
-      previousWasEmpty = false;
-    }
-  }
-  return resultLines.join("\n");
+  return markdown;
 }
 // Helper function to fix mark types from prosemirror-markdown to TipTap schema
 // Converts 'em' -> 'italic' and 'strong' -> 'bold'
@@ -1000,11 +956,9 @@ export function parseMarkdown(markdown: string, schema: Schema) {
             .join("")
         : "";
 
-      if (fullText.includes(EMPTY_LINE_MARKER)) {
-        // Instead of simply splitting and pushing one paragraph per part,
-        // we rebuild the node sequence so that each marker occurrence inserts
-        // a single empty paragraph.
-        const parts = fullText.split(EMPTY_LINE_MARKER);
+      if (fullText.includes("%%EMPTY_LINE%%")) {
+        // Backward compat: strip legacy markers from old .void files.
+        const parts = fullText.split("%%EMPTY_LINE%%");
         const newNodes: any[] = [];
         for (let i = 0; i < parts.length; i++) {
           // For every marker occurrence (i > 0), insert an empty paragraph.
