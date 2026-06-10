@@ -70,7 +70,7 @@
     "node-pty": "1.0.0",
     "remove-markdown": "^0.6.2",
     "selfsigned": "^5.5.0",
-    "simple-git": "^3.36.0",
+    "simple-git": "^3.32.3",
     "sudo-prompt": "^9.2.1"
   },
   "build": {

@@ -39,10 +39,5 @@
     "@types/ws": "^8.5.10",
     "tsx": "^4.15.0",
     "typescript": "^5.5.3"
-  },
-  "overrides": {
-    "protobufjs": ">=7.5.8 <8.0.0",
-    "@protobufjs/utf8": "1.1.1",
-    "ws": ">=8.20.1"
   }
 }
