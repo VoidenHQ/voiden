@@ -490,8 +490,7 @@ const config: ForgeConfig = {
       config: {
         bucket: s3BucketName,
         region: s3Region,
-        folder: "voiden", 
-        public: true,
+        folder: "voiden",
         accessKeyId: process.env.S3_ACCESS_KEY_ID,
         secretAccessKey: process.env.S3_SECRET_ACCESS_KEY,
       },
