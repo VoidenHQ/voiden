@@ -1,7 +1,7 @@
 [
   {
     "version": "v2.0.1",
-    "date": "8/6/2026",
+    "date": "10/06/2026",
     "title": "Stable: Plugin Architecture Overhaul",
     "description": "Stable release rolling up the v2.0.0-beta.1 and v2.0.1-beta.1 betas — a major rework of the plugin architecture (protocol logic moved into plugins, independent plugin repos, the new voiden-runner CLI and @voiden/create-plugin scaffolding tool) plus a batch of bug fixes.",
     "icon": "Sparkles",
