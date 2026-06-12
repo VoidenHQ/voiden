@@ -832,6 +832,7 @@ const VoidenEditorInner = ({
     {
       autofocus: content.length === 0 ? 'end' : false,
       content: initialContent,
+      enableInputRules: false,
       editorProps: {
         attributes: {
           class: `${proseClasses} outline-none px-5`,
