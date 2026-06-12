@@ -82,8 +82,7 @@
         "nsis"
       ],
       "icon": "src/images/icon.ico",
-      "artifactName": "Voiden Setup ${version}.${ext}",
-      "sign": "./sign.js"
+      "artifactName": "Voiden Setup ${version}.${ext}"
     },
     "nsis": {
       "oneClick": true,

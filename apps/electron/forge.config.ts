@@ -102,7 +102,6 @@ if (isMac) {
   makers.push({
     name: "@felixrieseberg/electron-forge-maker-nsis",
     config: {
-      // Code signing is handled by sign.js (referenced in package.json build.win.sign)
       // updater config removed: it generated a latest.yml with pre-signing hash that
       // conflicted with the postMake hook's latest.yml (computed after signing).
       // app-update.yml is now generated in packageAfterCopy for Windows.
@@ -110,6 +109,40 @@ if (isMac) {
       // Register file associations via app-builder-lib so "Open with Voiden"
       // appears in Windows Explorer for .void and common text/code files.
       getAppBuilderConfig: async () => ({
+        win: {
+          // Signs via Azure Trusted Signing (azuresigntool must be on PATH).
+          // Required env vars: AZURE_CODE_SIGNING_ENDPOINT, AZURE_CLIENT_ID,
+          // AZURE_CLIENT_SECRET, AZURE_TENANT_ID, AZURE_CODE_SIGNING_CERT_PROFILE
+          sign: async (config: { path: string }) => {
+            const endpoint     = process.env.AZURE_CODE_SIGNING_ENDPOINT;
+            const clientId     = process.env.AZURE_CLIENT_ID;
+            const clientSecret = process.env.AZURE_CLIENT_SECRET;
+            const tenantId     = process.env.AZURE_TENANT_ID;
+            const certProfile  = process.env.AZURE_CODE_SIGNING_CERT_PROFILE;
+
+            if (!endpoint || !clientId || !clientSecret || !tenantId || !certProfile) {
+              throw new Error(
+                "Missing Azure Trusted Signing env vars. Required: " +
+                "AZURE_CODE_SIGNING_ENDPOINT, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, " +
+                "AZURE_TENANT_ID, AZURE_CODE_SIGNING_CERT_PROFILE"
+              );
+            }
+
+            const cmd = [
+              "azuresigntool sign",
+              `-kvu "${endpoint}"`,
+              `-kvi "${clientId}"`,
+              `-kvs "${clientSecret}"`,
+              `-kvt "${tenantId}"`,
+              `-kvc "${certProfile}"`,
+              `-tr http://timestamp.acs.microsoft.com`,
+              `-v "${config.path}"`,
+            ].join(" ");
+
+            execSync(cmd, { stdio: "inherit" });
+            console.log(`Signed: ${path.basename(config.path)}`);
+          },
+        },
         fileAssociations: [
           {
             ext: "void",

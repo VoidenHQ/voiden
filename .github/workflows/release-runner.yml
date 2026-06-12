@@ -1,6 +1,7 @@
 # Builds and publishes @voiden/runner to npm, and attaches a .tgz to a GitHub Release.
 #
-# Trigger: push a tag like runner-v0.1.0
+# Trigger: manual (workflow_dispatch)
+# Bump the version in packages/voiden-runner/package.json, commit, then trigger this workflow.
 #
 # Required repository secret:
 #   NPM_TOKEN  — Automation token from npmjs.com (Settings → Access Tokens → Automation)
@@ -8,9 +9,7 @@
 name: Release voiden-runner
 
 on:
-  push:
-    tags:
-      - 'runner-v*'   # e.g. runner-v0.1.0
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -23,6 +22,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Read runner version
+        id: version
+        run: |
+          VERSION=$(node -p "require('./packages/voiden-runner/package.json').version")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=runner-v$VERSION" >> "$GITHUB_OUTPUT"
 
       # core-extensions is gitignored — fetch it from its own repo
       - name: Clone core-extensions
@@ -47,14 +53,14 @@ jobs:
         working-directory: packages/voiden-runner
         run: npm run build
 
-      # ── Publish to npm ─────────────────────────────────────────────────────
+      # ── Publish to npm ────────────────────────────────────────────────────────
       - name: Publish to npm
         working-directory: packages/voiden-runner
         run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      # ── Attach tarball to GitHub Release ───────────────────────────────────
+      # ── Attach tarball to GitHub Release ─────────────────────────────────────
       - name: Pack tarball
         working-directory: packages/voiden-runner
         run: npm pack
@@ -67,8 +73,9 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
-          name: voiden-runner ${{ github.ref_name }}
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: voiden-runner ${{ steps.version.outputs.tag }}
+          generate_release_notes: true
           body: |
             ### Install
 
@@ -78,6 +85,6 @@ jobs:
 
             Or from this release tarball:
             ```bash
-            npm install -g https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/${{ steps.tarball.outputs.name }}
+            npm install -g https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.tag }}/${{ steps.tarball.outputs.name }}
             ```
           files: packages/voiden-runner/${{ steps.tarball.outputs.name }}
