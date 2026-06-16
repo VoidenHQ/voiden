@@ -1,4 +1,4 @@
-import { Plus, Terminal, X, PanelRight } from "lucide-react";
+import { Plus, Terminal, X, PanelRight, LayoutList } from "lucide-react";
 import { Panel, PanelGroup } from "react-resizable-panels";
 import { PanelTabs } from "./PanelTabs";
 import { PanelContent } from "./PanelContent";
@@ -13,7 +13,10 @@ import { Tip } from "@/core/components/ui/Tip";
 import { usePanelStore } from "@/core/stores/panelStore";
 import { useResponsePanelPosition } from "@/core/stores/responsePanelPosition";
 import { cn } from "@/core/lib/utils";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { BlockOverviewPanel } from "@/core/layout/panels/BlockOverviewPanel";
+import { useVoidenEditorStore } from "@/core/editors/voiden/VoidenEditor";
+import { useSettings } from "@/core/settings/hooks";
 
 interface MainEditorProps {
   bottomPanelProps: any;
@@ -40,6 +43,15 @@ export const MainEditor = ({ bottomPanelProps, rightPanelProps }: MainEditorProp
   // When switching bottom → right the horizontal PanelGroup re-mounts and
   // restores its persisted size (which may be 0 / tiny). After the layout
   // settles we force the right panel to a sensible default width.
+  const voidenEditor = useVoidenEditorStore((s) => s.editor);
+  const [showBlockOverview, setShowBlockOverview] = useState(false);
+  const { settings } = useSettings();
+  const blockOverviewEnabled = settings?.editor?.block_overview ?? false;
+
+  useEffect(() => {
+    if (!blockOverviewEnabled) setShowBlockOverview(false);
+  }, [blockOverviewEnabled]);
+
   const prevPosition = useRef(responsePanelPosition);
   useEffect(() => {
     if (prevPosition.current === "bottom" && responsePanelPosition === "right") {
@@ -93,7 +105,17 @@ export const MainEditor = ({ bottomPanelProps, rightPanelProps }: MainEditorProp
     <div className="relative h-8 flex justify-between bg-bg">
       <div className="flex flex-none"></div>
       <PanelTabs panel="main" />
-      <div className=" flex border-l border-b border-border">
+      <div className="flex border-l border-b border-border">
+        {blockOverviewEnabled && voidenEditor && (
+          <Tip label="Block Overview" side="bottom">
+            <button
+              className={cn("px-2 hover:bg-active text-comment", showBlockOverview && "bg-active text-text")}
+              onClick={() => setShowBlockOverview((v) => !v)}
+            >
+              <LayoutList size={14} />
+            </button>
+          </Tip>
+        )}
         <Tip label={<span className="flex items-center gap-2"><span>New Voiden File</span><Kbd keys="⌘N" size="sm" /></span>} side="bottom">
           <button className="px-2 hover:bg-active text-comment" onClick={handleNewDocument}>
             <Plus size={14} />
@@ -104,10 +126,17 @@ export const MainEditor = ({ bottomPanelProps, rightPanelProps }: MainEditorProp
   );
 
   const editorContent = (
-    <div id="main-editor" className="relative flex-1 bg-editor overflow-hidden">
-      <div className="absolute inset-0 overflow-hidden">
-        <PanelContent panelId="main" />
+    <div id="main-editor" className="relative flex-1 overflow-hidden flex">
+      <div className="flex-1 bg-editor relative overflow-hidden">
+        <div className="absolute inset-0 overflow-hidden">
+          <PanelContent panelId="main" />
+        </div>
       </div>
+      {blockOverviewEnabled && showBlockOverview && voidenEditor && (
+        <div className="w-60 border-l border-border bg-bg flex-shrink-0 overflow-hidden">
+          <BlockOverviewPanel />
+        </div>
+      )}
     </div>
   );
 

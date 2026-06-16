@@ -1651,6 +1651,43 @@ const VoidenEditorInner = ({
     return () => window.removeEventListener("voiden:scroll-to-section", handleScrollToSection);
   }, [editor, isActive]);
 
+  // Listen for "scroll to block position" events from the block overview panel
+  useEffect(() => {
+    if (!editor || !isActive) return;
+
+    const handleScrollToBlockPos = (e: Event) => {
+      const { pos } = (e as CustomEvent).detail;
+      if (typeof pos !== "number") return;
+
+      const docSize = editor.state.doc.content.size;
+      const safePos = Math.min(Math.max(1, pos + 1), docSize - 1);
+      try {
+        // Move cursor
+        const $pos = editor.state.doc.resolve(safePos);
+        const selection = TextSelection.near($pos);
+        editor.view.dispatch(editor.state.tr.setSelection(selection));
+        editor.view.focus();
+
+        // Scroll the real container to the DOM node at this position
+        const scrollContainer = document.getElementById("code-editor-container");
+        if (scrollContainer) {
+          const { node } = editor.view.domAtPos(safePos);
+          const domNode = node instanceof Element ? node : node.parentElement;
+          if (domNode) {
+            const containerRect = scrollContainer.getBoundingClientRect();
+            const nodeRect = (domNode as Element).getBoundingClientRect();
+            const targetScrollTop = scrollContainer.scrollTop + nodeRect.top - containerRect.top - 80;
+            searchNavScrollRef.current = true;
+            scrollContainer.scrollTop = Math.max(0, targetScrollTop);
+          }
+        }
+      } catch { /* ignore invalid positions */ }
+    };
+
+    window.addEventListener("voiden:scroll-to-block-pos", handleScrollToBlockPos);
+    return () => window.removeEventListener("voiden:scroll-to-block-pos", handleScrollToBlockPos);
+  }, [editor, isActive]);
+
   if (!editor) return null;
 
   return (

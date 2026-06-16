@@ -87,6 +87,12 @@ export const initializeState = async (
     appState.sidebars.left.tabs.push({ id: crypto.randomUUID(), type: "globalHistory" });
   }
 
+  // Migration: remove blockOverview from right sidebar (panel moved into editor area)
+  appState.sidebars.right.tabs = appState.sidebars.right.tabs.filter((t: any) => t.type !== "blockOverview");
+  if (!appState.sidebars.right.tabs.some((t: any) => t.id === appState.sidebars.right.activeTabId)) {
+    appState.sidebars.right.activeTabId = appState.sidebars.right.tabs[0]?.id ?? null;
+  }
+
   const t1 = Date.now();
   extensionManager = new ExtensionManager(appState);
   await extensionManager.loadInstalledCommunityExtensions();

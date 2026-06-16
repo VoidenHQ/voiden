@@ -11,7 +11,8 @@
   },
   "editor": {
     "auto_save": false,
-    "auto_save_delay": 10
+    "auto_save_delay": 10,
+    "block_overview": false
   },
   "requests": {
     "disable_tls_verification": false,

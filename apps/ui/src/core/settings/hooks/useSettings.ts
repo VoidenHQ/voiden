@@ -273,6 +273,7 @@ export type UserSettings = {
     auto_save: boolean;
     auto_save_delay: number; // seconds
     code_block_max_lines: number; // 0 = unlimited
+    block_overview: boolean;
   };
   requests: {
     disable_tls_verification: boolean;

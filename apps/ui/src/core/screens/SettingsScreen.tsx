@@ -1134,7 +1134,6 @@ export const SettingsScreen = () => {
                 <Row
                   title="Code block max lines"
                   description="Maximum number of lines a code block expands to before scrolling. Set to Unlimited to always expand fully."
-                  border={false}
                   control={
                     <Select
                       value={settings.editor.code_block_max_lines ?? 50}
@@ -1149,6 +1148,19 @@ export const SettingsScreen = () => {
                       <option value={500}>500 lines</option>
                       <option value={0}>Unlimited</option>
                     </Select>
+                  }
+                />
+              )}
+              {matchesSearch("Block Overview outline panel blocks requests void file") && (
+                <Row
+                  title="Block Overview"
+                  description="Show a collapsible outline panel beside the editor listing all blocks in the current .void file, grouped by request section."
+                  border={false}
+                  control={
+                    <Toggle
+                      checked={settings.editor?.block_overview ?? false}
+                      onChange={(v) => save({ editor: { block_overview: v } })}
+                    />
                   }
                 />
               )}

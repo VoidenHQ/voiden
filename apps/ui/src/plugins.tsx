@@ -403,6 +403,36 @@ const nodeDisplayNames = new Map<string, string>(Object.entries(coreNodeDisplayN
 // Global registry for table cell autocomplete suggestions (plugin-owned)
 const tableSuggestionsRegistry = new Map<string, { [columnIndex: number]: Array<{ label: string; description?: string }> }>();
 
+// Global registry for block outline metadata (label + lucide icon name) — registered by plugins
+export interface BlockOutlineMeta {
+  /** Human-readable label shown in the Block Overview panel. */
+  label: string;
+  /** Lucide icon name (e.g. "Hash", "Globe"). Resolved at render time via lucide-react `icons` map. */
+  icon: string;
+  /** Extract a short preview string from the node. Receives node attrs and textContent. */
+  getPreview?: (attrs: Record<string, any>, textContent: string) => string | undefined;
+  /** Count the number of rows/items in the node for the outline badge. */
+  getRowCount?: (attrs: Record<string, any>, childCount: number, textContent: string) => number | undefined;
+  /**
+   * If present, this node contributes a named field to its parent section header rather than
+   * appearing as a block card. Return the field name and value to set on the section.
+   * e.g. the REST plugin uses this for `method` → `{ field: "methodText", value: "POST" }`.
+   */
+  asSectionField?: (attrs: Record<string, any>, textContent: string) => { field: "methodText" | "urlText"; value: string } | null;
+  /**
+   * If true, this node is a transparent container: the Block Overview panel descends into its
+   * children and processes them as if they were at the document level, rather than treating this
+   * node itself as a block card. Use this for wrapper nodes like `request` that own `method`+`url`.
+   */
+  transparent?: boolean;
+}
+const blockOutlineRegistry = new Map<string, BlockOutlineMeta>();
+
+/** Returns the outline metadata registered by a plugin for a given node type. */
+export function getBlockOutlineMeta(nodeType: string): BlockOutlineMeta | undefined {
+  return blockOutlineRegistry.get(nodeType);
+}
+
 // Global registry for loaded plugin instances (for cleanup)
 const loadedPlugins: Map<string, { onload: () => Promise<void>; onunload: () => Promise<void> }> = new Map();
 
@@ -1073,6 +1103,12 @@ export const createPlugin = (
         nodeDisplayNames.set(nodeType, displayName);
       });
     },
+    registerBlockOutlineMeta: (entries: Record<string, BlockOutlineMeta>) => {
+      extensionLogger.info(`Plugin "${extensionId}" registering ${Object.keys(entries).length} block outline meta entries`);
+      Object.entries(entries).forEach(([nodeType, meta]) => {
+        blockOutlineRegistry.set(nodeType, meta);
+      });
+    },
     registerTableSuggestions: (tableType: string, suggestions: { [columnIndex: number]: Array<{ label: string; description?: string }> }) => {
       extensionLogger.info(`Plugin "${extensionId}" registering table suggestions for "${tableType}"`);
       tableSuggestionsRegistry.set(tableType, suggestions);
@@ -1269,6 +1305,7 @@ export const getPlugins = async () => {
   nodeDisplayNames.clear(); // Clear node display names on plugin reload
   Object.entries(coreNodeDisplayNames).forEach(([type, name]) => nodeDisplayNames.set(type, name)); // Re-seed core display names
   tableSuggestionsRegistry.clear();
+  blockOutlineRegistry.clear();
   clearHelpRegistry();
   requestOrchestrator.clear();
   pasteOrchestrator.clear();

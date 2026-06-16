@@ -392,6 +392,26 @@ export const useActions = (editor: Editor) => {
     }
   }, [getSectionNodes, activeDocument, queryClient]);
 
+  const moveNode = useCallback((srcPos: number, srcSize: number, insertPos: number) => {
+    const { state } = editor;
+    const srcNode = state.doc.nodeAt(srcPos);
+    if (!srcNode) return;
+
+    const nodeJSON = srcNode.toJSON();
+    // When deleting before inserting, positions after srcPos shift by -srcSize
+    const adjustedInsertPos = insertPos > srcPos ? insertPos - srcSize : insertPos;
+
+    try {
+      const newNode = state.schema.nodeFromJSON(nodeJSON);
+      const tr = state.tr.delete(srcPos, srcPos + srcSize);
+      tr.insert(adjustedInsertPos, newNode);
+      editor.view.dispatch(tr);
+      setTimeout(() => safeFocusEditor(adjustedInsertPos + 1), 0);
+    } catch (e) {
+      console.error('Error moving block:', e);
+    }
+  }, [editor, safeFocusEditor]);
+
   return {
     currentNode,
     currentNodePos,
@@ -408,6 +428,7 @@ export const useActions = (editor: Editor) => {
     cutSectionBlock,
     deleteSectionBlock,
     linkSectionBlock,
+    moveNode,
   };
 };
 
@@ -512,10 +533,13 @@ export const VoidenDragMenu = React.memo(({ editor }: { editor: Editor }) => {
   const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
   const [editorContainer, setEditorContainer] = useState<HTMLElement | null>(null);
   const [isOpen, setIsOpen] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [dropIndicator, setDropIndicator] = useState<{ top: number; insertPos: number } | null>(null);
   const menuOpenRef = useRef(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const lastMouseNodePos = useRef<number>(-1);
   const updateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const dragSourceRef = useRef<{ pos: number; size: number } | null>(null);
 
   // Use the actions hook
   const {
@@ -534,15 +558,119 @@ export const VoidenDragMenu = React.memo(({ editor }: { editor: Editor }) => {
     cutSectionBlock,
     deleteSectionBlock,
     linkSectionBlock,
+    moveNode,
   } = useActions(editor);
+
+  // Suppress the popover click after a drag so the menu doesn't open on mouseup
+  const suppressNextClickRef = useRef(false);
 
   const handleOpenChange = useCallback(
     (open: boolean) => {
+      if (open && suppressNextClickRef.current) {
+        suppressNextClickRef.current = false;
+        return;
+      }
       menuOpenRef.current = open;
       setIsOpen(open);
     },
     []
   );
+
+  // Compute which ProseMirror block is under mouseY and where to insert relative to it
+  const getDropInfo = useCallback((mouseY: number): { insertPos: number; top: number } | null => {
+    if (!editorContainer) return null;
+    const { state, view } = editor;
+    const containerRect = editorContainer.getBoundingClientRect();
+    let currentPos = 0;
+    let lastBottom = containerRect.top;
+
+    for (let i = 0; i < state.doc.childCount; i++) {
+      const node = state.doc.child(i);
+      const nodePos = currentPos;
+
+      let domEl: HTMLElement | null = null;
+      try {
+        const d = view.nodeDOM(nodePos);
+        if (d instanceof HTMLElement) domEl = d;
+      } catch { /* skip */ }
+
+      if (domEl) {
+        const rect = domEl.getBoundingClientRect();
+        const midY = (rect.top + rect.bottom) / 2;
+        if (mouseY <= midY) {
+          return { insertPos: nodePos, top: rect.top - containerRect.top };
+        }
+        lastBottom = rect.bottom;
+      }
+
+      currentPos += node.nodeSize;
+    }
+
+    return { insertPos: currentPos, top: lastBottom - containerRect.top };
+  }, [editor, editorContainer]);
+
+  // Mouse-based drag: avoids conflicts with ProseMirror's own HTML5 drag handling
+  const handleGripMouseDown = useCallback((e: React.MouseEvent) => {
+    if (!currentNode || currentNodePos === -1) return;
+    // Stop propagation so TipTap doesn't create a selection at this position
+    e.stopPropagation();
+    e.preventDefault();
+
+    const startX = e.clientX;
+    const startY = e.clientY;
+    dragSourceRef.current = { pos: currentNodePos, size: currentNode.nodeSize };
+
+    let dragging = false;
+
+    const onMouseMove = (moveE: MouseEvent) => {
+      const dx = moveE.clientX - startX;
+      const dy = moveE.clientY - startY;
+
+      // Require at least 5px movement before entering drag mode
+      if (!dragging && Math.sqrt(dx * dx + dy * dy) > 5) {
+        dragging = true;
+        menuOpenRef.current = false;
+        setIsOpen(false);
+        setIsDragging(true);
+        document.dispatchEvent(new CustomEvent('voiden:block-drag-start'));
+      }
+
+      if (!dragging) return;
+
+      const info = getDropInfo(moveE.clientY);
+      if (!info || !dragSourceRef.current) { setDropIndicator(null); return; }
+
+      const { pos: srcPos, size: srcSize } = dragSourceRef.current;
+      if (info.insertPos === srcPos || info.insertPos === srcPos + srcSize) {
+        setDropIndicator(null);
+      } else {
+        setDropIndicator(info);
+      }
+    };
+
+    const onMouseUp = (upE: MouseEvent) => {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+
+      if (dragging) {
+        suppressNextClickRef.current = true;
+        const source = dragSourceRef.current;
+        const info = getDropInfo(upE.clientY);
+        if (source && info && info.insertPos !== source.pos && info.insertPos !== source.pos + source.size) {
+          moveNode(source.pos, source.size, info.insertPos);
+        }
+      }
+
+      dragging = false;
+      dragSourceRef.current = null;
+      setIsDragging(false);
+      setDropIndicator(null);
+      document.dispatchEvent(new CustomEvent('voiden:block-drag-end'));
+    };
+
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  }, [currentNode, currentNodePos, getDropInfo, moveNode]);
 
   // Find the editor container
   useEffect(() => {
@@ -872,11 +1000,12 @@ export const VoidenDragMenu = React.memo(({ editor }: { editor: Editor }) => {
     currentNode.type.name === "method" ||
     currentNode.type.name === "url";
 
-  if (hideMenu) {
+  // When dragging, always render the portal (for the drop indicator) even if menu is hidden
+  if (hideMenu && !isDragging) {
     return null;
   }
 
-  const menuContent = (
+  const gripHandle = position && !isDragging && (
     <div
       ref={menuRef}
       className="absolute pointer-events-auto"
@@ -892,8 +1021,8 @@ export const VoidenDragMenu = React.memo(({ editor }: { editor: Editor }) => {
             <Button
               variant="ghost"
               size="xs"
-              className="p-0.5 cursor-pointer text-comment hover:bg-active hover:text-text"
-              onPointerDown={(e) => e.stopPropagation()}
+              className="p-0.5 cursor-grab active:cursor-grabbing text-comment hover:bg-active hover:text-text"
+              onMouseDown={handleGripMouseDown}
             >
               <LuGripVertical size={16} />
             </Button>
@@ -924,7 +1053,17 @@ export const VoidenDragMenu = React.memo(({ editor }: { editor: Editor }) => {
     </div>
   );
 
-  return createPortal(menuContent, editorContainer);
+  const dropIndicatorEl = isDragging && dropIndicator && (
+    <div
+      className="absolute left-0 right-0 pointer-events-none"
+      style={{ top: `${dropIndicator.top}px`, zIndex: 20 }}
+    >
+      <div className="h-0.5 bg-accent w-full" />
+      <div className="absolute left-0 -top-1 h-2.5 w-2.5 rounded-full bg-accent" style={{ transform: 'translateY(-1px)' }} />
+    </div>
+  );
+
+  return createPortal(<>{gripHandle}{dropIndicatorEl}</>, editorContainer!);
 });
 
 
