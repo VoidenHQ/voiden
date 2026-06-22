@@ -19,10 +19,15 @@
 #   AZURE_TENANT_ID                  — Azure AD tenant ID
 #   AZURE_CODE_SIGNING_ENDPOINT      — e.g. https://<account>.<region>.codesigning.azure.net
 #   AZURE_CODE_SIGNING_CERT_PROFILE  — certificate profile name in Azure Trusted Signing
-#   S3_ACCESS_KEY_ID            — AWS access key (stable + beta publishing)
-#   S3_SECRET_ACCESS_KEY        — AWS secret key
+#   Each channel publishes through its own IAM credentials, scoped to its own bucket:
+#   S3_ACCESS_KEY_ID_BETA       — AWS access key for beta channel
+#   S3_SECRET_ACCESS_KEY_BETA   — AWS secret key for beta channel
 #   S3_BUCKET_NAME_BETA         — S3 bucket for beta channel  (default: voiden-beta-releases)
+#   S3_ACCESS_KEY_ID_STABLE     — AWS access key for stable channel
+#   S3_SECRET_ACCESS_KEY_STABLE — AWS secret key for stable channel
 #   S3_BUCKET_NAME_STABLE       — S3 bucket for stable channel (default: voiden-releases)
+#   S3_ACCESS_KEY_ID_DEV        — AWS access key for development channel
+#   S3_SECRET_ACCESS_KEY_DEV    — AWS secret key for development channel
 #   S3_BUCKET_NAME_DEV          — S3 bucket for development channel (default: voiden-dev-releases)
 
 name: Release Voiden App
@@ -129,8 +134,12 @@ jobs:
         working-directory: apps/electron
         env:
           RELEASE_CHANNEL: ${{ inputs.channel }}
-          S3_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY_ID }}
-          S3_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_ACCESS_KEY }}
+          S3_ACCESS_KEY_ID_BETA: ${{ secrets.S3_ACCESS_KEY_ID_BETA }}
+          S3_SECRET_ACCESS_KEY_BETA: ${{ secrets.S3_SECRET_ACCESS_KEY_BETA }}
+          S3_ACCESS_KEY_ID_STABLE: ${{ secrets.S3_ACCESS_KEY_ID_STABLE }}
+          S3_SECRET_ACCESS_KEY_STABLE: ${{ secrets.S3_SECRET_ACCESS_KEY_STABLE }}
+          S3_ACCESS_KEY_ID_DEV: ${{ secrets.S3_ACCESS_KEY_ID_DEV }}
+          S3_SECRET_ACCESS_KEY_DEV: ${{ secrets.S3_SECRET_ACCESS_KEY_DEV }}
           S3_BUCKET_NAME_BETA: ${{ secrets.S3_BUCKET_NAME_BETA }}
           S3_BUCKET_NAME_STABLE: ${{ secrets.S3_BUCKET_NAME_STABLE }}
           S3_BUCKET_NAME_DEV: ${{ secrets.S3_BUCKET_NAME_DEV }}
@@ -144,8 +153,12 @@ jobs:
         working-directory: apps/electron
         env:
           RELEASE_CHANNEL: ${{ inputs.channel }}
-          S3_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY_ID }}
-          S3_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_ACCESS_KEY }}
+          S3_ACCESS_KEY_ID_BETA: ${{ secrets.S3_ACCESS_KEY_ID_BETA }}
+          S3_SECRET_ACCESS_KEY_BETA: ${{ secrets.S3_SECRET_ACCESS_KEY_BETA }}
+          S3_ACCESS_KEY_ID_STABLE: ${{ secrets.S3_ACCESS_KEY_ID_STABLE }}
+          S3_SECRET_ACCESS_KEY_STABLE: ${{ secrets.S3_SECRET_ACCESS_KEY_STABLE }}
+          S3_ACCESS_KEY_ID_DEV: ${{ secrets.S3_ACCESS_KEY_ID_DEV }}
+          S3_SECRET_ACCESS_KEY_DEV: ${{ secrets.S3_SECRET_ACCESS_KEY_DEV }}
           S3_BUCKET_NAME_BETA: ${{ secrets.S3_BUCKET_NAME_BETA }}
           S3_BUCKET_NAME_STABLE: ${{ secrets.S3_BUCKET_NAME_STABLE }}
           S3_BUCKET_NAME_DEV: ${{ secrets.S3_BUCKET_NAME_DEV }}
@@ -160,8 +173,12 @@ jobs:
       #   working-directory: apps/electron
       #   env:
       #     RELEASE_CHANNEL: ${{ inputs.channel }}
-      #     S3_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY_ID }}
-      #     S3_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_ACCESS_KEY }}
+      #     S3_ACCESS_KEY_ID_BETA: ${{ secrets.S3_ACCESS_KEY_ID_BETA }}
+      #     S3_SECRET_ACCESS_KEY_BETA: ${{ secrets.S3_SECRET_ACCESS_KEY_BETA }}
+      #     S3_ACCESS_KEY_ID_STABLE: ${{ secrets.S3_ACCESS_KEY_ID_STABLE }}
+      #     S3_SECRET_ACCESS_KEY_STABLE: ${{ secrets.S3_SECRET_ACCESS_KEY_STABLE }}
+      #     S3_ACCESS_KEY_ID_DEV: ${{ secrets.S3_ACCESS_KEY_ID_DEV }}
+      #     S3_SECRET_ACCESS_KEY_DEV: ${{ secrets.S3_SECRET_ACCESS_KEY_DEV }}
       #     S3_BUCKET_NAME_BETA: ${{ secrets.S3_BUCKET_NAME_BETA }}
       #     S3_BUCKET_NAME_STABLE: ${{ secrets.S3_BUCKET_NAME_STABLE }}
       #     S3_BUCKET_NAME_DEV: ${{ secrets.S3_BUCKET_NAME_DEV }}
@@ -177,8 +194,12 @@ jobs:
         working-directory: apps/electron
         env:
           RELEASE_CHANNEL: ${{ inputs.channel }}
-          S3_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY_ID }}
-          S3_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_ACCESS_KEY }}
+          S3_ACCESS_KEY_ID_BETA: ${{ secrets.S3_ACCESS_KEY_ID_BETA }}
+          S3_SECRET_ACCESS_KEY_BETA: ${{ secrets.S3_SECRET_ACCESS_KEY_BETA }}
+          S3_ACCESS_KEY_ID_STABLE: ${{ secrets.S3_ACCESS_KEY_ID_STABLE }}
+          S3_SECRET_ACCESS_KEY_STABLE: ${{ secrets.S3_SECRET_ACCESS_KEY_STABLE }}
+          S3_ACCESS_KEY_ID_DEV: ${{ secrets.S3_ACCESS_KEY_ID_DEV }}
+          S3_SECRET_ACCESS_KEY_DEV: ${{ secrets.S3_SECRET_ACCESS_KEY_DEV }}
           S3_BUCKET_NAME_BETA: ${{ secrets.S3_BUCKET_NAME_BETA }}
           S3_BUCKET_NAME_STABLE: ${{ secrets.S3_BUCKET_NAME_STABLE }}
           S3_BUCKET_NAME_DEV: ${{ secrets.S3_BUCKET_NAME_DEV }}
@@ -189,8 +210,12 @@ jobs:
         if: matrix.artifact_name == 'linux-x64'
         working-directory: apps/electron
         env:
-          S3_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY_ID }}
-          S3_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_ACCESS_KEY }}
+          S3_ACCESS_KEY_ID_BETA: ${{ secrets.S3_ACCESS_KEY_ID_BETA }}
+          S3_SECRET_ACCESS_KEY_BETA: ${{ secrets.S3_SECRET_ACCESS_KEY_BETA }}
+          S3_ACCESS_KEY_ID_STABLE: ${{ secrets.S3_ACCESS_KEY_ID_STABLE }}
+          S3_SECRET_ACCESS_KEY_STABLE: ${{ secrets.S3_SECRET_ACCESS_KEY_STABLE }}
+          S3_ACCESS_KEY_ID_DEV: ${{ secrets.S3_ACCESS_KEY_ID_DEV }}
+          S3_SECRET_ACCESS_KEY_DEV: ${{ secrets.S3_SECRET_ACCESS_KEY_DEV }}
           S3_BUCKET_NAME_BETA: ${{ secrets.S3_BUCKET_NAME_BETA }}
           S3_BUCKET_NAME_STABLE: ${{ secrets.S3_BUCKET_NAME_STABLE }}
           S3_BUCKET_NAME_DEV: ${{ secrets.S3_BUCKET_NAME_DEV }}

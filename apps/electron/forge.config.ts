@@ -73,6 +73,18 @@ const s3BucketName = releaseChannel === "beta"
   : process.env.S3_BUCKET_NAME_STABLE || "voiden-releases";
 const s3Region = process.env.S3_REGION || "eu-west-1";
 
+// Each channel publishes through its own IAM credentials, scoped to its own bucket.
+const s3AccessKeyId = releaseChannel === "beta"
+  ? process.env.S3_ACCESS_KEY_ID_BETA
+  : releaseChannel === "development"
+  ? process.env.S3_ACCESS_KEY_ID_DEV
+  : process.env.S3_ACCESS_KEY_ID_STABLE;
+const s3SecretAccessKey = releaseChannel === "beta"
+  ? process.env.S3_SECRET_ACCESS_KEY_BETA
+  : releaseChannel === "development"
+  ? process.env.S3_SECRET_ACCESS_KEY_DEV
+  : process.env.S3_SECRET_ACCESS_KEY_STABLE;
+
 const makers = [];
 
 if (isMac) {
@@ -526,8 +538,8 @@ const config: ForgeConfig = {
         bucket: s3BucketName,
         region: s3Region,
         folder: "voiden",
-        accessKeyId: process.env.S3_ACCESS_KEY_ID,
-        secretAccessKey: process.env.S3_SECRET_ACCESS_KEY,
+        accessKeyId: s3AccessKeyId,
+        secretAccessKey: s3SecretAccessKey,
       },
     },
   ],

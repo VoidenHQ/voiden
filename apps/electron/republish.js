@@ -32,8 +32,17 @@ const S3_BUCKET = releaseChannel === "beta"
   ? process.env.S3_BUCKET_NAME_DEV || "voiden-dev-releases"
   : process.env.S3_BUCKET_NAME_STABLE || "voiden-releases-stable";
 const S3_REGION = process.env.S3_REGION || "eu-west-1";
-const S3_ACCESS_KEY_ID = process.env.S3_ACCESS_KEY_ID;
-const S3_SECRET_ACCESS_KEY = process.env.S3_SECRET_ACCESS_KEY;
+// Each channel publishes through its own IAM credentials, scoped to its own bucket.
+const S3_ACCESS_KEY_ID = releaseChannel === "beta"
+  ? process.env.S3_ACCESS_KEY_ID_BETA
+  : releaseChannel === "development"
+  ? process.env.S3_ACCESS_KEY_ID_DEV
+  : process.env.S3_ACCESS_KEY_ID_STABLE;
+const S3_SECRET_ACCESS_KEY = releaseChannel === "beta"
+  ? process.env.S3_SECRET_ACCESS_KEY_BETA
+  : releaseChannel === "development"
+  ? process.env.S3_SECRET_ACCESS_KEY_DEV
+  : process.env.S3_SECRET_ACCESS_KEY_STABLE;
 const PLATFORM = os.platform();
 
 if (!S3_ACCESS_KEY_ID || !S3_SECRET_ACCESS_KEY) {
