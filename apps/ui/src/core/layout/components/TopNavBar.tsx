@@ -27,13 +27,20 @@ export const TopNavBar = ({ onShowAbout }: TopNavBarProps) => {
   const [whatsNewAccentFlash, setWhatsNewAccentFlash] = useState(false);
   const [showWhatsNewTip, setShowWhatsNewTip] = useState(false);
   const whatsNewFlashTimeout = useRef<ReturnType<typeof setTimeout>>();
+  const isHoveringWhatsNew = useRef(false);
 
   const handleWhatsNewHoverStart = () => {
+    isHoveringWhatsNew.current = true;
     setWhatsNewSpins((n) => n + 1);
     setWhatsNewAccentFlash(true);
     setShowWhatsNewTip(false);
     if (whatsNewFlashTimeout.current) clearTimeout(whatsNewFlashTimeout.current);
     whatsNewFlashTimeout.current = setTimeout(() => setWhatsNewAccentFlash(false), 1600);
+  };
+
+  const handleWhatsNewHoverEnd = () => {
+    isHoveringWhatsNew.current = false;
+    setShowWhatsNewTip(false);
   };
 
   useEffect(() => () => {
@@ -117,13 +124,13 @@ export const TopNavBar = ({ onShowAbout }: TopNavBarProps) => {
           className="relative h-full px-2 no-drag hover:bg-active w-8 flex items-center justify-center"
           onClick={requestWhatsNewOpen}
           onMouseEnter={handleWhatsNewHoverStart}
-          onMouseLeave={() => setShowWhatsNewTip(false)}
+          onMouseLeave={handleWhatsNewHoverEnd}
         >
           <motion.div
             animate={{ rotate: whatsNewSpins * 360 }}
             transition={{ duration: 0.8, ease: 'easeInOut' }}
             onAnimationComplete={() => {
-              if (whatsNewSpins > 0) setShowWhatsNewTip(true);
+              if (whatsNewSpins > 0 && isHoveringWhatsNew.current) setShowWhatsNewTip(true);
             }}
             className={`flex items-center justify-center transition-colors duration-700 ${whatsNewAccentFlash ? 'text-accent' : ''}`}
           >
