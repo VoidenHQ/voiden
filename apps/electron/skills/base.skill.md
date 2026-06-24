@@ -377,15 +377,69 @@ attrs:
 
 ## Environment Variables
 
-Store secrets in `.env` alongside `.void` files:
+Variables are managed through the **Environment Editor**. Each profile stores its variables as a pair of YAML files under `.voiden/`:
 
-```env
-BASE_URL=https://api.example.com
-API_TOKEN=your-token-here
-USER_ID=123
+```
+.voiden/
+├── env-public.yaml            # default profile, public vars (git-tracked)
+├── env-private.yaml           # default profile, private vars/secrets (gitignored)
+├── env-staging-public.yaml    # "staging" profile, public
+├── env-staging-private.yaml   # "staging" profile, private
 ```
 
-Reference with `{{VARIABLE_NAME}}` in any block field:
+### Profiles
+
+A **profile** is a named set of public/private YAML files. Only one profile is active per project at a time.
+
+| Rule | Detail |
+|------|--------|
+| File naming | `env-public.yaml` / `env-private.yaml` for the default profile; `env-{name}-public.yaml` / `env-{name}-private.yaml` for named profiles |
+| Profile name pattern | `^[a-z0-9][a-z0-9-]*$` — lowercase letters, digits, hyphens only |
+| Not allowed in profile names | **dots (`.`) and spaces** are rejected outright (error: "Lowercase letters, numbers, hyphens only") |
+| Reserved name | `default` (always exists, cannot be created/renamed/deleted) |
+
+### Public vs Private
+
+- **Public** (`env-*-public.yaml`): shared/team variables. Whitelisted in `.gitignore` (`!.voiden/env-*-public.yaml`) so they're committed.
+- **Private** (`env-*-private.yaml`): secrets and local overrides. Gitignored by default, never committed. If a key exists in both files, the private value wins.
+
+### YAML Structure
+
+Each file is a tree of named environments (e.g. `dev`, `staging`, `prod`), each holding its own variables:
+
+```yaml
+staging:
+  displayName: "Staging"
+  variables:
+    BASE_URL: "https://staging.example.com"
+  children:
+    eu:
+      variables:
+        BASE_URL: "https://eu.staging.example.com"
+```
+
+| Key | Description |
+|-----|--------------|
+| `variables` | Flat key→string map of variables for this environment node |
+| `children` | Nested sub-environments (dot-separated path, e.g. `staging.eu`), inheriting the parent's variables |
+| `displayName` | Optional friendly label shown in the UI; the tree key itself stays filesystem/path-safe |
+| `intermediate` | If `true`, hides this node from the environment selector dropdown (used as a pure grouping/inheritance node) |
+
+Environment **node names** (the tree keys, e.g. `staging`, `eu`) use `.` as the path separator, so a literal dot typed into a name is automatically converted to a hyphen — there's no separate validation step to apply when generating these by hand, just avoid dots in the key itself.
+
+### Legacy `.env` Files (fallback only)
+
+Plain `.env` files are still supported, but **only as a fallback**: if the active profile's YAML tree has no environments at all, Voiden recursively scans the project for files starting with `.env` and uses those instead. As soon as the YAML profile has at least one environment, the YAML data wins and `.env` files are ignored for that profile.
+
+- Naming hierarchy: `.env` → `.env.staging` → `.env.staging.eu` — selecting `.env.staging.eu` as active merges all three in order (most specific wins).
+- Format: standard `KEY=value` lines, `#` comments, optional quoting — no nesting/inheritance metadata like the YAML format has.
+- New projects should use the Environment Editor (YAML profiles) — `.env` files are a migration path for older projects, not the recommended format going forward.
+
+### Referencing Variables
+
+Reference with `{{VARIABLE_NAME}}` in any block field — resolved from the active profile's active environment, regardless of which profile/environment is selected:
 - URL: `{{BASE_URL}}/users/{{USER_ID}}`
 - Header value: `Bearer {{API_TOKEN}}`
 - Body field: `"email": "{{USER_EMAIL}}"`
+
+Runtime-captured values (e.g. an ID extracted from a previous response via a script) are referenced the same way and persisted per-environment in `.voiden/.process.env.json` (gitignored).
