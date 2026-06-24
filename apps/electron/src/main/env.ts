@@ -425,13 +425,17 @@ ipcMain.handle("env:getYamlTrees", async (event, params?: { profile?: string }) 
   return { public: publicTree, private: privateTree };
 });
 
-ipcMain.handle("env:saveYamlTrees", async (event, { publicTree, privateTree, profile, projectPath }: { publicTree: YamlEnvTree; privateTree: YamlEnvTree; profile?: string; projectPath?: string }) => {
-  const appState = getAppState(event);
-  const activeProject = projectPath && appState.directories[projectPath]
-    ? projectPath
-    : await getActiveProject(event);
-  if (!activeProject) return;
-
+/**
+ * Write the public/private YAML trees for a profile to disk, creating
+ * .voiden/ and the files themselves if they don't exist yet.
+ * Shared by env:saveYamlTrees and the env-extend logic below.
+ */
+async function writeYamlTrees(
+  activeProject: string,
+  profile: string | null | undefined,
+  publicTree: YamlEnvTree,
+  privateTree: YamlEnvTree,
+) {
   // Ensure .voiden/ directory exists
   const voidenDir = path.join(activeProject, VOIDEN_DIR);
   await fs.mkdir(voidenDir, { recursive: true });
@@ -446,13 +450,8 @@ ipcMain.handle("env:saveYamlTrees", async (event, { publicTree, privateTree, pro
     defaultKeyType: 'PLAIN',
   };
 
-  try {
-    await fs.writeFile(publicPath, YAML.stringify(publicTree, yamlSettings), 'utf8');
-    await fs.writeFile(privatePath, YAML.stringify(privateTree, yamlSettings), 'utf8');
-  } catch (err) {
-    console.error('Failed to save environment YAML files:', err);
-    throw err;
-  }
+  await fs.writeFile(publicPath, YAML.stringify(publicTree, yamlSettings), 'utf8');
+  await fs.writeFile(privatePath, YAML.stringify(privateTree, yamlSettings), 'utf8');
 
   // Keep .gitignore up-to-date: private files + process vars must be ignored,
   // public files are intentionally left trackable by git.
@@ -468,6 +467,21 @@ ipcMain.handle("env:saveYamlTrees", async (event, { publicTree, privateTree, pro
     if (oldPath !== publicPath && oldPath !== privatePath) {
       fs.unlink(oldPath).catch(() => {});
     }
+  }
+}
+
+ipcMain.handle("env:saveYamlTrees", async (event, { publicTree, privateTree, profile, projectPath }: { publicTree: YamlEnvTree; privateTree: YamlEnvTree; profile?: string; projectPath?: string }) => {
+  const appState = getAppState(event);
+  const activeProject = projectPath && appState.directories[projectPath]
+    ? projectPath
+    : await getActiveProject(event);
+  if (!activeProject) return;
+
+  try {
+    await writeYamlTrees(activeProject, profile, publicTree, privateTree);
+  } catch (err) {
+    console.error('Failed to save environment YAML files:', err);
+    throw err;
   }
 });
 
@@ -542,46 +556,91 @@ ipcMain.handle("env:renameProfile", async (event, { oldName, newName }: { oldNam
   }
 });
 
-// Simple handler to extend all .env files
-ipcMain.handle('env:extend-env-files', async (event, { comment, variables }) => {
-  const activeProject = await getActiveProject(event);
-  const envFiles = await findEnvFilesRecursively(activeProject);
-
-  const results = [];
-  for (const filePath of envFiles) {
-    try {
-      await extendEnvFile(filePath, comment, variables);
-      results.push({
-        file: path.relative(process.cwd(), filePath),
-        success: true
-      });
-    } catch (error) {
-      results.push({
-        file: path.relative(process.cwd(), filePath),
-        success: false,
-        error: String(error),
-      });
+/**
+ * Find (or create) the YamlEnvNode at the given dot-separated path within a tree,
+ * creating intermediate nodes as needed.
+ */
+function getOrCreateYamlNode(tree: YamlEnvTree, segments: string[]): YamlEnvNode {
+  let level: YamlEnvTree = tree;
+  let node: YamlEnvNode = {};
+  for (let i = 0; i < segments.length; i++) {
+    const key = segments[i];
+    if (!level[key]) level[key] = {};
+    node = level[key];
+    if (i < segments.length - 1) {
+      node.children ??= {};
+      level = node.children;
     }
   }
-  return results;
-});
-
-// Function to extend a single .env file
-async function extendEnvFile(filePath: string, comment: string, variables: Array<{key: string, value: string}>) {
-  let content = '';
-  try {
-    content = await fs.readFile(filePath, 'utf8');
-  } catch (error) {
-    console.log('File does not exist');
-    return;
-  }
-  if (content && !content.endsWith('\n')) {
-    content += '\n';
-  }
-
-  content += `\n# ${comment}\n`;
-  for (const variable of variables) {
-    content += `${variable.key}=${variable.value}\n`;
-  }
-  await fs.writeFile(filePath, content, 'utf8');
+  return node;
 }
+
+/**
+ * Strip characters that aren't safe as a YAML tree key / dot-path segment.
+ * Dots are the nesting delimiter for env paths elsewhere in this file, and
+ * spaces are stripped so the key stays a clean identifier; the original,
+ * unsanitized name is kept as the node's displayName for the UI.
+ */
+function sanitizeEnvKey(name: string): string {
+  return name.replace(/[.\s]+/g, '');
+}
+
+/**
+ * Extend an environment with new variables, creating the profile's YAML file
+ * (and the target environment node within it) if they don't exist yet.
+ *
+ * Resolution order:
+ * - Profile: the project's active profile, falling back to the "default" profile if none is selected.
+ * - Env node within that profile:
+ *   1. A node named after `envName` (e.g. the imported Postman environment's own
+ *      name, sanitized) — created if it doesn't exist yet. Takes priority over
+ *      whatever environment happens to be active, since a named import always
+ *      targets its own environment.
+ *   2. Otherwise, the active environment, if one is selected — extended in place.
+ *   3. If neither is available, falls back to a generic "default" node.
+ */
+ipcMain.handle('env:extend-env-files', async (event, { comment, variables, envName }: { comment: string; variables: Array<{ key: string; value: string }>; envName?: string }) => {
+  const appState = getAppState(event);
+  const activeProject = await getActiveProject(event);
+  if (!activeProject) return [];
+
+  const activeProfile = appState.directories[activeProject]?.activeProfile || null;
+  const activeEnvPath = appState.directories[activeProject]?.activeEnv || null;
+
+  const { publicFile, privateFile } = profileFileNames(activeProfile);
+
+  try {
+    const publicTree = await loadYamlEnvironment(activeProject, publicFile);
+    const privateTree = await loadYamlEnvironment(activeProject, privateFile);
+
+    const sanitizedEnvName = envName ? sanitizeEnvKey(envName) : '';
+    const segments = sanitizedEnvName
+      ? [sanitizedEnvName]
+      : activeEnvPath
+        ? activeEnvPath.split('.').filter(Boolean)
+        : ['default'];
+    const node = getOrCreateYamlNode(publicTree, segments.length > 0 ? segments : ['default']);
+    // Only label freshly created nodes — don't clobber a name the user already set.
+    // Prefer the original (unsanitized) envName for readability in the UI.
+    if (!node.variables && !node.displayName) {
+      node.displayName = sanitizedEnvName ? envName : comment;
+    }
+    node.variables ??= {};
+    for (const variable of variables) {
+      node.variables[variable.key] = variable.value;
+    }
+
+    await writeYamlTrees(activeProject, activeProfile, publicTree, privateTree);
+
+    return [{
+      file: path.relative(activeProject, path.join(activeProject, publicFile)),
+      success: true,
+    }];
+  } catch (error) {
+    return [{
+      file: publicFile,
+      success: false,
+      error: String(error),
+    }];
+  }
+});

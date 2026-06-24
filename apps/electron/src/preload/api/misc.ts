@@ -213,8 +213,8 @@ export const envApi = {
    * @returns Array of variable names (no values)
    */
   getKeys: () => ipcRenderer.invoke("env:getKeys"),
-  extendEnvs: (comment: string, variables: [{ key: string; value: string }]) =>
-    ipcRenderer.invoke("env:extend-env-files", { comment, variables }),
+  extendEnvs: (comment: string, variables: [{ key: string; value: string }], envName?: string) =>
+    ipcRenderer.invoke("env:extend-env-files", { comment, variables, envName }),
   getYamlTrees: (profile?: string) =>
     ipcRenderer.invoke(
       "env:getYamlTrees",
