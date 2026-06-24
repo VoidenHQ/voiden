@@ -30,10 +30,6 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=runner-v$VERSION" >> "$GITHUB_OUTPUT"
 
-      # core-extensions is gitignored — fetch it from its own repo
-      - name: Clone core-extensions
-        run: git clone https://github.com/VoidenHQ/core-extensions.git core-extensions
-
       - name: Setup Node (with npm registry auth)
         uses: actions/setup-node@v4
         with:
@@ -51,7 +47,7 @@ jobs:
         run: chmod +x cleanup.sh && ./cleanup.sh
 
       # npm run build handles the full chain:
-      #   prebuild  → tsc in core-extensions → tsc in executors
+      #   prebuild  → tsc in executors
       #   build     → tsc in voiden-runner
       #   postbuild → build-runners.mjs (bundles each cloned plugin's runner.ts)
       - name: Build @voiden/runner

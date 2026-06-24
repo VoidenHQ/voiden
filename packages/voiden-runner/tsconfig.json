@@ -10,11 +10,7 @@
     "skipLibCheck": true,
     "declaration": true,
     "declarationMap": true,
-    "sourceMap": true,
-    "baseUrl": ".",
-    "paths": {
-      "@voiden/sdk/runner": ["../../core-extensions/src/types/sdk-runner.d.ts"]
-    }
+    "sourceMap": true
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist", "src/voiden-sdk-audio.ts", "src/audio", "src/ui", "src/examples"]
