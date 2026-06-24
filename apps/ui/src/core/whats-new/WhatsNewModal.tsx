@@ -34,8 +34,11 @@ type WelcomeData = {
   items: WelcomeItem[];
 };
 
+// Fresh installs get the same changelog dialog as everyone else (current
+// version's release notes) — `isFreshInstall` only swaps the header copy
+// ("Welcome to Voiden" instead of "What's New").
 type Announcement =
-  | { kind: 'fresh-install' }
+  | { kind: 'fresh-install'; releases: Release[] }
   | { kind: 'update'; releases: Release[] }
   | null;
 
@@ -106,7 +109,10 @@ function useWhatsNewAnnouncement() {
       }
 
       if (!lastSeen) {
-        setAnnouncement({ kind: 'fresh-install' });
+        // Show the current version's release notes — same content the navbar
+        // button opens — just under a "Welcome to Voiden" header.
+        const current = ALL_RELEASES.slice(0, 1).filter(hasAnnouncementContent);
+        setAnnouncement({ kind: 'fresh-install', releases: current });
         setHasUnseen(true);
         return;
       }
@@ -153,10 +159,10 @@ const SpotlightCard = ({
   if (!announcement) return null;
 
   const isFreshInstall = announcement.kind === 'fresh-install';
-  const latest = announcement.kind === 'update' ? announcement.releases[0] : undefined;
-  const teaserIcon = isFreshInstall ? WELCOME.items[0]?.emoji : latest?.whatsnew[0]?.icon;
-  const teaserTitle = isFreshInstall ? WELCOME.items[0]?.title : latest?.whatsnew[0]?.title;
-  const teaserDescription = isFreshInstall ? WELCOME.items[0]?.description : latest?.whatsnew[0]?.description;
+  const latest = announcement.releases[0];
+  const teaserIcon = latest?.whatsnew[0]?.icon;
+  const teaserTitle = latest?.whatsnew[0]?.title;
+  const teaserDescription = latest?.whatsnew[0]?.description;
 
   return createPortal(
     <motion.div
@@ -352,11 +358,7 @@ const WhatsNewDialog = ({
 
             {/* ── Body ──────────────────────────────────────────────────── */}
             <div className="relative z-10 overflow-y-auto flex-1 px-5 py-5">
-              {isFreshInstall ? (
-                <FreshInstallGrid items={WELCOME.items} />
-              ) : (
-                <UpdateChangelog releases={releases} />
-              )}
+              <UpdateChangelog releases={releases} />
             </div>
           </motion.div>
         </motion.div>
@@ -375,6 +377,7 @@ const WhatsNewDialog = ({
 export const WhatsNewModal = () => {
   const { announcement, acknowledge } = useWhatsNewAnnouncement();
   const openSignal = useWhatsNewStore(s => s.openSignal);
+  const onboardingActive = useWhatsNewStore(s => s.onboardingActive);
   const isInitialOpenSignal = useRef(true);
 
   const [spotlightVisible, setSpotlightVisible] = useState(false);
@@ -384,10 +387,12 @@ export const WhatsNewModal = () => {
     releases: [],
   });
 
-  // Surface the spotlight once an announcement is resolved.
+  // Surface the spotlight once an announcement is resolved — but never while
+  // the fresh-install OnboardingModal is still on screen; it surfaces right
+  // after onboarding closes instead.
   useEffect(() => {
-    setSpotlightVisible(!!announcement);
-  }, [announcement]);
+    setSpotlightVisible(!!announcement && !onboardingActive);
+  }, [announcement, onboardingActive]);
 
   // Manual trigger from the top bar — always shows the full release history.
   useEffect(() => {
@@ -405,7 +410,7 @@ export const WhatsNewModal = () => {
     setDialog({
       open: true,
       isFreshInstall: announcement.kind === 'fresh-install',
-      releases: announcement.kind === 'update' ? announcement.releases : [],
+      releases: announcement.releases,
     });
   }, [announcement]);
 
@@ -439,34 +444,6 @@ export const WhatsNewModal = () => {
     </>
   );
 };
-
-// ── Fresh install: 2×2 feature card grid ─────────────────────────────────────
-
-const FreshInstallGrid = ({ items }: { items: WelcomeItem[] }) => (
-  <div className="grid grid-cols-2 gap-2.5">
-    {items.map((item, i) => (
-      <motion.div
-        key={i}
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: i * 0.08, type: 'spring', stiffness: 500, damping: 30 }}
-        className="group rounded-xl p-4 cursor-default transition-colors"
-        style={{
-          border: '1px solid var(--border)',
-          backgroundColor: 'var(--ui-panel-bg)',
-        }}
-        whileHover={{
-          boxShadow: '0 0 0 1px rgba(var(--common-accent), 0.3), 0 4px 20px rgba(var(--common-accent), 0.1)',
-          transition: { duration: 0.15 },
-        }}
-      >
-        <div className="text-2xl mb-2.5 select-none">{item.emoji}</div>
-        <p className="text-[13px] font-semibold text-text leading-snug">{item.title}</p>
-        <p className="text-[11px] text-comment mt-1 leading-relaxed">{item.description}</p>
-      </motion.div>
-    ))}
-  </div>
-);
 
 // ── Update changelog: each entry is a card that expands for the full story ───
 

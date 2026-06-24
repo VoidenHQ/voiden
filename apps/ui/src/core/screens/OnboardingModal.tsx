@@ -9,6 +9,7 @@ import { Label } from "@/core/components/ui/label";
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 import { cn } from "@/core/lib/utils";
 import { useSettings } from "@/core/settings/hooks/useSettings";
+import { useWhatsNewStore } from "@/core/whats-new/whatsNewStore";
 
 import img1 from "@/assets/log.png";
 import img2 from "@/assets/command.gif";
@@ -60,6 +61,14 @@ export default function OnboardingModal() {
   const [projectName, setProjectName] = useState("");
   const [isStarting, setIsStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const setOnboardingActive = useWhatsNewStore((s) => s.setOnboardingActive);
+
+  // Tell the "What's New" spotlight to stay hidden while onboarding is on screen
+  // — it gets surfaced once this modal closes (handleFinish / unmount).
+  useEffect(() => {
+    setOnboardingActive(isOpen);
+    return () => setOnboardingActive(false);
+  }, [isOpen, setOnboardingActive]);
 
   useEffect(() => {
     if (!loading && settings?.projects?.default_directory) {
