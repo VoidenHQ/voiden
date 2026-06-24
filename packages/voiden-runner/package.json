@@ -4,6 +4,11 @@
   "description": "CLI runner for .void files — execute REST, WebSocket, and gRPC requests headlessly",
   "type": "module",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/VoidenHQ/voiden",
+    "directory": "packages/voiden-runner"
+  },
   "engines": {
     "node": ">=18"
   },
