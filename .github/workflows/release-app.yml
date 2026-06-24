@@ -6,9 +6,10 @@
 #   beta        — publishes to S3 (beta bucket) + creates a pre-release GitHub Release
 #   stable      — publishes to S3 (stable bucket) + creates a GitHub Release
 #   development — publishes to S3 (dev bucket) only; no GitHub Release is created
-#   asset       — builds only; no S3. Installer binaries (.dmg/.deb/.rpm/.AppImage/.exe)
-#                 are attached to a draft GitHub Release for direct download links
-#                 (draft releases are only visible to repo collaborators).
+#
+# For a build-only run (no S3 publish, no version release — just installer
+# binaries attached to a draft GitHub Release), use the separate
+# "Build Voiden Assets" workflow (build-app-assets.yml) instead.
 #
 # Required repository secrets:
 #   APPLE_CERTIFICATE           — base64-encoded .p12 developer certificate
@@ -50,10 +51,10 @@ on:
           - beta
           - stable
           - development
-          - asset
 
 permissions:
   contents: write
+  actions: read
 
 env:
   NODE_OPTIONS: --max-old-space-size=4096
@@ -142,7 +143,7 @@ jobs:
 
       # ── beta / stable / development: yarn publish (make + upload to S3) ──────
       - name: Publish to S3 — macOS Silicon
-        if: inputs.channel != 'asset' && matrix.artifact_name == 'darwin-arm64'
+        if: matrix.artifact_name == 'darwin-arm64'
         working-directory: apps/electron
         env:
           RELEASE_CHANNEL: ${{ inputs.channel }}
@@ -161,7 +162,7 @@ jobs:
         run: yarn publish
 
       - name: Publish to S3 — macOS Intel
-        if: inputs.channel != 'asset' && matrix.artifact_name == 'darwin-x64'
+        if: matrix.artifact_name == 'darwin-x64'
         working-directory: apps/electron
         env:
           RELEASE_CHANNEL: ${{ inputs.channel }}
@@ -202,7 +203,7 @@ jobs:
       #   run: yarn publish
 
       - name: Publish to S3 — Linux
-        if: inputs.channel != 'asset' && matrix.artifact_name == 'linux-x64'
+        if: matrix.artifact_name == 'linux-x64'
         working-directory: apps/electron
         env:
           RELEASE_CHANNEL: ${{ inputs.channel }}
@@ -230,34 +231,6 @@ jobs:
           S3_BUCKET_NAME_STABLE: ${{ secrets.S3_BUCKET_NAME_STABLE }}
         run: node republish.js ${{ inputs.channel }}
 
-      # ── asset: yarn make only (no S3, no GitHub Release) ──────────────────────
-      - name: Make (asset) — macOS Silicon
-        if: inputs.channel == 'asset' && matrix.artifact_name == 'darwin-arm64'
-        working-directory: apps/electron
-        env:
-          RELEASE_CHANNEL: asset
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: yarn make
-
-      - name: Make (asset) — macOS Intel
-        if: inputs.channel == 'asset' && matrix.artifact_name == 'darwin-x64'
-        working-directory: apps/electron
-        env:
-          RELEASE_CHANNEL: asset
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: yarn make --arch=x64
-
-      - name: Make (asset) — Linux
-        if: inputs.channel == 'asset' && matrix.artifact_name == 'linux-x64'
-        working-directory: apps/electron
-        env:
-          RELEASE_CHANNEL: asset
-        run: yarn make
-
       # Upload everything from out/make/ so both S3 + GitHub Release jobs can use it
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
@@ -282,7 +255,7 @@ jobs:
     with:
       channel: ${{ inputs.channel }}
 
-  # ── GitHub Release (stable + beta + asset) ────────────────────────────────────
+  # ── GitHub Release (stable + beta) ────────────────────────────────────────────
   release:
     name: Create GitHub Release
     needs: build
@@ -311,31 +284,10 @@ jobs:
       # Pulls the changelog entry matching this version (apps/ui/src/data/changelog.json)
       # into apps/electron/release-notes.md, used as the release body below.
       - name: Generate release notes from changelog
-        if: inputs.channel != 'asset'
         id: release-notes
         run: node apps/electron/generate-release-notes.js
 
-      # asset builds: installer binaries only (skip .zip — it's the raw app bundle,
-      # not a user-facing distributable), tagged per run so repeat asset builds
-      # don't collide with each other or with real version tags.
-      - name: Create GitHub Release (asset)
-        if: inputs.channel == 'asset'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: asset-${{ steps.version.outputs.version }}-${{ github.run_id }}
-          name: Voiden v${{ steps.version.outputs.version }} (asset build #${{ github.run_number }})
-          draft: true
-          generate_release_notes: false
-          fail_on_unmatched_files: false
-          files: |
-            release-artifacts/**/*.dmg
-            release-artifacts/**/*.exe
-            release-artifacts/**/*.deb
-            release-artifacts/**/*.rpm
-            release-artifacts/**/*.AppImage
-
       - name: Create GitHub Release
-        if: inputs.channel != 'asset'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.version.outputs.version }}

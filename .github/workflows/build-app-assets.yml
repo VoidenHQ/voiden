@@ -1,0 +1,174 @@
+# Builds Voiden desktop installer binaries for all platforms — no S3 publish,
+# no version bump, no versioned GitHub Release. Installer binaries
+# (.dmg/.deb/.rpm/.AppImage/.exe) are attached to a draft GitHub Release for
+# direct download links (draft releases are only visible to repo collaborators).
+#
+# Use this for ad-hoc / dev builds you want to hand out for testing without
+# going through "Release Voiden App" (release-app.yml), which publishes to S3
+# and cuts a real versioned release.
+#
+# Trigger: manual (workflow_dispatch)
+#
+# Required repository secrets:
+#   APPLE_CERTIFICATE           — base64-encoded .p12 developer certificate
+#   APPLE_CERTIFICATE_PASSWORD  — password for the .p12
+#   KEYCHAIN_PASSWORD           — password for the temporary build keychain
+#   APPLE_ID                    — Apple ID for notarization
+#   APPLE_ID_PASSWORD           — App-specific password for notarization
+#   APPLE_TEAM_ID               — Apple Developer Team ID
+
+name: Build Voiden Assets
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  NODE_OPTIONS: --max-old-space-size=4096
+  RELEASE_CHANNEL: asset
+
+jobs:
+  # ── Per-platform build ────────────────────────────────────────────────────────
+  build:
+    name: Build — ${{ matrix.label }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: macOS Silicon (arm64)
+            os: macos-latest
+            arch_flag: ''
+            artifact_name: darwin-arm64
+
+          # Cross-packaged on the arm64 runner via --arch=x64 — GitHub's free plan
+          # no longer has a standalone Intel macOS runner pool (macos-13 is retired;
+          # Intel "large" runners require a paid Team/Enterprise plan). Packaging,
+          # codesigning, and notarization don't need native x64 hardware to run.
+          - label: macOS Intel (x64)
+            os: macos-latest
+            arch_flag: '--arch=x64'
+            artifact_name: darwin-x64
+
+          - label: Linux (x64)
+            os: ubuntu-latest
+            arch_flag: ''
+            artifact_name: linux-x64
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Enable Corepack (Yarn)
+        run: corepack enable
+
+      # Clones plugin-registry + core plugins, removes node_modules, yarn install, builds plugins
+      - name: Run cleanup (macOS / Linux)
+        run: chmod +x cleanup.sh && ./cleanup.sh
+
+      # macOS: import developer certificate into a temporary keychain so
+      # electron-forge osxSign can codesign the app bundle.
+      - name: Import Apple certificate into keychain
+        if: runner.os == 'macOS'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
+          security import certificate.p12 -k build.keychain \
+            -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list \
+            -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+          rm -f certificate.p12
+
+      - name: Make — macOS Silicon
+        if: matrix.artifact_name == 'darwin-arm64'
+        working-directory: apps/electron
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: yarn make
+
+      - name: Make — macOS Intel
+        if: matrix.artifact_name == 'darwin-x64'
+        working-directory: apps/electron
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: yarn make --arch=x64
+
+      - name: Make — Linux
+        if: matrix.artifact_name == 'linux-x64'
+        working-directory: apps/electron
+        run: yarn make
+
+      # Upload everything from out/make/ so the GitHub Release job can use it
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: voiden-${{ matrix.artifact_name }}
+          path: apps/electron/out/make/
+          if-no-files-found: warn
+
+      # Tear down the temporary keychain to avoid leaving certs on the runner
+      - name: Cleanup keychain
+        if: runner.os == 'macOS' && always()
+        run: |
+          security delete-keychain build.keychain 2>/dev/null || true
+
+  # ── draft GitHub Release with installer binaries ──────────────────────────────
+  release:
+    name: Create draft GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Read app version
+        id: version
+        run: |
+          VERSION=$(node -p "require('./apps/electron/package.json').version")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+          pattern: voiden-*
+
+      - name: List artifacts
+        run: find release-artifacts -type f | sort
+
+      # Installer binaries only (skip .zip — it's the raw app bundle, not a
+      # user-facing distributable), tagged per run so repeat asset builds
+      # don't collide with each other or with real version tags.
+      - name: Create draft GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: asset-${{ steps.version.outputs.version }}-${{ github.run_id }}
+          name: Voiden v${{ steps.version.outputs.version }} (asset build #${{ github.run_number }})
+          draft: true
+          generate_release_notes: false
+          fail_on_unmatched_files: false
+          files: |
+            release-artifacts/**/*.dmg
+            release-artifacts/**/*.exe
+            release-artifacts/**/*.deb
+            release-artifacts/**/*.rpm
+            release-artifacts/**/*.AppImage
