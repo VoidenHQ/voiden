@@ -16,6 +16,11 @@
 #   APPLE_ID                    — Apple ID for notarization
 #   APPLE_ID_PASSWORD           — App-specific password for notarization
 #   APPLE_TEAM_ID               — Apple Developer Team ID
+#   AZURE_CLIENT_ID                  — Azure service principal client ID
+#   AZURE_CLIENT_SECRET              — Azure service principal client secret
+#   AZURE_TENANT_ID                  — Azure AD tenant ID
+#   AZURE_CODE_SIGNING_ENDPOINT      — e.g. https://<account>.<region>.codesigning.azure.net
+#   AZURE_CODE_SIGNING_CERT_PROFILE  — certificate profile name in Azure Trusted Signing
 
 name: Build Voiden Assets
 
@@ -51,6 +56,11 @@ jobs:
             arch_flag: '--arch=x64'
             artifact_name: darwin-x64
 
+          - label: Windows (x64)
+            os: windows-latest
+            arch_flag: ''
+            artifact_name: win32-x64
+
           - label: Linux (x64)
             os: ubuntu-latest
             arch_flag: ''
@@ -72,7 +82,13 @@ jobs:
 
       # Clones plugin-registry + core plugins, removes node_modules, yarn install, builds plugins
       - name: Run cleanup (macOS / Linux)
+        if: runner.os != 'Windows'
         run: chmod +x cleanup.sh && ./cleanup.sh
+
+      - name: Run cleanup (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: cleanup.bat
 
       # macOS: import developer certificate into a temporary keychain so
       # electron-forge osxSign can codesign the app bundle.
@@ -93,6 +109,10 @@ jobs:
             -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
           rm -f certificate.p12
 
+      - name: Install AzureSignTool
+        if: runner.os == 'Windows'
+        run: dotnet tool install --global AzureSignTool
+
       - name: Make — macOS Silicon
         if: matrix.artifact_name == 'darwin-arm64'
         working-directory: apps/electron
@@ -110,6 +130,17 @@ jobs:
           APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: yarn make --arch=x64
+
+      - name: Make — Windows
+        if: matrix.artifact_name == 'win32-x64'
+        working-directory: apps/electron
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CODE_SIGNING_ENDPOINT: ${{ secrets.AZURE_CODE_SIGNING_ENDPOINT }}
+          AZURE_CODE_SIGNING_CERT_PROFILE: ${{ secrets.AZURE_CODE_SIGNING_CERT_PROFILE }}
+        run: yarn make
 
       - name: Make — Linux
         if: matrix.artifact_name == 'linux-x64'
