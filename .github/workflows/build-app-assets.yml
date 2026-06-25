@@ -90,6 +90,17 @@ jobs:
         shell: cmd
         run: cleanup.bat
 
+      # cleanup.bat installs with --mode=skip-build — node-pty's unpatched source
+      # fails to compile under MSVC 2022 + C++20. Patch it, then force a rebuild.
+      - name: Apply Windows native build patches
+        if: runner.os == 'Windows'
+        shell: bash
+        run: bash patches/win-native-fixes/apply-patches.sh
+
+      - name: Rebuild native modules (Windows)
+        if: runner.os == 'Windows'
+        run: yarn rebuild
+
       # macOS: import developer certificate into a temporary keychain so
       # electron-forge osxSign can codesign the app bundle.
       - name: Import Apple certificate into keychain

@@ -158,13 +158,17 @@ if "!SKIP_INSTALL!"=="true" (
 echo.
 
 REM ─── Step 7: Fresh install ────────────────────────────────────────────────────
+REM --mode=skip-build defers native module compilation (node-pty, etc.) — MSVC
+REM 2022 + C++20 chokes on its unpatched source, so building inline here would
+REM fail before the win-native-fixes patches ever get applied. Run
+REM patches\win-native-fixes\apply-patches.sh then `yarn rebuild` afterward.
 if "!SKIP_INSTALL!"=="true" (
     echo Skipping yarn install (--skip-install^)
 ) else (
     echo Running yarn install...
-    call yarn install
+    call yarn install --mode=skip-build
     if errorlevel 1 ( echo FAILED: Failed to install dependencies & exit /b 1 )
-    echo [OK] Dependencies installed
+    echo [OK] Dependencies installed (native builds deferred - see patches\win-native-fixes\apply-patches.sh^)
 )
 echo.
 
@@ -233,9 +237,11 @@ if %PLUGIN_COUNT% gtr 0 (
 echo Cleanup complete!
 echo.
 echo Next steps:
-echo   Start app:              cd apps\electron ^&^& yarn start
-echo   Build plugins once:     yarn dev:plugins
-echo   Watch + hot-reload:     yarn plugins:dev
+echo   Apply native build patches:  bash patches\win-native-fixes\apply-patches.sh
+echo   Rebuild native modules:      yarn rebuild
+echo   Start app:                   cd apps\electron ^&^& yarn start
+echo   Build plugins once:          yarn dev:plugins
+echo   Watch + hot-reload:          yarn plugins:dev
 echo.
 
 endlocal
