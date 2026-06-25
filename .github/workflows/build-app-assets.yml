@@ -7,7 +7,9 @@
 # going through "Release Voiden App" (release-app.yml), which publishes to S3
 # and cuts a real versioned release.
 #
-# Trigger: manual (workflow_dispatch)
+# Trigger: manual (workflow_dispatch) — each platform is an independent
+# checkbox, so you can build just one OS (e.g. Windows-only while iterating
+# on signing) instead of all four every time.
 #
 # Required repository secrets:
 #   APPLE_CERTIFICATE           — base64-encoded .p12 developer certificate
@@ -26,6 +28,22 @@ name: Build Voiden Assets
 
 on:
   workflow_dispatch:
+    inputs:
+      macos:
+        description: 'macOS (Silicon arm64 + Intel x64)'
+        required: true
+        type: boolean
+        default: true
+      windows:
+        description: 'Windows (x64)'
+        required: true
+        type: boolean
+        default: true
+      linux:
+        description: 'Linux (x64)'
+        required: true
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -35,40 +53,66 @@ env:
   RELEASE_CHANNEL: asset
 
 jobs:
+  # ── Select platforms ──────────────────────────────────────────────────────────
+  # workflow_dispatch has no native multi-select input, so platform choice is
+  # modeled as three independent boolean checkboxes, filtered here into the
+  # actual matrix the build job consumes.
+  setup-matrix:
+    name: Select platforms
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.filter.outputs.matrix }}
+    steps:
+      - name: Filter platform matrix
+        id: filter
+        env:
+          BUILD_MACOS: ${{ inputs.macos }}
+          BUILD_WINDOWS: ${{ inputs.windows }}
+          BUILD_LINUX: ${{ inputs.linux }}
+        run: |
+          INCLUDE=$(node -e "
+            const entries = {
+              // Intel build is cross-packaged on the arm64 runner via --arch=x64 —
+              // GitHub's free plan no longer has a standalone Intel macOS runner
+              // pool (macos-13 is retired; Intel 'large' runners require a paid
+              // Team/Enterprise plan). Packaging, codesigning, and notarization
+              // don't need native x64 hardware to run.
+              macos: [
+                { label: 'macOS Silicon (arm64)', os: 'macos-latest', arch_flag: '', artifact_name: 'darwin-arm64' },
+                { label: 'macOS Intel (x64)', os: 'macos-latest', arch_flag: '--arch=x64', artifact_name: 'darwin-x64' },
+              ],
+              // Pinned to windows-2022 (not windows-latest) — that image bundles
+              // Visual Studio '18' (2026), and the installed node-gyp doesn't
+              // recognize that version string ('unknown version \\\"undefined\\\"'),
+              // so it fails to find VS at all even though it's present.
+              windows: [
+                { label: 'Windows (x64)', os: 'windows-2022', arch_flag: '', artifact_name: 'win32-x64' },
+              ],
+              linux: [
+                { label: 'Linux (x64)', os: 'ubuntu-latest', arch_flag: '', artifact_name: 'linux-x64' },
+              ],
+            };
+            const enabled = {
+              macos: process.env.BUILD_MACOS === 'true',
+              windows: process.env.BUILD_WINDOWS === 'true',
+              linux: process.env.BUILD_LINUX === 'true',
+            };
+            const include = Object.entries(entries)
+              .filter(([platform]) => enabled[platform])
+              .flatMap(([, list]) => list);
+            console.log(JSON.stringify(include));
+          ")
+          echo "Selected platforms: $INCLUDE"
+          echo "matrix={\"include\":$INCLUDE}" >> "$GITHUB_OUTPUT"
+
   # ── Per-platform build ────────────────────────────────────────────────────────
   build:
     name: Build — ${{ matrix.label }}
+    needs: setup-matrix
+    if: needs.setup-matrix.outputs.matrix != '{"include":[]}'
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - label: macOS Silicon (arm64)
-            os: macos-latest
-            arch_flag: ''
-            artifact_name: darwin-arm64
-
-          # Cross-packaged on the arm64 runner via --arch=x64 — GitHub's free plan
-          # no longer has a standalone Intel macOS runner pool (macos-13 is retired;
-          # Intel "large" runners require a paid Team/Enterprise plan). Packaging,
-          # codesigning, and notarization don't need native x64 hardware to run.
-          - label: macOS Intel (x64)
-            os: macos-latest
-            arch_flag: '--arch=x64'
-            artifact_name: darwin-x64
-
-          # Pinned to windows-2022 (not windows-latest) — that image bundles
-          # Visual Studio "18" (2026), and the installed node-gyp doesn't
-          # recognize that version string ("unknown version \"undefined\""),
-          # so it fails to find VS at all even though it's present.
-          - label: Windows (x64)
-            os: windows-2022
-            arch_flag: ''
-            artifact_name: win32-x64
-
-          - label: Linux (x64)
-            os: ubuntu-latest
-            arch_flag: ''
-            artifact_name: linux-x64
+      matrix: ${{ fromJson(needs.setup-matrix.outputs.matrix) }}
 
     runs-on: ${{ matrix.os }}
 
