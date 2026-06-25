@@ -150,9 +150,36 @@ jobs:
             -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
           rm -f certificate.p12
 
-      - name: Install Microsoft Trusted Signing Client
+      # Microsoft.ArtifactSigning.Client (the Trusted Signing service was renamed
+      # "Artifact Signing") ships as a plain NuGet library package, not a dotnet
+      # global tool — `dotnet tool install` fails with "not found in NuGet feeds".
+      # Download it + the matching SignTool build via nuget.exe instead, then
+      # locate the extracted signtool.exe / dlib and expose their paths to
+      # forge.config.ts via GITHUB_ENV.
+      - name: Setup .NET 8 runtime (required by Artifact Signing dlib)
         if: runner.os == 'Windows'
-        run: dotnet tool install --global Microsoft.Trusted.Signing.Client
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Install Artifact Signing client tools
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri https://dist.nuget.org/win-x86-commandline/latest/nuget.exe -OutFile nuget.exe
+          ./nuget.exe install Microsoft.Windows.SDK.BuildTools -OutputDirectory signing-tools -ExcludeVersion -NonInteractive
+          ./nuget.exe install Microsoft.ArtifactSigning.Client -OutputDirectory signing-tools -ExcludeVersion -NonInteractive
+
+          $signtool = Get-ChildItem -Path "signing-tools\Microsoft.Windows.SDK.BuildTools" -Recurse -Filter signtool.exe |
+            Where-Object { $_.FullName -like "*\x64\*" } | Select-Object -First 1
+          $dlib = Get-ChildItem -Path "signing-tools\Microsoft.ArtifactSigning.Client" -Recurse -Filter Azure.CodeSigning.Dlib.dll |
+            Where-Object { $_.FullName -like "*\x64\*" } | Select-Object -First 1
+
+          if (-not $signtool) { throw "signtool.exe not found in Microsoft.Windows.SDK.BuildTools package" }
+          if (-not $dlib) { throw "Azure.CodeSigning.Dlib.dll not found in Microsoft.ArtifactSigning.Client package" }
+
+          echo "SIGNTOOL_PATH=$($signtool.FullName)" >> $env:GITHUB_ENV
+          echo "SIGNING_DLIB_PATH=$($dlib.FullName)" >> $env:GITHUB_ENV
 
       # ── beta / stable / development: yarn publish (make + upload to S3) ──────
       - name: Publish to S3 — macOS Silicon

@@ -125,12 +125,15 @@ if (isMac) {
       // appears in Windows Explorer for .void and common text/code files.
       getAppBuilderConfig: async () => ({
         win: {
-          // Signs via Azure Trusted Signing using Microsoft.Trusted.Signing.Client
-          // (the `smctl` / `signtool integration` CLI, not AzureSignTool — that's
-          // for Key Vault-based signing, a different Azure service).
+          // Signs via Azure Artifact Signing (formerly "Trusted Signing") using
+          // SignTool + the Azure.CodeSigning.Dlib plugin — not AzureSignTool,
+          // which is for Key Vault-based signing, a different Azure service.
+          // SIGNTOOL_PATH / SIGNING_DLIB_PATH are set by the CI workflow after
+          // downloading Microsoft.Windows.SDK.BuildTools / Microsoft.ArtifactSigning.Client
+          // via nuget.exe (neither ships as a dotnet global tool). Falls back to
+          // "signtool" on PATH and the default local install location for local builds.
           // Auth comes from AZURE_CLIENT_ID/AZURE_CLIENT_SECRET/AZURE_TENANT_ID
-          // (a service principal), picked up automatically by the client's
-          // DefaultAzureCredential — no Key Vault flags involved.
+          // (a service principal), picked up automatically by DefaultAzureCredential.
           // Required env vars: AZURE_CODE_SIGNING_ENDPOINT, AZURE_CODE_SIGNING_ACCOUNT_NAME,
           // AZURE_CODE_SIGNING_CERT_PROFILE, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_TENANT_ID
           sign: async (config: { path: string }) => {
@@ -146,6 +149,10 @@ if (isMac) {
               );
             }
 
+            const signtoolPath = process.env.SIGNTOOL_PATH || "signtool";
+            const dlibPath = process.env.SIGNING_DLIB_PATH
+              || `${process.env.ProgramFiles}\\Trusted Signing Client\\bin\\x64\\Azure.CodeSigning.Dlib.dll`;
+
             const metadata = {
               Endpoint: endpoint,
               CodeSigningAccountName: accountName,
@@ -157,11 +164,11 @@ if (isMac) {
 
             try {
               const cmd = [
-                "signtool sign",
+                `"${signtoolPath}" sign`,
                 `/v /fd SHA256`,
                 `/tr http://timestamp.acs.microsoft.com`,
                 `/td SHA256`,
-                `/dlib "${process.env.ProgramFiles}\\Trusted Signing Client\\bin\\x64\\Azure.CodeSigning.Dlib.dll"`,
+                `/dlib "${dlibPath}"`,
                 `/dmdf "${metadataPath}"`,
                 `"${config.path}"`,
               ].join(" ");
