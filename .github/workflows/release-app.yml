@@ -1,6 +1,13 @@
 # Builds and publishes the Voiden desktop app for all platforms.
 #
-# Trigger: manual (workflow_dispatch) — admin only
+# Trigger: tag push matching "v*" only. Channel is derived from which branch
+# the tag's commit is on:
+#   main   -> stable
+#   beta   -> beta
+#   other  -> development   (e.g. tagging a feature branch for an ad-hoc build)
+#
+# Every run requires approval via the "release" GitHub Environment before
+# any build/publish steps execute (see resolve-channel job).
 #
 # Channels:
 #   beta        — publishes to S3 (beta bucket) + creates a pre-release GitHub Release
@@ -42,16 +49,9 @@
 name: Release Voiden App
 
 on:
-  workflow_dispatch:
-    inputs:
-      channel:
-        description: 'Release channel'
-        required: true
-        type: choice
-        options:
-          - beta
-          - stable
-          - development
+  push:
+    tags:
+      - 'v*'
 
 permissions:
   contents: write
@@ -61,9 +61,39 @@ env:
   NODE_OPTIONS: --max-old-space-size=4096
 
 jobs:
+  # ── Resolve channel + gate the whole run behind the "release" environment ──────
+  # Approval (required reviewers configured on the "release" environment) happens
+  # here, before any build minutes are spent. Every downstream job depends on
+  # this one, so reviewers approve once per run.
+  resolve-channel:
+    name: Resolve Release Channel
+    runs-on: ubuntu-latest
+    environment: release
+    outputs:
+      channel: ${{ steps.resolve.outputs.channel }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve channel
+        id: resolve
+        run: |
+          git fetch origin main beta --quiet
+          BRANCHES=$(git branch -r --contains "${{ github.sha }}")
+          if echo "$BRANCHES" | grep -q 'origin/main'; then
+            echo "channel=stable" >> "$GITHUB_OUTPUT"
+          elif echo "$BRANCHES" | grep -q 'origin/beta'; then
+            echo "channel=beta" >> "$GITHUB_OUTPUT"
+          else
+            echo "channel=development" >> "$GITHUB_OUTPUT"
+          fi
+
   # ── Per-platform build ────────────────────────────────────────────────────────
   build:
     name: Build — ${{ matrix.label }}
+    needs: resolve-channel
     strategy:
       fail-fast: false
       matrix:
@@ -186,7 +216,7 @@ jobs:
         if: matrix.artifact_name == 'darwin-arm64'
         working-directory: apps/electron
         env:
-          RELEASE_CHANNEL: ${{ inputs.channel }}
+          RELEASE_CHANNEL: ${{ needs.resolve-channel.outputs.channel }}
           S3_ACCESS_KEY_ID_BETA: ${{ secrets.S3_ACCESS_KEY_ID_BETA }}
           S3_SECRET_ACCESS_KEY_BETA: ${{ secrets.S3_SECRET_ACCESS_KEY_BETA }}
           S3_ACCESS_KEY_ID_STABLE: ${{ secrets.S3_ACCESS_KEY_ID_STABLE }}
@@ -205,7 +235,7 @@ jobs:
         if: matrix.artifact_name == 'darwin-x64'
         working-directory: apps/electron
         env:
-          RELEASE_CHANNEL: ${{ inputs.channel }}
+          RELEASE_CHANNEL: ${{ needs.resolve-channel.outputs.channel }}
           S3_ACCESS_KEY_ID_BETA: ${{ secrets.S3_ACCESS_KEY_ID_BETA }}
           S3_SECRET_ACCESS_KEY_BETA: ${{ secrets.S3_SECRET_ACCESS_KEY_BETA }}
           S3_ACCESS_KEY_ID_STABLE: ${{ secrets.S3_ACCESS_KEY_ID_STABLE }}
@@ -224,7 +254,7 @@ jobs:
         if: matrix.artifact_name == 'win32-x64'
         working-directory: apps/electron
         env:
-          RELEASE_CHANNEL: ${{ inputs.channel }}
+          RELEASE_CHANNEL: ${{ needs.resolve-channel.outputs.channel }}
           S3_ACCESS_KEY_ID_BETA: ${{ secrets.S3_ACCESS_KEY_ID_BETA }}
           S3_SECRET_ACCESS_KEY_BETA: ${{ secrets.S3_SECRET_ACCESS_KEY_BETA }}
           S3_ACCESS_KEY_ID_STABLE: ${{ secrets.S3_ACCESS_KEY_ID_STABLE }}
@@ -246,7 +276,7 @@ jobs:
         if: matrix.artifact_name == 'linux-x64'
         working-directory: apps/electron
         env:
-          RELEASE_CHANNEL: ${{ inputs.channel }}
+          RELEASE_CHANNEL: ${{ needs.resolve-channel.outputs.channel }}
           S3_ACCESS_KEY_ID_BETA: ${{ secrets.S3_ACCESS_KEY_ID_BETA }}
           S3_SECRET_ACCESS_KEY_BETA: ${{ secrets.S3_SECRET_ACCESS_KEY_BETA }}
           S3_ACCESS_KEY_ID_STABLE: ${{ secrets.S3_ACCESS_KEY_ID_STABLE }}
@@ -260,7 +290,7 @@ jobs:
 
       # Republish Linux artifacts: generates latest.json and uploads .deb/.rpm/.AppImage URLs to S3
       - name: Republish Linux artifacts
-        if: (inputs.channel == 'beta' || inputs.channel == 'stable') && matrix.artifact_name == 'linux-x64'
+        if: (needs.resolve-channel.outputs.channel == 'beta' || needs.resolve-channel.outputs.channel == 'stable') && matrix.artifact_name == 'linux-x64'
         working-directory: apps/electron
         env:
           S3_ACCESS_KEY_ID_BETA: ${{ secrets.S3_ACCESS_KEY_ID_BETA }}
@@ -269,7 +299,7 @@ jobs:
           S3_SECRET_ACCESS_KEY_STABLE: ${{ secrets.S3_SECRET_ACCESS_KEY_STABLE }}
           S3_BUCKET_NAME_BETA: ${{ secrets.S3_BUCKET_NAME_BETA }}
           S3_BUCKET_NAME_STABLE: ${{ secrets.S3_BUCKET_NAME_STABLE }}
-        run: node republish.js ${{ inputs.channel }}
+        run: node republish.js ${{ needs.resolve-channel.outputs.channel }}
 
       # Upload everything from out/make/ so both S3 + GitHub Release jobs can use it
       - name: Upload build artifacts
@@ -288,19 +318,19 @@ jobs:
   # ── apt + snap publishing (beta + stable only) ────────────────────────────────
   package-managers:
     name: Release Package Managers
-    needs: build
-    if: inputs.channel == 'beta' || inputs.channel == 'stable'
+    needs: [build, resolve-channel]
+    if: needs.resolve-channel.outputs.channel == 'beta' || needs.resolve-channel.outputs.channel == 'stable'
     uses: ./.github/workflows/release-package-managers.yml
     secrets: inherit
     with:
-      channel: ${{ inputs.channel }}
+      channel: ${{ needs.resolve-channel.outputs.channel }}
 
   # ── GitHub Release (stable + beta) ────────────────────────────────────────────
   release:
     name: Create GitHub Release
-    needs: build
+    needs: [build, resolve-channel]
     runs-on: ubuntu-latest
-    if: inputs.channel != 'development'
+    if: needs.resolve-channel.outputs.channel != 'development'
 
     steps:
       - name: Checkout
@@ -332,7 +362,7 @@ jobs:
         with:
           tag_name: v${{ steps.version.outputs.version }}
           name: Voiden v${{ steps.version.outputs.version }}
-          prerelease: ${{ inputs.channel == 'beta' }}
+          prerelease: ${{ needs.resolve-channel.outputs.channel == 'beta' }}
           generate_release_notes: true
           body_path: apps/electron/release-notes.md
           fail_on_unmatched_files: false

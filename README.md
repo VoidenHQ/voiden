@@ -52,23 +52,12 @@
   </a>
 </p>
 
-<h2 align="center">Main Contributors</h2>
+<h2 align="center">Contributors</h2>
 
 <p align="center">
-  <img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/github/github-original.svg" width="14" />
-  <a href="https://github.com/lbenedetto">Lars Benedetto</a> ·
-  <a href="https://github.com/kaluvuri">kaluvuri</a> ·
-  <a href="https://github.com/jameesbrown">James Brown</a> ·
-  <a href="https://github.com/phurpa-tsering">Phurpa Tsering</a> ·
-  <a href="https://github.com/KrawMire">Anton Gavrilov</a>
-</p>
-
-<p align="center">
-  <img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/github/github-original.svg" width="14" />
-  <a href="https://github.com/edymusajev">Edy Musajev</a> ·
-  <a href="https://github.com/nikolasdimitr">nikolasdimitr</a> ·
-  <a href="https://github.com/dp1620">Dhruv</a> ·
-  <a href="https://github.com/davinder-sudo">davinder-sudo</a>
+  <a href="https://github.com/VoidenHQ/voiden/graphs/contributors">
+    <img src="https://contrib.rocks/image?repo=VoidenHQ/voiden" alt="Contributors" />
+  </a>
 </p>
 
 
@@ -123,6 +112,10 @@ AI Friendly:
 
 Download installers for macOS, Windows, and Linux from [voiden.md/download](https://voiden.md/download).
 Direct downloads are available for Apple Silicon and Intel macOS, Windows `.exe`, and Linux `.deb`, `.rpm`, and `.AppImage` builds.
+
+> **Windows note (starting v2.1.1):** the Windows installer is now signed via Azure Trusted Signing instead of our previous certificate provider. Because of this change, you may see a "Windows protected your PC" SmartScreen dialog during install — the installer is signed and verified, this is expected while the app builds up download reputation with Microsoft. Click "More info" → "Run anyway" to proceed.
+>
+> ![Windows SmartScreen warning](apps/electron/public/windows-smartscreen-warning.png)
 
 ### Package managers
 

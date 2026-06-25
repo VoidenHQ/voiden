@@ -14,6 +14,9 @@
         "File-link '@' picker inside multipart table cells now correctly claims the Enter key, instead of the table's cell-navigation handler stealing it when the cell already has content before the cursor",
         "Code editor (CodeMirror) no longer collapses to a small fixed height in some panels — it now fills the available container height",
         "What's New dialog now shows the current release notes under a \"Welcome to Voiden\" header for fresh installs instead of a separate static feature grid, and no longer pops up the spotlight teaser while the onboarding modal is still open"
+      ],
+      "Notes": [
+        "Windows installer now uses Azure Trusted Signing instead of the previous certificate provider. As a result, you may see a \"Windows protected your PC\" SmartScreen dialog when installing this version — the installer is signed and verified, this is expected while the app builds up download reputation with Microsoft. Click \"More info\" → \"Run anyway\" to proceed."
       ]
     }
   },

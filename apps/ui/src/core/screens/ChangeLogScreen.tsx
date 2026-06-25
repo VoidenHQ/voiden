@@ -159,6 +159,20 @@ const ChangeLogScreen = () => {
                       </ul>
                     </div>
                   )}
+                  {item.changes.Notes?.length > 0 && (
+                    <div>
+                      <h3 className="text-purple-400 font-semibold mb-2 flex items-center gap-2">
+                        <span className="text-lg">●</span> Notes
+                      </h3>
+                      <ul className="space-y-2 ml-6">
+                        {item.changes.Notes.map((change, idx) => (
+                          <li key={idx} className="text-text leading-relaxed relative before:content-['–'] before:absolute before:-left-4 before:text-comment">
+                            {change}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 </div>
               </div>
             );
