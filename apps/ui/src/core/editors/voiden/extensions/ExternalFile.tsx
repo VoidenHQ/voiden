@@ -20,6 +20,7 @@ import * as Tooltip from "@radix-ui/react-tooltip";
 import { useElectronEvent } from "@/core/providers";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getLinkableNodeTypes, getNodeDisplayName } from "@/plugins";
+import { getBlocksForSection } from "@/core/editors/voiden/utils/expandLinkedBlocks";
 
 /**
  * TYPES & INTERFACES
@@ -85,7 +86,10 @@ export function extractVoidenBlocks(pmJSON: JSONContent): JSONContent[] {
   const linkableNodeTypes = getLinkableNodeTypes();
 
   const blocks = pmJSON.content.filter((node: JSONContent) => {
-    if (node.type === "linkedBlock") return false;
+    // A linkedBlock is itself a pointer to an original source block — surface it
+    // so importing "all blocks" can re-point at that original source (issue #265)
+    // rather than silently dropping it.
+    if (node.type === "linkedBlock") return !!node.attrs?.blockUid;
     if (!linkableNodeTypes.includes(node.type || '')) return false;
     // A block without a uid hasn't been through a live editor session yet
     // (e.g. a file never opened/saved since import support shipped for its
@@ -119,30 +123,28 @@ export function extractAllSections(pmJSON: JSONContent): Array<{ label: string; 
   let currentLabel = "Request";
   let currentUid: string | null = null;
   let currentBlocks: JSONContent[] = [];
-  let currentHasLinkedFile = false;
   let isFirstNode = true;
 
   for (const node of pmJSON.content) {
     if (node.type === "request-separator") {
-      if (!isFirstNode && currentUid && !currentHasLinkedFile) {
+      if (!isFirstNode && currentUid) {
         result.push({ label: currentLabel, sectionUid: currentUid, blocks: currentBlocks });
       }
       currentBlocks = [];
-      currentHasLinkedFile = false;
       isFirstNode = false;
       currentLabel = node.attrs?.label || "Request";
       currentUid = node.attrs?.uid ?? null;
     } else {
       isFirstNode = false;
-      if (node.type === "linkedFile") {
-        currentHasLinkedFile = true;
-      } else if (node.type !== "linkedBlock" && linkableNodeTypes.includes(node.type || '') && node.attrs?.uid) {
+      if (node.type === "linkedBlock") {
+        if (node.attrs?.blockUid) currentBlocks.push(node);
+      } else if (node.type !== "linkedFile" && linkableNodeTypes.includes(node.type || '') && node.attrs?.uid) {
         currentBlocks.push(node);
       }
     }
   }
 
-  if (currentUid && !currentHasLinkedFile) {
+  if (currentUid) {
     result.push({ label: currentLabel, sectionUid: currentUid, blocks: currentBlocks });
   }
 
@@ -174,7 +176,10 @@ export function extractGroupedBlocks(pmJSON: JSONContent): BlockSection[] {
       continue;
     }
 
-    if (node.type === "linkedBlock") continue;
+    if (node.type === "linkedBlock") {
+      if (node.attrs?.blockUid) currentBlocks.push(node);
+      continue;
+    }
     if (!linkableNodeTypes.includes(node.type || '')) continue;
     if (!node.attrs?.uid) continue;
 
@@ -187,6 +192,81 @@ export function extractGroupedBlocks(pmJSON: JSONContent): BlockSection[] {
   }
 
   return sections;
+}
+
+/**
+ * Stable identity for a block in the @ picker's multi-select set. Regular
+ * blocks key off attrs.uid; a linkedBlock (itself a pointer, see issue #265)
+ * has no uid of its own so it keys off the blockUid it points to instead.
+ */
+function getBlockKey(block: JSONContent | undefined | null): string | undefined {
+  return block?.attrs?.uid ?? block?.attrs?.blockUid;
+}
+
+/**
+ * Builds the attrs for a linkedBlock node being inserted from the @ picker.
+ *
+ * If the selected block is itself a linkedBlock (i.e. it was already linked
+ * in from a third file), preserve its existing blockUid/originalFile so the
+ * new node points straight at the ultimate original source rather than at
+ * the intermediate file it was found in — see issue #265.
+ */
+function buildLinkedBlockAttrs(
+  block: JSONContent,
+  originalFile: string | undefined,
+  activeProject: string | undefined,
+): { blockUid: string; originalFile: string | undefined; type: string } | null {
+  if (block.type === "linkedBlock") {
+    const blockUid = block.attrs?.blockUid;
+    if (!blockUid) return null;
+    return { blockUid, originalFile: block.attrs?.originalFile, type: block.attrs?.type || "" };
+  }
+
+  const blockUid = block.attrs?.uid;
+  if (!blockUid) return null;
+
+  let relativeFilePath = originalFile;
+  const normalizedOriginal = originalFile?.replace(/\\/g, "/");
+  const normalizedProject = activeProject?.replace(/\\/g, "/");
+  if (normalizedProject && normalizedOriginal?.startsWith(normalizedProject)) {
+    relativeFilePath = normalizedOriginal.replace(normalizedProject, "");
+  }
+  useBlockContentStore.getState().setBlock(blockUid, block);
+  return { blockUid, originalFile: relativeFilePath, type: block.type?.name || "" };
+}
+
+/**
+ * Resolves the target of a "whole file" or "whole section" import from the @ picker.
+ *
+ * If the targeted content is nothing but a single linkedFile passthrough, point the
+ * new linkedFile directly at that linkedFile's original source instead of nesting
+ * through the intermediate file — same "direct connection" principle as
+ * buildLinkedBlockAttrs above (see issue #265). Mixed content (its own blocks plus
+ * maybe a nested linkedFile) has no single equivalent source, so it keeps pointing
+ * at the intermediate file; recursive linkedFile resolution handles that at render time.
+ */
+function resolveLinkedFileImportTarget(
+  pmJSON: JSONContent | undefined,
+  filePath: string,
+  sectionUid?: string,
+): { filePath: string; sectionUid?: string } {
+  if (!pmJSON?.content || !Array.isArray(pmJSON.content)) return { filePath, sectionUid };
+
+  const blocks = sectionUid
+    ? getBlocksForSection(pmJSON.content, sectionUid)
+    : pmJSON.content[0]?.type === "request-separator"
+      ? pmJSON.content.slice(1)
+      : pmJSON.content;
+
+  if (blocks.length === 1 && blocks[0].type === "linkedFile") {
+    const inner = blocks[0];
+    return {
+      filePath: inner.attrs?.originalFile || filePath,
+      sectionUid: inner.attrs?.sectionUid ?? undefined,
+    };
+  }
+
+  return { filePath, sectionUid };
 }
 
 const getActiveProject = () => {
@@ -439,7 +519,10 @@ const FileLinkTippyContent = forwardRef((props: FileLinkListProps & { editor?: E
     ) ?? false;
 
     if (hasSeparators) {
-      // Multi-section file: show each section as an importable header + its individual blocks
+      // Multi-section file: show each section as an importable header + its individual blocks.
+      // Whole-section import is safe even when the section embeds a linkedFile — nested
+      // linkedFile resolution is now recursive (see expandLinkedBlocks.ts), so the
+      // reference resolves fully instead of staying unexpanded (issue #265).
       const allSections = extractAllSections(selectedFile!.pmJSON!);
       for (const sec of allSections) {
         items.push({ kind: "linked-section", sectionUid: sec.sectionUid, label: sec.label, flatIndex: items.length });
@@ -448,12 +531,9 @@ const FileLinkTippyContent = forwardRef((props: FileLinkListProps & { editor?: E
         }
       }
     } else {
-      // No separators: offer whole-file import (unless the file itself contains a linkedFile
-      // block — importing it would leave the nested reference unexpanded)
-      const fileHasLinkedFile = selectedFile?.pmJSON?.content?.some(
-        (n: any) => n.type === "linkedFile"
-      ) ?? false;
-      if (!fileHasLinkedFile) items.push({ kind: "file", flatIndex: 0 });
+      // No separators: offer whole-file import. Safe even if the file embeds a
+      // linkedFile, since nested linkedFile resolution is now recursive (issue #265).
+      items.push({ kind: "file", flatIndex: 0 });
       const singleSection = groupedSections.length === 1;
       for (const section of groupedSections) {
         const displaySection = singleSection ? { ...section, label: "Request" } : section;
@@ -556,17 +636,17 @@ const FileLinkTippyContent = forwardRef((props: FileLinkListProps & { editor?: E
           if (flatItem.kind === "section") {
             const sectionBlocks = flatItem.section.blocks;
             const allSelected = sectionBlocks.every((block) =>
-              multiSelectedItems.some((sel) => (sel as JSONContent)?.attrs?.uid === block?.attrs?.uid)
+              multiSelectedItems.some((sel) => getBlockKey(sel as JSONContent) === getBlockKey(block))
             );
             if (allSelected) {
-              const sectionUids = new Set(sectionBlocks.map((b) => b.attrs?.uid));
+              const sectionUids = new Set(sectionBlocks.map((b) => getBlockKey(b)));
               setMultiSelectedItems((prev) =>
-                prev.filter((item) => !sectionUids.has((item as JSONContent)?.attrs?.uid))
+                prev.filter((item) => !sectionUids.has(getBlockKey(item as JSONContent)))
               );
             } else {
               setMultiSelectedItems((prev) => {
-                const existingUids = new Set(prev.map((item) => (item as JSONContent)?.attrs?.uid));
-                const newBlocks = sectionBlocks.filter((b) => !existingUids.has(b.attrs?.uid));
+                const existingUids = new Set(prev.map((item) => getBlockKey(item as JSONContent)));
+                const newBlocks = sectionBlocks.filter((b) => !existingUids.has(getBlockKey(b)));
                 return [...prev, ...newBlocks];
               });
             }
@@ -576,15 +656,13 @@ const FileLinkTippyContent = forwardRef((props: FileLinkListProps & { editor?: E
           // For individual blocks
           const blockItem = flatItem.block;
           const isSelected = multiSelectedItems.some((item) => {
-            const jsonItem = item as JSONContent;
-            return jsonItem?.attrs?.uid === blockItem?.attrs?.uid;
+            return getBlockKey(item as JSONContent) === getBlockKey(blockItem);
           });
 
           if (isSelected) {
             setMultiSelectedItems((prev) =>
               prev.filter((item) => {
-                const jsonItem = item as JSONContent;
-                return jsonItem?.attrs?.uid !== blockItem?.attrs?.uid;
+                return getBlockKey(item as JSONContent) !== getBlockKey(blockItem);
               }),
             );
           } else {
@@ -628,9 +706,11 @@ const FileLinkTippyContent = forwardRef((props: FileLinkListProps & { editor?: E
           // Check if we're selecting the whole-file import, a section header, or a block
           const flatItem = flatBlockItems[listSelectedIndex];
           if (flatItem?.kind === "file") {
-            command({ importFile: selectedFile.filePath } as any);
+            const target = resolveLinkedFileImportTarget(selectedFile.pmJSON, selectedFile.filePath);
+            command({ importFile: target.filePath } as any);
           } else if (flatItem?.kind === "linked-section") {
-            command({ importFile: selectedFile.filePath, sectionUid: flatItem.sectionUid, sectionLabel: flatItem.label } as any);
+            const target = resolveLinkedFileImportTarget(selectedFile.pmJSON, selectedFile.filePath, flatItem.sectionUid);
+            command({ importFile: target.filePath, sectionUid: target.sectionUid, sectionLabel: flatItem.label } as any);
           } else if (flatItem?.kind === "section") {
             // Insert all blocks in the section
             const blocksToInsert = flatItem.section.blocks.map((block) => ({
@@ -733,7 +813,10 @@ const FileLinkTippyContent = forwardRef((props: FileLinkListProps & { editor?: E
                       ref={setItemRef(index)}
                       onClick={() => {
                         setListSelectedIndex(index);
-                        if (isSelected) command({ importFile: selectedFile!.filePath } as any);
+                        if (isSelected) {
+                          const target = resolveLinkedFileImportTarget(selectedFile!.pmJSON, selectedFile!.filePath);
+                          command({ importFile: target.filePath } as any);
+                        }
                       }}
                       className={cn(
                         "px-3 py-2 cursor-pointer transition-colors border-l-2 border-transparent border-b border-border",
@@ -757,7 +840,10 @@ const FileLinkTippyContent = forwardRef((props: FileLinkListProps & { editor?: E
                       ref={setItemRef(index)}
                       onClick={() => {
                         setListSelectedIndex(index);
-                        if (isSelected) command({ importFile: selectedFile!.filePath, sectionUid: flatItem.sectionUid, sectionLabel: flatItem.label } as any);
+                        if (isSelected) {
+                          const target = resolveLinkedFileImportTarget(selectedFile!.pmJSON, selectedFile!.filePath, flatItem.sectionUid);
+                          command({ importFile: target.filePath, sectionUid: target.sectionUid, sectionLabel: flatItem.label } as any);
+                        }
                       }}
                       className={cn(
                         "px-3 py-2 cursor-pointer transition-colors border-l-2 border-transparent",
@@ -807,13 +893,12 @@ const FileLinkTippyContent = forwardRef((props: FileLinkListProps & { editor?: E
                 const blockItem = flatItem.block;
                 const isSelected = index === listSelectedIndex;
                 const isMultiSelected = multiSelectedItems.some((sel) => {
-                  const selBlock = sel as JSONContent;
-                  return selBlock?.attrs?.uid === blockItem?.attrs?.uid;
+                  return getBlockKey(sel as JSONContent) === getBlockKey(blockItem);
                 });
 
                 return (
                   <div
-                    key={blockItem.attrs?.uid || `${blockItem.type}-${index}`}
+                    key={getBlockKey(blockItem) || `${blockItem.type}-${index}`}
                     ref={setItemRef(index)}
                     onClick={() => {
                       setListSelectedIndex(index);
@@ -842,7 +927,9 @@ const FileLinkTippyContent = forwardRef((props: FileLinkListProps & { editor?: E
                       <Box className="text-comment flex-shrink-0" size={14} />
                       <span className="truncate text-sm">
                         {blockItem.attrs?.title ||
-                         (blockItem.type && getNodeDisplayName(blockItem.type)) ||
+                         (blockItem.type === "linkedBlock"
+                           ? getNodeDisplayName(blockItem.attrs?.type) || blockItem.attrs?.type
+                           : blockItem.type && getNodeDisplayName(blockItem.type)) ||
                          blockItem.type ||
                          "Unnamed"}
                       </span>
@@ -1208,30 +1295,13 @@ export const FileLink = Node.create<FileLinkOptions>({
 
             props.forEach((item) => {
               if (item.block) {
-                const blockUid = item.block.attrs?.uid;
-                if (!blockUid) {
+                const linkedBlockAttrs = buildLinkedBlockAttrs(item.block, item.originalFile, activeProject);
+                if (!linkedBlockAttrs) {
 
                   return;
                 }
-                // Convert original file path to relative if needed.
-                // Normalize path separators for cross-platform compatibility
-                let relativeFilePath = item.originalFile;
-                const normalizedOriginal = item.originalFile?.replace(/\\/g, "/");
-                const normalizedProject = activeProject?.replace(/\\/g, "/");
-                if (normalizedProject && normalizedOriginal?.startsWith(normalizedProject)) {
-                  relativeFilePath = normalizedOriginal.replace(normalizedProject, "");
-                }
-                // Update the central store with the block.
-                useBlockContentStore.getState().setBlock(blockUid, item.block);
                 // Insert a linked block.
-                nodes.push({
-                  type: "linkedBlock",
-                  attrs: {
-                    blockUid,
-                    originalFile: relativeFilePath,
-                    type: item.block.type?.name || "",
-                  },
-                });
+                nodes.push({ type: "linkedBlock", attrs: linkedBlockAttrs });
               } else if (item.isNew) {
                 // For multi-selection, new file creation is not supported
 
@@ -1249,32 +1319,17 @@ export const FileLink = Node.create<FileLinkOptions>({
 
           // Fallback: Single item insertion as before.
           if (props.block) {
-            const blockUid = props.block.attrs?.uid;
-            if (!blockUid) {
+            const linkedBlockAttrs = buildLinkedBlockAttrs(props.block, props.originalFile, activeProject);
+            if (!linkedBlockAttrs) {
 
               return;
             }
-            // Normalize path separators for cross-platform compatibility
-            let relativeFilePath = props.originalFile;
-            const normalizedOriginal = props.originalFile?.replace(/\\/g, "/");
-            const normalizedProject = activeProject?.replace(/\\/g, "/");
-            if (normalizedProject && normalizedOriginal?.startsWith(normalizedProject)) {
-              relativeFilePath = normalizedOriginal.replace(normalizedProject, "");
-            }
-            useBlockContentStore.getState().setBlock(blockUid, props.block);
             editor
               .chain()
               .focus()
               .deleteRange(range)
               .insertContent([
-                {
-                  type: "linkedBlock",
-                  attrs: {
-                    blockUid,
-                    originalFile: relativeFilePath,
-                    type: props.block.type?.name || "",
-                  },
-                },
+                { type: "linkedBlock", attrs: linkedBlockAttrs },
                 { type: "paragraph" },
               ], { updateSelection: true })
               .run();

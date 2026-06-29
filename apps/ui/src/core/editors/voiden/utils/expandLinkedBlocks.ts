@@ -155,7 +155,10 @@ export async function expandLinkedFilesInDoc(
   return { ...doc, content: expandedContent };
 }
 
-async function fetchLinkedFileBlocks(node: JSONContent, schema?: any): Promise<JSONContent[]> {
+async function fetchLinkedFileBlocks(node: JSONContent, schema?: any, depth: number = 0): Promise<JSONContent[]> {
+  // Safety check to prevent infinite recursion (mirrors expandLinkedBlocks).
+  if (depth > 10) return [];
+
   const originalFile = node.attrs?.originalFile;
   const sectionUid: string | null = node.attrs?.sectionUid ?? null;
   if (!originalFile || !schema) return [];
@@ -183,18 +186,26 @@ async function fetchLinkedFileBlocks(node: JSONContent, schema?: any): Promise<J
       ...(n.content && { content: n.content.map(markImported) }),
     });
 
-    if (sectionUid !== null) {
+    const blocks = sectionUid !== null
       // Section-specific import: return only the blocks for that section.
       // The parent document already provides the separator before this linkedFile.
-      return getBlocksForSection(parsedDoc.content, sectionUid).map(markImported);
+      ? getBlocksForSection(parsedDoc.content, sectionUid)
+      // Whole-file import: drop a leading request-separator (parent provides it).
+      : (parsedDoc.content[0]?.type === "request-separator" ? parsedDoc.content.slice(1) : parsedDoc.content);
+
+    // Recursively resolve any linkedFile nested inside this file's blocks, so a
+    // linkedFile-of-a-linkedFile chain resolves fully instead of leaving an
+    // unexpanded reference. Nested blocks are marked with their own immediate
+    // source by their own recursive call, not overwritten by this level.
+    const expandedBlocks: JSONContent[] = [];
+    for (const block of blocks) {
+      if (block.type === "linkedFile") {
+        expandedBlocks.push(...(await fetchLinkedFileBlocks(block, schema, depth + 1)));
+      } else {
+        expandedBlocks.push(markImported(block));
+      }
     }
-
-    // Whole-file import: drop a leading request-separator (parent provides it).
-    const blocks = parsedDoc.content[0]?.type === "request-separator"
-      ? parsedDoc.content.slice(1)
-      : parsedDoc.content;
-
-    return blocks.map(markImported);
+    return expandedBlocks;
   } catch {
     return [];
   }
