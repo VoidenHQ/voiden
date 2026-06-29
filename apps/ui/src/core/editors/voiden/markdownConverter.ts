@@ -150,8 +150,6 @@ function collapseTextContent(node: JSONContent) {
 const fallback = (state: MarkdownSerializerState, node: Node) => {
   // Determine the language to use in the code block.
   const lang = node.attrs && node.attrs.lang ? node.attrs.lang : "void";
-  state.write("```" + lang + "\n");
-  state.write("---\n");
 
   // Get the full node as JSON.
   let nodeJson = node.toJSON();
@@ -173,10 +171,13 @@ const fallback = (state: MarkdownSerializerState, node: Node) => {
 
   // Convert the (transformed) JSON to YAML.
   const nodeYaml = YAML.stringify(nodeJson);
-  state.write(nodeYaml);
 
-  state.write("---\n");
-  state.write("```\n");
+  // `state.write()` only re-applies the current list/blockquote indentation
+  // prefix once, at the start of a call — it does not re-prefix embedded
+  // newlines within a multi-line string. `state.text(str, false)` does (it
+  // writes line-by-line internally), which matters if this node is ever
+  // nested inside a list item/blockquote.
+  state.text("```" + lang + "\n---\n" + nodeYaml + "---\n```\n", false);
 };
 
 const nodeNameMap = {
@@ -189,7 +190,21 @@ const nodeNameMap = {
   listItem: "list_item",
 };
 
+// paragraph/heading/codeBlock/blockquote only get a `uid` when they're a top-level
+// block (see uniqueId.ts's requireTopLevel), but even then an empty one
+// (e.g. a blank-line spacer) carries nothing worth making importable — only
+// wrap via `fallback` when there's real content, otherwise fall through to
+// the original plain-markdown rendering. CustomCodeBlock has `content: ""` —
+// its text lives entirely in attrs.body, not in child text nodes, so
+// textContent is always empty for it and must be checked separately.
+const hasRenderableContent = (node: Node) =>
+  node.textContent.trim().length > 0 || !!(node.attrs?.body && String(node.attrs.body).trim().length > 0);
+
 const codeBlockSerializer = (state: MarkdownSerializerState, node: Node) => {
+  if (node.attrs?.uid && hasRenderableContent(node)) {
+    fallback(state, node);
+    return;
+  }
   const lang = node.attrs.language || "";
   const body = node.attrs.body || node.textContent || "";
   state.write("```" + lang + "\n");
@@ -203,6 +218,10 @@ const codeBlockSerializer = (state: MarkdownSerializerState, node: Node) => {
 // When a paragraph is empty it outputs two newlines, otherwise it renders normally.
 const paragraphSerializer = (state: MarkdownSerializerState, node: Node) => {
   if (node.type.name !== "paragraph") return;
+  if (node.attrs?.uid && hasRenderableContent(node)) {
+    fallback(state, node);
+    return;
+  }
   if (node.content.size === 0) {
     state.write(EMPTY_LINE_MARKER);
     state.closeBlock(node);
@@ -210,6 +229,22 @@ const paragraphSerializer = (state: MarkdownSerializerState, node: Node) => {
     state.renderInline(node);
     state.closeBlock(node);
   }
+};
+
+const headingSerializer = (state: MarkdownSerializerState, node: Node, parent: Node, index: number) => {
+  if (node.attrs?.uid && hasRenderableContent(node)) {
+    fallback(state, node);
+    return;
+  }
+  defaultMarkdownSerializer.nodes.heading(state, node, parent, index);
+};
+
+const blockquoteSerializer = (state: MarkdownSerializerState, node: Node, parent: Node, index: number) => {
+  if (node.attrs?.uid && hasRenderableContent(node)) {
+    fallback(state, node);
+    return;
+  }
+  defaultMarkdownSerializer.nodes.blockquote(state, node, parent, index);
 };
 
 // Inline serializer for fileLink nodes – writes a compact token that survives
@@ -228,6 +263,10 @@ const buildNodeSerializers = (schema: any) => {
       serializers[nodeName] = codeBlockSerializer;
     } else if (nodeName === "paragraph") {
       serializers[nodeName] = paragraphSerializer;
+    } else if (nodeName === "heading") {
+      serializers[nodeName] = headingSerializer;
+    } else if (nodeName === "blockquote") {
+      serializers[nodeName] = blockquoteSerializer;
     } else if (nodeName === "fileLink") {
       serializers[nodeName] = fileLinkSerializer;
     } else {

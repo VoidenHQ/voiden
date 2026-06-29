@@ -86,7 +86,12 @@ export function extractVoidenBlocks(pmJSON: JSONContent): JSONContent[] {
 
   const blocks = pmJSON.content.filter((node: JSONContent) => {
     if (node.type === "linkedBlock") return false;
-    return linkableNodeTypes.includes(node.type || '');
+    if (!linkableNodeTypes.includes(node.type || '')) return false;
+    // A block without a uid hasn't been through a live editor session yet
+    // (e.g. a file never opened/saved since import support shipped for its
+    // type), so there's nothing stable to link against — exclude it rather
+    // than offering an option that silently no-ops on selection.
+    return !!node.attrs?.uid;
   });
 
   return blocks;
@@ -131,7 +136,7 @@ export function extractAllSections(pmJSON: JSONContent): Array<{ label: string; 
       isFirstNode = false;
       if (node.type === "linkedFile") {
         currentHasLinkedFile = true;
-      } else if (node.type !== "linkedBlock" && linkableNodeTypes.includes(node.type || '')) {
+      } else if (node.type !== "linkedBlock" && linkableNodeTypes.includes(node.type || '') && node.attrs?.uid) {
         currentBlocks.push(node);
       }
     }
@@ -171,6 +176,7 @@ export function extractGroupedBlocks(pmJSON: JSONContent): BlockSection[] {
 
     if (node.type === "linkedBlock") continue;
     if (!linkableNodeTypes.includes(node.type || '')) continue;
+    if (!node.attrs?.uid) continue;
 
     currentBlocks.push(node);
   }

@@ -97,13 +97,9 @@ export const useVoidenExtensionsAndSchema = () => {
   const defaultNodeTypes = useMemo(
     () => [
       "doc",
-      "paragraph",
-      "heading",
-      "blockquote",
       "bulletList",
       "orderedList",
       "listItem",
-      "codeBlock",
       "horizontalRule",
       "text",
       "image",
@@ -124,6 +120,10 @@ export const useVoidenExtensionsAndSchema = () => {
       UniqueID.configure({
         attributeName: "uid", // (optional) defaults to "id"
         types: customNodeTypes,
+        // paragraph/heading/codeBlock/blockquote only become importable when
+        // they sit directly in the document body, not when nested inside a
+        // list item, another blockquote, table cell, etc.
+        requireTopLevel: ["paragraph", "heading", "codeBlock", "blockquote"],
       }),
     [customNodeTypes],
   );

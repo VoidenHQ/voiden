@@ -392,8 +392,14 @@ const exposedHelpers: Record<string, PluginHelpers> = {};
 
 // Global registry for linkable node types (for external file linking)
 // Core node types that are always linkable (not owned by any plugin)
-const coreLinkableNodeTypes = ['runtime-variables'];
-const coreNodeDisplayNames: Record<string, string> = { 'runtime-variables': 'Runtime Variables' };
+const coreLinkableNodeTypes = ['runtime-variables', 'paragraph', 'heading', 'codeBlock', 'blockquote'];
+const coreNodeDisplayNames: Record<string, string> = {
+  'runtime-variables': 'Runtime Variables',
+  paragraph: 'Paragraph',
+  heading: 'Heading',
+  codeBlock: 'Code Block',
+  blockquote: 'Quote',
+};
 
 const linkableNodeTypes = new Set<string>(coreLinkableNodeTypes);
 
