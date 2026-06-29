@@ -238,7 +238,8 @@ const GROUPS: Group[] = [
             .insertTable({
               type: tableType,
               rows: 1,
-              cols: 2,
+              // Key, Value, Description (issue #261).
+              cols: 3,
               withHeaderRow: false,
             })
             .focus(editor.state.doc.resolve(range.from + 1).pos)
