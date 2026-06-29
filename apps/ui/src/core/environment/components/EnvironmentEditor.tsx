@@ -1243,12 +1243,15 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
     }
   }, [data, activeProject]);
 
-  // Auto-select first env when tree loads
+  // Auto-select the environment that's active in the main dropdown when the tree
+  // loads, so opening the editor doesn't silently land on an unrelated environment.
+  // Falls back to the first env if there's no active one (or it's not in this tree).
   useEffect(() => {
     if (!selectedEnvPath && Object.keys(tree).length > 0) {
-      setSelectedEnvPath(Object.keys(tree)[0]);
+      const activeEnv = envData?.activeEnv;
+      setSelectedEnvPath(activeEnv && getNodeAtPath(tree, activeEnv) ? activeEnv : Object.keys(tree)[0]);
     }
-  }, [tree, selectedEnvPath]);
+  }, [tree, selectedEnvPath, envData]);
 
   // Load runtime vars for the currently selected env (bucket-only, not merged).
   // Falls back to "__global__" when no env is selected so users can still view/manage global vars.

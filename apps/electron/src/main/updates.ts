@@ -8,6 +8,7 @@ import * as https from "https";
 import { execFile } from "child_process";
 import { windowManager } from "./windowManager";
 import { saveSettings } from "./settings";
+import { flushRendererUnsavedForPaths } from "./fileSystem";
 
 // ---------- Updater logger ----------
 
@@ -687,10 +688,12 @@ function setupAutoUpdaterListeners() {
         detail: "The application will restart to complete the installation.",
       }).then((restartResponse) => {
         if (restartResponse.response === 0) {
-          updaterLog("INFO", "User chose 'Restart Now' — calling quitAndInstall");
+          updaterLog("INFO", "User chose 'Restart Now' — flushing unsaved tabs before quitAndInstall");
           setUpdateState(UpdateState.INSTALLING);
-          // setImmediate lets any pending IPC/event-loop work drain before quitting
-          setImmediate(() => {
+          // Give the renderer a chance to save any unsaved tab content to disk first —
+          // quitAndInstall terminates the app immediately and would otherwise silently
+          // discard in-memory drafts (issue: unsaved work lost on update).
+          flushRendererUnsavedForPaths([]).then(() => {
             updaterLog("INFO", "quitAndInstall invoked");
             autoUpdater.quitAndInstall(true, true);
           });

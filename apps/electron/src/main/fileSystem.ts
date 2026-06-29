@@ -588,9 +588,10 @@ function applyVoidFileReferenceUpdates(
   return { updatedSource, count };
 }
 
-/** Ask all renderer windows to flush unsaved content for the given file paths to disk.
- *  Waits up to 3 seconds for acknowledgment before proceeding. */
-function flushRendererUnsavedForPaths(paths: string[]): Promise<void> {
+/** Ask all renderer windows to flush unsaved content for the given file paths to disk
+ *  (or every unsaved tab, if `paths` is empty). Waits up to 3 seconds for acknowledgment
+ *  before proceeding. */
+export function flushRendererUnsavedForPaths(paths: string[]): Promise<void> {
   return new Promise<void>((resolve) => {
     const windows = BrowserWindow.getAllWindows();
     if (windows.length === 0) {
