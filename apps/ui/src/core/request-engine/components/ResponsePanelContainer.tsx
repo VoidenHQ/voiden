@@ -686,7 +686,9 @@ export function ResponsePanelContainer() {
           <div className="absolute  ml-2 inset-0 flex items-center justify-center px-4">
             <div className="text-comment text-center">
               Press{" "}
-              <kbd className="px-1 py-0.5 bg-active rounded text-xs">Cmd+Enter</kbd>{" "}
+              <kbd className="px-1 py-0.5 bg-active rounded text-xs">
+                {navigator?.userAgent?.toLowerCase().includes("mac") ? "⌘↵" : "Ctrl+Enter"}
+              </kbd>{" "}
               to execute a request and see the response here.
             </div>
           </div>
