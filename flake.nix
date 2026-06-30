@@ -28,6 +28,7 @@
 
             shellHook = ''
               export PATH="$PATH:$(pwd)/node_modules/.bin"
+              mkdir -p .local/bin
               corepack enable --install-directory .local/bin
               export PATH="$(pwd)/.local/bin:$PATH"
               echo "========================================="
@@ -37,6 +38,15 @@
               echo "========================================="
             '';
           };
+        });
+
+      packages = forAllSystems (system:
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+        in
+        {
+          voiden = pkgs.callPackage ./nix/package.nix {};
+          default = self.packages.${system}.voiden;
         });
     };
 }

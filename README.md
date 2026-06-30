@@ -125,6 +125,7 @@ Direct downloads are available for Apple Silicon and Intel macOS, Windows `.exe`
 | macOS    | `brew install voiden`               | `brew install voiden@beta`          |
 | Windows  | `winget` and Chocolatey coming soon | `winget` and Chocolatey coming soon |
 | Linux    | `apt` and `snap` support            | Beta `apt` and `snap` channels      |
+| Linux/macOS | `nix run github:VoidenHQ/voiden` (Flake) | Development shell with `nix develop` |
 
 
 Homebrew
@@ -160,6 +161,16 @@ Snap
 sudo snap install voiden
 # beta
 sudo snap install voiden --channel=beta
+```
+
+
+
+Nix (Linux / macOS)
+
+Run Voiden directly using Nix Flakes:
+
+```bash
+nix run github:VoidenHQ/voiden
 ```
 
 
@@ -269,6 +280,21 @@ yarn set version 4.3.1
 yarn install
 yarn workspace @voiden/core-extensions build
 cd apps/electron && yarn start
+```
+
+### Build with Nix
+
+If you have Nix installed, you can manage the development environment or build Voiden natively:
+
+```bash
+# 1. Enter the reproducible development shell (sets up Node, Corepack/Yarn, Git)
+nix develop
+
+# 2. Build the Nix package (compiles source and creates sandboxed wrapper)
+nix build
+
+# 3. Run the compiled executable binary
+./result/bin/voiden
 ```
 
 If you hit Windows build issues, see [Build Errors](docs/troubleshooting/BUILD_ERRORS.md).
