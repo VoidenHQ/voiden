@@ -540,6 +540,8 @@ export const VoidenDragMenu = React.memo(({ editor }: { editor: Editor }) => {
   const lastMouseNodePos = useRef<number>(-1);
   const updateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const dragSourceRef = useRef<{ pos: number; size: number } | null>(null);
+  const isScrollingRef = useRef(false);
+  const scrollEndTimerRef = useRef<number | null>(null);
 
   // Use the actions hook
   const {
@@ -684,6 +686,27 @@ export const VoidenDragMenu = React.memo(({ editor }: { editor: Editor }) => {
     }
   }, [editor]);
 
+  // Hide grip during scroll to prevent flickering from rapid node-under-cursor changes
+  useEffect(() => {
+    const scrollContainer = document.getElementById("code-editor-container");
+    if (!scrollContainer) return;
+
+    const onScroll = () => {
+      isScrollingRef.current = true;
+      if (scrollEndTimerRef.current !== null) clearTimeout(scrollEndTimerRef.current);
+      scrollEndTimerRef.current = window.setTimeout(() => {
+        isScrollingRef.current = false;
+        scrollEndTimerRef.current = null;
+      }, 150);
+    };
+
+    scrollContainer.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      scrollContainer.removeEventListener('scroll', onScroll);
+      if (scrollEndTimerRef.current !== null) clearTimeout(scrollEndTimerRef.current);
+    };
+  }, []);
+
   const resolveTopLevelNodeFromSelection = useCallback(() => {
     const { state } = editor;
     const { selection } = state;
@@ -765,7 +788,7 @@ export const VoidenDragMenu = React.memo(({ editor }: { editor: Editor }) => {
     if (!editorContainer) return;
 
     const handleMouseMove = (e: MouseEvent) => {
-      if (menuOpenRef.current) return;
+      if (menuOpenRef.current || isScrollingRef.current) return;
 
       const { view, state } = editor;
       const editorRect = view.dom.getBoundingClientRect();

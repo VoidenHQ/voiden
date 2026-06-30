@@ -71,16 +71,17 @@ function withCopyAction(type: string, message: ReactNode, options?: ToastOptions
 export const toast = Object.assign(
   (message: ReactNode, options?: ToastOptions) => sonnerToast(message, withCopyAction("default", message, options)),
   {
-    // Success: pass options through (description shown), but no copy button
     success: (message: ReactNode, options?: ToastOptions) =>
       sonnerToast.success(message, options),
-    // Error, warning, info: include copy button
+    // Error: keep copy — useful for debugging
     error: (message: ReactNode, options?: ToastOptions) =>
       sonnerToast.error(message, withCopyAction("error", message, options)),
+    // Warning: keep copy
     warning: (message: ReactNode, options?: ToastOptions) =>
       sonnerToast.warning(message, withCopyAction("warning", message, options)),
+    // Info: no copy — used for status notifications (update available, etc.)
     info: (message: ReactNode, options?: ToastOptions) =>
-      sonnerToast.info(message, withCopyAction("info", message, options)),
+      sonnerToast.info(message, options),
     dismiss: sonnerToast.dismiss,
     custom: sonnerToast.custom,
     promise: sonnerToast.promise,
