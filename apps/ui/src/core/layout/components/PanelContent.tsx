@@ -28,6 +28,7 @@ import { Tip } from "@/core/components/ui/Tip";
 import { useSettings } from "@/core/settings/hooks";
 import { PersistentSearchPanel } from "./PersistentSearchPanel";
 import { useSearchStore } from "@/core/stores/searchParamsStore";
+import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/core/components/ui/resizable";
 
 // Extensions that cannot be displayed as text — show a "not supported" message
 const BINARY_EXTENSIONS = new Set([
@@ -65,6 +66,37 @@ const getMdPreviewHelpers = (): MdPreviewHelpers | undefined => {
     return window.__voidenHelpers__['md-preview'] as MdPreviewHelpers;
   }
   return undefined;
+};
+
+// Finds the rendered preview element whose source line is the closest one at-or-before
+// `line`. Elements come out of querySelectorAll in document order, so data-line values
+// are already ascending — first element past the target is where we stop.
+const findPreviewElementForLine = (previewScroller: HTMLElement, line: number): HTMLElement | null => {
+  const elements = Array.from(previewScroller.querySelectorAll<HTMLElement>("[data-line]"));
+  if (elements.length === 0) return null;
+  let target: HTMLElement | null = null;
+  for (const el of elements) {
+    const elLine = Number(el.getAttribute("data-line"));
+    if (elLine <= line) target = el;
+    else break;
+  }
+  return target ?? elements[0];
+};
+
+// Finds the source line of whichever rendered element currently sits at (or just
+// above) the top edge of the preview's visible area.
+const findTopVisibleLine = (previewScroller: HTMLElement): number | null => {
+  const elements = Array.from(previewScroller.querySelectorAll<HTMLElement>("[data-line]"));
+  if (elements.length === 0) return null;
+  const scrollerTop = previewScroller.getBoundingClientRect().top;
+  let topmost: HTMLElement | null = null;
+  for (const el of elements) {
+    if (el.getBoundingClientRect().top - scrollerTop <= 1) topmost = el;
+    else break;
+  }
+  topmost = topmost ?? elements[0];
+  const line = Number(topmost.getAttribute("data-line"));
+  return Number.isFinite(line) ? line : null;
 };
 
 // Run script button for .sh files
@@ -377,6 +409,11 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
   const streamSnapshots = useCodeEditorStore((state) => state.streamSnapshots);
   const isSearchOpen = useSearchStore((s) => s.isOpen);
 
+  // Markdown split view: keep the raw-source pane and the rendered-preview pane
+  // scrolled to the same relative position in either direction.
+  const mdEditorPaneRef = useRef<HTMLDivElement>(null);
+  const mdPreviewPaneRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     if (!tabContentError) return;
     const err = tabContentError as Error;
@@ -488,6 +525,82 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
     return tabContent?.content || "";
   };
 
+  const isMarkdownSplitActive = !!(tabContent?.title?.endsWith(".md") && viewMode === "split" && mdPreviewHelpers?.Preview);
+  useEffect(() => {
+    if (!isMarkdownSplitActive || !tabContent?.tabId) return;
+
+    let cleanup: (() => void) | undefined;
+    let cancelled = false;
+
+    // CodeMirror attaches .cm-scroller (and registers its EditorView) in its own
+    // mount effect, which can land a tick after split mode first renders — retry
+    // briefly instead of giving up.
+    const tryAttach = (attempt: number) => {
+      if (cancelled) return;
+      // Scope to this tab's wrapper — the editor pane can have several cached tabs
+      // mounted (just hidden) at once, so an unscoped query could grab the wrong one.
+      const editorScroller = mdEditorPaneRef.current
+        ?.querySelector(`[data-tab-id="${tabContent.tabId}"] .cm-scroller`) as HTMLElement | null;
+      const previewScroller = mdPreviewPaneRef.current?.querySelector(".overflow-y-auto") as HTMLElement | null;
+      const view = useCodeEditorStore.getState().editorViews.get(tabContent.tabId);
+
+      if (!editorScroller || !previewScroller || !view) {
+        if (attempt < 10) setTimeout(() => tryAttach(attempt + 1), 100);
+        return;
+      }
+
+      let syncing = false;
+      const release = () => setTimeout(() => { syncing = false; }, 0);
+
+      // Editor -> preview: find the source line currently at the top of the
+      // editor's viewport, then scroll the matching rendered element to the top
+      // of the preview. Matches by content (line), not raw scroll percentage,
+      // since rendered block heights (headings, code blocks, images) don't track
+      // source line heights 1:1.
+      const onEditorScroll = () => {
+        if (syncing) return;
+        syncing = true;
+        const block = view.lineBlockAtHeight(Math.max(0, editorScroller.scrollTop));
+        const line = view.state.doc.lineAt(block.from).number;
+        const target = findPreviewElementForLine(previewScroller, line);
+        if (target) {
+          const rect = target.getBoundingClientRect();
+          const scrollerRect = previewScroller.getBoundingClientRect();
+          previewScroller.scrollTop += rect.top - scrollerRect.top;
+        }
+        release();
+      };
+
+      // Preview -> editor: find which rendered element sits at the top of the
+      // preview's viewport, read its source line, and scroll the editor to that
+      // line's actual height in the document.
+      const onPreviewScroll = () => {
+        if (syncing) return;
+        syncing = true;
+        const line = findTopVisibleLine(previewScroller);
+        if (line !== null) {
+          const docLine = Math.min(Math.max(line, 1), view.state.doc.lines);
+          const pos = view.state.doc.line(docLine).from;
+          editorScroller.scrollTop = view.lineBlockAt(pos).top;
+        }
+        release();
+      };
+
+      editorScroller.addEventListener("scroll", onEditorScroll);
+      previewScroller.addEventListener("scroll", onPreviewScroll);
+      cleanup = () => {
+        editorScroller.removeEventListener("scroll", onEditorScroll);
+        previewScroller.removeEventListener("scroll", onPreviewScroll);
+      };
+    };
+    tryAttach(0);
+
+    return () => {
+      cancelled = true;
+      cleanup?.();
+    };
+  }, [isMarkdownSplitActive, tabContent?.tabId]);
+
   if (panelId === "main" && !tabContent && !tabs?.activeTabId && tabs?.tabs?.length === 0) {
     editorActions.forEach((action) => {
       if (action && action.predicate) {
@@ -562,18 +675,14 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
         )}
       </div>}
       <div className="flex-1 bg-editor relative" id="code-editor-container" data-editor-scroll-container="true">
-{activeDocTabContent?.title.endsWith(".md") && viewMode === "preview" && mdPreviewHelpers?.Preview ? (
-          (() => {
-            const PreviewComponent = mdPreviewHelpers.Preview;
-            return <PreviewComponent tab={{ ...activeDocTabContent, content: getLiveContent() }} />;
-          })()
-        ) : (
-          visibleDocumentTabIds.map((docTabId: string) => {
+{(() => {
+          const editorBlock = visibleDocumentTabIds.map((docTabId: string) => {
             const docTab = visibleDocumentTabs[docTabId];
             const isTabActive = docTab.tabId === panelActiveTabId;
             return (
               <div
                 key={docTab.tabId}
+                data-tab-id={docTab.tabId}
                 // Use visibility:hidden instead of display:none for inactive tabs.
                 // This keeps DOM nodes in the layout tree so switching back avoids
                 // a full layout recalculation for large files (10k+ nodes).
@@ -619,8 +728,30 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
                 )}
               </div>
             );
-          })
-        )}
+          });
+
+          const isMarkdownTab = activeDocTabContent?.title.endsWith(".md") && !!mdPreviewHelpers?.Preview;
+          const previewBlock = isMarkdownTab ? (() => {
+            const PreviewComponent = mdPreviewHelpers.Preview;
+            return <PreviewComponent tab={{ ...activeDocTabContent, content: getLiveContent() }} />;
+          })() : null;
+
+          if (isMarkdownTab && viewMode === "split") {
+            return (
+              <ResizablePanelGroup direction="horizontal" className="h-full w-full">
+                <ResizablePanel defaultSize={50} minSize={20} className="h-full overflow-hidden">
+                  <div ref={mdEditorPaneRef} className="h-full w-full">{editorBlock}</div>
+                </ResizablePanel>
+                <ResizableHandle withHandle />
+                <ResizablePanel defaultSize={50} minSize={20} className="h-full overflow-hidden">
+                  <div ref={mdPreviewPaneRef} className="h-full w-full">{previewBlock}</div>
+                </ResizablePanel>
+              </ResizablePanelGroup>
+            );
+          }
+
+          return editorBlock;
+        })()}
       </div>
     </div>
   );

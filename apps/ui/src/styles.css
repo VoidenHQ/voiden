@@ -465,10 +465,13 @@ input[type="week"]::-webkit-datetime-edit-year-field:focus {
     font-size: var(--font-size-ui);
     font-family: var(--font-family-ui);
     line-height: 1.4;
-    /* Font rendering - auto avoids thinning on dark backgrounds */
-    -webkit-font-smoothing: auto;
+    /* Cursor/VSCode-style crisp rendering. Antialiased can read thinner on dark
+       backgrounds than the previous "auto" setting — compensated with font-weight 450
+       (vs the old 400) so body text doesn't look washed out. */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
-    font-weight: 400;
+    font-weight: 450;
     letter-spacing: -0.01em;
     overflow: hidden;
   }
@@ -620,6 +623,15 @@ input[type="week"]::-webkit-datetime-edit-year-field:focus {
 .text-base {
   font-size: var(--font-size-base) !important;
   font-family: var(--font-family-base) !important;
+}
+
+/* Cursor/VSCode-style ligatures (=>, !=, etc.) wherever the mono/code font
+   renders. No-op on fonts without ligature glyphs (e.g. Inconsolata) — only
+   visible once a ligature font (Fira Code, JetBrains Mono) is selected. */
+.text-base,
+.cm-editor {
+  font-variant-ligatures: contextual;
+  font-feature-settings: "calt" 1;
 }
 
 .text-ui {
