@@ -2,6 +2,7 @@ import React, { useContext, useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ChevronRight, ChevronsDownUp, ChevronsUpDown } from "lucide-react";
 import { NodeApi, NodeRendererProps, TreeApi } from "react-arborist";
+const INHERITED_FILENAME = ".voiden-inherited";
 import { Tip } from "@/core/components/ui/Tip";
 import { cn } from "@/core/lib/utils";
 import { useActivateTab } from "@/core/layout/hooks";
@@ -308,10 +309,18 @@ export function TreeNode({
     } else {
       node.select();
       if (node.data.type === "file") {
+        const isInherited = node.data.name === INHERITED_FILENAME;
+        const tabTitle = isInherited
+          ? (() => {
+              const parts = node.data.path.replace(/\\/g, "/").split("/");
+              const folderName = parts[parts.length - 2] ?? "inherited";
+              return `${folderName} — inherited`;
+            })()
+          : node.data.name;
         const newTab = {
           id: crypto.randomUUID(),
           type: "document" as const,
-          title: node.data.name,
+          title: tabTitle,
           source: node.data.path,
           directory: null,
         };
@@ -404,6 +413,13 @@ export function TreeNode({
           <div className="w-30">{node.data.type !== "folder" && getFileIcon(node.data.name, node.data.path)}</div>
           {node.isEditing ? (
             <RenameInput node={node} error={error} setError={setError} onSubmit={onSubmit} setIsRenaming={setIsRenaming} />
+          ) : node.data.name === INHERITED_FILENAME ? (
+            <span className="flex items-center gap-1.5 min-w-0">
+              <span className={cn("truncate text-comment text-[11px]", nameClass)}>Config Inheritance</span>
+              <span className="flex-shrink-0 text-[9px] px-1 py-px rounded font-medium leading-none" style={{ backgroundColor: 'var(--ui-line)', color: 'var(--syntax-comment)' }}>
+                inherited
+              </span>
+            </span>
           ) : (
             <span className={cn("truncate text-ui-fg", nameClass)}>{node.data.name}</span>
           )}

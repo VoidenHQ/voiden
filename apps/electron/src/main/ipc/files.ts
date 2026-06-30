@@ -844,6 +844,59 @@ export function registerFileIpcHandlers() {
     activeFlatListSession = null;
   });
 
+  ipcMain.handle(
+    "files:resolveInheritedChain",
+    async (_event, filePath: string, workspaceRoot: string): Promise<string[]> => {
+      const INHERITED_FILENAME = ".voiden-inherited";
+      const chain: string[] = [];
+
+      let dir = path.dirname(filePath);
+      const normalizedRoot = path.resolve(workspaceRoot);
+
+      // Collect directories from the file's parent up to (and including) workspace root.
+      const dirs: string[] = [];
+      while (true) {
+        dirs.push(dir);
+        if (path.resolve(dir) === normalizedRoot) break;
+        const parent = path.dirname(dir);
+        if (parent === dir) break; // filesystem root — stop
+        dir = parent;
+      }
+
+      // Reverse so workspace-root comes first (lowest precedence).
+      dirs.reverse();
+
+      for (const d of dirs) {
+        const candidate = path.join(d, INHERITED_FILENAME);
+        try {
+          await fs.promises.access(candidate);
+          chain.push(candidate);
+        } catch {
+          // file doesn't exist in this dir — skip
+        }
+      }
+
+      return chain;
+    },
+  );
+
+  ipcMain.handle(
+    "files:createInheritedConfig",
+    async (_event, folderPath: string): Promise<{ path: string; created: boolean }> => {
+      const INHERITED_FILENAME = ".voiden-inherited";
+      const fullPath = path.join(folderPath, INHERITED_FILENAME);
+      let created = false;
+      try {
+        await fs.promises.access(fullPath);
+      } catch {
+        await fs.promises.writeFile(fullPath, "");
+        treeResultCache.clear();
+        created = true;
+      }
+      return { path: fullPath, created };
+    },
+  );
+
   ipcMain.handle("files:listDir", async (_event, dirPath: string) => {
     try {
       const entries = await fs.promises.readdir(dirPath);

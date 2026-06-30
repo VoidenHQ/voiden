@@ -193,6 +193,8 @@ declare global {
           path?: string;
           error?: string;
         }>;
+        resolveInheritedChain: (filePath: string, workspaceRoot: string) => Promise<string[]>;
+        createInheritedConfig: (folderPath: string) => Promise<{ path: string; created: boolean }>;
         onReferencesUpdated: (
           callback: (filePaths: string[]) => void,
         ) => () => void;

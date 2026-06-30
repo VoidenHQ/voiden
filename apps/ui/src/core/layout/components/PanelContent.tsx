@@ -626,7 +626,7 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
   const liveContentForPredicate = (() => {
     if (!activeDocTabContent) return null;
     const { tabId, title } = activeDocTabContent;
-    if (title.endsWith(".void")) {
+    if (title.endsWith(".void") || activeDocTabContent.source?.replace(/\\/g, "/").endsWith("/.voiden-inherited")) {
       return useEditorStore.getState().unsaved[tabId] ?? activeDocTabContent.content;
     }
     if (activeEditor.tabId === tabId && activeEditor.content) {
@@ -643,7 +643,7 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
     : [];
 
   const isShFile = !!(activeDocTabContent?.title.endsWith(".sh") && activeDocTabContent.source);
-  const isVoidFile = !!activeDocTabContent?.title.endsWith(".void");
+  const isVoidFile = !!(activeDocTabContent?.title.endsWith(".void") || activeDocTabContent?.source?.replace(/\\/g, "/").endsWith("/.voiden-inherited"));
   const hasActions = isShFile || isVoidFile || actionsToDisplay.length > 0;
   const showToolbar = hasActions || isSearchOpen;
 
@@ -704,7 +704,7 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
                   }
                 }}
               >
-                {docTab.title.endsWith(".void") ? (
+                {(docTab.title.endsWith(".void") || docTab.source?.replace(/\\/g, "/").endsWith("/.voiden-inherited")) ? (
                   <VoidenEditor
                     tabId={docTab.tabId}
                     content={docTab.content}

@@ -761,6 +761,40 @@ export const FileSystemList = () => {
     if (newNode) newNode.edit();
   });
 
+  useElectronEvent<{ path: string }>("file:create-inherited-config", async (eventData) => {
+    if (!window.electron?.files?.createInheritedConfig) return;
+    const result = await window.electron.files.createInheritedConfig(eventData.path);
+    if (!result?.path) return;
+
+    // Refresh the folder so the file appears in the tree.
+    await refreshDir(eventData.path);
+
+    if (!result.created) {
+      toast.info("Inherited config already exists", {
+        description: "Opening the existing .voiden-inherited file.",
+        duration: 3000,
+      });
+    }
+
+    // Derive a meaningful tab title from the containing folder name.
+    const folderName = eventData.path.replace(/\\/g, "/").split("/").filter(Boolean).pop() ?? "inherited";
+    const inheritedTabTitle = `${folderName} — inherited`;
+
+    // Open the file in a new tab.
+    const newTab = {
+      id: crypto.randomUUID(),
+      type: "document" as const,
+      title: inheritedTabTitle,
+      source: result.path,
+      directory: null,
+    };
+    const response = await window.electron?.state.addPanelTab("main", newTab);
+    if (response?.tabId) {
+      activateTab({ panelId: "main", tabId: response.tabId });
+      queryClient.invalidateQueries({ queryKey: ["panel:tabs"] });
+    }
+  });
+
   useElectronEvent<{ path: string; type: string }>("directory:create", async (eventData) => {
     const tree = treeRef.current;
     if (!tree) return;

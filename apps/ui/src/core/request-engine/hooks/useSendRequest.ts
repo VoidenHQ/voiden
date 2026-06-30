@@ -129,11 +129,14 @@ export const useSendRestRequest = (_editor: Editor) => {
         const cursorPos = sectionIndex !== undefined ? undefined : editor.state.selection.$from.pos;
         console.log('[useSendRequest] sectionIndex:', sectionIndex, 'cursorPos:', cursorPos);
 
+        const filePath = activeDocument?.source ?? undefined;
         const response = await requestOrchestrator.executeRequest(
           editor,
           activeEnv,
           abortControllerRef.current.signal,
-          sectionIndex !== undefined ? { sectionIndex } : { sectionPos: cursorPos },
+          sectionIndex !== undefined
+            ? { sectionIndex, filePath }
+            : { sectionPos: cursorPos, filePath },
           onRequestBuilt
         );
 
@@ -247,7 +250,7 @@ export const useSendRestRequest = (_editor: Editor) => {
             editor,
             activeEnv,
             abortControllerRef.current.signal,
-            { sectionIndex: sectionIdx },
+            { sectionIndex: sectionIdx, filePath: activeDocument?.source ?? undefined },
             onRequestBuilt
           );
         } catch (err) {
@@ -301,7 +304,7 @@ export const useSendRestRequest = (_editor: Editor) => {
           editor,
           activeEnv,
           abortControllerRef.current.signal,
-          { sectionIndex },
+          { sectionIndex, filePath: activeDocument?.source ?? undefined },
           onRequestBuilt
         );
         queryClient.invalidateQueries({ queryKey: ["void-variable-keys"] });

@@ -2,6 +2,7 @@ import { BrowserWindow, dialog, shell, MenuItemConstructorOptions } from "electr
 
 import { ipcMain } from "electron";
 import path from "node:path";
+import fs from "node:fs";
 import { Menu } from "electron";
 import { createFile, deleteDirectory, deleteFile, duplicateFile } from "./fileSystem";
 import { findTabInPanel, removeTabFromPanel } from "./state";
@@ -68,6 +69,15 @@ export const createFileTreeContextMenu = (mainWindow: BrowserWindow) => {
           label: "New folder...",
           click: async () => {
             safeSend(senderWindow, "directory:create", { path: data.path });
+          },
+        },
+        { type: "separator" as const },
+        {
+          label: fs.existsSync(path.join(data.path, ".voiden-inherited"))
+            ? "Edit Config Inheritance"
+            : "Add Config Inheritance",
+          click: async () => {
+            safeSend(senderWindow, "file:create-inherited-config", { path: data.path });
           },
         },
         {

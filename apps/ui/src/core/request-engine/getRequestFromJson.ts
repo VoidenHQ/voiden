@@ -140,7 +140,16 @@ export const getTable = (
  * Exported so all protocol plugins can reuse it.
  */
 export const parseAuthNode = (editor: Doc) => {
-  const authNode = findNode(editor, "auth");
+  // If the local auth is "inherit" or "none", fall through to the first inherited
+  // auth node (injected from a .voiden-inherited ancestor file).
+  const allAuthNodes = findNodes(editor, "auth");
+  const localAuth = allAuthNodes.find((n) => !n.attrs?.importedFrom);
+  const localAuthType = localAuth?.attrs?.authType;
+  const useInherited = !localAuthType || localAuthType === "inherit" || localAuthType === "none";
+  const authNode = useInherited
+    ? (allAuthNodes.find((n) => n.attrs?.importedFrom && n.attrs.authType !== "inherit" && n.attrs.authType !== "none") ?? localAuth)
+    : localAuth;
+
   if (!authNode?.attrs) return undefined;
 
   const authType = authNode.attrs.authType;

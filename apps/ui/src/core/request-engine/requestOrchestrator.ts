@@ -11,6 +11,7 @@ import type { RequestBuildHandler, ResponseProcessHandler, ResponseSection } fro
 import { requestLogger } from "@/core/lib/logger";
 import { getFirstSectionLabel } from "@/core/editors/voiden/extensions/sectionIndicator";
 import { expandLinkedBlocksInDoc, expandLinkedFilesInDoc } from "@/core/editors/voiden/utils/expandLinkedBlocks";
+import { injectInheritedBlocks } from "./utils/injectInheritedBlocks";
 
 interface RequestOrchestrator {
   /** Registered request build handlers from plugins */
@@ -57,6 +58,8 @@ export interface RequestExecuteOptions {
   sectionPos?: number;
   /** Direct section index (0-based), used when DOM-based detection is available */
   sectionIndex?: number;
+  /** Absolute path of the .void file being executed — used to resolve inherited configs */
+  filePath?: string;
 }
 
 class RequestOrchestratorImpl implements RequestOrchestrator {
@@ -192,6 +195,12 @@ class RequestOrchestratorImpl implements RequestOrchestrator {
       // pre-expansion already handled this — the check is a no-op.
       if (expandedJson.content?.some((n: any) => n.type === "linkedFile")) {
         expandedJson = await expandLinkedFilesInDoc(expandedJson, (editor as any).schema);
+      }
+      // Append blocks from ancestor .voiden-inherited files. These are appended
+      // after the request's own blocks so local values always take precedence via
+      // the existing importedFrom-aware merge logic in getTable and parseAuthNode.
+      if (options?.filePath) {
+        expandedJson = await injectInheritedBlocks(expandedJson, options.filePath, (editor as any).schema);
       }
       expandedJsonCache = expandedJson;
       // Override getJSON to return the expanded version

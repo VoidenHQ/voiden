@@ -73,6 +73,7 @@ const DEFAULT_FILE_ICON = <File size={14} style={{ color: "#a0adb8" }} />;
 export function getFileIcon(name: string, path: string): JSX.Element {
   const lower = name.toLowerCase();
 
+  if (lower === ".voiden-inherited") return <InfinityIcon size={14} className="text-accent" />;
   if (name.startsWith(".env")) return <Settings2 size={14} style={{ color: "#ecd53f" }} />;
   if (lower === ".gitignore" || lower === ".gitattributes")
     return <GitBranch size={14} style={{ color: "#f54d27" }} />;

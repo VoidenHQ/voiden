@@ -98,6 +98,9 @@ export const ElectronEventProvider: React.FC<{ children: React.ReactNode }> = ({
       "file:create-void": (event: any, data: any) => {
         handleEvent("file:create-void", data);
       },
+      "file:create-inherited-config": (event: any, data: any) => {
+        handleEvent("file:create-inherited-config", data);
+      },
       "directory:create": (event: any, data: any) => {
         handleEvent("directory:create", data);
       },
