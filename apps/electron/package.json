@@ -13,6 +13,7 @@
   "scripts": {
     "start": "electron-forge start",
     "package": "electron-forge package",
+    "build:nix": "npx esbuild build-assets.ts --bundle --platform=node --format=cjs --outfile=build-assets.js --packages=external && node build-assets.js",
     "make": "NODE_OPTIONS='--max-old-space-size=4096' electron-forge make",
     "publish": "electron-forge publish",
     "version:bump:beta-patch": "node version-bump.js beta patch",

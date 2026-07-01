@@ -165,6 +165,7 @@
     "@types/uuid": "^9.0.4",
     "@vitejs/plugin-react": "^4.0.3",
     "@vitest/ui": "2.1.9",
+    "@voiden/executors": "workspace:*",
     "autoprefixer": "^10.4.16",
     "jsdom": "^27.3.0",
     "postcss": "^8.4.31",

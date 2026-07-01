@@ -107,9 +107,11 @@ export function pluginHotRestart(command: "reload" | "restart"): Plugin {
     name: "@electron-forge/plugin-vite:hot-restart",
     closeBundle() {
       if (command === "reload") {
-        for (const server of Object.values(process.viteDevServers)) {
-          // Preload scripts hot reload.
-          server.ws.send({ type: "full-reload" });
+        if (process.viteDevServers) {
+          for (const server of Object.values(process.viteDevServers)) {
+            // Preload scripts hot reload.
+            server.ws.send({ type: "full-reload" });
+          }
         }
       } else {
         // Main process hot restart.
