@@ -24,7 +24,7 @@ import {
 } from "lucide-react";
 import { useProjectLock } from "@/core/file-system/hooks";
 import { cn, isMac } from "@/core/lib/utils";
-import { useActivateTab, useGetPanelTabs, useClosePanelTab, useDuplicatePanelTab, useReloadPanelTab, useSetTabsOrder, useClosePanelTabs } from "@/core/layout/hooks";
+import { useActivateTab, useGetPanelTabs, useClosePanelTab, useDuplicatePanelTab, useReloadPanelTab, useSetTabsOrder, useClosePanelTabs, usePromotePendingTab } from "@/core/layout/hooks";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import { useEditorStore } from "@/core/editors/voiden/VoidenEditor";
 import { getSchema } from "@tiptap/core";
@@ -73,6 +73,7 @@ interface Tab {
   type: string;
   title: string;
   source: string | null;
+  pending?: boolean;
 }
 
 // Icon map for known extensions
@@ -147,6 +148,7 @@ const TabComponent = ({
   currentActiveTabId,
   duplicateTab,
   reloadTab,
+  promoteTab,
   tabs,
   onDragStart,
   onDragEnd,
@@ -168,6 +170,7 @@ const TabComponent = ({
   currentActiveTabId: string;
   duplicateTab: (tabId: string) => void;
   reloadTab: (tabId: string) => void;
+  promoteTab: (tabId: string) => void;
   tabs: Tab[];
   onDragStart: (e: React.DragEvent, tabId: string) => void;
   onDragEnd: () => void;
@@ -327,6 +330,13 @@ const TabComponent = ({
             // Panel state (open/close) is applied by AppLayout's activeTabId effect
             // after the panel:tabs query settles, so the editor switches first.
           }}
+          onDoubleClick={(e) => {
+            if (isDragging) return;
+            if (tab.pending) {
+              e.stopPropagation();
+              promoteTab(tab.id);
+            }
+          }}
         >
           {/* Drop indicator - left side */}
           {dragOverPosition === 'left' && (
@@ -346,7 +356,7 @@ const TabComponent = ({
           </div>
           <div className="flex items-center gap-1.5">
             {getTabIcon(tab)}
-            <span className="truncate">{getTabDisplayTitle(tab)}</span>
+            <span className={cn("truncate", tab.pending && "italic")}>{getTabDisplayTitle(tab)}</span>
           </div>
           <Tip label={<><span>Close tab</span>{isActive && <span className="ml-4">{getShortcutLabel("CloseTab")}</span>}</>} side="bottom">
             <button className="p-0.5 hover:bg-active rounded-sm opacity-0 group-hover:opacity-100" onClick={handleClose}>
@@ -428,6 +438,7 @@ export const PanelTabs = ({ panel }: { panel: string }) => {
   const { mutate: closeTabs } = useClosePanelTabs();
   const { mutate: duplicatePanelTab } = useDuplicatePanelTab();
   const { mutate: reloadPanelTab } = useReloadPanelTab();
+  const { mutate: promotePendingTab } = usePromotePendingTab();
   const tabContainerRef = useRef<HTMLDivElement>(null);
   const tabsDropdownRef = useRef<HTMLDivElement>(null);
   const { bottomPanelRef, closeBottomPanel } = usePanelStore();
@@ -755,6 +766,7 @@ export const PanelTabs = ({ panel }: { panel: string }) => {
             closeTab={(panelId, tabId, unsavedContent) => closeTab({ panelId, tabId, unsavedContent })}
             duplicateTab={(tabId) => duplicatePanelTab({ panelId: panel, tabId })}
             reloadTab={(tabId) => reloadPanelTab({ panelId: panel, tabId, source: tab.source ?? undefined })}
+            promoteTab={(tabId) => promotePendingTab({ panelId: panel, tabId })}
             tabs={tabs.tabs}
             isActive={tab.id === tabs?.activeTabId}
             isLastTerminalTab={tabs.tabs?.length === 1 && tab.type === "terminal"}

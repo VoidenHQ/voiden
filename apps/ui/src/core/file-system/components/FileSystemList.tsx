@@ -18,6 +18,7 @@ import { useSearchStore } from "@/core/stores/searchStore";
 import { useBlockContentStore } from "@/core/stores/blockContentStore";
 import { usePanelStore } from "@/core/stores/panelStore";
 import { emitPluginEvent, getContextMenuItems } from "@/plugins";
+import { useSettings } from "@/core/settings/hooks/useSettings";
 
 import { ExtendedFileTree } from "./FileSystemList/types";
 import { DragOverContext, TreeActionsContext } from "./FileSystemList/contexts";
@@ -41,6 +42,8 @@ export const FileSystemList = () => {
   usePrefetchFileList();
   const { data: appState } = useGetAppState();
   const queryClient = useQueryClient();
+  const { settings } = useSettings();
+  const pendingTabsEnabled = settings?.editor?.pending_tabs ?? false;
 
   const [showDeleteProgress, setShowDeleteProgress] = useState(false);
   const [isTreeBusy, setIsTreeBusy] = useState(false);
@@ -949,6 +952,7 @@ export const FileSystemList = () => {
                       refreshDir={refreshDir}
                       expandedDirsRef={expandedDirsRef}
                       treeRef={treeRef}
+                      pendingTabsEnabled={pendingTabsEnabled}
                     />
                   )}
                 </Tree>

@@ -315,6 +315,7 @@ declare global {
           tabId: string,
         ) => Promise<{ panelId: string; tabId: string }>;
         reorderTabs: (panelId: string, tabs: any[]) => Promise<void>;
+        promotePendingTab: (panelId: string, tabId: string) => Promise<{ panelId: string; tabId: string }>;
       };
 
       tab: {

@@ -207,6 +207,7 @@ export const SettingsContent = () => {
             </div>
           </div>
         </div>
+
       </section>
 
       {/* Terminal Settings */}

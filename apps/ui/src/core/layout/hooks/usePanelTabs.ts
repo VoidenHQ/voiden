@@ -248,3 +248,31 @@ export const useSetTabsOrder = () => {
     },
   });
 }
+
+export const usePromotePendingTab = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ panelId, tabId }: { panelId: string; tabId: string }) =>
+      window.electron?.state.promotePendingTab(panelId, tabId),
+    onMutate: async ({ panelId, tabId }) => {
+      await queryClient.cancelQueries({ queryKey: ["panel:tabs", panelId] });
+      const prev = queryClient.getQueryData(["panel:tabs", panelId]);
+      queryClient.setQueryData(["panel:tabs", panelId], (old: any) => {
+        if (!old) return old;
+        return {
+          ...old,
+          tabs: old.tabs.map((t: Tab) => t.id === tabId ? { ...t, pending: false } : t),
+        };
+      });
+      return { prev, panelId };
+    },
+    onError: (_err: any, _vars: any, context: any) => {
+      if (context?.prev !== undefined) {
+        queryClient.setQueryData(["panel:tabs", context.panelId], context.prev);
+      }
+    },
+    onSuccess: (_result, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["panel:tabs", variables.panelId] });
+    },
+  });
+}

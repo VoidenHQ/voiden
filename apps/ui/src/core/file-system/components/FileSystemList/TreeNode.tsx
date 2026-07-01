@@ -13,6 +13,7 @@ import { getFileIcon } from "./fileIcon";
 import { getGitStatusClass } from "./gitStatus";
 import { RenameInput } from "./RenameInput";
 import { useTreeNodeMutations } from "./useTreeNodeMutations";
+import { useEditorStore } from "@/core/editors/voiden/VoidenEditor";
 
 export interface TreeNodeProps extends NodeRendererProps<ExtendedFileTree> {
   activeFile: { source: string } | null;
@@ -21,6 +22,7 @@ export interface TreeNodeProps extends NodeRendererProps<ExtendedFileTree> {
   refreshDir: (dirPath: string) => Promise<void>;
   expandedDirsRef: React.MutableRefObject<Set<string>>;
   treeRef: React.RefObject<TreeApi<ExtendedFileTree>>;
+  pendingTabsEnabled?: boolean;
 }
 
 const isInternalTreeDrag = (e: React.DragEvent) => e.dataTransfer.types.includes("application/x-arborist-node");
@@ -56,6 +58,7 @@ export function TreeNode({
   refreshDir,
   expandedDirsRef,
   treeRef,
+  pendingTabsEnabled,
 }: TreeNodeProps) {
   const [error, setError] = useState<string | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -301,6 +304,16 @@ export function TreeNode({
     }
   };
 
+  const getTabTitle = () => {
+    const isInherited = node.data.name === INHERITED_FILENAME;
+    if (isInherited) {
+      const parts = node.data.path.replace(/\\/g, "/").split("/");
+      const folderName = parts[parts.length - 2] ?? "inherited";
+      return `${folderName} — inherited`;
+    }
+    return node.data.name;
+  };
+
   const handleSelect = async (event: React.MouseEvent<HTMLDivElement>) => {
     if (event.shiftKey) {
       node.selectContiguous();
@@ -309,20 +322,27 @@ export function TreeNode({
     } else {
       node.select();
       if (node.data.type === "file") {
-        const isInherited = node.data.name === INHERITED_FILENAME;
-        const tabTitle = isInherited
-          ? (() => {
-              const parts = node.data.path.replace(/\\/g, "/").split("/");
-              const folderName = parts[parts.length - 2] ?? "inherited";
-              return `${folderName} — inherited`;
-            })()
-          : node.data.name;
+        if (pendingTabsEnabled) {
+          const panelData = queryClient.getQueryData<{ tabs: Array<{ id: string; pending?: boolean; source: string | null }>; activeTabId: string }>(["panel:tabs", "main"]);
+          const existingPendingTab = panelData?.tabs?.find(t => t.pending);
+          if (existingPendingTab && existingPendingTab.source !== node.data.path) {
+            const hasUnsaved = !!useEditorStore.getState().unsaved[existingPendingTab.id];
+            if (hasUnsaved) {
+              const confirmed = window.confirm(
+                "The current tab has unsaved changes that will be lost. Open this file anyway?"
+              );
+              if (!confirmed) return;
+            }
+          }
+        }
+
         const newTab = {
           id: crypto.randomUUID(),
           type: "document" as const,
-          title: tabTitle,
+          title: getTabTitle(),
           source: node.data.path,
           directory: null,
+          pending: pendingTabsEnabled ? true : undefined,
         };
 
         try {
@@ -336,6 +356,26 @@ export function TreeNode({
       } else {
         onFolderToggle(node);
       }
+    }
+  };
+
+  const handleDoubleClick = async (_event: React.MouseEvent<HTMLDivElement>) => {
+    if (node.data.type !== "file") return;
+    // Open as permanent (no pending flag) — promotes any existing pending tab
+    const newTab = {
+      id: crypto.randomUUID(),
+      type: "document" as const,
+      title: getTabTitle(),
+      source: node.data.path,
+      directory: null,
+    };
+    try {
+      const { tabId = null } = (await window.electron?.state.addPanelTab("main", newTab)) ?? {};
+      if (tabId) {
+        activateTab({ panelId: "main", tabId });
+      }
+    } catch {
+      // ignore
     }
   };
 
@@ -392,6 +432,7 @@ export function TreeNode({
         isSiblingHighlight && !isDragOver && !isInternalDropTargetFolder && "bg-accent/30 hover:bg-accent/30",
       )}
       onClick={handleSelect}
+      onDoubleClick={handleDoubleClick}
       onContextMenu={handleContextMenu}
       onDrop={handleDrop}
       onDragOver={handleDragOver}

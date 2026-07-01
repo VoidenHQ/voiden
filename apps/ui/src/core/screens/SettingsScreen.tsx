@@ -1155,11 +1155,23 @@ export const SettingsScreen = () => {
                 <Row
                   title="Block Overview"
                   description="Show a collapsible outline panel beside the editor listing all blocks in the current .void file, grouped by request section."
-                  border={false}
                   control={
                     <Toggle
                       checked={settings.editor?.block_overview ?? false}
                       onChange={(v) => save({ editor: { block_overview: v } })}
+                    />
+                  }
+                />
+              )}
+              {matchesSearch("Pending Tabs preview tab single click file explorer italic") && (
+                <Row
+                  title="Pending Tabs"
+                  description="Single-clicking a file opens it as a pending tab (shown in italics), replaced when you open another file. Double-click to make it permanent."
+                  border={false}
+                  control={
+                    <Toggle
+                      checked={settings.editor?.pending_tabs ?? false}
+                      onChange={(v) => save({ editor: { pending_tabs: v } })}
                     />
                   }
                 />

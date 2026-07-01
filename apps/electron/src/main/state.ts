@@ -298,6 +298,25 @@ export function addTabToPanel(
   return false;
 }
 
+// Finds and removes the pending tab from the panel, returns true if one was removed.
+function removePendingTabFromPanel(layout: PanelElement, panelId: string): boolean {
+  if (layout.type === "panel") {
+    if (layout.id !== panelId) return false;
+    const pendingIndex = layout.tabs.findIndex((tab) => tab.pending);
+    if (pendingIndex === -1) return false;
+    const [removed] = layout.tabs.splice(pendingIndex, 1);
+    if (layout.activeTabId === removed.id) {
+      const next = layout.tabs[pendingIndex] || layout.tabs[pendingIndex - 1];
+      layout.activeTabId = next?.id || null;
+    }
+    return true;
+  }
+  for (const child of layout.children) {
+    if (removePendingTabFromPanel(child, panelId)) return true;
+  }
+  return false;
+}
+
 export function reorderTabs(
   layout: PanelElement,
   panelId: string,
@@ -589,7 +608,17 @@ export async function addPanelTab(
 
   const existingTab = findTabInPanel(layout, panelId, tab);
   if (existingTab) {
+    // If the existing tab is pending and the incoming tab is not, promote it
+    if (existingTab.pending && !tab.pending) {
+      existingTab.pending = false;
+      await saveState(state);
+    }
     return { tabId: existingTab.id, alreadyExists: true };
+  }
+
+  // When adding a pending tab, remove any existing pending tab to replace it
+  if (tab.pending) {
+    removePendingTabFromPanel(layout, panelId);
   }
 
   const added = addTabToPanel(layout, panelId, tab);
@@ -1706,6 +1735,23 @@ export const ipcStateHandlers = () => {
   ipcMain.handle(
     "state:reloadPanelTab",
     async (_event, panelId: string, tabId: string) => {
+      return { panelId, tabId };
+    },
+  );
+
+  ipcMain.handle(
+    "state:promotePendingTab",
+    async (_event, panelId: string, tabId: string) => {
+      const appState = getAppState();
+      const layout = appState.activeDirectory
+        ? appState.directories[appState.activeDirectory]?.layout
+        : appState.unsaved.layout;
+      if (!layout) throw new Error("No layout found.");
+      const tab = findTabById(layout, panelId, tabId);
+      if (tab && tab.pending) {
+        tab.pending = false;
+        await saveState(appState);
+      }
       return { panelId, tabId };
     },
   );

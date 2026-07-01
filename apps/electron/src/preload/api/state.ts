@@ -21,5 +21,6 @@ export const stateApi = {
   updateOnboarding: (onboarding: boolean) => ipcRenderer.invoke("state:updateOnboarding", onboarding),
   duplicatePanelTab: (panelId: string, tabId: string) => ipcRenderer.invoke("state:duplicatePanelTab", panelId, tabId),
   reloadPanelTab: (panelId: string, tabId: string) => ipcRenderer.invoke("state:reloadPanelTab", panelId, tabId),
-  reorderTabs:(panelId:string,tabs:any[])=>ipcRenderer.invoke('state:reorder-tabs',panelId,tabs)
+  reorderTabs:(panelId:string,tabs:any[])=>ipcRenderer.invoke('state:reorder-tabs',panelId,tabs),
+  promotePendingTab: (panelId: string, tabId: string) => ipcRenderer.invoke("state:promotePendingTab", panelId, tabId),
 };

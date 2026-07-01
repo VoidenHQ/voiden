@@ -86,6 +86,10 @@ function validateSettings(settings: UserSettings): UserSettings {
     validated.editor.code_block_max_lines = 50;
   }
 
+  if (typeof validated.editor.pending_tabs !== 'boolean') {
+    validated.editor.pending_tabs = false;
+  }
+
   // Validate request timeout
   if (typeof validated.requests?.timeout !== 'number' || validated.requests.timeout < 0) {
     if (!validated.requests) {
@@ -274,6 +278,7 @@ export type UserSettings = {
     auto_save_delay: number; // seconds
     code_block_max_lines: number; // 0 = unlimited
     block_overview: boolean;
+    pending_tabs: boolean;
   };
   requests: {
     disable_tls_verification: boolean;
