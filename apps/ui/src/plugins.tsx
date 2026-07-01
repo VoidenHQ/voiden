@@ -98,6 +98,33 @@ const historyExporters: Record<string, {
 type CurlImporter = (curlString: string, editor: any) => Promise<boolean>;
 const curlImporters: CurlImporter[] = [];
 
+// ── cURL extender registry ─────────────────────────────────────────────────────
+// Plugins register functions that augment the cURL command produced by
+// voiden-rest-api's CopyCurlButton. Each extender receives the fully-expanded
+// ProseMirror doc and returns headers, query params, and/or raw cURL flags to
+// append. Existing explicit request headers take precedence — extenders cannot
+// overwrite them. Called after the base request data is assembled, before
+// variable substitution (so {{variable}} placeholders are fine in returned values).
+export type CurlHeaderEntry = { key: string; value: string };
+export type CurlExtenderResult = {
+  /** Extra -H headers to add (skipped if key already present in request). */
+  headers?: CurlHeaderEntry[];
+  /** Extra query params to add (skipped if key already present). */
+  queryParams?: CurlHeaderEntry[];
+  /** Raw cURL flags appended verbatim, e.g. ['--digest', '-u "user:pass"']. */
+  flags?: string[];
+};
+export type CurlHeaderExtenderFn = (doc: any) => Promise<CurlExtenderResult>;
+const curlHeaderExtenders: CurlHeaderExtenderFn[] = [];
+
+export function registerCurlHeaderExtender(fn: CurlHeaderExtenderFn): void {
+  curlHeaderExtenders.push(fn);
+}
+
+export function getCurlHeaderExtenders(): readonly CurlHeaderExtenderFn[] {
+  return curlHeaderExtenders;
+}
+
 /**
  * Build a cURL string for a history entry, delegating to the plugin's registered builder
  * (if any) before falling back to the default REST cURL builder.
@@ -1004,6 +1031,21 @@ export const createPlugin = (
       },
       registerCurlImporter: (handler: CurlImporter) => {
         curlImporters.push(handler);
+      },
+      /**
+       * Register a function that appends headers to the cURL command produced
+       * by CopyCurlButton. Use this to inject auth tokens or other dynamic
+       * headers that the base cURL generator doesn't handle.
+       *
+       * The extender receives the fully-expanded ProseMirror doc (imports
+       * already resolved) and returns an array of { key, value } headers.
+       * Values may contain {{variable}} placeholders — they are resolved by
+       * the existing env.replaceVariables step after cURL generation.
+       * Existing explicit request headers take precedence: the extender's
+       * headers are only added when no header with the same key already exists.
+       */
+      registerCurlHeaderExtender: (fn: CurlHeaderExtenderFn) => {
+        curlHeaderExtenders.push(fn);
       },
     } as any,
     history: {
