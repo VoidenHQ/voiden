@@ -9279,7 +9279,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@voiden/executors@workspace:packages/executors":
+"@voiden/executors@workspace:*, @voiden/executors@workspace:packages/executors":
   version: 0.0.0-use.local
   resolution: "@voiden/executors@workspace:packages/executors"
   dependencies:
@@ -22305,6 +22305,7 @@ __metadata:
     "@uiw/react-codemirror": "npm:^4.21.18"
     "@vitejs/plugin-react": "npm:^4.0.3"
     "@vitest/ui": "npm:2.1.9"
+    "@voiden/executors": "workspace:*"
     "@voiden/fuzzy-search": "workspace:*"
     "@voiden/sdk": "npm:*"
     "@xterm/addon-fit": "npm:^0.10.0"
