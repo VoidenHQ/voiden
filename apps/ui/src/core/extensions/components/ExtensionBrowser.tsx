@@ -22,6 +22,7 @@ import logo from "@/assets/logo-dark.png";
 // Module-level timestamps — survive component unmount/remount.
 let _lastRegistryFetch = 0;
 let _lastUpdateCheck = 0;
+let _hasShownUpdateToast = false;
 
 const ExtensionIcon = ({ extension, size = "md" }: { extension: Extension; size?: "sm" | "md" | "lg" }) => {
   const dim = size === "sm" ? "w-8 h-8" : size === "lg" ? "w-14 h-14" : "w-10 h-10";
@@ -572,7 +573,16 @@ export const ExtensionBrowser = () => {
             : `${result.newPluginCount} new plugins available`
         );
       }
-      await doCheckUpdates();
+      const coreUpdateCount = await doCheckUpdates();
+      const communityUpdateCount = updated?.filter((e: any) => e.type === 'community' && !!e.latestVersion).length ?? 0;
+      const totalUpdates = coreUpdateCount + communityUpdateCount;
+      if (totalUpdates > 0 && !_hasShownUpdateToast) {
+        _hasShownUpdateToast = true;
+        toast.info(
+          totalUpdates === 1 ? '1 plugin update available' : `${totalUpdates} plugin updates available`,
+          { description: 'Switch to "Updates" in the Plugin Manager to install.', action: { label: 'View', onClick: () => setCategory('updates') } }
+        );
+      }
     } catch {
       // silently ignore — no network
     } finally {
@@ -580,16 +590,18 @@ export const ExtensionBrowser = () => {
     }
   };
 
-  const doCheckUpdates = async () => {
+  const doCheckUpdates = async (): Promise<number> => {
     const coreExt = (window as any).electron?.coreExtensions;
-    if (!coreExt?.checkForUpdates) return;
+    if (!coreExt?.checkForUpdates) return 0;
     try {
       const result = await coreExt.checkForUpdates();
       if (result?.plugins?.length) {
         setCoreUpdateInfo(result.plugins);
         _lastUpdateCheck = Date.now();
+        return result.plugins.filter((p: any) => p.hasUpdate && p.compatible).length;
       }
     } catch { /* silently ignore — no network */ }
+    return 0;
   };
 
   // Auto-fetch registry once per session on first open
@@ -602,7 +614,15 @@ export const ExtensionBrowser = () => {
   // are always visible without requiring a manual "Check Update" click.
   useEffect(() => {
     if (_lastUpdateCheck > 0) return;
-    doCheckUpdates();
+    doCheckUpdates().then((count) => {
+      if (count > 0 && !_hasShownUpdateToast) {
+        _hasShownUpdateToast = true;
+        toast.info(
+          count === 1 ? '1 plugin update available' : `${count} plugin updates available`,
+          { description: 'Switch to "Updates" in the Plugin Manager to install.', action: { label: 'View', onClick: () => setCategory('updates') } }
+        );
+      }
+    });
   }, []);
 
   useEffect(() => {
