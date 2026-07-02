@@ -1,3 +1,4 @@
+import React from "react";
 import { CellSelection } from "@tiptap/pm/tables";
 import { Editor, mergeAttributes, Node, NodeViewProps } from "@tiptap/core";
 import { NodeViewContent, NodeViewWrapper, ReactNodeViewRenderer } from "@tiptap/react";
@@ -49,15 +50,22 @@ const addDescriptionColumn = (editor: Editor, getPos: () => number, wrapperNode:
 // A plain <table> with the same column count and table-fixed/w-full sizing as the
 // real data table below it, so column widths line up exactly.
 const ColumnLabels = ({ hasDescription }: { hasDescription: boolean }) => {
+  const b = '1px solid var(--ui-line)';
   const thClass = "text-left text-[10px] uppercase tracking-wide font-medium py-1.5 px-3";
-  const thStyle = { color: 'var(--fg-secondary, var(--editor-fg))', borderBottom: '1px solid color-mix(in srgb, var(--ui-line) 40%, transparent)' };
+  const cell = (extra: React.CSSProperties = {}): React.CSSProperties => ({
+    color: 'var(--fg-secondary, var(--editor-fg))',
+    borderBottom: b,
+    borderRight: b,
+    ...extra,
+  });
   return (
-    <table className="w-full table-fixed border-collapse" contentEditable={false}>
+    <table className="w-full table-fixed" style={{ borderSpacing: 0, borderCollapse: 'separate' }} contentEditable={false}>
       <tbody>
         <tr>
-          <th className={thClass} style={thStyle}>Key</th>
-          <th className={thClass} style={thStyle}>Value</th>
-          {hasDescription && <th className={thClass} style={thStyle}>Description</th>}
+          <th style={{ width: 28, minWidth: 28, maxWidth: 28, borderBottom: b, borderRight: b }} />
+          <th className={thClass} style={cell()}>Key</th>
+          <th className={thClass} style={cell(!hasDescription ? { borderRight: 'none' } : {})}>Value</th>
+          {hasDescription && <th className={thClass} style={cell({ borderRight: 'none' })}>Description</th>}
         </tr>
       </tbody>
     </table>
