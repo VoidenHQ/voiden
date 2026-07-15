@@ -377,11 +377,20 @@ export const convert: Converter = (rawData) => {
 
   for (const parseEntry of parseEntries) {
     if (typeof parseEntry === "string") {
-      if (parseEntry.startsWith("$")) {
-        currentCommand.push(parseEntry.slice(1, Infinity));
-      } else {
-        currentCommand.push(parseEntry);
-      }
+      // @custom start
+      // Previously stripped a leading "$" from every string token. Before
+      // shell-quote-override.ts started preserving unresolved $VAR/${VAR}
+      // references (instead of blanking them to ""), no string token could
+      // legitimately start with "$" except a rare dangling-$-with-no-name
+      // edge case, so this was effectively a no-op. Now that unresolved
+      // variables are preserved as literal text (e.g. "$AMBER_URL/..."),
+      // this same stripping silently mangled them -- e.g. turning
+      // "$AMBER_URL/path" into "amber_url/path" once run through URL
+      // parsing, while leaving other occurrences (like a password field)
+      // untouched, producing inconsistent results. Just keep the token as
+      // parsed.
+      currentCommand.push(parseEntry);
+      // @custom end
       continue;
     }
 
