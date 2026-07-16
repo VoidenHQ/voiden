@@ -517,12 +517,42 @@ export interface BlockOutlineMeta {
    * appear as standalone entries (e.g. `method`, `url` inside a `request` container).
    */
   skip?: boolean;
+  /**
+   * URL to the canonical documentation page for this block type.
+   * When set, a small external-link icon is shown in the block header.
+   * Clicking it opens the URL in the system browser.
+   */
+  docsUrl?: string | ((attrs: Record<string, any>) => string | undefined);
 }
-const blockOutlineRegistry = new Map<string, BlockOutlineMeta>();
+
+const coreBlockOutlineMeta: Record<string, BlockOutlineMeta> = {
+  codeBlock: {
+    label: "Code Block",
+    icon: "Code",
+    docsUrl: "https://docs.voiden.md/docs/core-features-section/voiden-blocks/voiden-basic-blocks",
+  },
+  "runtime-variables": {
+    label: "Runtime Variables",
+    icon: "Variable",
+    docsUrl: "https://docs.voiden.md/docs/core-features-section/voiden-blocks/runtime-block",
+  },
+};
+
+const blockOutlineRegistry = new Map<string, BlockOutlineMeta>(Object.entries(coreBlockOutlineMeta));
 
 /** Returns the outline metadata registered by a plugin for a given node type. */
 export function getBlockOutlineMeta(nodeType: string): BlockOutlineMeta | undefined {
   return blockOutlineRegistry.get(nodeType);
+}
+
+/** Returns the docs URL registered for a given node type, if any. */
+export function getBlockDocsUrl(nodeType: string, attrs?: Record<string, any>): string | undefined {
+  const meta = blockOutlineRegistry.get(nodeType);
+  if (!meta) return undefined;
+  if (typeof meta.docsUrl === "function") {
+    return meta.docsUrl(attrs || {});
+  }
+  return meta.docsUrl;
 }
 
 // Global registry for loaded plugin instances (for cleanup)
@@ -1438,6 +1468,7 @@ export const getPlugins = async () => {
   Object.entries(coreNodeDisplayNames).forEach(([type, name]) => nodeDisplayNames.set(type, name)); // Re-seed core display names
   tableSuggestionsRegistry.clear();
   blockOutlineRegistry.clear();
+  Object.entries(coreBlockOutlineMeta).forEach(([type, meta]) => blockOutlineRegistry.set(type, meta));
   clearHelpRegistry();
   requestOrchestrator.clear();
   pasteOrchestrator.clear();

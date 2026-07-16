@@ -304,6 +304,9 @@ export const fileLinkApi = {
 export const utilsApi = {
   pathJoin: (...paths: string[]) =>
     ipcRenderer.invoke("utils:pathJoin", ...paths),
+  /** Open a URL in the system default browser. */
+  openExternalUrl: (url: string) =>
+    ipcRenderer.send("open-external", url),
 };
 
 export const userSettingsApi = {

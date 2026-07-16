@@ -21,6 +21,8 @@ export const TiptapCodeEditorWrapper = (props: CodeNodeViewRendererProps) => {
         importedDocumentId={props.node.attrs.importedFrom}
         editor={props.editor}
         actions={props.actions}
+        blockType={props.node.type.name}
+        blockAttributes={props.node.attrs}
       />
 
       <CodeEditor

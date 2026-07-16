@@ -172,6 +172,7 @@ const SpotlightCard = ({
       exit={{ opacity: 0, y: 16, scale: 0.94, transition: { duration: 0.15 } }}
       transition={{ type: 'spring', stiffness: 340, damping: 26, mass: 0.9, delay: 0.4 }}
       className="fixed bottom-5 right-5 z-[10000] w-[320px]"
+      style={{ pointerEvents: 'auto' }}
     >
       <div
         className="relative rounded-2xl overflow-hidden cursor-pointer group bg-bg"
@@ -288,7 +289,7 @@ const WhatsNewDialog = ({
           exit={{ opacity: 0 }}
           transition={{ duration: 0.18 }}
           className="fixed inset-0 z-[10001] flex items-end sm:items-center justify-center p-4"
-          style={{ backgroundColor: 'var(--ui-overlay-bg, rgba(0, 0, 0, 0.4))', backdropFilter: 'blur(3px)' }}
+          style={{ backgroundColor: 'var(--ui-overlay-bg, rgba(0, 0, 0, 0.4))', backdropFilter: 'blur(3px)', pointerEvents: 'auto' }}
           onClick={onClose}
         >
           <motion.div
