@@ -87,8 +87,6 @@ const createNodeView =
           editor={editor}
           importedDocumentId={node.attrs.importedFrom}
           helpContent={<RuntimeVariablesHelp />}
-          blockType={node.type.name}
-          blockAttributes={node.attrs}
           actions={
             showAddDescription ? (
               <button

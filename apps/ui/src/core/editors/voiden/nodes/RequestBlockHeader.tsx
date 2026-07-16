@@ -1,8 +1,7 @@
 import React, { useState } from "react";
 import { Editor } from "@tiptap/react";
-import { ExternalLink, HelpCircle } from "lucide-react";
+import { HelpCircle } from "lucide-react";
 import * as Tooltip from "@radix-ui/react-tooltip";
-import { getBlockDocsUrl } from "@/plugins";
 
 function getInheritedFolderName(importedDocumentId: string): string | null {
   const normalized = importedDocumentId.replace(/\\/g, "/");
@@ -17,9 +16,6 @@ export const RequestBlockHeader = ({
   editor,
   actions,
   importedDocumentId,
-  docsUrl,
-  blockType,
-  blockAttributes,
   helpContent,
   openFile,
 }: {
@@ -28,32 +24,12 @@ export const RequestBlockHeader = ({
   editor: Editor;
   importedDocumentId?: string;
   actions?: React.ReactNode;
-  /** URL to the canonical docs page for this block. Opens in the system browser when clicked. */
-  docsUrl?: string;
-  /** The registered block type name. If passed, it will be used to look up the docsUrl from the plugin registry. */
-  blockType?: string;
-  /** Attributes of the current block node, used for dynamic docsUrl resolution. */
-  blockAttributes?: Record<string, any>;
   /** Optional inline help content shown in a tooltip popover. */
   helpContent?: React.ReactNode;
   /** Optional callback to open a file from within the block (used by scripting plugin). */
   openFile?: (relativePath: string) => Promise<void>;
 }) => {
   const [helpOpen, setHelpOpen] = useState(false);
-
-  const resolvedDocsUrl = blockType ? (getBlockDocsUrl(blockType, blockAttributes) ?? docsUrl) : docsUrl;
-
-  const handleOpenDocs = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (!resolvedDocsUrl) return;
-    try {
-      (window as any).electron?.utils?.openExternalUrl(resolvedDocsUrl);
-    } catch {
-      // Fallback: try ipcRenderer send via ipc bridge
-      (window as any).electron?.ipc?.invoke("open-external", resolvedDocsUrl);
-    }
-  };
 
   const inheritedFolder = importedDocumentId ? getInheritedFolderName(importedDocumentId) : null;
   return (
@@ -109,40 +85,6 @@ export const RequestBlockHeader = ({
                   onPointerDownOutside={() => setHelpOpen(false)}
                 >
                   {helpContent}
-                  <Tooltip.Arrow style={{ fill: 'var(--ui-line)' }} />
-                </Tooltip.Content>
-              </Tooltip.Portal>
-            </Tooltip.Root>
-          </Tooltip.Provider>
-        )}
-
-        {resolvedDocsUrl && (
-          <Tooltip.Provider delayDuration={300}>
-            <Tooltip.Root>
-              <Tooltip.Trigger asChild>
-                <button
-                  type="button"
-                  className="flex items-center justify-center w-5 h-5 rounded opacity-40 hover:opacity-80 transition-opacity"
-                  style={{ color: 'var(--syntax-tag)', cursor: 'pointer' }}
-                  onClick={handleOpenDocs}
-                  aria-label="Open documentation"
-                >
-                  <ExternalLink size={12} />
-                </button>
-              </Tooltip.Trigger>
-              <Tooltip.Portal>
-                <Tooltip.Content
-                  side="bottom"
-                  align="end"
-                  className="z-50 rounded px-2 py-1 text-xs shadow-md"
-                  style={{
-                    backgroundColor: 'var(--bg-panel, #1e1e1e)',
-                    borderColor: 'var(--ui-line)',
-                    color: 'var(--text)',
-                    border: '1px solid var(--ui-line)',
-                  }}
-                >
-                  Open documentation
                   <Tooltip.Arrow style={{ fill: 'var(--ui-line)' }} />
                 </Tooltip.Content>
               </Tooltip.Portal>

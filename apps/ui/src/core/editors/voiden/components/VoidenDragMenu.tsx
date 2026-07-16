@@ -10,7 +10,16 @@ import { useGetActiveDocument } from "@/core/documents/hooks";
 import { useQueryClient } from "@tanstack/react-query";
 import { createPortal } from "react-dom";
 import { Kbd } from "@/core/components/ui/kbd";
-import { getContextMenuItems, type PluginContextMenuItem } from "@/plugins";
+import { ExternalLink } from "lucide-react";
+import { getContextMenuItems, getBlockDocsUrl, type PluginContextMenuItem } from "@/plugins";
+
+function openExternalUrl(url: string) {
+  try {
+    (window as any).electron?.utils?.openExternalUrl(url);
+  } catch {
+    (window as any).electron?.ipc?.invoke("open-external", url);
+  }
+}
 
 // ────────────────────────────────────────────────
 // Memoized DragMenuItem Component
@@ -19,9 +28,10 @@ interface DragMenuItemProps {
   label: string;
   shortcut?: React.ReactNode;
   disabled?: boolean;
+  icon?: React.ComponentType<any>;
 }
 
-export const DragMenuItem: React.FC<DragMenuItemProps> = React.memo(({ onClick, label, shortcut, disabled }: DragMenuItemProps) => {
+export const DragMenuItem: React.FC<DragMenuItemProps> = React.memo(({ onClick, label, shortcut, disabled, icon: Icon }: DragMenuItemProps) => {
   return (
     <PopoverClose asChild>
       <button
@@ -33,7 +43,10 @@ export const DragMenuItem: React.FC<DragMenuItemProps> = React.memo(({ onClick, 
         disabled={disabled}
       >
         <div className="flex items-center justify-between w-full">
-          <span className="text-sm">{label}</span>
+          <span className="flex items-center gap-2 text-sm">
+            {Icon && <Icon size={14} className="text-comment flex-shrink-0" />}
+            {label}
+          </span>
           {shortcut && <div className="text-xs text-comment ml-4">{shortcut}</div>}
         </div>
       </button>
@@ -454,10 +467,11 @@ interface DragPopoverContentProps {
   linkSectionBlock?: () => void;
   pluginBlockItems: PluginContextMenuItem[];
   pluginBlockTarget: { node: Node | null; nodeType: string; pos: number };
+  docsUrl?: string;
 }
 
 const DragPopoverContent: React.FC<DragPopoverContentProps> = React.memo(
-  ({ duplicateNode, handleAddBlockAbove, handleAddBlockBelow, deleteNode, duplicateShortcut, deleteShortcut, copyNode, cutNode, linkNode, copyDisabled, showLinkBlock, onKeyDown, isSectionSeparator, copySectionBlock, cutSectionBlock, deleteSectionBlock, linkSectionBlock, pluginBlockItems, pluginBlockTarget }: DragPopoverContentProps) => {
+  ({ duplicateNode, handleAddBlockAbove, handleAddBlockBelow, deleteNode, duplicateShortcut, deleteShortcut, copyNode, cutNode, linkNode, copyDisabled, showLinkBlock, onKeyDown, isSectionSeparator, copySectionBlock, cutSectionBlock, deleteSectionBlock, linkSectionBlock, pluginBlockItems, pluginBlockTarget, docsUrl }: DragPopoverContentProps) => {
     const isMac = navigator.userAgent.includes("Mac");
     const modKey = isMac ? "⌘" : "Ctrl";
     const contentRef = useRef<HTMLDivElement>(null);
@@ -517,6 +531,12 @@ const DragPopoverContent: React.FC<DragPopoverContentProps> = React.memo(
                   </button>
                 </PopoverClose>
               ))}
+            </>
+          )}
+          {docsUrl && (
+            <>
+              <div className="h-px bg-border my-1" />
+              <DragMenuItem onClick={() => openExternalUrl(docsUrl)} label="Open Documentation" icon={ExternalLink} />
             </>
           )}
         </PopoverContent>
@@ -1012,6 +1032,10 @@ export const VoidenDragMenu = React.memo(({ editor }: { editor: Editor }) => {
     () => getContextMenuItems('block', pluginBlockTarget),
     [pluginBlockTarget],
   );
+  const docsUrl = useMemo(
+    () => getBlockDocsUrl(pluginBlockTarget.nodeType, currentNode?.attrs),
+    [pluginBlockTarget.nodeType, currentNode],
+  );
 
   // Hide menu for certain node types or when not editable
   const hideMenu =
@@ -1070,6 +1094,7 @@ export const VoidenDragMenu = React.memo(({ editor }: { editor: Editor }) => {
             linkSectionBlock={linkSectionBlock}
             pluginBlockItems={pluginBlockItems}
             pluginBlockTarget={pluginBlockTarget}
+            docsUrl={docsUrl}
           />
         </Popover>
       </div>
