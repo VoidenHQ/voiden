@@ -91,7 +91,7 @@ export const useLeftPanel = ({ defaultSize = 20, minSize = 0 }: UseLeftPanelProp
     collapsedSize: 0,
     defaultSize,
     minSize,
-    className: cn("", !isCollapsed && "min-w-40"),
+    className: cn("", !isCollapsed && "min-w-[200px]"),
   };
 
   return {
@@ -108,7 +108,7 @@ interface UseBottomPanelProps {
   panelId: string;
 }
 
-export const useBottomPanel = ({ defaultSize = 0, minSize = 20, panelId = "bottom" }: UseBottomPanelProps = {} as UseBottomPanelProps) => {
+export const useBottomPanel = ({ defaultSize = 0, minSize = 28, panelId = "bottom" }: UseBottomPanelProps = {} as UseBottomPanelProps) => {
   if (!panelId) {
     throw new Error("useBottomPanel requires a valid panelId");
   }
@@ -230,7 +230,7 @@ export const useBottomPanel = ({ defaultSize = 0, minSize = 20, panelId = "botto
     collapsedSize: 0,
     defaultSize,
     minSize,
-    className: cn("", bottomPanelOpen && "min-h-[100px]"),
+    className: cn("", bottomPanelOpen && "min-h-[160px]"),
   };
 
   return {
@@ -333,7 +333,7 @@ export const useRightPanel = ({ defaultSize = 0, minSize = 30 }: UseRightPanelPr
     collapsedSize: 0,
     defaultSize,
     minSize,
-    className: cn("", rightPanelOpen && "min-w-[200px]"),
+    className: cn("", rightPanelOpen && "min-w-[300px]"),
   };
 
   return {

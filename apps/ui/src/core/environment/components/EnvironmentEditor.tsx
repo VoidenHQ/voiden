@@ -1790,7 +1790,7 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
                       title="Edit display name"
                     >
                       <span className="text-xs text-comment/60 truncate">
-                        {selectedNode.displayName || <span className="text-comment/30 italic">Add display name</span>}
+                        {selectedNode.displayName || <span className="text-comment/30">Add display name</span>}
                       </span>
                       <Pencil size={10} className="flex-shrink-0 text-comment/20 group-hover/dn:text-comment/60 transition-colors" />
                     </button>

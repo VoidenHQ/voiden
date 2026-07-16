@@ -2,17 +2,9 @@ import React, { useEffect, useRef, useState } from "react";
 import {
   X,
   Infinity,
-  FileText,
-  FileSpreadsheet,
-  Image as ImageIcon,
-  Braces,
-  Container,
-  GitBranch,
-  ArrowBigDown,
   Info,
   File,
   Settings2,
-  FileCode,
   Settings,
   ScrollText,
   BookOpen,
@@ -24,6 +16,7 @@ import {
 } from "lucide-react";
 import { useProjectLock } from "@/core/file-system/hooks";
 import { cn, isMac } from "@/core/lib/utils";
+import { VSCodeFileIcon } from "@/core/lib/vscodeFileIcon";
 import { useActivateTab, useGetPanelTabs, useClosePanelTab, useDuplicatePanelTab, useReloadPanelTab, useSetTabsOrder, useClosePanelTabs, usePromotePendingTab } from "@/core/layout/hooks";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import { useEditorStore } from "@/core/editors/voiden/VoidenEditor";
@@ -76,24 +69,6 @@ interface Tab {
   pending?: boolean;
 }
 
-// Icon map for known extensions
-const iconMap: Record<string, JSX.Element> = {
-  pdf: <FileText size={14} />,
-  csv: <FileSpreadsheet size={14} />,
-  jpeg: <ImageIcon size={14} />,
-  jpg: <ImageIcon size={14} />,
-  png: <ImageIcon size={14} />,
-  md: <ArrowBigDown size={14} />,
-  json: <Braces size={14} />,
-  yml: <Braces size={14} />,
-  yaml: <Braces size={14} />,
-  js: <FileCode size={14} />,
-  py: <FileCode size={14} />,
-  go: <FileCode size={14} />,
-  sh: <Terminal size={14} />,
-  void: <Infinity size={14} className="text-accent" />,
-};
-
 const getTabDisplayTitle = (tab: Tab): string => {
   if (tab.source?.replace(/\\/g, "/").endsWith("/.voiden-inherited.void")) {
     const parts = tab.source.replace(/\\/g, "/").split("/");
@@ -109,26 +84,23 @@ const getTabIcon = (tab: Tab): JSX.Element => {
   if (tab.type === "welcome") return <BookOpen size={14} />;
   if (tab.type === "changelog") return <ScrollText size={14} />;
   if (tab.type === "logs") return <Terminal size={14} />;
+  if (tab.type === "terminal") return <Terminal size={14} />;
   if (tab.type === "grpc") return <Server size={14} />;
   if (tab.type === "environmentEditor") return <Settings2 size={14} />;
 
-  // For document tabs, check file name and extension
-  if (tab.type === "document" && tab.source) {
-    const fileName = tab.source.split('/').pop() || tab.title;
-    
-    // Special file name checks (similar to FileSystemList)
-    if (fileName === ".voiden-inherited.void") return <Infinity size={14} className="text-accent" />;
-    if (fileName.startsWith(".env")) return <Settings2 size={14} />;
-    if (fileName.startsWith(".gitignore")) return <GitBranch size={14} />;
-    if (fileName.startsWith("Dockerfile")) return <Container size={14} />;
-    if (fileName.startsWith("docker-compose.yml")) return <Container size={14} />;
-    if (fileName.toLowerCase() === "readme.md") return <Info size={14} />;
+  // For document tabs, check file name and extension. Unsaved/new tabs have
+  // no `source` yet (nothing written to disk), so fall back to `title` —
+  // e.g. a brand-new "untitled.void" tab should still get the .void icon.
+  if (tab.type === "document" && (tab.source || tab.title)) {
+    const fileName = tab.source?.split('/').pop() || tab.title;
 
-    // Extension-based icons
-    const extMatch = fileName.match(/\.([0-9a-z]+)$/i);
-    const ext = extMatch?.[1]?.toLowerCase();
+    // .void keeps Voiden's own icon — not part of the VS Code icon set.
+    if (fileName === ".voiden-inherited.void" || fileName.endsWith(".void")) {
+      return <Infinity size={16} className="text-accent" />;
+    }
+    if (fileName.toLowerCase() === "readme.md") return <Info size={16} style={{ color: "#519aba" }} />;
 
-    return iconMap[ext || ""] || <File size={14} />;
+    return <VSCodeFileIcon name={fileName} size={16} />;
   }
   if(tab.type==='extensionDetails'){
     return <Blocks size={14} />;
@@ -301,6 +273,7 @@ const TabComponent = ({
           onMouseDown={handleMouseDown}
           className={cn(
             "group flex items-center justify-between h-full px-2 border-r border-border flex-none gap-x-2 border-b text-comment relative transition-opacity select-none",
+            "animate-in fade-in-0 zoom-in-95 duration-150",
             isActive && [
               "relative border-b-0 pb-px bg-editor text-fg",
               "before:content-[''] before:absolute before:top-0 before:left-0 before:right-0 before:h-0.5 before:bg-accent",
@@ -356,7 +329,7 @@ const TabComponent = ({
           </div>
           <div className="flex items-center gap-1.5 pr-1">
             {getTabIcon(tab)}
-            <span className={cn("truncate", tab.pending && "italic px-2")}>{getTabDisplayTitle(tab)}</span>
+            <span className={cn("truncate", tab.pending && "px-2 italic")}>{getTabDisplayTitle(tab)}</span>
           </div>
           <Tip label={<><span>Close tab</span>{isActive && <span className="ml-4">{getShortcutLabel("CloseTab")}</span>}</>} side="bottom">
             <button className="p-0.5 hover:bg-active rounded-sm opacity-0 group-hover:opacity-100" onClick={handleClose}>

@@ -112,7 +112,7 @@ function injectStyles() {
       color: var(--syntax-comment);
     }
     .vvcard__value {
-      font-family: "Geist Mono", monospace;
+      font-family: var(--font-family-mono);
       font-size: 12px;
       color: var(--editor-fg);
       word-break: break-all;
@@ -122,7 +122,6 @@ function injectStyles() {
     }
     .vvcard__value--undefined {
       color: var(--syntax-comment);
-      font-style: italic;
     }
   `;
   document.head.appendChild(style);

@@ -264,6 +264,11 @@ export const proseClasses = [
 // Scaled-down variant for panels/sidebars — same colour overrides, smaller base font.
 export const proseClassesSm = proseClasses.replace("text-base", "text-sm");
 
+// Rendered-markdown preview variant — same colour/spacing overrides, but swaps
+// the monospace editor font for the proportional UI font so a "Preview" pane
+// reads like a document instead of looking identical to the raw source.
+export const previewProseClasses = proseClasses.replace("text-base", "text-preview");
+
 interface EditorStore {
   unsaved: Record<string, string>;
   setUnsaved: (tabId: string, content: string) => void;
@@ -1760,7 +1765,14 @@ const VoidenEditorInner = ({
           <span className="text-xs text-comment font-mono animate-pulse">Loading file…</span>
         </div>
       )}
-      <div className="mx-auto w-full px-2 bg-editor" style={{ maxWidth: 'var(--prose-max-width, 860px)' }}>
+      <div
+        className="w-full px-2 bg-editor"
+        style={{
+          maxWidth: 'var(--prose-max-width, 860px)',
+          marginLeft: 'var(--content-align-ml, auto)',
+          marginRight: 'var(--content-align-mr, auto)',
+        }}
+      >
         {isActive && <VoidenDragMenu editor={editor} />}
         <EditorContent editor={editor} />
       </div>

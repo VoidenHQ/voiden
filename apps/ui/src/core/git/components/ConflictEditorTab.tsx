@@ -478,7 +478,7 @@ export const ConflictEditorTab = ({ tab }: { tab: any }) => {
               {isSaving ? "Saving…" : "Mark as Resolved"}
             </button>
           ) : (
-            <span className="text-[10px] text-comment italic">
+            <span className="text-[10px] text-comment">
               Resolve all {conflictCount} conflict{conflictCount !== 1 ? "s" : ""} to continue
             </span>
           )}

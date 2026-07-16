@@ -1,6 +1,6 @@
 import React, { useContext, useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { ChevronRight, ChevronsDownUp, ChevronsUpDown } from "lucide-react";
+import { ChevronRight, CopyMinus, CopyPlus } from "lucide-react";
 import { NodeApi, NodeRendererProps, TreeApi } from "react-arborist";
 const INHERITED_FILENAME = ".voiden-inherited.void";
 import { Tip } from "@/core/components/ui/Tip";
@@ -28,6 +28,22 @@ export interface TreeNodeProps extends NodeRendererProps<ExtendedFileTree> {
   expandedDirsRef: React.MutableRefObject<Set<string>>;
   treeRef: React.RefObject<TreeApi<ExtendedFileTree>>;
   pendingTabsEnabled?: boolean;
+}
+
+// Whether any folder anywhere below `node` is currently open — used to decide
+// which of the alternating expand-all/collapse-all icons to show. Computed
+// fresh from the tree's real state every render (react-arborist re-renders
+// every row on any open/close change) instead of tracked as local state, so
+// it can't drift out of sync with folders opened/closed by other means (e.g.
+// clicking a nested folder's own chevron directly).
+function hasOpenDescendant(node: NodeApi<ExtendedFileTree>): boolean {
+  if (!node.children) return false;
+  for (const child of node.children) {
+    if (child.data.type !== "folder") continue;
+    if (child.isOpen) return true;
+    if (hasOpenDescendant(child)) return true;
+  }
+  return false;
 }
 
 const isInternalTreeDrag = (e: React.DragEvent) => e.dataTransfer.types.includes("application/x-arborist-node");
@@ -66,6 +82,12 @@ export function TreeNode({
   pendingTabsEnabled,
 }: TreeNodeProps) {
   const [error, setError] = useState<string | null>(null);
+  // Bumped after this row's own expand-all/collapse-all action finishes, to
+  // force a re-render that recomputes hasOpenDescendant(node) below. Nested
+  // .open()/.close() calls several levels down don't reliably propagate a
+  // re-render back up to this specific row on their own, so without this the
+  // icon (and the branch its onClick reads) can stay stuck on stale state.
+  const [, forceRerender] = useState(0);
   const [isDragOver, setIsDragOver] = useState(false);
   const dragOverTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [isContextMenuOpen, setIsContextMenuOpen] = useState(false);
@@ -424,16 +446,24 @@ export function TreeNode({
   };
 
   const nameClass = getNameClass(node.data, activeFile);
+  const showCollapseAll = node.data.type === "folder" && hasOpenDescendant(node);
 
   return (
     <div
       style={style}
       ref={dragHandle}
       className={cn(
-        "group h-6 overflow-hidden transition-colors border border-transparent",
+        "group h-[22px] overflow-hidden transition-colors border border-transparent",
         !isDragOver && activeFile?.source !== node.data.path && !node.isSelected && "hover:bg-hover",
         isContextMenuOpen && "border-active",
         activeFile?.source === node.data.path && !isDragOver && "bg-active",
+        // Selection stays visible (background) even after focus moves away
+        // (e.g. clicking into the editor) — a border is added only while
+        // this row is still the actually-focused selection, so the two
+        // states ("selected" vs "selected AND focused") read differently,
+        // matching Cursor's sidebar.
+        node.isSelected && node.tree.selectedNodes.length <= 1 && activeFile?.source !== node.data.path && !isDragOver && "bg-active",
+        node.isSelected && node.tree.selectedNodes.length <= 1 && node.isFocused && activeFile?.source !== node.data.path && !isDragOver && "border-border",
         node.isSelected && node.tree.selectedNodes.length > 1 && activeFile?.source !== node.data.path && !isDragOver && "bg-accent/20",
         node.isFocused && !isDragOver && "ring-0",
         (isDragOver || isInternalDropTargetFolder) && `bg-accent/30 ${node.data.type === "folder" ? "border-l-2 border-accent" : ""}`,
@@ -448,11 +478,11 @@ export function TreeNode({
     >
       <div className="absolute left-0 h-full">
         {Array.from({ length: node.level }).map((_, i) => (
-          <div key={i} className="absolute w-px bg-active h-6" style={{ left: `${(i + 1) * 12 + 3}px` }} />
+          <div key={i} className="absolute w-px bg-active h-[22px]" style={{ left: `${(i + 1) * 12 + 3}px` }} />
         ))}
       </div>
       <div className="pl-2 relative flex items-center justify-between gap-2">
-        <div className={`flex items-center ${node.data.type === "folder" ? "gap-1" : "gap-2"} w-full`}>
+        <div className={`flex items-center min-w-0 flex-1 ${node.data.type === "folder" ? "gap-1" : "gap-2"}`}>
           {node.data.type === "folder" && (
             <div className="w-30 flex items-center">
               {/* Chevron rotates whenever folder is open, including empty folders */}
@@ -470,31 +500,25 @@ export function TreeNode({
               </span>
             </span>
           ) : (
-            <span className={cn("truncate text-ui-fg", nameClass)}>{node.data.name}</span>
+            <span className={cn("truncate text-ui-fg font-normal opacity-75", nameClass)}>{node.data.name}</span>
           )}
         </div>
         {node.data.type === "folder" && (
-          <div className="flex items-center px-2 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity">
-            <Tip label="Collapse all" side="bottom" align="end">
+          <div className="flex items-center flex-shrink-0 px-2 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity">
+            <Tip label={showCollapseAll ? "Collapse all" : "Expand all"} side="bottom" align="end">
               <button
-                onClick={(e) => {
+                onClick={async (e) => {
                   e.stopPropagation();
-                  collapseAllFromFolder(node);
+                  if (showCollapseAll) {
+                    await collapseAllFromFolder(node);
+                  } else {
+                    await expandAllRecursive(node.data.path);
+                  }
+                  forceRerender((n) => n + 1);
                 }}
                 className="p-0.5 rounded hover:bg-hover ml-1"
               >
-                <ChevronsDownUp size={12} />
-              </button>
-            </Tip>
-            <Tip label="Expand all" side="bottom" align="end">
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  expandAllRecursive(node.data.path);
-                }}
-                className="p-0.5 rounded hover:bg-hover"
-              >
-                <ChevronsUpDown size={12} />
+                {showCollapseAll ? <CopyMinus size={12} /> : <CopyPlus size={12} />}
               </button>
             </Tip>
           </div>

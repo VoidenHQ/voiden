@@ -90,7 +90,7 @@ export const CustomTableRow = TableRow.extend({
     return [
       "tr",
       mergeAttributes(HTMLAttributes, {
-        class: `hover:bg-muted/50 data-[state=selected]:bg-muted ${node.attrs.disabled ? "[&_*]:!text-comment bg-bg italic" : ""}`,
+        class: `hover:bg-muted/50 data-[state=selected]:bg-muted ${node.attrs.disabled ? "[&_*]:!text-comment bg-bg" : ""}`,
       }),
       0,
     ];

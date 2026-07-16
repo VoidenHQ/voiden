@@ -349,12 +349,12 @@ export const StatusBar = ({
 
   return (
     <>
-    <div className="h-8 flex-none border-t border-border flex items-center justify-between bg-panel">
+    <div className="h-[22px] flex-none border-t border-border flex items-center justify-between bg-panel text-xs">
       {/* Left Status Items */}
       <div className="flex items-center h-full">
         <Tip label={<span className="flex items-center gap-2"><span>Toggle left panel</span><Kbd keys={getShortcutLabel("ToggleSidebar")} size="sm" /></span>}>
           <button className={cn("h-full px-2 hover:bg-active text-comment", !isLeftCollapsed && "bg-active")} onClick={toggleLeft}>
-            <PanelLeft size={14} />
+            <PanelLeft size={13} />
           </button>
         </Tip>
 
@@ -362,10 +362,10 @@ export const StatusBar = ({
 
         <Tip label={<span className="flex items-center gap-2"><span>Compare branches</span><Kbd keys={getShortcutLabel("ToggleCompareBranches")} size="sm" /></span>}>
           <button
-            className={cn("text-sm h-full px-2 flex items-center gap-2 hover:bg-active no-drag text-comment")}
+            className={cn("text-[11px] h-full px-2 flex items-center gap-2 hover:bg-active no-drag text-comment")}
             onClick={() => setIsCompareDialogOpen(true)}
           >
-            <GitCompareArrows size={14} />
+            <GitCompareArrows size={13} />
             <span>Compare</span>
           </button>
         </Tip>
@@ -374,7 +374,7 @@ export const StatusBar = ({
         {leftItems.map((item) => (
           <Tip key={item.id} label={item.tooltip}>
             <button
-              className="text-sm h-full px-2 flex items-center gap-2 hover:bg-active no-drag text-comment"
+              className="text-[11px] h-full px-2 flex items-center gap-2 hover:bg-active no-drag text-comment"
               onClick={item.onClick}
             >
               {renderStatusBarIcon(item.icon)}
@@ -395,7 +395,7 @@ export const StatusBar = ({
                 onClick={item.onClick}
               >
                 {renderStatusBarIcon(item.icon)}
-                {item.label && <span className="text-sm">{item.label}</span>}
+                {item.label && <span className="text-[11px]">{item.label}</span>}
               </button>
             </Tip>
           ))}
@@ -463,9 +463,9 @@ export const StatusBar = ({
                 </div>
               } align="end">
                 <div className="h-full px-2 flex items-center gap-1.5 text-comment select-none cursor-default">
-                  <span className="font-mono text-xs">{memStats.heap.toFixed(0)}M</span>
-                  <span className="font-mono text-xs opacity-50">·</span>
-                  <span className="font-mono text-xs">{totalCPU.toFixed(0)}%</span>
+                  <span className="font-mono text-[11px]">{memStats.heap.toFixed(0)}M</span>
+                  <span className="font-mono text-[11px] opacity-50">·</span>
+                  <span className="font-mono text-[11px]">{totalCPU.toFixed(0)}%</span>
                 </div>
               </Tip>
               {settings?.developer?.system_log && (
@@ -530,7 +530,7 @@ export const StatusBar = ({
                   isCheckingUpdates ? "opacity-50 cursor-wait" : "cursor-pointer"
                 )}
               >
-                <span className="font-mono text-sm">
+                <span className="font-mono text-[11px]">
                   {isCheckingUpdates ? "Checking..." : `v${version}`}
                 </span>
               </button>
@@ -540,14 +540,14 @@ export const StatusBar = ({
           {/* GitHub Link */}
           <Tip label="Visit GitHub" align="end">
             <a href="https://github.com/VoidenHQ/voiden" onClick={handleExternalLink("https://github.com/VoidenHQ/voiden")} className="h-full px-2 hover:bg-active text-comment flex items-center">
-              <Github size={14} />
+              <Github size={13} />
             </a>
           </Tip>
 
           {/* Discord Link */}
           <Tip label="Join Discord" align="end">
             <a href="https://discord.gg/XSYCf7JF4F" onClick={handleExternalLink("https://discord.gg/XSYCf7JF4F")} className="h-full px-2 hover:bg-active text-comment flex items-center">
-              <MessageCircle size={14} />
+              <MessageCircle size={13} />
             </a>
           </Tip>
 
@@ -598,7 +598,7 @@ export const StatusBar = ({
                 }
               }}
             >
-              <Terminal size={14} />
+              <Terminal size={13} />
             </button>
           </Tip>
 
@@ -617,7 +617,7 @@ export const StatusBar = ({
                 }
               }}
             >
-              <PanelRight size={14} />
+              <PanelRight size={13} />
             </button>
           </Tip>
         </div>
