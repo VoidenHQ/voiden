@@ -356,7 +356,7 @@ export const BlockOverviewPanel: React.FC = () => {
 
                   {/* Empty placeholder */}
                   {!section.methodText && !section.urlText && section.blocks.length === 0 && (
-                    <p className="px-2 py-1.5 text-[10px] text-comment/40 italic">Empty</p>
+                    <p className="px-2 py-1.5 text-[10px] text-comment/40">Empty</p>
                   )}
                 </div>
               )}

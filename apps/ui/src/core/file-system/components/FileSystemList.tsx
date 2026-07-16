@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { NodeApi, Tree, TreeApi } from "react-arborist";
 import { fileTreeDndManager } from "@/core/file-system/components/FileSystemList/dndManager";
-import { Loader } from "lucide-react";
+import { ChevronRight, CopyMinus, CopyPlus, FilePlus, FolderPlus, Loader } from "lucide-react";
 import useResizeObserver from "use-resize-observer";
 import { useQueryClient } from "@tanstack/react-query";
 import { useShallow } from "zustand/react/shallow";
 
 import { cn } from "@/core/lib/utils";
 import { toast } from "@/core/components/ui/sonner";
+import { Tip } from "@/core/components/ui/Tip";
 import { useFileTree, useMove, usePrefetchFileList } from "@/core/file-system/hooks";
 import { reloadVoidenEditor, useEditorStore } from "@/core/editors/voiden/VoidenEditor";
 import { useActivateTab } from "@/core/layout/hooks";
@@ -50,8 +51,24 @@ export const FileSystemList = () => {
   const [treeData, setTreeData] = useState<ExtendedFileTree[]>([]);
   const [loadingDirs, setLoadingDirs] = useState<Set<string>>(new Set());
   const [dragOverParentId, setDragOverParentId] = useState<string | null>(null);
+  // Mirrors the root node's real open/closed state (root starts open — see
+  // getInitialOpenState below) so the header's chevron rotates in sync with
+  // whether its direct children are actually showing.
+  const [isRootExpanded, setIsRootExpanded] = useState(true);
+  // Drives the header's single alternating expand-all/collapse-all button
+  // (CopyPlus <-> CopyMinus) — a bulk-action toggle, not a live reflection of
+  // every individual row's open state.
+  const [isRootChildrenExpanded, setIsRootChildrenExpanded] = useState(false);
 
   const { ref, width, height } = useResizeObserver();
+  // use-resize-observer's `ref` is a callback ref (not an object ref), so it
+  // has no `.current` to read from elsewhere — keep our own object ref to the
+  // same node, merged onto the div below, for the scrollbar effect to query.
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const setRootRef = (el: HTMLDivElement | null) => {
+    ref(el);
+    rootRef.current = el;
+  };
   const { mutateAsync: move } = useMove();
   const { data: activeFile } = useGetActiveDocument();
   const { mutateAsync: activateTab } = useActivateTab();
@@ -62,6 +79,42 @@ export const FileSystemList = () => {
   const pendingFileKindRef = useRef<"void" | null>(null);
   // Guards against the `data` effect resetting the whole tree on subsequent refetches.
   const isFirstLoadRef = useRef(true);
+
+  // Scrollbar only shows while actively scrolling (or hovering) — matches a
+  // macOS-style overlay scrollbar instead of the app's default always-visible
+  // dimmed thumb. react-window's list owns the actual scrollable div (found
+  // via the .file-tree-scroll className passed to <Tree> below), so we can't
+  // attach a ref to it directly — query for it after mount instead, retrying
+  // briefly in case the list hasn't rendered yet on the first pass.
+  useEffect(() => {
+    let attempt = 0;
+    let hideTimeout: ReturnType<typeof setTimeout> | null = null;
+    let scrollEl: HTMLElement | null = null;
+    let cancelled = false;
+
+    const handleScroll = () => {
+      scrollEl?.classList.add("is-scrolling");
+      if (hideTimeout) clearTimeout(hideTimeout);
+      hideTimeout = setTimeout(() => scrollEl?.classList.remove("is-scrolling"), 800);
+    };
+
+    const tryAttach = () => {
+      if (cancelled) return;
+      scrollEl = rootRef.current?.querySelector<HTMLElement>(".file-tree-scroll") ?? null;
+      if (!scrollEl) {
+        if (attempt++ < 10) setTimeout(tryAttach, 100);
+        return;
+      }
+      scrollEl.addEventListener("scroll", handleScroll, { passive: true });
+    };
+    tryAttach();
+
+    return () => {
+      cancelled = true;
+      if (hideTimeout) clearTimeout(hideTimeout);
+      scrollEl?.removeEventListener("scroll", handleScroll);
+    };
+  }, [!!treeData]);
 
   // ─── Delete progress / file deletion events ──────────────────────────────────
   useElectronEvent("file:delete-start", () => setShowDeleteProgress(true));
@@ -215,7 +268,13 @@ export const FileSystemList = () => {
     }
   }, []);
 
-  const collapseAllFromFolder = useCallback(async (folderNode: NodeApi<ExtendedFileTree>) => {
+  // `includeSelf` closes folderNode along with its descendants (the normal
+  // per-row "Collapse all" behavior). The root header passes includeSelf:false
+  // so collapsing all children never closes the project root itself — root is
+  // always force-open, and closing it would blank the entire tree with no way
+  // to reopen it since its own row is permanently covered by the pinned header.
+  const collapseAllFromFolder = useCallback(async (folderNode: NodeApi<ExtendedFileTree>, options?: { includeSelf?: boolean }) => {
+    const includeSelf = options?.includeSelf ?? true;
     const toClose: NodeApi<ExtendedFileTree>[] = [];
     const collect = (n: NodeApi<ExtendedFileTree>) => {
       n.children?.forEach((child) => {
@@ -226,7 +285,7 @@ export const FileSystemList = () => {
       });
     };
     collect(folderNode);
-    if (folderNode.isOpen) toClose.push(folderNode);
+    if (includeSelf && folderNode.isOpen) toClose.push(folderNode);
     if (toClose.length === 0) return;
 
     setIsTreeBusy(true);
@@ -719,35 +778,41 @@ export const FileSystemList = () => {
     return () => off?.();
   }, [queryClient]);
 
-  useElectronEvent<{ path: string; type: string }>("file:create", async (eventData) => {
+  // Shared by the "New file..." context-menu item (via the file:create electron
+  // event) and the root folder's toolbar "New File" button.
+  const handleCreateFile = useCallback(async (path: string) => {
     const tree = treeRef.current;
     if (!tree) return;
-    const folderNode = tree.get(eventData.path);
+    const folderNode = tree.get(path);
     if (!folderNode) return;
 
-    ensureFolderExpanded(folderNode, eventData.path, expandedDirsRef);
+    ensureFolderExpanded(folderNode, path, expandedDirsRef);
 
     if (folderNode.data.lazy) {
       const electronFiles = window.electron?.files as NonNullable<typeof window.electron>["files"] | undefined;
       if (electronFiles) {
-        const children = await electronFiles.expandDir(eventData.path);
+        const children = await electronFiles.expandDir(path);
         if (children) {
-          expandedDirsRef.current.add(eventData.path);
-          setTreeData((prev) => injectChildren(prev, eventData.path, children as ExtendedFileTree[]));
+          expandedDirsRef.current.add(path);
+          setTreeData((prev) => injectChildren(prev, path, children as ExtendedFileTree[]));
           await new Promise<void>((resolve) => setTimeout(resolve, 0));
-          treeRef.current?.get(eventData.path)?.open();
+          treeRef.current?.get(path)?.open();
           await new Promise<void>((resolve) => setTimeout(resolve, 0));
         }
       }
     }
 
-    const index = tree.get(eventData.path)?.children?.length ?? 0;
-    await tree.create({ type: "leaf", parentId: eventData.path, index });
-    const updatedFolder = tree.get(eventData.path);
+    const index = tree.get(path)?.children?.length ?? 0;
+    await tree.create({ type: "leaf", parentId: path, index });
+    const updatedFolder = tree.get(path);
     if (updatedFolder?.children) {
       const newNode = updatedFolder.children.find((child) => child.data.isTemporary);
       if (newNode) newNode.edit();
     }
+  }, []);
+
+  useElectronEvent<{ path: string; type: string }>("file:create", (eventData) => {
+    if (eventData?.path) void handleCreateFile(eventData.path);
   });
 
   useElectronEvent<{ path: string; type: string }>("file:create-void", async (eventData) => {
@@ -791,17 +856,23 @@ export const FileSystemList = () => {
     }
   });
 
-  useElectronEvent<{ path: string; type: string }>("directory:create", async (eventData) => {
+  // Shared by the "New folder..." context-menu item (via the directory:create
+  // electron event) and the root folder's toolbar "New Folder" button.
+  const handleCreateDirectory = useCallback(async (path: string) => {
     const tree = treeRef.current;
     if (!tree) return;
-    const folderNode = tree.get(eventData.path);
+    const folderNode = tree.get(path);
     if (!folderNode) return;
-    ensureFolderExpanded(folderNode, eventData.path, expandedDirsRef);
+    ensureFolderExpanded(folderNode, path, expandedDirsRef);
     const index = folderNode.children ? folderNode.children.length : 0;
-    await tree.create({ type: "internal", parentId: eventData.path, index });
-    const updatedFolder = tree.get(eventData.path);
+    await tree.create({ type: "internal", parentId: path, index });
+    const updatedFolder = tree.get(path);
     const newNode = updatedFolder?.children?.find((child) => child.data.isTemporary);
     if (newNode) newNode.edit();
+  }, []);
+
+  useElectronEvent<{ path: string; type: string }>("directory:create", (eventData) => {
+    if (eventData?.path) void handleCreateDirectory(eventData.path);
   });
 
   useElectronEvent<{ path: string; type: string }>("directory:close-project", async () => {
@@ -902,8 +973,92 @@ export const FileSystemList = () => {
       </div>
 
       {/* File System Tree — always rendered, visibility controlled by CSS */}
-      <div ref={ref} className={cn("flex-1 overflow-hidden", storeIsSearching && "hidden")}>
-        <TreeActionsContext.Provider value={{ expandAllRecursive, collapseAllFromFolder }}>
+      <div ref={setRootRef} className={cn("file-tree-root relative flex-1 overflow-hidden", storeIsSearching && "hidden")}>
+        {/* Pinned root/project folder header — rendered outside react-arborist's
+            virtualized list (which unmounts off-screen rows) so it stays visible
+            no matter how far the tree is scrolled, VS Code-style. It's an overlay
+            that always covers row 0 (the actual root row, still present in
+            `treeData` for the tree's own logic), rather than a duplicate row. */}
+        {treeData?.[0] && (
+          <div
+            className="group/root-header absolute text-comment top-0 left-0 right-0 h-[22px] z-[5] flex items-center justify-between bg-panel border-b border-border"
+            onContextMenu={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              window.electron?.files.showFileContextMenu({
+                path: treeData[0].path,
+                type: "folder",
+                name: treeData[0].name,
+                isProjectRoot: true,
+              });
+            }}
+          >
+            {/* Icons stay pinned to the right (justify-between) rather than
+                hugging the name — min-w-0/flex-1/truncate below keep a long
+                name from pushing them off-screen; a short name just leaves a
+                gap before them, which is the intended toolbar-style layout. */}
+            <button
+              className="flex items-center gap-1 pl-2 min-w-0 flex-1 h-full"
+              onClick={(e) => {
+                e.stopPropagation();
+                // Plain disclosure toggle — shows/hides root's direct children,
+                // same as clicking any other folder's own chevron. Not a
+                // recursive expand/collapse of everything nested inside.
+                const rootNode = treeRef.current?.get(treeData[0].path);
+                if (!rootNode) return;
+                rootNode.toggle();
+                setIsRootExpanded(rootNode.isOpen);
+              }}
+            >
+              <ChevronRight size={14} className={cn("flex-shrink-0 transition-transform", isRootExpanded && "rotate-90")} />
+              <span className="truncate font-semibold ">{treeData[0].name}</span>
+            </button>
+            {/* Always visible (not hover-reveal) so these stay reachable at any
+                sidebar width — the name above truncates first via min-w-0. */}
+            <div className="flex items-center flex-shrink-0 min-w-0 px-2">
+              <Tip label="New File" side="bottom" align="end">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleCreateFile(treeData[0].path);
+                  }}
+                  className="p-0.5 hover:text-text rounded hover:bg-hover"
+                >
+                  <FilePlus size={14} />
+                </button>
+              </Tip>
+              <Tip label="New Folder" side="bottom" align="end">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleCreateDirectory(treeData[0].path);
+                  }}
+                  className="p-0.5 hover:text-text rounded hover:bg-hover ml-1"
+                >
+                  <FolderPlus size={14} />
+                </button>
+              </Tip>
+              <Tip label={isRootChildrenExpanded ? "Collapse all" : "Expand all"} side="bottom" align="end">
+                <button
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    if (isRootChildrenExpanded) {
+                      const rootNode = treeRef.current?.get(treeData[0].path);
+                      if (rootNode) await collapseAllFromFolder(rootNode, { includeSelf: false });
+                    } else {
+                      await expandAllRecursive(treeData[0].path);
+                    }
+                    setIsRootChildrenExpanded((prev) => !prev);
+                  }}
+                  className="p-0.5 hover:text-text rounded hover:bg-hover ml-1"
+                >
+                  {isRootChildrenExpanded ? <CopyMinus size={14} /> : <CopyPlus size={14} />}
+                </button>
+              </Tip>
+            </div>
+          </div>
+        )}
+        <TreeActionsContext.Provider value={{ expandAllRecursive, collapseAllFromFolder, createFile: handleCreateFile, createDirectory: handleCreateDirectory }}>
           <DragOverContext.Provider value={{ dragOverParentId, setDragOverParentId }}>
             <div
               ref={dndRootElement}
@@ -924,13 +1079,14 @@ export const FileSystemList = () => {
             >
               {treeData && (
                 <Tree
+                  className="file-tree-scroll"
                   dndManager={fileTreeDndManager}
                   dndRootElement={dndRootElement.current}
                   ref={treeRef}
                   data={treeData}
                   width={width}
                   height={height}
-                  rowHeight={24}
+                  rowHeight={22}
                   indent={12}
                   idAccessor="path"
                   initialOpenState={getInitialOpenState(data as ExtendedFileTree)}

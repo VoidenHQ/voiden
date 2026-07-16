@@ -3,7 +3,7 @@ import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import "@xterm/xterm/css/xterm.css";
-import { useSettings } from "../../settings/hooks/useSettings";
+import { useSettings, SYSTEM_DEFAULT_FONT, TERMINAL_DEFAULT_MONO_STACK } from "../../settings/hooks/useSettings";
 import { useNerdFont } from "../hooks/useNerdFont";
 import { useClosePanelTab, useGetPanelTabs } from "@/core/layout/hooks";
 import { usePanelStore } from "@/core/stores/panelStore";
@@ -40,8 +40,10 @@ export const Terminal = ({ tabId, cwd }: TerminalProps) => {
   const fontSize = settings?.appearance?.font_size || 14;
 
   // Derive effective font family: prefer Nerd Font when active, otherwise use the app's chosen font
-  const appFontFamily = settings?.appearance?.font_family || 'Inconsolata';
-  const effectiveFontFamily = fontFamily || `'${appFontFamily}', monospace`;
+  const appFontFamily = settings?.appearance?.font_family || SYSTEM_DEFAULT_FONT;
+  const effectiveFontFamily = fontFamily || (
+    appFontFamily === SYSTEM_DEFAULT_FONT ? TERMINAL_DEFAULT_MONO_STACK : `'${appFontFamily}', monospace`
+  );
 
   // Helper to fit terminal and sync dimensions with PTY
   const fitTerminal = () => {
@@ -226,8 +228,8 @@ export const Terminal = ({ tabId, cwd }: TerminalProps) => {
       fontFamily: effectiveFontFamily,
       fontWeight: "400",
       fontWeightBold: "600",
-      lineHeight: 1.3,
-      letterSpacing: 0.3,
+      lineHeight: 1.2,
+      letterSpacing: 0,
       cursorBlink: true,
       cursorStyle: "bar",
       cursorWidth: 2,

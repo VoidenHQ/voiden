@@ -580,7 +580,7 @@ const EntryCard: React.FC<EntryCardProps> = ({ entry, isCopied, query, sourceFil
                         </CollapsibleSection>
                       )}
                       {!entry.response?.error && !entry.response?.body && (!entry.response?.headers || entry.response.headers.length === 0) && (
-                        <p className="text-[10px] text-comment/60 italic">No response data recorded</p>
+                        <p className="text-[10px] text-comment/60">No response data recorded</p>
                       )}
                     </>
                   )

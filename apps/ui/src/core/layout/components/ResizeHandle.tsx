@@ -10,6 +10,7 @@ export const ResizeHandle = ({ orientation }: ResizeHandleProps) => {
     <PanelResizeHandle
       className={cn(
         "relative before:absolute before:left-1/2 before:-translate-x-1/2 before:bg-line z-10",
+        "before:transition-all before:duration-150 before:ease-out",
         orientation === "horizontal"
           ? [
               "before:w-full before:h-[1px]",

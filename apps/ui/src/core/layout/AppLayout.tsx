@@ -1,6 +1,6 @@
 import { Panel, PanelGroup } from "react-resizable-panels";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { useSettings } from "@/core/settings/hooks/useSettings";
+import { useSettings, SYSTEM_DEFAULT_FONT, SYSTEM_DEFAULT_MONO_STACK } from "@/core/settings/hooks/useSettings";
 import { useLeftPanel, useBottomPanel, useRightPanel } from "./hooks/usePanels";
 import { SidePanelTabs } from "./components/SidePanelTabs";
 import { SidePanelContent } from "./components/SidePanelContent";
@@ -176,7 +176,10 @@ export const AppLayout = () => {
   // Apply font family setting
   useEffect(() => {
     if (settings?.appearance?.font_family) {
-      document.documentElement.style.setProperty("--font-family-base", `${settings.appearance.font_family}`);
+      const cssFont = settings.appearance.font_family === SYSTEM_DEFAULT_FONT
+        ? SYSTEM_DEFAULT_MONO_STACK
+        : `"${settings.appearance.font_family}", monospace`;
+      document.documentElement.style.setProperty("--font-family-base", cssFont);
     }
   }, [settings?.appearance?.font_family]);
 

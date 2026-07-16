@@ -32,8 +32,8 @@ module.exports = {
       },
     },
     fontFamily: {
-      sans: ["var(--font-family-ui)", "Geist", "sans-serif"],
-      ui: ["var(--font-family-ui)", "Geist", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "system-ui", "sans-serif"],
+      sans: ["var(--font-family-ui)", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "system-ui", "sans-serif"],
+      ui: ["var(--font-family-ui)", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "system-ui", "sans-serif"],
       mono: ["var(--font-family-mono)", "var(--font-family-base)", "Inconsolata", "monospace"],
     },
     fontSize: {

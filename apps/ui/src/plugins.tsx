@@ -42,7 +42,7 @@ import { AnyExtension } from "@tiptap/core";
 import { historyAdapterRegistry } from "@/core/history/adapterRegistry";
 import { parseMarkdown } from "@/core/editors/voiden/markdownConverter";
 import { useVoidenEditorStore, useEditorStore } from "@/core/editors/voiden/VoidenEditor";
-import { proseClasses } from "@/core/editors/voiden/VoidenEditor";
+import { proseClasses, previewProseClasses } from "@/core/editors/voiden/VoidenEditor";
 import { useCodeEditorStore } from "@/core/editors/code/CodeEditorStore";
 import { usePanelStore } from "@/core/stores/panelStore";
 import { requestOrchestrator } from "@/core/request-engine/requestOrchestrator";
@@ -568,7 +568,7 @@ if (typeof window !== 'undefined') {
     // @/core/* — host app internals exposed for OTA-loaded plugin bundles
     "@/core/file-system/hooks/useFileSystem": { prosemirrorToMarkdown },
     "@/core/editors/voiden/extensions": { voidenExtensions: coreVoidenExtensions, registerCustomVariableHighlighter },
-    "@/core/editors/voiden/VoidenEditor": { useEditorStore, useVoidenEditorStore, proseClasses },
+    "@/core/editors/voiden/VoidenEditor": { useEditorStore, useVoidenEditorStore, proseClasses, previewProseClasses },
     "@/core/editors/voiden/utils/expandLinkedBlocks": { expandLinkedBlocksInDoc },
     "@/core/editors/voiden/markdownConverter": { parseMarkdown },
     "@/core/request-engine/getRequestFromJson": { getTable, parseAuthNode, buildHeadersWithCookies, findNode, findNodes, createNewRequestObject, getRequest },
@@ -991,6 +991,17 @@ export const createPlugin = (
           classes = proseClasses;
         } else {
           classes = String(proseClasses);
+        }
+        return classes;
+      },
+      getPreviewProseClasses: () => {
+        let classes: string;
+        if (Array.isArray(previewProseClasses)) {
+          classes = previewProseClasses.join(" ");
+        } else if (typeof previewProseClasses === 'string') {
+          classes = previewProseClasses;
+        } else {
+          classes = String(previewProseClasses);
         }
         return classes;
       },

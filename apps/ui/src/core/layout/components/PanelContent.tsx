@@ -14,7 +14,8 @@ import ChangeLogScreen from "@/core/screens/ChangeLogScreen";
 import { LogsPanel } from "@/core/request-engine/components/LogsPanel";
 import { useCodeEditorStore } from "@/core/editors/code/CodeEditorStore";
 import { useEditorStore } from "@/core/editors/voiden/VoidenEditor";
-import { Settings, Menu, Play, PlayCircle } from "lucide-react";
+import { Settings, Menu, Play, PlayCircle, Folder, ChevronRight } from "lucide-react";
+import { useGetAppState } from "@/core/state/hooks";
 import { useSendRequest } from "@/core/request-engine";
 import { useVoidenEditorStore } from "@/core/editors/voiden/VoidenEditor";
 import { Kbd } from "@/core/components/ui/kbd";
@@ -309,7 +310,7 @@ const EmptyPanel = () => {
 
   return (
     <div ref={containerRef} className="flex items-center justify-center h-full w-full text-comment overflow-auto">
-      <div className="w-full max-w-md p-4 sm:p-6">
+      <div className="w-full flex flex-col items-center max-w-md p-4 sm:p-6">
         {/* Logo - Always visible */}
         <div className="mb-4 sm:mb-8 text-center">
           <h1 className="text-2xl font-light mb-2 w-full flex items-center justify-center">
@@ -319,7 +320,7 @@ const EmptyPanel = () => {
 
         {/* Shortcuts - Progressive rendering based on height */}
         {showPriority1 && (
-          <div className="space-y-2 sm:space-y-3">
+          <div className="space-y-1.5 w-80">
             {/* Priority 1 shortcuts */}
             {shortcuts
               .filter((item) => item.priority === 1)
@@ -359,12 +360,14 @@ const EmptyPanel = () => {
         )}
 
         {/* Customization Section */}
-        {showCustomization && (
+        {/* {showCustomization && (
           <div className="mt-4 sm:mt-6 border border-border rounded-lg p-3 sm:p-4 bg-bg/30">
             <div className="flex items-start gap-3">
-              <Settings className="w-4 h-4 text-accent flex-shrink-0 mt-0.5" />
               <div className="flex-1">
-                <h3 className="font-semibold text-sm mb-2">Customize Your Experience</h3>
+                <div className="flex items-center gap-2 mb-2">
+                  <Settings className="w-4 h-4 text-accent flex-shrink-0 mt-0.5" />
+                  <h3 className="font-semibold text-sm m-0">Customize Your Experience</h3>
+                </div>
                 <p className="text-comment text-xs mb-3">
                   Adjust font size, choose your preferred theme, and personalize your workspace.
                   <button
@@ -391,7 +394,7 @@ const EmptyPanel = () => {
               </div>
             </div>
           </div>
-        )}
+        )} */}
       </div>
     </div>
   );
@@ -408,6 +411,7 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
   const activeEditor = useCodeEditorStore((state) => state.activeEditor);
   const streamSnapshots = useCodeEditorStore((state) => state.streamSnapshots);
   const isSearchOpen = useSearchStore((s) => s.isOpen);
+  const { data: appState } = useGetAppState();
 
   // Markdown split view: keep the raw-source pane and the rendered-preview pane
   // scrolled to the same relative position in either direction.
@@ -438,11 +442,11 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
     });
   }, [tabContentError, tabs?.activeTabId, panelId, closePanelTab]);
 
- 
+
   const activeTabId = tabContent?.tabId;
   useEditorStore((state) => activeTabId ? state.unsaved[activeTabId] : undefined);
 
-  
+
   useLayoutEffect(() => {
     if (!activeTabId) return;
     const scrollContainer = document.getElementById("code-editor-container");
@@ -505,7 +509,7 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
     });
   }, [tabs?.tabs]);
 
-  
+
   const mdPreviewHelpers = getMdPreviewHelpers();
 
   let viewMode = "edit";
@@ -622,7 +626,7 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
   if (activeDocTabContent && !visibleDocumentTabIds.includes(activeDocTabContent.tabId)) {
     visibleDocumentTabIds.push(activeDocTabContent.tabId);
   }
- 
+
   const liveContentForPredicate = (() => {
     if (!activeDocTabContent) return null;
     const { tabId, title } = activeDocTabContent;
@@ -642,6 +646,22 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
     ? editorActions.filter((action) => !action.predicate || action.predicate(tabDataForPredicate))
     : [];
 
+  // Active file's path relative to the open project root, VS Code
+  // breadcrumb-style — null when there's no project root open, no source
+  // path, or the file lives outside the root (nothing sensible to show).
+  const breadcrumb = (() => {
+    const projectRoot = appState?.activeDirectory;
+    const source = activeDocTabContent?.source;
+    if (!projectRoot || !source) return null;
+    const normalize = (p: string) => p.replace(/\\/g, "/").replace(/\/+$/, "");
+    const root = normalize(projectRoot);
+    const normalizedSource = normalize(source);
+    if (!normalizedSource.startsWith(root + "/")) return null;
+    const projectName = root.split("/").filter(Boolean).pop() ?? root;
+    const segments = normalizedSource.slice(root.length + 1).split("/").filter(Boolean);
+    return { projectName, segments };
+  })();
+
   const isShFile = !!(activeDocTabContent?.title.endsWith(".sh") && activeDocTabContent.source);
   const isVoidFile = !!(activeDocTabContent?.title.endsWith(".void") || activeDocTabContent?.source?.endsWith(".void"));
   const hasActions = isShFile || isVoidFile || actionsToDisplay.length > 0;
@@ -649,6 +669,18 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
 
   const cachedEditorsBlock = visibleDocumentTabIds.length > 0 && (
     <div className="h-full flex flex-col" style={{ display: isDocumentActive ? "flex" : "none" }}>
+      {breadcrumb && (
+        <div className="flex-shrink-0 flex items-center justify-start gap-1 px-2 py-1 border-b border-border text-comment text-xs min-w-0 overflow-hidden">
+          <Folder size={12} className="flex-shrink-0 opacity-70" />
+          <span className="truncate">{breadcrumb.projectName}</span>
+          {breadcrumb.segments.map((segment, i) => (
+            <span key={i} className="flex items-center gap-1 min-w-0 last:text-text">
+              <ChevronRight size={10} className="flex-shrink-0 opacity-50" />
+              <span className="truncate">{segment}</span>
+            </span>
+          ))}
+        </div>
+      )}
       {showToolbar && <div className="flex-shrink-0 flex flex-col w-full z-10 relative">
         {hasActions && <div className="flex items-center justify-end gap-2 px-2 py-0.5 min-h-7">
           {isShFile && (
@@ -675,7 +707,7 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
         )}
       </div>}
       <div className="flex-1 bg-editor relative" id="code-editor-container" data-editor-scroll-container="true">
-{(() => {
+        {(() => {
           const editorBlock = visibleDocumentTabIds.map((docTabId: string) => {
             const docTab = visibleDocumentTabs[docTabId];
             const isTabActive = docTab.tabId === panelActiveTabId;
@@ -740,13 +772,27 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
             return (
               <ResizablePanelGroup direction="horizontal" className="h-full w-full">
                 <ResizablePanel defaultSize={50} minSize={20} className="h-full overflow-hidden">
-                  <div ref={mdEditorPaneRef} className="h-full w-full">{editorBlock}</div>
+                  <div ref={mdEditorPaneRef} className="h-full w-full px-2 py-2">{editorBlock}</div>
                 </ResizablePanel>
-                <ResizableHandle withHandle />
+                <ResizableHandle className="bg-panel hover:bg-panel" />
                 <ResizablePanel defaultSize={50} minSize={20} className="h-full overflow-hidden">
-                  <div ref={mdPreviewPaneRef} className="h-full w-full">{previewBlock}</div>
+                  <div ref={mdPreviewPaneRef} className="h-full w-full px-4 py-2">{previewBlock}</div>
                 </ResizablePanel>
               </ResizablePanelGroup>
+            );
+          }
+
+          if (isMarkdownTab && viewMode === "preview") {
+            return (
+              <div className="h-full w-full relative">
+                <div className="h-full w-full px-4 py-2 overflow-hidden">{previewBlock}</div>
+                {/* Editor stays mounted (just hidden) so CodeMirror keeps its
+                    undo history/cursor/scroll position when switching back to
+                    "Markdown" or "Both" — unmounting would lose that state. */}
+                <div className="absolute inset-0" style={{ visibility: "hidden", pointerEvents: "none" }}>
+                  {editorBlock}
+                </div>
+              </div>
             );
           }
 

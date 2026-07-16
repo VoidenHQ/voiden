@@ -1,17 +1,9 @@
-import { useSettings, ProxyConfig } from "@/core/settings/hooks/useSettings";
+import { useSettings, ProxyConfig, SYSTEM_DEFAULT_FONT, VALID_FONT_FAMILIES } from "@/core/settings/hooks/useSettings";
 import { Check, RefreshCw, Plus, Trash2, Edit2, Palette, FileText, Network, Search, Keyboard, ChevronUp, ChevronDown, Settings, Plug, Code2, Sparkles, Download, Copy, RotateCcw } from "lucide-react";
 import { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import { usePluginStore, type PluginSettingsSection } from "@/plugins";
 import { loadThemeById, getAvailableThemes } from "@/utils/themeLoader";
 import { Kbd } from "@/core/components/ui/kbd";
-
-// Validation constants (should match useSettings.ts)
-const VALID_FONT_FAMILIES = [
-  "Inconsolata",
-  "Geist Mono",
-  "JetBrains Mono",
-  "Fira Code"
-];
 
 const FONT_SIZE_MIN = 10;
 const FONT_SIZE_MAX = 20;

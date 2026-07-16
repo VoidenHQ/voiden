@@ -108,12 +108,11 @@ const defaultSettingsQuietlight: CreateThemeOptions["settings"] = {
 };
 
 export const quietlightStyle: CreateThemeOptions["styles"] = [
-  { tag: t.emphasis, backgroundColor: "#44403c" },
   { tag: t.keyword, color: config.keyword },
   { tag: [t.name, t.deleted, t.character, t.macroName], color: config.variable },
   { tag: [t.propertyName], color: config.function },
   {
-    tag: [t.processingInstruction, t.string, t.inserted, t.special(t.string)],
+    tag: [t.string, t.inserted, t.special(t.string)],
     color: config.string,
   },
   { tag: [t.function(t.variableName), t.labelName], color: config.function },
@@ -133,12 +132,17 @@ export const quietlightStyle: CreateThemeOptions["styles"] = [
   { tag: [t.meta, t.comment], color: config.comment },
   { tag: t.tagName, color: config.tag },
   { tag: t.strong, fontWeight: "bold" },
-  { tag: t.emphasis, fontStyle: "italic" },
+  { tag: t.emphasis, fontStyle: "italic", color: config.type },
   { tag: t.link, textDecoration: "underline" },
   { tag: t.heading, fontWeight: "bold", color: config.heading },
   { tag: [t.atom, t.bool, t.special(t.variableName)], color: config.variable },
   { tag: t.invalid, color: config.invalid },
   { tag: t.strikethrough, textDecoration: "line-through" },
+  // Markdown-specific: backtick delimiters (CodeMark) and inline-code content
+  // (CodeText) — colored like a "keyword" pink so `code spans` and fenced
+  // code fences pop the same way they do in Cursor/VS Code's markdown view.
+  { tag: t.processingInstruction, color: config.keyword },
+  { tag: t.monospace, color: config.keyword },
 ];
 
 const quietlightInit = (options?: Partial<CreateThemeOptions>) => {
@@ -506,6 +510,44 @@ const getLintExtensions = (ext: string | undefined) => {
   return [];
 };
 
+// Fence-info -> embedded language, so ```sql / ```js / etc. blocks inside a
+// markdown file get real syntax highlighting instead of flat monospace text.
+// Reuses the same language packages already loaded for standalone files
+// (rather than pulling in @codemirror/language-data) so the .md highlighting
+// stays consistent with how those languages render in their own file type.
+const EMBEDDED_MD_LANGUAGES: Record<string, () => ReturnType<typeof javascript>["language"]> = {
+  js: () => javascript({ jsx: true }).language,
+  javascript: () => javascript({ jsx: true }).language,
+  jsx: () => javascript({ jsx: true }).language,
+  ts: () => javascript({ jsx: true, typescript: true }).language,
+  typescript: () => javascript({ jsx: true, typescript: true }).language,
+  tsx: () => javascript({ jsx: true, typescript: true }).language,
+  json: () => json().language,
+  html: () => html().language,
+  css: () => css().language,
+  py: () => python().language,
+  python: () => python().language,
+  java: () => java().language,
+  c: () => cpp().language,
+  cpp: () => cpp().language,
+  cc: () => cpp().language,
+  cxx: () => cpp().language,
+  rs: () => rust().language,
+  rust: () => rust().language,
+  sql: () => sql().language,
+  xml: () => xml().language,
+  yml: () => yaml().language,
+  yaml: () => yaml().language,
+  sh: () => langs.shell().language,
+  bash: () => langs.shell().language,
+  shell: () => langs.shell().language,
+};
+
+const markdownCodeLanguages = (info: string) => {
+  const key = info.trim().split(/\s+/)[0]?.toLowerCase();
+  return key ? EMBEDDED_MD_LANGUAGES[key]?.() ?? null : null;
+};
+
 const getLanguageExtension = (filename: string) => {
   const ext = filename?.split(".").pop()?.toLowerCase() || "";
   switch (ext) {
@@ -524,7 +566,7 @@ const getLanguageExtension = (filename: string) => {
       return css();
     case "md":
     case "markdown":
-      return markdown({ base: markdownLanguage });
+      return markdown({ base: markdownLanguage, codeLanguages: markdownCodeLanguages });
     case "py":
       return python();
     case "java":
@@ -1009,6 +1051,14 @@ export const CodeEditor = memo(({ tabId, content, source, panelId, isActive = tr
 
     const baseExtensions = [
       ...languageExtension,
+      // Real wrapping extension (not just CSS): tells CodeMirror's own
+      // layout/measurement/scrollIntoView logic that lines wrap, so the
+      // cursor's horizontal position is computed against the actual wrapped
+      // layout from the first render. Without this, CodeMirror still
+      // *assumes* unwrapped lines until its next measure pass notices the
+      // computed white-space is wrapping — which is what caused the visible
+      // "scrolls right, then snaps to the new line" glitch while typing.
+      EditorView.lineWrapping,
       lintCompartment.of(initialLint),
       search({ top: true, createPanel: () => ({ dom: document.createElement("div") }) }),
       Prec.highest(keymap.of([
