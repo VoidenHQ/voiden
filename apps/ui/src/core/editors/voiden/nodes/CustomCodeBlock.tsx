@@ -28,8 +28,6 @@ const CodeBlockView = (props: NodeViewProps) => {
           title="CODE BLOCK"
           withBorder={false}
           editor={editor}
-          blockType={node.type.name}
-          blockAttributes={node.attrs}
         />
         <div className="px-2 flex items-center justify-end border-b !border-solid !border-[rgba(0,0,0,0.2)] bg-panel">
           <select

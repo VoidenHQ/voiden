@@ -41,8 +41,6 @@ const createNodeView =
           title={title}
           editor={editor}
           importedDocumentId={node.attrs.importedFrom}
-          blockType={node.type.name}
-          blockAttributes={node.attrs}
         />
 
         <NodeViewContent className={`w-full max-w-full`} style={{

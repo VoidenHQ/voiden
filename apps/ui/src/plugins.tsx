@@ -519,7 +519,7 @@ export interface BlockOutlineMeta {
   skip?: boolean;
   /**
    * URL to the canonical documentation page for this block type.
-   * When set, a small external-link icon is shown in the block header.
+   * When set, an "Open Documentation" item is shown in the block's right-click menu.
    * Clicking it opens the URL in the system browser.
    */
   docsUrl?: string | ((attrs: Record<string, any>) => string | undefined);
@@ -531,10 +531,25 @@ const coreBlockOutlineMeta: Record<string, BlockOutlineMeta> = {
     icon: "Code",
     docsUrl: "https://docs.voiden.md/docs/core-features-section/voiden-blocks/voiden-basic-blocks",
   },
+  heading: {
+    label: "Heading",
+    icon: "Heading",
+    docsUrl: "https://docs.voiden.md/docs/core-features-section/voiden-blocks/voiden-basic-blocks",
+  },
+  paragraph: {
+    label: "Paragraph",
+    icon: "Pilcrow",
+    docsUrl: "https://docs.voiden.md/docs/core-features-section/voiden-blocks/voiden-basic-blocks",
+  },
+  blockquote: {
+    label: "Quote",
+    icon: "Quote",
+    docsUrl: "https://docs.voiden.md/docs/core-features-section/voiden-blocks/voiden-basic-blocks",
+  },
   "runtime-variables": {
     label: "Runtime Variables",
     icon: "Variable",
-    docsUrl: "https://docs.voiden.md/docs/core-features-section/voiden-blocks/runtime-block",
+    docsUrl: "https://docs.voiden.md/docs/core-features-section/variables/runtime-variables",
   },
 };
 
