@@ -87,19 +87,10 @@ function matchAll(s, r) {
   return matches;
 }
 
-function getVar(env, pre, key, braced) {
+function getVar(env, pre, key) {
   var r = typeof env === "function" ? env(key) : env[key];
   if (typeof r === "undefined" && key != "") {
-    // @custom start
-    // Preserve the original $VAR / ${VAR} syntax instead of silently
-    // stripping it to an empty string. Voiden's curl importer always calls
-    // parse() with no env map (env=undefined -> {} here), since it's
-    // importing a pasted command, not executing it in a real shell. Blanking
-    // out unresolved shell variables (e.g. $AMBER_ADMIN_URL) distorts the
-    // resulting URL/header/body instead of preserving the reference for the
-    // user to see and map to a Voiden environment variable afterwards.
-    r = braced ? "${" + key + "}" : "$" + key;
-    // @custom end
+    r = "";
   } else if (typeof r === "undefined") {
     r = "$";
   }
@@ -173,11 +164,9 @@ function parseInternal(string, env, opts) {
         i += 1;
         var varend;
         var varname;
-        var braced = false;
         var char = s.charAt(i);
 
         if (char === "{") {
-          braced = true;
           i += 1;
           if (s.charAt(i) === "}") {
             throw new Error("Bad substitution: " + s.slice(i - 2, i + 1));
@@ -202,7 +191,7 @@ function parseInternal(string, env, opts) {
             i += varend.index - 1;
           }
         }
-        return getVar(env, "", varname, braced);
+        return getVar(env, "", varname);
       }
 
       for (i = 0; i < s.length; i++) {
