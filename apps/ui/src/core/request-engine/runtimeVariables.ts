@@ -353,7 +353,7 @@ function replaceProcessVariables(text: string, variables: Record<string, any>, p
             return value; // Return actual value (can be object, array, string, etc.)
         } else {
             console.warn(`Process variable not found: ${variablePath}`);
-            return null;
+            return text; // Preserve the original expression so the unresolved-variable gate can catch it
         }
     }
 
@@ -368,9 +368,9 @@ function replaceProcessVariables(text: string, variables: Record<string, any>, p
             // Convert to string for replacement
             return (typeof value === 'object' && !value?.isLosslessNumber) ? stringifyJsonSafe(value) : String(value);
         } else {
-            // If variable not found, keep the original expression or replace with empty string
+            // Variable not found - keep the original expression so the unresolved-variable gate can catch it
             console.warn(`Process variable not found: ${trimmedPath}`);
-            return ''; // or return match to keep the original expression
+            return match;
         }
     });
 }

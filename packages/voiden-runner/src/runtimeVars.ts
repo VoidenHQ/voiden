@@ -262,11 +262,11 @@ const PROCESS_RE = /\{\{\s*process\.([^}]+)\s*\}\}/g
 
 function procReplace(text: string, vars: Record<string, any>): string {
   if (!text || typeof text !== 'string') return text
-  return text.replace(PROCESS_RE, (_, path) => {
+  return text.replace(PROCESS_RE, (match, path) => {
     const v = byPath(vars, path.trim())
     return v !== undefined && v !== null
       ? (typeof v === 'object' ? JSON.stringify(v) : String(v))
-      : ''
+      : match
   })
 }
 
@@ -275,7 +275,7 @@ function procReplacePreserve(text: string, vars: Record<string, any>): any {
   const single = text.trim().match(/^\{\{\s*process\.([^}]+)\s*\}\}$/)
   if (single) {
     const v = byPath(vars, single[1].trim())
-    return v !== undefined && v !== null ? v : ''
+    return v !== undefined && v !== null ? v : text
   }
   return procReplace(text, vars)
 }
