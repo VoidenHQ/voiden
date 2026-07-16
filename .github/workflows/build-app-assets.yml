@@ -7,9 +7,9 @@
 # going through "Release Voiden App" (release-app.yml), which publishes to S3
 # and cuts a real versioned release.
 #
-# Trigger: manual (workflow_dispatch) — each platform is an independent
-# checkbox, so you can build just one OS (e.g. Windows-only while iterating
-# on signing) instead of all four every time.
+# Trigger: manual (workflow_dispatch) — each platform/arch is an independent
+# checkbox, so you can build just one (e.g. Windows-only while iterating
+# on signing) instead of all five every time.
 #
 # Required repository secrets:
 #   APPLE_CERTIFICATE           — base64-encoded .p12 developer certificate
@@ -30,8 +30,13 @@ name: Build Voiden Assets
 on:
   workflow_dispatch:
     inputs:
-      macos:
-        description: 'macOS (Silicon arm64 + Intel x64)'
+      macos_arm64:
+        description: 'macOS Silicon (arm64)'
+        required: true
+        type: boolean
+        default: true
+      macos_intel:
+        description: 'macOS Intel (x64)'
         required: true
         type: boolean
         default: true
@@ -56,7 +61,7 @@ env:
 jobs:
   # ── Select platforms ──────────────────────────────────────────────────────────
   # workflow_dispatch has no native multi-select input, so platform choice is
-  # modeled as three independent boolean checkboxes, filtered here into the
+  # modeled as independent boolean checkboxes, filtered here into the
   # actual matrix the build job consumes.
   setup-matrix:
     name: Select platforms
@@ -67,7 +72,8 @@ jobs:
       - name: Filter platform matrix
         id: filter
         env:
-          BUILD_MACOS: ${{ inputs.macos }}
+          BUILD_MACOS_ARM64: ${{ inputs.macos_arm64 }}
+          BUILD_MACOS_INTEL: ${{ inputs.macos_intel }}
           BUILD_WINDOWS: ${{ inputs.windows }}
           BUILD_LINUX: ${{ inputs.linux }}
         run: |
@@ -78,8 +84,10 @@ jobs:
               // pool (macos-13 is retired; Intel 'large' runners require a paid
               // Team/Enterprise plan). Packaging, codesigning, and notarization
               // don't need native x64 hardware to run.
-              macos: [
+              macos_arm64: [
                 { label: 'macOS Silicon (arm64)', os: 'macos-latest', arch_flag: '', artifact_name: 'darwin-arm64' },
+              ],
+              macos_intel: [
                 { label: 'macOS Intel (x64)', os: 'macos-latest', arch_flag: '--arch=x64', artifact_name: 'darwin-x64' },
               ],
               // Pinned to windows-2022 (not windows-latest) — that image bundles
@@ -94,7 +102,8 @@ jobs:
               ],
             };
             const enabled = {
-              macos: process.env.BUILD_MACOS === 'true',
+              macos_arm64: process.env.BUILD_MACOS_ARM64 === 'true',
+              macos_intel: process.env.BUILD_MACOS_INTEL === 'true',
               windows: process.env.BUILD_WINDOWS === 'true',
               linux: process.env.BUILD_LINUX === 'true',
             };
