@@ -3,7 +3,7 @@
   "name": "Cursor Dark",
   "type": "dark",
   "colors": {
-    "--bg-primary": "#14120B",
+    "--bg-primary": "#181818",
     "--bg-surface": "#0d0d0d",
     "--bg-secondary": "#141414",
     "--fg-primary": "#D4D4D4",

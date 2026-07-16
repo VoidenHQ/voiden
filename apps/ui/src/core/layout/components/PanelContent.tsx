@@ -5,7 +5,7 @@ import { CodeEditor } from "@/core/editors/code/CodeEditor";
 import { ExtensionDetails } from "@/core/extensions/components/ExtensionDetails";
 import { VoidenEditor } from "@/core/editors/voiden/VoidenEditor";
 import { SettingsContent } from "@/core/settings/components/SettingsContent";
-import { usePluginStore } from "@/plugins";
+import { usePluginStore, useEditorEnhancementStore } from "@/plugins";
 import { TerminalManager } from "@/core/terminal/components/TerminalManager";
 import WelcomeScreen from "@/core/screens/WelcomeScreen";
 import SettingsScreen from "@/core/screens/SettingsScreen";
@@ -30,6 +30,13 @@ import { useSettings } from "@/core/settings/hooks";
 import { PersistentSearchPanel } from "./PersistentSearchPanel";
 import { useSearchStore } from "@/core/stores/searchParamsStore";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/core/components/ui/resizable";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
+import { getFileIcon } from "@/core/file-system/components/FileSystemList/fileIcon";
+import type { FileTree } from "@/types";
+import { getSchema } from "@tiptap/core";
+import { voidenExtensions } from "@/core/editors/voiden/extensions";
+import { prosemirrorToMarkdown } from "@/core/file-system/hooks";
+import { confirmAndSaveTab } from "@/core/stores/unsavedChangesDialogStore";
 
 // Extensions that cannot be displayed as text — show a "not supported" message
 const BINARY_EXTENSIONS = new Set([
@@ -136,6 +143,92 @@ const RunScriptButton = ({ source }: { source: string }) => {
     </Tip>
   );
 };
+
+// Lists a folder's contents inside a breadcrumb dropdown, lazily fetched on open.
+// Subfolders nest as submenus so the whole tree below the clicked segment is browsable.
+const BreadcrumbFolderEntries = ({ folderPath, onOpenFile }: { folderPath: string; onOpenFile: (entry: FileTree) => void }) => {
+  const [entries, setEntries] = useState<FileTree[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setEntries(null);
+    window.electron?.files.expandDir(folderPath).then((children) => {
+      if (!cancelled) setEntries(children ?? []);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [folderPath]);
+
+  if (entries === null) {
+    return <div className="px-2 py-1.5 text-xs text-comment">Loading…</div>;
+  }
+  if (entries.length === 0) {
+    return <div className="px-2 py-1.5 text-xs text-comment">Empty folder</div>;
+  }
+
+  return (
+    <>
+      {entries.map((entry) =>
+        entry.type === "folder" ? (
+          <DropdownMenu.Sub key={entry.path}>
+            <DropdownMenu.SubTrigger className="flex items-center gap-2 px-2 py-1.5 text-xs text-text rounded-sm outline-none cursor-default data-[state=open]:bg-hover hover:bg-hover">
+              <Folder size={14} className="flex-shrink-0 opacity-70" />
+              <span className="truncate flex-1">{entry.name}</span>
+              <ChevronRight size={12} className="flex-shrink-0 opacity-50" />
+            </DropdownMenu.SubTrigger>
+            <DropdownMenu.Portal>
+              <DropdownMenu.SubContent
+                sideOffset={2}
+                alignOffset={-4}
+                className="z-[9999] min-w-[180px] max-h-72 overflow-y-auto bg-editor border border-border rounded-md shadow-lg p-1"
+              >
+                <BreadcrumbFolderEntries folderPath={entry.path} onOpenFile={onOpenFile} />
+              </DropdownMenu.SubContent>
+            </DropdownMenu.Portal>
+          </DropdownMenu.Sub>
+        ) : (
+          <DropdownMenu.Item
+            key={entry.path}
+            className="flex items-center gap-2 px-2 py-1.5 text-xs text-text rounded-sm outline-none cursor-default hover:bg-hover"
+            onSelect={() => onOpenFile(entry)}
+          >
+            {getFileIcon(entry.name, entry.path)}
+            <span className="truncate">{entry.name}</span>
+          </DropdownMenu.Item>
+        ),
+      )}
+    </>
+  );
+};
+
+// Clickable breadcrumb segment — opens a dropdown browsing that folder's contents.
+const BreadcrumbSegment = ({
+  label,
+  folderPath,
+  onOpenFile,
+}: {
+  label: string;
+  folderPath: string;
+  onOpenFile: (entry: FileTree) => void;
+}) => (
+  <DropdownMenu.Root modal={false}>
+    <DropdownMenu.Trigger asChild>
+      <button className="truncate rounded-sm px-0.5 text-comment hover:bg-hover hover:text-text outline-none">
+        {label}
+      </button>
+    </DropdownMenu.Trigger>
+    <DropdownMenu.Portal>
+      <DropdownMenu.Content
+        align="start"
+        sideOffset={4}
+        className="z-[9999] min-w-[180px] max-h-72 overflow-y-auto bg-editor border border-border rounded-md shadow-lg p-1"
+      >
+        <BreadcrumbFolderEntries folderPath={folderPath} onOpenFile={onOpenFile} />
+      </DropdownMenu.Content>
+    </DropdownMenu.Portal>
+  </DropdownMenu.Root>
+);
 
 // "Run All" button — only visible when document has multiple request sections
 const RunAllButton = () => {
@@ -412,6 +505,7 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
   const streamSnapshots = useCodeEditorStore((state) => state.streamSnapshots);
   const isSearchOpen = useSearchStore((s) => s.isOpen);
   const { data: appState } = useGetAppState();
+  const { mutate: activateTab } = useActivateTab();
 
   // Markdown split view: keep the raw-source pane and the rendered-preview pane
   // scrolled to the same relative position in either direction.
@@ -659,8 +753,46 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
     if (!normalizedSource.startsWith(root + "/")) return null;
     const projectName = root.split("/").filter(Boolean).pop() ?? root;
     const segments = normalizedSource.slice(root.length + 1).split("/").filter(Boolean);
-    return { projectName, segments };
+    return { projectName, segments, root };
   })();
+
+  const openBreadcrumbEntry = async (entry: FileTree) => {
+    if (entry.type !== "file") return;
+
+    const pendingTabsEnabled = settings?.editor?.pending_tabs ?? false;
+    if (pendingTabsEnabled) {
+      const existingPendingTab = tabs?.tabs?.find((t: any) => t.pending);
+      if (existingPendingTab && existingPendingTab.source !== entry.path) {
+        const unsavedContent = useEditorStore.getState().unsaved[existingPendingTab.id];
+        if (unsavedContent) {
+          let contentToSave = unsavedContent;
+          if (existingPendingTab.source && existingPendingTab.source.endsWith(".void")) {
+            const schema = getSchema([...voidenExtensions, ...useEditorEnhancementStore.getState().voidenExtensions]);
+            contentToSave = prosemirrorToMarkdown(unsavedContent, schema);
+          }
+          const proceed = await confirmAndSaveTab(existingPendingTab, existingPendingTab.id, contentToSave);
+          if (!proceed) return;
+        }
+      }
+    }
+
+    const newTab = {
+      id: crypto.randomUUID(),
+      type: "document" as const,
+      title: entry.name,
+      source: entry.path,
+      directory: null,
+      pending: pendingTabsEnabled ? true : undefined,
+    };
+    try {
+      const { tabId = null } = (await window.electron?.state.addPanelTab(panelId, newTab)) ?? {};
+      if (tabId) {
+        activateTab({ panelId, tabId });
+      }
+    } catch {
+      // ignore
+    }
+  };
 
   const isShFile = !!(activeDocTabContent?.title.endsWith(".sh") && activeDocTabContent.source);
   const isVoidFile = !!(activeDocTabContent?.title.endsWith(".void") || activeDocTabContent?.source?.endsWith(".void"));
@@ -672,13 +804,21 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
       {breadcrumb && (
         <div className="flex-shrink-0 flex items-center justify-start gap-1 px-2 py-1 border-b border-border text-comment text-xs min-w-0 overflow-hidden">
           <Folder size={12} className="flex-shrink-0 opacity-70" />
-          <span className="truncate">{breadcrumb.projectName}</span>
-          {breadcrumb.segments.map((segment, i) => (
-            <span key={i} className="flex items-center gap-1 min-w-0 last:text-text">
-              <ChevronRight size={10} className="flex-shrink-0 opacity-50" />
-              <span className="truncate">{segment}</span>
-            </span>
-          ))}
+          <BreadcrumbSegment label={breadcrumb.projectName} folderPath={breadcrumb.root} onOpenFile={openBreadcrumbEntry} />
+          {breadcrumb.segments.map((segment, i) => {
+            const isLastSegment = i === breadcrumb.segments.length - 1;
+            const segmentPath = [breadcrumb.root, ...breadcrumb.segments.slice(0, i + 1)].join("/");
+            return (
+              <span key={i} className="flex items-center gap-1 min-w-0 last:text-text">
+                <ChevronRight size={10} className="flex-shrink-0 opacity-50" />
+                {isLastSegment ? (
+                  <span className="truncate">{segment}</span>
+                ) : (
+                  <BreadcrumbSegment label={segment} folderPath={segmentPath} onOpenFile={openBreadcrumbEntry} />
+                )}
+              </span>
+            );
+          })}
         </div>
       )}
       {showToolbar && <div className="flex-shrink-0 flex flex-col w-full z-10 relative">
