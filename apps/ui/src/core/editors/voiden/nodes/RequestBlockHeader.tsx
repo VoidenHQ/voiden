@@ -76,11 +76,12 @@ export const RequestBlockHeader = ({
                 <Tooltip.Content
                   side="bottom"
                   align="end"
-                  className="z-50 max-w-xs rounded-md border p-3 shadow-lg text-sm"
+                  className="z-50 max-w-xs rounded-md border p-3 shadow-lg text-sm overflow-y-auto"
                   style={{
-                    backgroundColor: 'var(--bg-panel, #1e1e1e)',
+                    backgroundColor: 'var(--ui-panel-bg)',
                     borderColor: 'var(--ui-line)',
-                    color: 'var(--text)',
+                    color: 'var(--editor-fg)',
+                    maxHeight: '50vh',
                   }}
                   onPointerDownOutside={() => setHelpOpen(false)}
                 >
