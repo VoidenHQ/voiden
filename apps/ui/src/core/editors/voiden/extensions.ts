@@ -91,11 +91,15 @@ const DisableMarkdownInTables = Extension.create({
     return {
       // Every keystroke inside these blocks is manually inserted by the input
       // rule above, which makes tiptap's core Keymap extension treat each one
-      // as an "undoable" input rule. Its default Backspace handling
-      // (undoInputRule) reacts by deleting that insertion and immediately
-      // re-inserting the same text, so the first Backspace after typing is a
-      // silent no-op and only the second press actually deletes a character.
-      // Do the backward delete ourselves so Backspace never reaches that path.
+      // as an "undoable" input rule. Backspace, Mod-Backspace and Alt-Backspace
+      // all share that same default handling (undoInputRule) which reacts by
+      // deleting that insertion and immediately re-inserting the same text, so
+      // the first press of any of them after typing is a silent no-op — the
+      // key event still gets preventDefault()'d, so the browser's native
+      // word/line delete never runs either. Only a second press, once the
+      // pending "undoable" state is gone, falls through far enough to fail
+      // and let native deletion apply. Do the backward delete ourselves for
+      // all three so none of them ever reach that path.
       Backspace: () => {
         const { state } = this.editor;
         const { $from, empty } = state.selection;
@@ -113,6 +117,37 @@ const DisableMarkdownInTables = Extension.create({
         }
 
         return this.editor.commands.deleteRange({ from: $from.pos - 1, to: $from.pos });
+      },
+
+      'Mod-Backspace': () => {
+        const { state } = this.editor;
+        const { $from, empty } = state.selection;
+
+        if (!empty || $from.parentOffset === 0 || !isInRestrictedInputContext($from)) {
+          return false;
+        }
+
+        return this.editor.commands.deleteRange({ from: $from.pos - $from.parentOffset, to: $from.pos });
+      },
+
+      'Alt-Backspace': () => {
+        const { state } = this.editor;
+        const { $from, empty } = state.selection;
+
+        if (!empty || $from.parentOffset === 0 || !isInRestrictedInputContext($from)) {
+          return false;
+        }
+
+        // leafText keeps atom nodes at 1 char so string index == doc position offset.
+        const textBefore = $from.parent.textBetween(0, $from.parentOffset, undefined, '\uFFFC');
+        let i = textBefore.length;
+        while (i > 0 && /\s/.test(textBefore[i - 1])) i--;
+        if (i > 0) {
+          const isWord = /\w/.test(textBefore[i - 1]);
+          while (i > 0 && /\w/.test(textBefore[i - 1]) === isWord && !/\s/.test(textBefore[i - 1])) i--;
+        }
+
+        return this.editor.commands.deleteRange({ from: $from.pos - $from.parentOffset + i, to: $from.pos });
       },
     };
   },
