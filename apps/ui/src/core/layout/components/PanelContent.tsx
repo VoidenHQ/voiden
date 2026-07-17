@@ -671,7 +671,17 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
       }
 
       let syncing = false;
-      const release = () => setTimeout(() => { syncing = false; }, 0);
+      // Release on the NEXT animation frame, not via setTimeout(0). Setting
+      // scrollTop here triggers a native 'scroll' event on the other pane that
+      // this flag is meant to swallow (so editor->preview sync doesn't bounce
+      // back into preview->editor sync and fight itself) — but that induced
+      // event is dispatched as part of this same frame's rendering update,
+      // while setTimeout(0) can fire and clear `syncing` before the browser
+      // gets around to dispatching it. When that race lost, the echo handler
+      // ran unguarded, read the just-adjusted scroll position, and snapped the
+      // origin pane to a slightly different (often earlier) line — visible as
+      // scrolling down and immediately jumping back up.
+      const release = () => requestAnimationFrame(() => { syncing = false; });
 
       // querySelectorAll("[data-line]") scans every rendered preview block, which
       // gets expensive on huge docs. Coalesce bursts of native scroll events (fired
