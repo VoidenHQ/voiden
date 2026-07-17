@@ -521,8 +521,13 @@ export interface BlockOutlineMeta {
    * URL to the canonical documentation page for this block type.
    * When set, an "Open Documentation" item is shown in the block's right-click menu.
    * Clicking it opens the URL in the system browser.
+   *
+   * The function form also receives the full node — needed when the deciding
+   * signal isn't on this node's own attrs but on a child's (e.g. a shared
+   * container node whose docs page depends on which optional child is
+   * present, like gRPC vs. plain WebSocket both using `socket-request`).
    */
-  docsUrl?: string | ((attrs: Record<string, any>) => string | undefined);
+  docsUrl?: string | ((attrs: Record<string, any>, node?: any) => string | undefined);
 }
 
 const coreBlockOutlineMeta: Record<string, BlockOutlineMeta> = {
@@ -561,11 +566,11 @@ export function getBlockOutlineMeta(nodeType: string): BlockOutlineMeta | undefi
 }
 
 /** Returns the docs URL registered for a given node type, if any. */
-export function getBlockDocsUrl(nodeType: string, attrs?: Record<string, any>): string | undefined {
+export function getBlockDocsUrl(nodeType: string, attrs?: Record<string, any>, node?: any): string | undefined {
   const meta = blockOutlineRegistry.get(nodeType);
   if (!meta) return undefined;
   if (typeof meta.docsUrl === "function") {
-    return meta.docsUrl(attrs || {});
+    return meta.docsUrl(attrs || {}, node);
   }
   return meta.docsUrl;
 }

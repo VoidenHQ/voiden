@@ -728,12 +728,30 @@ export const VoidenDragMenu = React.memo(({ editor }: { editor: Editor }) => {
   }, []);
 
   const resolveTopLevelNodeFromSelection = useCallback(() => {
-    const { state } = editor;
+    const { state, view } = editor;
     const { selection } = state;
 
-    const anchorPos = typeof (selection as any)?.$anchorCell?.pos === "number"
+    let anchorPos = typeof (selection as any)?.$anchorCell?.pos === "number"
       ? (selection as any).$anchorCell.pos
       : selection.from;
+
+    // Atom-node NodeViews (e.g. the embedded CodeMirror editors backing
+    // gqlbody/gqlvariables) own their DOM focus and selection — ProseMirror
+    // never sees keystrokes typed inside them, so state.selection stays
+    // stale at wherever it was before focus moved there. When that's the
+    // case, derive the position from the actual focused DOM node instead so
+    // this resolves to the block the user is really in, not a leftover one.
+    const active = document.activeElement;
+    if (active && active !== view.dom && view.dom.contains(active)) {
+      try {
+        const domPos = view.posAtDOM(active, 0);
+        if (typeof domPos === "number" && domPos >= 0) {
+          anchorPos = domPos;
+        }
+      } catch {
+        // Fall back to selection-based anchorPos
+      }
+    }
 
     let currentPos = 0;
     for (let i = 0; i < state.doc.childCount; i++) {
@@ -1033,7 +1051,7 @@ export const VoidenDragMenu = React.memo(({ editor }: { editor: Editor }) => {
     [pluginBlockTarget],
   );
   const docsUrl = useMemo(
-    () => getBlockDocsUrl(pluginBlockTarget.nodeType, currentNode?.attrs),
+    () => getBlockDocsUrl(pluginBlockTarget.nodeType, currentNode?.attrs, currentNode),
     [pluginBlockTarget.nodeType, currentNode],
   );
 

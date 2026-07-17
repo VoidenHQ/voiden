@@ -7,6 +7,24 @@ import { createTable } from "@tiptap/extension-table";
 import { EditorState, Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 
+// The row-toggle checkbox fills solid with the theme's --accent and needs a
+// checkmark color that reads against it — accent lightness varies wildly
+// per theme (e.g. cursor-dark's accent is a pale near-white gray), so a
+// hardcoded white stroke was unreadable there. Pick whichever of black/white
+// has the higher WCAG contrast ratio against the resolved accent color.
+const pickContrastingStrokeColor = (hex: string): string => {
+  const clean = hex.replace("#", "");
+  const full = clean.length === 3 ? clean.split("").map((c) => c + c).join("") : clean;
+  const r = parseInt(full.slice(0, 2), 16) / 255;
+  const g = parseInt(full.slice(2, 4), 16) / 255;
+  const b = parseInt(full.slice(4, 6), 16) / 255;
+  const lin = (c: number) => (c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
+  const luminance = 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+  const contrastWithWhite = 1.05 / (luminance + 0.05);
+  const contrastWithBlack = (luminance + 0.05) / 0.05;
+  return contrastWithBlack > contrastWithWhite ? "#111111" : "#ffffff";
+};
+
 const handleTableDelete = (editor: Editor) => {
   const { selection } = editor.state;
 
@@ -184,6 +202,13 @@ export const CustomTableRow = TableRow.extend({
           decorations(state) {
             const decorations: Decoration[] = [];
 
+            // Resolved once per rebuild, not per row — accent doesn't vary row to row.
+            const accentColor =
+              (typeof getComputedStyle === "function"
+                ? getComputedStyle(document.documentElement).getPropertyValue("--accent").trim()
+                : "") || "#3b82f6";
+            const checkStrokeColor = pickContrastingStrokeColor(accentColor);
+
             state.doc.nodesBetween(0, state.doc.content.size, (node, pos) => {
               if (node.type.name !== "tableRow") return;
 
@@ -206,10 +231,10 @@ export const CustomTableRow = TableRow.extend({
                     box.style.borderColor = "var(--ui-line,#555)";
                     box.style.backgroundColor = "transparent";
                   } else {
-                    box.style.borderColor = "var(--accent,#3b82f6)";
-                    box.style.backgroundColor = "var(--accent,#3b82f6)";
+                    box.style.borderColor = accentColor;
+                    box.style.backgroundColor = accentColor;
                     box.innerHTML =
-                      '<svg viewBox="0 0 10 8" fill="none" xmlns="http://www.w3.org/2000/svg" style="width:8px;height:8px;display:block"><path d="M1 4L3.5 6.5L9 1" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+                      `<svg viewBox="0 0 10 8" fill="none" xmlns="http://www.w3.org/2000/svg" style="width:8px;height:8px;display:block"><path d="M1 4L3.5 6.5L9 1" stroke="${checkStrokeColor}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
                   }
 
                   td.title = disabled ? "Enable row (⌘/)" : "Disable row (⌘/)";
