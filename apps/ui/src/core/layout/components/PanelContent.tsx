@@ -529,6 +529,11 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
   const mdEditorPaneRef = useRef<HTMLDivElement>(null);
   const mdPreviewPaneRef = useRef<HTMLDivElement>(null);
 
+  // Markdown split view: keep the raw-source pane and the rendered-preview pane
+  // scrolled to the same relative position in either direction.
+  const mdEditorPaneRef = useRef<HTMLDivElement>(null);
+  const mdPreviewPaneRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     if (!tabContentError) return;
     const err = tabContentError as Error;

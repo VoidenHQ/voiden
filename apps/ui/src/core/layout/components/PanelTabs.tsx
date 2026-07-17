@@ -78,6 +78,15 @@ const getTabDisplayTitle = (tab: Tab): string => {
   return tab.title;
 };
 
+const getTabDisplayTitle = (tab: Tab): string => {
+  if (tab.source?.replace(/\\/g, "/").endsWith("/.voiden-inherited.void")) {
+    const parts = tab.source.replace(/\\/g, "/").split("/");
+    const folderName = parts[parts.length - 2] ?? "inherited";
+    return `${folderName} — inherited`;
+  }
+  return tab.title;
+};
+
 const getTabIcon = (tab: Tab): JSX.Element => {
   // Special tab types
   if (tab.type === "settings") return <Settings size={14} />;
