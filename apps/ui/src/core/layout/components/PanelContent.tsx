@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useLayoutEffect, useRef } from "react";
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
 import { useGetPanelTabs, useGetTabContent, useAddPanelTab, useActivateTab, useClosePanelTab } from "@/core/layout/hooks";
 import { toast } from "@/core/components/ui/sonner";
 import { CodeEditor } from "@/core/editors/code/CodeEditor";
@@ -37,6 +37,11 @@ import { getSchema } from "@tiptap/core";
 import { voidenExtensions } from "@/core/editors/voiden/extensions";
 import { prosemirrorToMarkdown } from "@/core/file-system/hooks";
 import { confirmAndSaveTab } from "@/core/stores/unsavedChangesDialogStore";
+
+// Stable fallback so the `activeEditor` selector below can bail out to a
+// reference-equal value (see its useCallback) instead of a fresh object,
+// which would defeat the whole point of narrowing the subscription.
+const EMPTY_ACTIVE_EDITOR = { tabId: null, content: "", source: null, panelId: null, editor: null };
 
 // Extensions that cannot be displayed as text — show a "not supported" message
 const BINARY_EXTENSIONS = new Set([
@@ -501,7 +506,19 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
   const { mutate: closePanelTab } = useClosePanelTab();
   const editorActions = usePluginStore((state) => state.editorActions);
   const { settings } = useSettings();
-  const activeEditor = useCodeEditorStore((state) => state.activeEditor);
+  // `activeEditor` is a single global "last-typed-in editor" slot shared by the
+  // whole app — subscribing to it unnarrowed means every keystroke in ANY tab,
+  // in ANY panel, re-renders this panel too, even when its own tab is untouched
+  // (this is what made an unrelated tab's typing lag a panel showing a huge
+  // file). Only this panel's own active tab ever reads `activeEditor` below
+  // (always gated behind a `tabId` match), so bail out to a stable empty value
+  // whenever the update isn't for this panel's active tab.
+  const activeEditor = useCodeEditorStore(
+    useCallback(
+      (state) => (state.activeEditor.tabId === tabs?.activeTabId ? state.activeEditor : EMPTY_ACTIVE_EDITOR),
+      [tabs?.activeTabId],
+    ),
+  );
   const streamSnapshots = useCodeEditorStore((state) => state.streamSnapshots);
   const isSearchOpen = useSearchStore((s) => s.isOpen);
   const { data: appState } = useGetAppState();
@@ -616,11 +633,17 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
     }
   }
 
-  const getLiveContent = () => {
-    if (tabContent?.tabId === activeEditor.tabId && activeEditor.content) {
+  // Resolves the live (possibly-unsaved) content for a specific tab, rather than
+  // trusting the module-level `tabContent`/`activeEditor` — both can still refer
+  // to a previously active tab for a moment after switching (see
+  // `activeDocTabContent` below), which would otherwise leak stale content into
+  // the markdown preview under the correct tab's title.
+  const getLiveContent = (forTab: { tabId: string; content?: string } | null) => {
+    if (!forTab) return "";
+    if (forTab.tabId === activeEditor.tabId && activeEditor.content) {
       return activeEditor.content;
     }
-    return tabContent?.content || "";
+    return forTab.content || "";
   };
 
   const isMarkdownSplitActive = !!(tabContent?.title?.endsWith(".md") && viewMode === "split" && mdPreviewHelpers?.Preview);
@@ -650,43 +673,58 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
       let syncing = false;
       const release = () => setTimeout(() => { syncing = false; }, 0);
 
+      // querySelectorAll("[data-line]") scans every rendered preview block, which
+      // gets expensive on huge docs. Coalesce bursts of native scroll events (fired
+      // many times per frame during momentum scroll) down to one scan per animation
+      // frame instead of running the full lookup on every single event.
+      let editorRafId: number | null = null;
+      let previewRafId: number | null = null;
+
       // Editor -> preview: find the source line currently at the top of the
       // editor's viewport, then scroll the matching rendered element to the top
       // of the preview. Matches by content (line), not raw scroll percentage,
       // since rendered block heights (headings, code blocks, images) don't track
       // source line heights 1:1.
       const onEditorScroll = () => {
-        if (syncing) return;
-        syncing = true;
-        const block = view.lineBlockAtHeight(Math.max(0, editorScroller.scrollTop));
-        const line = view.state.doc.lineAt(block.from).number;
-        const target = findPreviewElementForLine(previewScroller, line);
-        if (target) {
-          const rect = target.getBoundingClientRect();
-          const scrollerRect = previewScroller.getBoundingClientRect();
-          previewScroller.scrollTop += rect.top - scrollerRect.top;
-        }
-        release();
+        if (syncing || editorRafId !== null) return;
+        editorRafId = requestAnimationFrame(() => {
+          editorRafId = null;
+          syncing = true;
+          const block = view.lineBlockAtHeight(Math.max(0, editorScroller.scrollTop));
+          const line = view.state.doc.lineAt(block.from).number;
+          const target = findPreviewElementForLine(previewScroller, line);
+          if (target) {
+            const rect = target.getBoundingClientRect();
+            const scrollerRect = previewScroller.getBoundingClientRect();
+            previewScroller.scrollTop += rect.top - scrollerRect.top;
+          }
+          release();
+        });
       };
 
       // Preview -> editor: find which rendered element sits at the top of the
       // preview's viewport, read its source line, and scroll the editor to that
       // line's actual height in the document.
       const onPreviewScroll = () => {
-        if (syncing) return;
-        syncing = true;
-        const line = findTopVisibleLine(previewScroller);
-        if (line !== null) {
-          const docLine = Math.min(Math.max(line, 1), view.state.doc.lines);
-          const pos = view.state.doc.line(docLine).from;
-          editorScroller.scrollTop = view.lineBlockAt(pos).top;
-        }
-        release();
+        if (syncing || previewRafId !== null) return;
+        previewRafId = requestAnimationFrame(() => {
+          previewRafId = null;
+          syncing = true;
+          const line = findTopVisibleLine(previewScroller);
+          if (line !== null) {
+            const docLine = Math.min(Math.max(line, 1), view.state.doc.lines);
+            const pos = view.state.doc.line(docLine).from;
+            editorScroller.scrollTop = view.lineBlockAt(pos).top;
+          }
+          release();
+        });
       };
 
-      editorScroller.addEventListener("scroll", onEditorScroll);
-      previewScroller.addEventListener("scroll", onPreviewScroll);
+      editorScroller.addEventListener("scroll", onEditorScroll, { passive: true });
+      previewScroller.addEventListener("scroll", onPreviewScroll, { passive: true });
       cleanup = () => {
+        if (editorRafId !== null) cancelAnimationFrame(editorRafId);
+        if (previewRafId !== null) cancelAnimationFrame(previewRafId);
         editorScroller.removeEventListener("scroll", onEditorScroll);
         previewScroller.removeEventListener("scroll", onPreviewScroll);
       };
@@ -712,14 +750,21 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
   const panelActiveTabId = tabs?.activeTabId;
 
   const isDocumentActive = tabContent.type === "document";
-  const activeDocTabContent = isDocumentActive ? tabContent : null;
-  const visibleDocumentTabs = activeDocTabContent
-    ? { ...cachedDocumentTabs, [activeDocTabContent.tabId]: activeDocTabContent }
+  const rawActiveDocTabContent = isDocumentActive ? tabContent : null;
+  const visibleDocumentTabs = rawActiveDocTabContent
+    ? { ...cachedDocumentTabs, [rawActiveDocTabContent.tabId]: rawActiveDocTabContent }
     : { ...cachedDocumentTabs };
   const visibleDocumentTabIds = [...cachedDocumentOrderRef.current.filter((id) => visibleDocumentTabs[id])];
-  if (activeDocTabContent && !visibleDocumentTabIds.includes(activeDocTabContent.tabId)) {
-    visibleDocumentTabIds.push(activeDocTabContent.tabId);
+  if (rawActiveDocTabContent && !visibleDocumentTabIds.includes(rawActiveDocTabContent.tabId)) {
+    visibleDocumentTabIds.push(rawActiveDocTabContent.tabId);
   }
+
+  // tabContent can still hold the previous tab's data for a moment after switching
+  // tabs — React Query's placeholderData keeps the old cache entry alive while the
+  // new tab's content loads (see useGetTabContent). Resolve against the tab that's
+  // actually active in the panel so toolbar actions and the markdown preview never
+  // render another tab's content mid-transition.
+  const activeDocTabContent = isDocumentActive ? (visibleDocumentTabs[panelActiveTabId] ?? null) : null;
 
   const liveContentForPredicate = (() => {
     if (!activeDocTabContent) return null;
@@ -905,7 +950,7 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
           const isMarkdownTab = activeDocTabContent?.title.endsWith(".md") && !!mdPreviewHelpers?.Preview;
           const previewBlock = isMarkdownTab ? (() => {
             const PreviewComponent = mdPreviewHelpers.Preview;
-            return <PreviewComponent tab={{ ...activeDocTabContent, content: getLiveContent() }} />;
+            return <PreviewComponent tab={{ ...activeDocTabContent, content: getLiveContent(activeDocTabContent) }} />;
           })() : null;
 
           if (isMarkdownTab && viewMode === "split") {

@@ -611,7 +611,19 @@ export const CodeEditor = memo(({ tabId, content, source, panelId, isActive = tr
     getScrollPosition: state.getScrollPosition,
   }));
 
-  const { setActiveEditor, updateContent, setEditor, registerEditorView, unregisterEditorView, setStreamSnapshot } = useCodeEditorStore();
+  // Select each action individually rather than destructuring the whole store
+  // (`useCodeEditorStore()`), which subscribes to every field — including
+  // `activeEditor.content`, which changes on every keystroke in ANY tab/panel.
+  // That was forcing every mounted CodeEditor instance (all cached tabs across
+  // all panels) to re-render on every keystroke anywhere in the app. Action
+  // functions are stable references defined once at store creation, so
+  // selecting them individually never triggers a re-render.
+  const setActiveEditor = useCodeEditorStore((state) => state.setActiveEditor);
+  const updateContent = useCodeEditorStore((state) => state.updateContent);
+  const setEditor = useCodeEditorStore((state) => state.setEditor);
+  const registerEditorView = useCodeEditorStore((state) => state.registerEditorView);
+  const unregisterEditorView = useCodeEditorStore((state) => state.unregisterEditorView);
+  const setStreamSnapshot = useCodeEditorStore((state) => state.setStreamSnapshot);
 
   const searchTerm = useEditorSearchStore((s) => s.term);
   const matchCase = useEditorSearchStore((s) => s.matchCase);

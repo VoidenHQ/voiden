@@ -157,10 +157,10 @@ export default function OnboardingModal() {
 
   return (
     <Dialog open={isOpen} onOpenChange={() => {}}>
-      {isOpen && <div className="fixed inset-0 bg-black/50 z-40" />}
+      {isOpen && <div className="fixed inset-0 z-40" style={{ backgroundColor: 'var(--ui-overlay-bg, rgba(0, 0, 0, 0.5))' }} />}
       <DialogContent
-        className="max-w-[1150px] h-[550px] p-4 bg-[#0c0f1a] border-0 shadow-[0_0_10px_1px_#48cfff] overflow-hidden"
-        style={{ width: "95%" }}
+        className="max-w-[1150px] h-[550px] p-4 bg-panel border border-border overflow-hidden"
+        style={{ width: "95%", boxShadow: '0 0 10px 1px rgba(var(--common-accent), 0.4)' }}
         datatype="no-close"
       >
         <VisuallyHidden>
@@ -169,15 +169,15 @@ export default function OnboardingModal() {
         </VisuallyHidden>
 
         {!showSlides ? (
-          <div className="h-full flex flex-col gap-6 p-8 text-white">
+          <div className="h-full flex flex-col gap-6 p-8 text-text">
             <div className="space-y-4">
               <div className="flex items-start justify-between gap-4">
                 <div className="space-y-2">
-                  <p className="text-xs uppercase tracking-[0.3em] text-[#48cfff]">Project Setup</p>
-                  <h2 className="text-4xl font-medium bg-gradient-to-r from-[#48cfff] to-[#b36dff] bg-clip-text text-transparent">
+                  <p className="text-xs uppercase tracking-[0.3em] text-accent">Project Setup</p>
+                  <h2 className="text-4xl font-medium bg-gradient-to-r from-accent to-alt bg-clip-text text-transparent">
                     Choose where Voiden should start.
                   </h2>
-                  <p className="max-w-2xl text-sm text-white/75">
+                  <p className="max-w-2xl text-sm text-comment">
                     Pick the parent directory for new projects. You can start with a sample workspace, or create a named
                     project folder of your own inside the selected directory.
                   </p>
@@ -186,22 +186,22 @@ export default function OnboardingModal() {
                   type="button"
                   onClick={handleStart}
                   disabled={loading || isStarting}
-                  className="min-w-[140px] shrink-0 bg-[#48cfff] text-[#0c0f1a] hover:bg-[#38b3e0]"
+                  className="min-w-[140px] shrink-0 bg-button-primary text-bg hover:bg-button-primary-hover"
                 >
                   {isStarting ? "Preparing..." : "Start"}
                 </Button>
               </div>
 
-              <div className="rounded-2xl border border-[--panel-border] bg-white/5 p-5 space-y-5">
+              <div className="rounded-2xl border border-border bg-surface p-5 space-y-5">
                 <div className="space-y-2">
-                  <Label htmlFor="default-project-directory" className="text-white">Default project directory</Label>
+                  <Label htmlFor="default-project-directory" className="text-text">Default project directory</Label>
                   <div className="flex items-center gap-3">
                     <Input
                       id="default-project-directory"
                       value={directory}
                       onChange={(event) => setDirectory(event.target.value)}
                       placeholder={loading ? "Loading..." : "Choose a folder"}
-                      className="h-11 flex-1 border-[--panel-border] bg-black/20 text-white placeholder:text-white/35"
+                      className="h-11 flex-1 border-border bg-bg text-text placeholder:text-comment"
                       disabled={loading || isStarting}
                     />
                     <Button
@@ -210,7 +210,7 @@ export default function OnboardingModal() {
                       size="default"
                       onClick={handleBrowseDirectory}
                       disabled={loading || isStarting}
-                      className="h-11 border-[#48cfff] bg-transparent text-white hover:bg-[#48cfff]/10"
+                      className="h-11 border-accent bg-transparent text-text hover:bg-accent/10"
                     >
                       <FolderOpen className="h-4 w-4" />
                       Browse
@@ -220,32 +220,32 @@ export default function OnboardingModal() {
 
                 {!useSampleProject && (
                   <div className="space-y-2">
-                    <Label htmlFor="project-name" className="text-white">Project name (optional)</Label>
+                    <Label htmlFor="project-name" className="text-text">Project name (optional)</Label>
                     <Input
                       id="project-name"
                       value={projectName}
                       onChange={(event) => setProjectName(event.target.value)}
                       placeholder="my-project"
-                      className="h-11 border-[--panel-border] bg-black/20 text-white placeholder:text-white/35"
+                      className="h-11 border-border bg-bg text-text placeholder:text-comment"
                       disabled={isStarting}
                     />
-                    <p className="text-xs text-white/55">
+                    <p className="text-xs text-comment">
                       Voiden will create this folder inside the selected directory and open that new project, not the
-                      parent directory itself. If left empty, Voiden will use <span className="text-white">my-project</span>.
+                      parent directory itself. If left empty, Voiden will use <span className="text-text">my-project</span>.
                     </p>
                   </div>
                 )}
 
-                <label className="flex items-start gap-3 rounded-xl border border-[--panel-border] bg-black/20 p-4 cursor-pointer">
+                <label className="flex items-start gap-3 rounded-xl border border-border bg-bg p-4 cursor-pointer">
                   <Checkbox
                     checked={useSampleProject}
                     onCheckedChange={(checked) => setUseSampleProject(checked === true)}
                     disabled={isStarting}
-                    className="mt-0.5 border-[#48cfff]/60 data-[state=checked]:bg-[#48cfff] data-[state=checked]:text-[#0c0f1a]"
+                    className="mt-0.5 border-accent/60 data-[state=checked]:bg-accent data-[state=checked]:text-bg"
                   />
                   <span className="space-y-1">
-                    <span className="block text-sm font-medium text-white">Populate with a sample project</span>
-                    <span className="block text-xs text-white/65">
+                    <span className="block text-sm font-medium text-text">Populate with a sample project</span>
+                    <span className="block text-xs text-comment">
                       Voiden will create a sample workspace in the selected directory so you can explore requests, docs,
                       and tests immediately.
                     </span>
@@ -253,7 +253,7 @@ export default function OnboardingModal() {
                 </label>
 
                 {error && (
-                  <div className="rounded-xl border border-red-400/30 bg-red-400/10 px-4 py-3 text-sm text-red-100">
+                  <div className="rounded-xl border border-status-error/30 bg-status-error/10 px-4 py-3 text-sm text-status-error">
                     {error}
                   </div>
                 )}
@@ -267,12 +267,12 @@ export default function OnboardingModal() {
               alt={steps[currentStep].graphic}
               className={cn("w-[60%] h-fit max-h-[545px] scale-125", currentStep === 0 && "scale-100 h-[470px] object-cover object-left")}
             />
-            <div className="pl-4 flex flex-col justify-center h-full relative bg-[#0c0f1a]">
+            <div className="pl-4 flex flex-col justify-center h-full relative bg-panel">
               <div className="pt-4">
-                <h2 className="text-[#48cfff] bg-gradient-to-r from-[#48cfff] to-[#b36dff] bg-clip-text text-transparent font-medium text-4xl mb-4">
+                <h2 className="bg-gradient-to-r from-accent to-alt bg-clip-text text-transparent font-medium text-4xl mb-4">
                   {steps[currentStep].title}
                 </h2>
-                <p className="text-md text-white">{steps[currentStep].copy}</p>
+                <p className="text-md text-text">{steps[currentStep].copy}</p>
               </div>
 
               <div className="flex justify-between mt-6 absolute bottom-0 right-0 w-full pl-4">
@@ -281,7 +281,7 @@ export default function OnboardingModal() {
                     onClick={() => setCurrentStep(currentStep - 1)}
                     variant="outline"
                     size="sm"
-                    className="w-[120px] text-white border-[#48cfff] hover:bg-[#0c0f1a]"
+                    className="w-[120px] text-text border-accent hover:bg-panel"
                   >
                     Back
                   </Button>
@@ -293,7 +293,7 @@ export default function OnboardingModal() {
                     onClick={() => setCurrentStep(currentStep + 1)}
                     variant="outline"
                     size="sm"
-                    className="w-[120px] text-white border-[#48cfff] bg-[#48cfff] hover:bg-[#38b3e0]"
+                    className="w-[120px] text-bg border-accent bg-accent hover:bg-button-primary-hover"
                   >
                     Next
                   </Button>
@@ -302,7 +302,7 @@ export default function OnboardingModal() {
                     onClick={handleFinish}
                     variant="outline"
                     size="sm"
-                    className="w-[120px] text-white border-[#48cfff] bg-[#48cfff] hover:bg-[#38b3e0]"
+                    className="w-[120px] text-bg border-accent bg-accent hover:bg-button-primary-hover"
                   >
                     Finish
                   </Button>
