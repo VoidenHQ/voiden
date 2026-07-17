@@ -614,7 +614,7 @@ export const SettingsScreen = () => {
       const result = await window.electron?.themes?.sync();
       if (result?.success) {
         // Reload the current theme to apply any updates
-        const currentTheme = settings.appearance.theme || 'voiden';
+        const currentTheme = settings.appearance.theme || 'cursor-dark';
         await loadThemeById(currentTheme);
 
         // Refresh the available themes list
@@ -920,7 +920,7 @@ export const SettingsScreen = () => {
                   control={
                     <div className="flex items-center gap-1.5">
                       <Select
-                        value={settings.appearance.theme || "voiden"}
+                        value={settings.appearance.theme || "cursor-dark"}
                         onChange={async (e) => {
                           const newTheme = e.target.value;
                           await loadThemeById(newTheme);
