@@ -22,6 +22,7 @@ import Link from "@tiptap/extension-link";
 import { CustomCode } from "./extensions/CustomCode";
 import { CopyExtension } from "./extensions/CopyExtension";
 import { cmdEnter } from "./extensions/cmdEnter";
+import { isMac } from "@/core/lib/utils";
 import { PasteHandler } from "./extensions/pasteHandler";
 import { SeamlessNavigation } from "./extensions/seamlessNavigation";
 import { cmdAll } from "./extensions/cmdAll";
@@ -52,6 +53,21 @@ const isInRestrictedInputContext = ($from: { depth: number; node: (depth: number
     }
   }
   return false;
+};
+
+// Finds the start-of-previous-word offset (within parentOffset chars of
+// `parent`'s text) for word-backward delete — skips trailing whitespace, then
+// consumes a run of same-class (word vs. non-word) characters.
+// leafText keeps atom nodes at 1 char so string index == doc position offset.
+const findWordBoundaryBefore = (parent: { textBetween: (from: number, to: number, blockSeparator?: string, leafText?: string) => string }, parentOffset: number) => {
+  const textBefore = parent.textBetween(0, parentOffset, undefined, '￼');
+  let i = textBefore.length;
+  while (i > 0 && /\s/.test(textBefore[i - 1])) i--;
+  if (i > 0) {
+    const isWord = /\w/.test(textBefore[i - 1]);
+    while (i > 0 && /\w/.test(textBefore[i - 1]) === isWord && !/\s/.test(textBefore[i - 1])) i--;
+  }
+  return i;
 };
 
 const DisableMarkdownInTables = Extension.create({
@@ -119,12 +135,24 @@ const DisableMarkdownInTables = Extension.create({
         return this.editor.commands.deleteRange({ from: $from.pos - 1, to: $from.pos });
       },
 
+      // Mod-Backspace is Cmd-Backspace on Mac (native convention: delete to
+      // start of line) but Ctrl-Backspace on Windows/Linux, where the native
+      // convention is delete-previous-WORD, not delete-to-line-start (that's
+      // what Alt-Backspace is reserved for on Mac; Windows has no native
+      // binding for Alt-Backspace at all, so hardcoding word-delete to
+      // Alt-Backspace only worked for Mac users). Branch so each platform's
+      // Mod-Backspace matches what its users actually expect.
       'Mod-Backspace': () => {
         const { state } = this.editor;
         const { $from, empty } = state.selection;
 
         if (!empty || $from.parentOffset === 0 || !isInRestrictedInputContext($from)) {
           return false;
+        }
+
+        if (!isMac) {
+          const i = findWordBoundaryBefore($from.parent, $from.parentOffset);
+          return this.editor.commands.deleteRange({ from: $from.pos - $from.parentOffset + i, to: $from.pos });
         }
 
         return this.editor.commands.deleteRange({ from: $from.pos - $from.parentOffset, to: $from.pos });
@@ -138,15 +166,7 @@ const DisableMarkdownInTables = Extension.create({
           return false;
         }
 
-        // leafText keeps atom nodes at 1 char so string index == doc position offset.
-        const textBefore = $from.parent.textBetween(0, $from.parentOffset, undefined, '\uFFFC');
-        let i = textBefore.length;
-        while (i > 0 && /\s/.test(textBefore[i - 1])) i--;
-        if (i > 0) {
-          const isWord = /\w/.test(textBefore[i - 1]);
-          while (i > 0 && /\w/.test(textBefore[i - 1]) === isWord && !/\s/.test(textBefore[i - 1])) i--;
-        }
-
+        const i = findWordBoundaryBefore($from.parent, $from.parentOffset);
         return this.editor.commands.deleteRange({ from: $from.pos - $from.parentOffset + i, to: $from.pos });
       },
     };
