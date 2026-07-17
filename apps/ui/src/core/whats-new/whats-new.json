@@ -1,6 +1,22 @@
 {
   "releases": [
     {
+      "version": "2.2.2",
+      "date": "July 2026",
+      "whatsnew": [
+        {
+          "icon": "🌑",
+          "title": "Cursor Dark Default Theme",
+          "description": "New installs (and Reset Settings) now start with the Cursor Dark theme instead of the original Voiden theme. Already have a theme picked? Nothing changes for you."
+        },
+        {
+          "icon": "🐛",
+          "title": "Editor & Popover Fixes",
+          "description": "Script and table-header help popups are readable in every theme again (they'd render invisible black-on-dark text), stay within the window instead of overflowing off-screen, and switching tabs quickly no longer briefly shows the previous tab's content under the new tab's title. Inline code inside a numbered or bulleted list no longer corrupts the whole document into raw YAML on save. The onboarding screen is also fully theme-aware now."
+        }
+      ]
+    },
+    {
       "version": "2.2.0",
       "date": "July 2026",
       "whatsnew": [

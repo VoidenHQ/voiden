@@ -1,5 +1,26 @@
 [
   {
+    "version": "v2.2.2",
+    "date": "17/07/2026",
+    "title": "Cursor Dark Default Theme & Editor Reliability",
+    "description": "Patch release switching the default theme to Cursor Dark, plus fixes for markdown preview correctness/performance, theme-broken popovers, and a set of app-wide Zustand re-render leaks that made large files sluggish.",
+    "icon": "Wrench",
+    "iconColor": "text-cyan-400",
+    "bgColor": "bg-gradient-to-br from-cyan-900 to-slate-900",
+    "changes": {
+      "Improved": [
+        "Cursor Dark is now the default theme for new installs and after Reset Settings, instead of the original Voiden theme — existing installs keep whatever theme they've already picked",
+        "Split/preview markdown popups (pre/post-request script help, table header help) are now capped at 50% of the window height with internal scrolling instead of being able to overflow past the bottom of the screen"
+      ],
+      "Fixed": [
+        "Switching tabs quickly could briefly show the previous tab's content — and, if it was a markdown file, the previous tab's rendered preview — under the newly active tab's title, due to a stale-tab race in the tab-content loading hook",
+        "Onboarding modal used hardcoded hex colors and Tailwind default-palette classes instead of theme tokens, so it looked wrong (and had an undefined CSS variable border) in every non-default theme",
+        "Markdown preview no longer freezes the whole window when opening a large file — it previously re-parsed the entire document synchronously on first render with no size limit; large files now show an opt-in \"file is large\" banner instead of auto-rendering, and typing/scrolling in the preview no longer blocks on every keystroke",
+        "Inline code inside a numbered or bulleted list item no longer corrupts the whole document into raw YAML block syntax after saving and reopening — a serializer fallback meant for top-level blocks was also triggering for list-nested paragraphs, dumping their content as a `---\\ntype: paragraph...` block instead of normal markdown (#493)"
+      ]
+    }
+  },
+  {
     "version": "v2.2.1",
     "date": "10/07/2026",
     "title": "Pending Tab & Windows Dialog Fixes",
