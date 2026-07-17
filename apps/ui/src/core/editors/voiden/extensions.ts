@@ -158,12 +158,20 @@ const DisableMarkdownInTables = Extension.create({
         return this.editor.commands.deleteRange({ from: $from.pos - $from.parentOffset, to: $from.pos });
       },
 
+      // Alt-Backspace is Option-Backspace on Mac (native convention:
+      // delete-previous-word). It has no native meaning on Windows/Linux —
+      // that's Ctrl-Backspace there, already handled above by Mod-Backspace —
+      // so swallow it as a no-op on those platforms instead of word-deleting.
       'Alt-Backspace': () => {
         const { state } = this.editor;
         const { $from, empty } = state.selection;
 
         if (!empty || $from.parentOffset === 0 || !isInRestrictedInputContext($from)) {
           return false;
+        }
+
+        if (!isMac) {
+          return true;
         }
 
         const i = findWordBoundaryBefore($from.parent, $from.parentOffset);
