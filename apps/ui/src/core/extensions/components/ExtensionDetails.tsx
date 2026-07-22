@@ -29,12 +29,18 @@ export const CustomLink = ({ href, children }: CustomLinkProps) => (
 
 const ExtensionIcon = ({ extension }: { extension: any }) => {
   const icon: string | undefined = extension.icon;
+  const [imgFailed, setImgFailed] = useState(false);
 
   if (icon) {
-    if (icon.startsWith("http") || icon.startsWith("data:")) {
+    if ((icon.startsWith("http") || icon.startsWith("data:")) && !imgFailed) {
       return (
         <div className="w-14 h-14 rounded-xl bg-active/30 flex items-center justify-center overflow-hidden border border-border flex-shrink-0">
-          <img src={icon} className="w-full h-full object-cover" alt={extension.name} />
+          <img
+            src={icon}
+            className="w-full h-full object-cover"
+            alt={extension.name}
+            onError={() => setImgFailed(true)}
+          />
         </div>
       );
     }

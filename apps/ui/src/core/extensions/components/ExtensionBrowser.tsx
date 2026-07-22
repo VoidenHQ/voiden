@@ -29,15 +29,21 @@ const ExtensionIcon = ({ extension, size = "md" }: { extension: Extension; size?
   const dim = size === "sm" ? "w-8 h-8" : size === "lg" ? "w-14 h-14" : "w-10 h-10";
   const imgDim = size === "sm" ? "w-5 h-5" : size === "lg" ? "w-9 h-9" : "w-7 h-7";
   const iconSize = size === "sm" ? 16 : size === "lg" ? 28 : 20;
+  const [imgFailed, setImgFailed] = useState(false);
 
   if (extension.icon) {
     const icon = extension.icon;
 
     // URL or embedded base64 data URL → render as image
-    if (icon.startsWith("http") || icon.startsWith("data:")) {
+    if ((icon.startsWith("http") || icon.startsWith("data:")) && !imgFailed) {
       return (
         <div className={`${dim} rounded-lg bg-active/30 flex items-center justify-center overflow-hidden border border-border shadow-inner flex-shrink-0`}>
-          <img src={icon} className="w-full h-full object-cover" alt={extension.name} />
+          <img
+            src={icon}
+            className="w-full h-full object-cover"
+            alt={extension.name}
+            onError={() => setImgFailed(true)}
+          />
         </div>
       );
     }
