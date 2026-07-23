@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { program } from 'commander'
 import { readFileSync, existsSync, statSync, writeFileSync, mkdirSync, unlinkSync } from 'fs'
-import { resolve, basename, join, dirname } from 'path'
+import { resolve, relative, basename, join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { readdir } from 'fs/promises'
 import chalk from 'chalk'
@@ -27,6 +27,9 @@ import {
   STORE_DIR,
 } from './plugins/store.js'
 import { checkForPluginUpdates, type PluginUpdateInfo } from './plugins/updateCheck.js'
+import { getInstalledPluginInfo } from './plugins/versionInfo.js'
+import { parseVoidFile } from './parser.js'
+import { classifyBlockVersion } from '@voiden/executors'
 import {
   appendSessionResults,
   loadSessionResults,
@@ -417,6 +420,84 @@ async function notifyPluginUpdates(): Promise<void> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Project requirements status — scans the files a `run` just processed for
+// plugin+version tagged blocks and compares against what's installed, in the
+// same style as the update notice above, but against what THIS project
+// declares rather than the latest registry release. No lockfile involved —
+// re-scans the files live each time, so it's always accurate and never goes
+// stale, at the cost of re-parsing on every run (files are already small
+// text, so this is cheap). Individual mismatched requests already fail on
+// their own (see checkBlockVersions in runner.ts); this is the consolidated,
+// deduped-by-plugin view across the whole run, surfaced proactively even for
+// files where every other block happened to succeed.
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface ProjectRequirementIssue {
+  pluginId: string
+  requiredVersion: string
+  installedVersion?: string
+  status: 'not-installed' | 'disabled' | 'version-mismatch'
+  files: string[]
+}
+
+function scanProjectRequirements(files: string[], cwd: string): ProjectRequirementIssue[] {
+  // pluginId → version → files that declared it
+  const usages = new Map<string, Map<string, Set<string>>>()
+  for (const file of files) {
+    let content: string
+    try {
+      content = readFileSync(file, 'utf-8')
+    } catch {
+      continue
+    }
+    for (const block of parseVoidFile(content)) {
+      const pluginId = block.attrs?.pluginId
+      const pluginVersion = block.attrs?.pluginVersion
+      if (!pluginId || !pluginVersion) continue
+      if (!usages.has(pluginId)) usages.set(pluginId, new Map())
+      const versions = usages.get(pluginId)!
+      if (!versions.has(pluginVersion)) versions.set(pluginVersion, new Set())
+      versions.get(pluginVersion)!.add(relative(cwd, file))
+    }
+  }
+
+  const issues: ProjectRequirementIssue[] = []
+  for (const [pluginId, versions] of usages) {
+    for (const [version, fileSet] of versions) {
+      const installed = getInstalledPluginInfo(pluginId)
+      const status = classifyBlockVersion({ pluginId, pluginVersion: version, blockType: '' }, installed)
+      if (status === 'ok') continue
+      issues.push({ pluginId, requiredVersion: version, installedVersion: installed?.version, status, files: [...fileSet] })
+    }
+  }
+  return issues
+}
+
+function printProjectStatus(issues: ProjectRequirementIssue[]): void {
+  if (issues.length === 0) return
+  console.log()
+  console.log(chalk.yellow(`  ⚠  ${issues.length} plugin${issues.length !== 1 ? 's' : ''} ${issues.length !== 1 ? "don't" : "doesn't"} match what this project needs`))
+  for (const issue of issues) {
+    const have =
+      issue.status === 'not-installed' ? 'not installed'
+      : issue.status === 'disabled' ? 'installed but disabled'
+      : `v${issue.installedVersion} installed`
+    console.log(chalk.gray(`     ${chalk.bold(issue.pluginId.padEnd(24))} requires v${issue.requiredVersion} — ${have}`))
+    console.log(chalk.gray(`       used in: ${issue.files.join(', ')}`))
+  }
+  console.log(chalk.gray(`     Run: voiden-runner plugin install <name>@<version>`))
+}
+
+/** Best-effort — never throws, never blocks command output on failure. */
+function notifyProjectStatus(files: string[], cwd: string): void {
+  try {
+    printProjectStatus(scanProjectRequirements(files, cwd))
+  } catch {
+    // Informational only
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // CLI
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -745,8 +826,11 @@ program
       console.log()
     }
 
-    // Surface plugin update notices — skipped in --json mode so output stays machine-readable
-    if (!opts.json) await notifyPluginUpdates()
+    // Surface plugin update / project-requirements notices — skipped in --json mode so output stays machine-readable
+    if (!opts.json) {
+      await notifyPluginUpdates()
+      notifyProjectStatus(resolvedFiles, process.cwd())
+    }
 
     process.exit(shouldFail ? 1 : 0)
   })
@@ -973,6 +1057,14 @@ reportCmd
     }
   })
 
+// Splits a `name` or `name@version` CLI arg. Plugin ids are plain slugs (no
+// leading `@`), so splitting on the first `@` is unambiguous.
+function parsePluginTarget(raw: string): { name: string; pinVersion?: string } {
+  const at = raw.indexOf('@')
+  if (at <= 0) return { name: raw }
+  return { name: raw.slice(0, at), pinVersion: raw.slice(at + 1) }
+}
+
 // ── voiden-runner plugin ──────────────────────────────────────────────────────
 
 const pluginCmd = program
@@ -984,20 +1076,22 @@ pluginCmd
   .command('install [names...]')
   .description(
     'Install one or more plugins, or all core plugins\n\n' +
-    '  --all installs all core plugins only. Community plugins must be installed by name.\n\n' +
+    '  --all installs all core plugins only. Community plugins must be installed by name.\n' +
+    '  Pin an exact version with name@version (e.g. after `voiden-runner lock`, or to\n' +
+    '  match a "Block ... requires plugin X vY" error).\n\n' +
     '  Examples:\n' +
     '    voiden-runner plugin install --all\n' +
     '    voiden-runner plugin install voiden-scripting\n' +
-    '    voiden-runner plugin install apyhub-explorer\n'
+    '    voiden-runner plugin install voiden-rest-api@1.4.7\n'
   )
   .option('--all', 'Install all core plugins (community plugins must be installed by name)')
-  .action(async (names: string[], opts) => {
+  .action(async (rawNames: string[], opts) => {
     const corePlugins = await getCorePlugins()
     const communityPlugins = await fetchCommunityPlugins()
 
-    const targets: string[] = opts.all
-      ? corePlugins.map(p => p.name)
-      : names
+    const targets: { name: string; pinVersion?: string }[] = opts.all
+      ? corePlugins.map(p => ({ name: p.name }))
+      : rawNames.map(parsePluginTarget)
 
     if (targets.length === 0) {
       console.error(chalk.red('Specify plugin name(s) or use --all'))
@@ -1009,17 +1103,22 @@ pluginCmd
     }
 
     let installedCount = 0
-    for (const name of targets) {
-      const coreDef = await findPlugin(name)
-      const commDef = !coreDef ? findCommunityPlugin(name, communityPlugins) : undefined
-      if (!coreDef && !commDef) {
+    for (const { name, pinVersion } of targets) {
+      const foundCoreDef = await findPlugin(name)
+      const foundCommDef = !foundCoreDef ? findCommunityPlugin(name, communityPlugins) : undefined
+      if (!foundCoreDef && !foundCommDef) {
         console.log(chalk.yellow(`  ⚠  Unknown plugin "${name}" — skipped`))
         continue
       }
+      // A pinned version overrides the registry's "latest" default — this is what
+      // makes the fix-it command in version-mismatch errors ("plugin install x@y")
+      // actually able to install the exact version a file declares.
+      const coreDef = foundCoreDef && pinVersion ? { ...foundCoreDef, version: pinVersion } : foundCoreDef
+      const commDef = foundCommDef && pinVersion ? { ...foundCommDef, version: pinVersion } : foundCommDef
 
-      // Core plugins: only download if not already bundled in the package or cached
-      // from a previous install — `bundled: true` plugins should need no network call.
-      if (coreDef && !hasCoreRunner(name)) {
+      // Core plugins: only download if not already bundled/cached — unless a
+      // specific version was pinned, in which case always fetch that version.
+      if (coreDef && (pinVersion || !hasCoreRunner(name))) {
         process.stdout.write(`  ↓  Downloading runner for ${chalk.bold(name)} …`)
         try {
           const ok = await downloadCoreRunner(coreDef.name, coreDef.repo, coreDef.runnerAsset, coreDef.version, false)
@@ -1055,6 +1154,12 @@ pluginCmd
       const fresh = installPlugin(name, coreDef?.version ?? commDef?.version)
       if (fresh) {
         console.log(chalk.green(`  ✓  Installed`) + chalk.bold(` ${name}`) + chalk.gray(`  —  ${description}`))
+        installedCount++
+      } else if (pinVersion) {
+        // Re-running install with an explicit pin (e.g. to fix a version-mismatch)
+        // should still record the newly-downloaded version even if already "installed".
+        setPluginVersion(name, coreDef?.version ?? commDef?.version ?? pinVersion)
+        console.log(chalk.green(`  ✓  Installed`) + chalk.bold(` ${name}@${pinVersion}`))
         installedCount++
       } else {
         console.log(chalk.gray(`  ·  Already installed`) + ` ${name}`)
@@ -1159,8 +1264,17 @@ pluginCmd
     '    voiden-runner plugin uninstall --all\n'
   )
   .option('--all', 'Uninstall all installed plugins (core and community)')
-  .action((names: string[], opts: { all?: boolean }) => {
-    const targets: string[] = opts.all ? Object.keys(readStore().installedPlugins) : names
+  .action(async (names: string[], opts: { all?: boolean }) => {
+    // Core plugins are bundled and enabled by default — they may never have
+    // an explicit store record even though they're clearly active, so --all
+    // (and named uninstalls of a bundled plugin) must include the full core
+    // registry, not just names that already happen to have a store record.
+    const corePlugins = await getCorePlugins()
+    const coreNames = new Set(corePlugins.map(p => p.name))
+
+    const targets: string[] = opts.all
+      ? [...new Set([...coreNames, ...getAllInstalledPlugins().map(p => p.name)])]
+      : names
 
     if (targets.length === 0) {
       console.error(chalk.red('  Specify plugin name(s) or use --all'))
@@ -1170,7 +1284,7 @@ pluginCmd
 
     let removedCount = 0
     for (const name of targets) {
-      const removed = uninstallPlugin(name)
+      const removed = uninstallPlugin(name, coreNames.has(name))
       if (removed) {
         console.log(chalk.green(`  ✓  Uninstalled`) + ` ${name}`)
         removedCount++
@@ -1198,9 +1312,11 @@ pluginCmd
   .action(async (name: string | undefined, opts: { all?: boolean }) => {
     if (opts.all) {
       const store = readStore()
-      // Re-enable all explicitly disabled plugins (core + community)
+      // Re-enable all explicitly disabled plugins (core + community) — but not
+      // uninstalled ones; bringing those back requires an explicit `plugin
+      // install`, not a blanket --all enable.
       const disabled = Object.entries(store.installedPlugins)
-        .filter(([, r]) => !r.enabled)
+        .filter(([, r]) => !r.enabled && !r.uninstalled)
         .map(([n]) => n)
       // Also ensure all core plugins that were never in the store are treated as enabled (default)
       const disabledCoreNotInStore: string[] = []
@@ -1295,10 +1411,14 @@ pluginCmd
 
     for (const def of corePlugins) {
       const record = store.installedPlugins[def.name]
-      const isDisabled = record !== undefined && !record.enabled
-      const statusBadge = isDisabled
-        ? chalk.yellow('  · disabled')
-        : chalk.green('  ✓ enabled')
+      let statusBadge: string
+      if (record?.uninstalled) {
+        statusBadge = chalk.gray('  not installed')
+      } else if (record !== undefined && !record.enabled) {
+        statusBadge = chalk.yellow('  · disabled')
+      } else {
+        statusBadge = chalk.green('  ✓ enabled')
+      }
       console.log(`  ${chalk.bold(def.name.padEnd(24))}${statusBadge}${updateBadge(def.name, def.version)}`)
       console.log(chalk.gray(`    ${def.description}`))
     }

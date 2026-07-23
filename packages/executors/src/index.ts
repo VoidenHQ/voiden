@@ -17,3 +17,6 @@ export * from './pipeline/index.js'
 
 export type { HeadlessEditor, RequestBuildHandler, ResponseProcessHandler } from './orchestrator.js'
 export { RequestOrchestrator, requestOrchestrator } from './orchestrator.js'
+
+export type { DeclaredBlockVersion, BlockVersionStatus, InstalledPluginInfo } from './blockVersioning.js'
+export { classifyBlockVersion } from './blockVersioning.js'

@@ -18,14 +18,64 @@
 
 import { readFileSync } from 'fs'
 import { parseVoidFileSections } from './parser.js'
-import { requestOrchestrator } from '@voiden/executors'
+import { requestOrchestrator, classifyBlockVersion } from '@voiden/executors'
 import type { PipelineResponse } from '@voiden/executors'
 import { createCliElectron } from './cliElectron.js'
 import { loadEnabledPlugins } from './plugins/loader.js'
+import { getInstalledPluginInfo } from './plugins/versionInfo.js'
 import { normalizeBlocks } from './blockSchemaRegistry.js'
 import { extractRuntimeVarRows, captureRuntimeVars } from './runtimeVars.js'
 import type { CaptureRequest, CaptureResponse } from './runtimeVars.js'
 import type { RunResult } from './types.js'
+
+// ─── Declared plugin+version check (tagged blocks only — legacy files with no
+// pluginId attr are skipped entirely, unchanged behaviour) ────────────────────
+//
+// Runs before a section is executed. Any non-"ok" status — missing, disabled,
+// or a different version than what saved the block — stops execution with a
+// specific, actionable error instead of the generic "no plugin could build a
+// request" fallback in the shared orchestrator. This is what makes execution
+// deterministic: a file always runs against the exact plugin version it was
+// authored with, never silently against whatever happens to be installed.
+function checkBlockVersions(blocks: any[]): void {
+  for (const block of blocks) {
+    const pluginId = block?.attrs?.pluginId
+    const pluginVersion = block?.attrs?.pluginVersion
+    if (!pluginId || !pluginVersion) continue
+
+    const installed = getInstalledPluginInfo(pluginId)
+    const status = classifyBlockVersion({ pluginId, pluginVersion, blockType: block.type }, installed)
+    if (status === 'ok') continue
+
+    throw new Error(formatVersionError(block.type, pluginId, pluginVersion, status, installed))
+  }
+}
+
+function formatVersionError(
+  blockType: string,
+  pluginId: string,
+  pluginVersion: string,
+  status: 'not-installed' | 'disabled' | 'version-mismatch',
+  installed: { version?: string; enabled?: boolean } | undefined,
+): string {
+  switch (status) {
+    case 'not-installed':
+      return (
+        `Block "${blockType}" requires plugin "${pluginId}" v${pluginVersion}, which is not installed.\n` +
+        `  Run: voiden-runner plugin install ${pluginId}@${pluginVersion}`
+      )
+    case 'disabled':
+      return (
+        `Plugin "${pluginId}" is installed but disabled.\n` +
+        `  Run: voiden-runner plugin enable ${pluginId}`
+      )
+    case 'version-mismatch':
+      return (
+        `Block "${blockType}" requires ${pluginId} v${pluginVersion}, but v${installed?.version} is installed.\n` +
+        `  Run: voiden-runner plugin install ${pluginId}@${pluginVersion}`
+      )
+  }
+}
 
 // ─── Raw request extraction from blocks (used for error reporting) ────────────
 //
@@ -222,6 +272,7 @@ export async function runVoidFile(
     //    failed PipelineResponse rather than throwing, so we handle both paths.
     let response: PipelineResponse
     try {
+      checkBlockVersions(normalizedBlocks)
       response = await requestOrchestrator.executeRequest(editor, ipcAdapter)
     } catch (err: any) {
       results.push({

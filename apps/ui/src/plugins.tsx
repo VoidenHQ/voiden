@@ -1603,11 +1603,21 @@ export const getPlugins = async () => {
 
       // Register ownership for all plugins (enabled and disabled)
       ownedBlocks.forEach((blockType: string) => {
-        registerBlockOwnership(blockType, extension.id, extension.name);
+        registerBlockOwnership(blockType, extension.id, extension.name, extension.version);
       });
 
-      // Create placeholder nodes for DISABLED plugins
-      if (!extension.enabled && ownedBlocks.length > 0) {
+      // Create placeholder nodes for DISABLED plugins only — NOT for uninstalled
+      // ones. For core plugins, `enabled` alone can't tell the two apart: an
+      // uninstalled core plugin also reports `enabled: false` (see
+      // extensionManager.ts syncCoreExtensions — isLocallyAvailable is false
+      // when explicitly uninstalled, which forces enabled to false too).
+      // isLocallyAvailable is the field that actually distinguishes them; it's
+      // core-only, so `!== false` (true, or undefined for community plugins)
+      // keeps existing community-disabled behaviour unchanged. When a plugin is
+      // truly uninstalled, skip the placeholder so the block type stays absent
+      // from the schema and falls through to the "not installed" card instead
+      // of the "disabled" one.
+      if (!extension.enabled && extension.isLocallyAvailable !== false && ownedBlocks.length > 0) {
         extensionLogger.info(`Creating placeholders for disabled plugin: ${extension.id} (${ownedBlocks.length} blocks)`);
         ownedBlocks.forEach((blockType: string) => {
           const placeholderNode = createPlaceholderBlock(blockType);

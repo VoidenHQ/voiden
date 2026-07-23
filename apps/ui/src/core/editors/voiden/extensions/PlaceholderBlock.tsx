@@ -3,14 +3,15 @@ import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react';
 import { AlertCircle } from 'lucide-react';
 import YAML from 'yaml';
 import React from 'react';
+import { revealPluginsTab } from '@/core/extensions/utils/revealPluginsTab';
 
 /**
- * Registry to track which plugin owns which block type
+ * Registry to track which plugin (and version) owns which block type
  */
-export const blockOwnership: Map<string, { pluginId: string; pluginName: string }> = new Map();
+export const blockOwnership: Map<string, { pluginId: string; pluginName: string; pluginVersion: string }> = new Map();
 
-export const registerBlockOwnership = (blockType: string, pluginId: string, pluginName: string) => {
-  blockOwnership.set(blockType, { pluginId, pluginName });
+export const registerBlockOwnership = (blockType: string, pluginId: string, pluginName: string, pluginVersion: string) => {
+  blockOwnership.set(blockType, { pluginId, pluginName, pluginVersion });
 };
 
 /**
@@ -125,14 +126,23 @@ const PlaceholderBlockView = ({ node }: any) => {
           <div className="flex-1">
             <h3 className="text-sm font-semibold text-orange-500 mb-1">
               Plugin Required: {owner?.pluginName || 'Unknown Plugin'}
+              {owner?.pluginVersion ? ` (v${owner.pluginVersion})` : ''}
             </h3>
             <p className="text-xs text-comment">
-              This <span className="font-mono text-text">{blockType}</span> block cannot be displayed because the required plugin is disabled.
-              {owner && (
+              This <span className="font-mono text-text">{blockType}</span> block cannot be displayed because{' '}
+              {owner ? (
                 <>
-                  {' '}Enable <span className="font-semibold text-text">{owner.pluginName}</span> in{' '}
-                  <span className="text-accent">Settings → Extensions</span> to view and edit this content.
+                  <span className="font-semibold text-text">{owner.pluginName}</span> v{owner.pluginVersion} is disabled.{' '}
+                  <button
+                    onClick={() => revealPluginsTab()}
+                    className="text-accent hover:text-orange-400 font-medium underline"
+                  >
+                    Enable it in Extensions
+                  </button>{' '}
+                  to view and edit this content.
                 </>
+              ) : (
+                'the required plugin is disabled.'
               )}
             </p>
             {hasContent && (

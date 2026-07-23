@@ -15,10 +15,10 @@ import type { Extension } from "@/types";
 import { cn } from "@/core/lib/utils";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { usePluginStore } from "@/plugins";
-import { usePanelStore } from "@/core/stores/panelStore";
 import { toast } from "@/core/components/ui/sonner";
 import { Tip } from "@/core/components/ui/Tip";
 import logo from "@/assets/logo-dark.png";
+import { revealPluginsTab } from "@/core/extensions/utils/revealPluginsTab";
 
 // Module-level timestamps — survive component unmount/remount.
 let _lastRegistryFetch = 0;
@@ -562,27 +562,6 @@ export const ExtensionBrowser = () => {
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState<"all" | "core" | "community" | "installed" | "updates">("all");
   const [isRefreshing, setIsRefreshing] = useState(false);
-
-  // ExtensionBrowser is always mounted (just hidden) when another left-sidebar
-  // tab is active, so the update-available toast can fire while the panel is
-  // collapsed or a different tab is showing. Force both open so the user
-  // actually sees what the toast is telling them about.
-  const revealPluginsTab = () => {
-    const { leftPanelRef, openLeftPanel } = usePanelStore.getState();
-    if (leftPanelRef?.current?.isCollapsed()) {
-      leftPanelRef.current.expand();
-    }
-    openLeftPanel();
-
-    const sidebarTabs = queryClient.getQueryData<{ tabs?: Array<{ id: string; type: string }> }>(["sidebar:tabs", "left"]);
-    const pluginsTab = sidebarTabs?.tabs?.find((tab) => tab.type === "extensionBrowser");
-    if (pluginsTab) {
-      window.electron?.sidebar.activateTab("left", pluginsTab.id);
-      queryClient.setQueryData(["sidebar:tabs", "left"], (old: any) =>
-        old ? { ...old, activeTabId: pluginsTab.id } : old
-      );
-    }
-  };
 
   const doFetchRegistry = async () => {
     const coreExt = (window as any).electron?.coreExtensions;
