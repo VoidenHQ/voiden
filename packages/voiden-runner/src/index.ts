@@ -36,6 +36,7 @@ import {
   getMcpStatus,
   MCP_SKILL_MARKDOWN,
 } from '@voiden/executors'
+import { loadEnvFile } from './envFile.js'
 import {
   appendSessionResults,
   loadSessionResults,
@@ -66,24 +67,6 @@ const JSON_SCHEMA_VERSION = '1'
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
-
-function loadEnvFile(envPath: string): Record<string, string> {
-  const content = readFileSync(envPath, 'utf-8')
-  const env: Record<string, string> = {}
-  const lines = content.split('\n')
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim()
-    if (!line || line.startsWith('#')) continue
-    const eq = line.indexOf('=')
-    if (eq === -1) throw new Error(`Malformed line ${i + 1} in .env file: missing "="`)
-    const key = line.slice(0, eq).trim()
-    const val = line.slice(eq + 1).trim().replace(/^["']|["']$/g, '')
-    if (!key) throw new Error(`Malformed line ${i + 1} in .env file: empty key`)
-    env[key] = val
-  }
-  return env
-}
-
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes}B`
