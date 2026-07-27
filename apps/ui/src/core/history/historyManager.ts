@@ -42,11 +42,34 @@ export async function checkAttachmentChanges(entry: HistoryEntry): Promise<Attac
 
 const HISTORY_VERSION = '1.0.0';
 
-/** Derive a safe filename from a .void file path */
+/**
+ * Deterministic short hash of a string (FNV-1a, 32-bit), hex-encoded.
+ * Not cryptographic — only used to disambiguate history filenames that
+ * share a basename but live at different paths.
+ */
+function fnv1aHash(input: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < input.length; i++) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0');
+}
+
+/**
+ * Derive a safe, collision-resistant filename from a .void file path.
+ *
+ * Two distinct files with the same basename (e.g. `team-a/login.void` and
+ * `team-b/login.void`) must never map to the same history file, so the
+ * filename is keyed by the *full* normalized path — the basename is kept
+ * only as a human-readable prefix.
+ */
 function getHistoryFileName(filePath: string): string {
-  const basename = filePath.split('/').pop()?.replace(/\.void$/, '') || 'unknown';
-  const sanitized = basename.replace(/[^a-zA-Z0-9-_]/g, '_');
-  return `${sanitized}-history.json`;
+  const normalized = filePath.replace(/\\/g, '/').replace(/\/+$/, '');
+  const basename = normalized.split('/').pop()?.replace(/\.void$/, '') || 'unknown';
+  const sanitizedBasename = basename.replace(/[^a-zA-Z0-9-_]/g, '_');
+  const identityHash = fnv1aHash(normalized.toLowerCase());
+  return `${sanitizedBasename}-${identityHash}-history.json`;
 }
 
 const electronAny = () => (window as any).electron;
