@@ -4,11 +4,11 @@ import * as path from "node:path";
 import { AppState } from "src/shared/types";
 import { composeSkillMarkdown } from "./skillsComposer";
 import {
-  installClaudeSkill as installRunnerClaudeSkill,
-  uninstallClaudeSkill as uninstallRunnerClaudeSkill,
-  installCodexSkill as installRunnerCodexSkill,
-  uninstallCodexSkill as uninstallRunnerCodexSkill,
-  RUNNER_SKILL_MARKDOWN,
+  installClaudeSkill as installMcpClaudeSkill,
+  uninstallClaudeSkill as uninstallMcpClaudeSkill,
+  installCodexSkill as installMcpCodexSkill,
+  uninstallCodexSkill as uninstallMcpCodexSkill,
+  MCP_SKILL_MARKDOWN,
 } from "@voiden/executors";
 
 function getClaudeSkillDir(): string {
@@ -42,7 +42,7 @@ export function uninstallClaudeSkill(): void {
       if (fs.existsSync(p)) fs.unlinkSync(p);
     }
   } catch {}
-  try { uninstallRunnerClaudeSkill(); } catch {}
+  try { uninstallMcpClaudeSkill(); } catch {}
 }
 
 // --- Codex ---
@@ -60,7 +60,7 @@ export function uninstallCodexSkill(): void {
     const skillDir = getCodexSkillDir();
     if (fs.existsSync(skillDir)) fs.rmSync(skillDir, { recursive: true, force: true });
   } catch {}
-  try { uninstallRunnerCodexSkill(); } catch {}
+  try { uninstallMcpCodexSkill(); } catch {}
 }
 
 // --- Public API ---
@@ -69,10 +69,10 @@ type SkillTargets = { claude: boolean; codex: boolean };
 
 /**
  * Installs two distinct skills per target, always kept in sync with each other:
- *   - ~/.claude|codex/skills/voiden/SKILL.md        — authoring, composed fresh from
+ *   - ~/.claude|codex/skills/voiden/SKILL.md     — authoring, composed fresh from
  *     all enabled extensions' skill.md (this app's own content)
- *   - ~/.claude|codex/skills/voiden-runner/SKILL.md — running/verifying via the MCP
- *     tools, sourced from @voiden/runner so the CLI and the app never drift apart
+ *   - ~/.claude|codex/skills/voiden-mcp/SKILL.md — running/verifying via the MCP
+ *     tools, sourced from @voiden/executors so the CLI and the app never drift apart
  * Both are fully regenerated and overwritten on every call — there's no partial/stale
  * state between them.
  */
@@ -80,11 +80,11 @@ export async function recomposeAndInstall(appState: AppState, targets: SkillTarg
   const markdown = composeSkillMarkdown(appState);
   if (targets.claude) {
     installClaude(markdown);
-    installRunnerClaudeSkill(RUNNER_SKILL_MARKDOWN);
+    installMcpClaudeSkill(MCP_SKILL_MARKDOWN);
   }
   if (targets.codex) {
     installCodex(markdown);
-    installRunnerCodexSkill(RUNNER_SKILL_MARKDOWN);
+    installMcpCodexSkill(MCP_SKILL_MARKDOWN);
   }
 }
 

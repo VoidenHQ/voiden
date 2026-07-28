@@ -18,7 +18,7 @@ export { loadEnabledPlugins } from './plugins/loader.js'
 export type { RunResult, CliReportEntry } from './types.js'
 
 // .void parsing, AI-agent integration (MCP registration + the standalone
-// "voiden-runner" skill installed alongside the app's own richer "voiden"
+// "voiden-mcp" skill installed alongside the app's own richer "voiden"
 // skill) — all live in @voiden/executors, shared with the Voiden app, and
 // re-exported here so existing imports of these from @voiden/runner
 // (e.g. @voiden/mcp-server) keep working unchanged.
@@ -36,6 +36,6 @@ export {
   installMcpIntegration,
   uninstallMcpIntegration,
   getMcpStatus,
-  RUNNER_SKILL_MARKDOWN,
+  MCP_SKILL_MARKDOWN,
 } from '@voiden/executors'
 export type { Block, VoidSection, McpTargets, McpStatus } from '@voiden/executors'

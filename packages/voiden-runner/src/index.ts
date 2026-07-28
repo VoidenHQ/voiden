@@ -34,7 +34,7 @@ import {
   installMcpIntegration,
   uninstallMcpIntegration,
   getMcpStatus,
-  RUNNER_SKILL_MARKDOWN,
+  MCP_SKILL_MARKDOWN,
 } from '@voiden/executors'
 import {
   appendSessionResults,
@@ -1489,7 +1489,7 @@ mcpCmd
     const serverCommand = opts.localServer
       ? { command: 'node', args: [resolve(opts.localServer), resolve(opts.project)] }
       : undefined
-    const installed = installMcpIntegration(opts.project, targets, RUNNER_SKILL_MARKDOWN, serverCommand)
+    const installed = installMcpIntegration(opts.project, targets, MCP_SKILL_MARKDOWN, serverCommand)
     if (installed.length === 0) {
       console.log(chalk.yellow('  Nothing to install.'))
       return

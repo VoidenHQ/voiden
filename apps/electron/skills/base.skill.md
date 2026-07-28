@@ -450,4 +450,4 @@ Runtime-captured values (e.g. an ID extracted from a previous response via a scr
 
 Writing a request block is only half the job — a block that merely looks well-formed can still be wrong (bad URL, wrong auth, malformed body). Don't stop at "this looks correct" when you can check that it *is* correct.
 
-This authoring skill covers the `.void` format only. Running a request, reading back a real result, and writing that result into the file is covered by the separate **`voiden-runner`** skill (installed alongside this one, same toggle) — see it for the `list_void_files`/`list_requests`/`run_request`/`write_result` tools and the write → run → verify → fix workflow.
+This authoring skill covers the `.void` format only. Running a request, reading back a real result, and writing that result into the file is covered by the separate **`voiden-mcp`** skill (installed alongside this one, same toggle) — see it for the `list_void_files`/`list_requests`/`run_request`/`write_result` tools and the write → run → verify → fix workflow.

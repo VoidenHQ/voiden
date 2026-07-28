@@ -3,13 +3,17 @@
  * users (no Voiden app, so none of its richer composed .void-authoring
  * skill is available). Focused on the MCP tools this package ships —
  * list/run/verify/write-back — not on full block-authoring syntax.
+ *
+ * Named "voiden-mcp" (not "voiden-runner") to match the MCP server's own
+ * registered identity (see SERVER_NAME in mcpInstall.ts) — this skill is
+ * entirely about MCP tool usage, not the voiden-runner CLI in general.
  */
-export const RUNNER_SKILL_MARKDOWN = `---
-name: voiden-runner
-description: Run and verify .void API requests via the voiden-mcp-server MCP tools — list requests, execute them for real, read structured results, and record them back into the file.
+export const MCP_SKILL_MARKDOWN = `---
+name: voiden-mcp
+description: Run and verify .void API requests via the voiden-mcp MCP tools — list requests, execute them for real, read structured results, and record them back into the file.
 ---
 
-# Voiden Runner — Running & Verifying .void Requests
+# Voiden MCP — Running & Verifying .void Requests
 
 .void files describe HTTP/GraphQL/WebSocket/gRPC requests (see https://docs.voiden.md for the full authoring format, or the Voiden app's own "voiden" skill if it's installed). This skill covers a different, complementary job: **actually executing** those requests and checking the result, instead of only ever generating text that looks correct.
 

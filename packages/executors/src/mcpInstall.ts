@@ -25,10 +25,11 @@ import * as os from 'os'
 // Name the MCP server is registered under in .mcp.json / config.toml — what
 // the agent/host actually shows the user (e.g. in `/mcp`).
 const SERVER_NAME = 'voiden-mcp'
-// Standalone skill slug — deliberately different from the Voiden app's own
+// Standalone skill slug — matches SERVER_NAME (both identify "the MCP
+// capability"), and is deliberately different from the Voiden app's own
 // "voiden" skill directory, so a machine with both installed doesn't have
 // one silently overwrite the other's (differently-scoped) content.
-const SKILL_SLUG = 'voiden-runner'
+const SKILL_SLUG = 'voiden-mcp'
 
 export interface ServerCommand {
   command: string

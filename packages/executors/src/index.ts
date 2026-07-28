@@ -44,4 +44,4 @@ export {
   getMcpStatus,
 } from './mcpInstall.js'
 
-export { RUNNER_SKILL_MARKDOWN } from './skillContent.js'
+export { MCP_SKILL_MARKDOWN } from './skillContent.js'
