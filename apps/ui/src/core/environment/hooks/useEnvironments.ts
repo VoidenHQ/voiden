@@ -23,5 +23,6 @@ export const useEnvironments = () => {
   return useQuery({
     queryKey: ["environments"],
     queryFn: loadEnvironments,
+    refetchInterval: false,
   });
 };
