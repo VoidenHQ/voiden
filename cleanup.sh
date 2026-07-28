@@ -126,7 +126,19 @@ else
 fi
 echo ""
 
-# ─── Step 8: Build each plugin from local source ─────────────────────────────
+# ─── Step 8: Build local workspace packages consumed by apps/electron ────────
+# dist/ for these is gitignored and was just wiped in Step 4 — apps/electron
+# imports @voiden/runner (which itself needs @voiden/executors) at the source
+# level via package.json main/exports, so both must be rebuilt or `yarn
+# workspace voiden start` fails to resolve @voiden/runner's entry point.
+step "Step 8: Local workspace packages"
+yarn workspace @voiden/executors run build || fail "Failed to build @voiden/executors"
+ok "@voiden/executors built"
+yarn workspace @voiden/runner build || fail "Failed to build @voiden/runner"
+ok "@voiden/runner built"
+echo ""
+
+# ─── Step 9: Build each plugin from local source ─────────────────────────────
 if [ "$PLUGIN_COUNT" -gt 0 ]; then
   echo -e "${YELLOW}Building plugins from plugins/...${NC}"
 

@@ -17,8 +17,7 @@
  */
 
 import { readFileSync } from 'fs'
-import { parseVoidFileSections } from './parser.js'
-import { requestOrchestrator, classifyBlockVersion } from '@voiden/executors'
+import { requestOrchestrator, classifyBlockVersion, parseVoidFileSections } from '@voiden/executors'
 import type { PipelineResponse } from '@voiden/executors'
 import { createCliElectron } from './cliElectron.js'
 import { loadEnabledPlugins } from './plugins/loader.js'
@@ -84,11 +83,17 @@ function formatVersionError(
 // This lets us show the user what was attempted even when the request threw
 // before requestMeta was populated (e.g. invalid URL after unresolved {{KEY}}).
 
-interface RawRequestInfo {
+export interface RawRequestInfo {
   url:     string
   method:  string
   headers: Record<string, string>
   body?:   string
+}
+
+/** Public alias — lets callers (e.g. the MCP server's list_requests tool) preview
+ *  a section's method/url without executing anything. */
+export function getRequestPreview(blocks: any[]): RawRequestInfo {
+  return extractRawRequest(blocks)
 }
 
 function extractRawRequest(blocks: any[]): RawRequestInfo {
@@ -196,6 +201,8 @@ export interface RunOptions {
    * when running multiple files.
    */
   activePlugins?: string[]
+  /** Run only the section whose request-separator label matches exactly, instead of every section in the file. */
+  sectionLabel?: string
 }
 
 export interface SectionResult {
@@ -220,8 +227,26 @@ export async function runVoidFile(
   // Use pre-loaded plugins if provided (multi-file session), otherwise load fresh.
   const activePlugins = options.activePlugins ?? await loadEnabledPlugins(verbose, skipPlugins)
 
-  const content  = readFileSync(filePath, 'utf-8')
-  const sections = parseVoidFileSections(content)
+  const content     = readFileSync(filePath, 'utf-8')
+  const allSections = parseVoidFileSections(content)
+  const sections    = options.sectionLabel
+    ? allSections.filter(s => s.label === options.sectionLabel)
+    : allSections
+
+  if (options.sectionLabel && sections.length === 0 && allSections.length > 0) {
+    return {
+      results: [{
+        result: {
+          protocol:  'unknown',
+          url:       '',
+          success:   false,
+          durationMs: 0,
+          error:     `No section labelled "${options.sectionLabel}" found in ${filePath}`,
+        },
+      }],
+      activePlugins,
+    }
+  }
 
   if (sections.length === 0) {
     return {

@@ -1,0 +1,41 @@
+{
+  "name": "@voiden/mcp-server",
+  "version": "0.1.0",
+  "description": "MCP server exposing the .void runner (list requests, run requests, write results back) as tools for AI agents",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/VoidenHQ/voiden",
+    "directory": "packages/voiden-mcp-server"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "bin": {
+    "voiden-mcp-server": "./dist/index.js"
+  },
+  "files": [
+    "dist/**",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "postbuild": "chmod +x dist/index.js",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@voiden/runner": "*",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.10",
+    "tsx": "^4.15.0",
+    "typescript": "^5.5.3"
+  }
+}

@@ -228,7 +228,7 @@ app.on("ready", async () => {
     // Seed bundled plugins into the OTA cache so all plugins are served from one location.
     // Then re-sync core extensions so the freshly seeded files are reflected in the extension list.
     await seedBundledPluginsToCache();
-    const { getAppState, extensionManager } = await import("./main/state");
+    const { getAppState, extensionManager, maybeRegisterMcp } = await import("./main/state");
     extensionManager?.syncCoreExtensions();
     const appState = getAppState();
     if (appState?.extensions) {
@@ -238,6 +238,9 @@ app.on("ready", async () => {
     const skills = settings.skills;
     if (appState && (skills?.claude || skills?.codex)) {
       recomposeAndInstall(appState, { claude: skills.claude ?? false, codex: skills.codex ?? false }).catch(() => {});
+      // Covers users who already had the integration enabled before MCP
+      // registration existed, or whose .mcp.json was reset externally.
+      if (appState.activeDirectory) maybeRegisterMcp(appState.activeDirectory);
     }
   } catch (err) {
     console.error("[main] Failed to load main-process extensions:", err);

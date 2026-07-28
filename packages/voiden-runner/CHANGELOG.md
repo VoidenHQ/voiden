@@ -3,6 +3,12 @@
 All notable changes to `@voiden/runner` are documented here. This package is
 versioned and released independently of the Voiden desktop app.
 
+## v2.2.0 - 2026-07-23
+
+### Added
+- Deterministic exit codes for `run`: `0` success, `1` one or more requests failed (assertions/errors, or `--bail`/`--fail-on-error` — unchanged from prior releases), `2` the runner could not execute the run at all (bad CLI args, missing files, missing plugins, invalid env). Previously every non-success path exited `1`, so CI couldn't tell "the API broke" from "the pipeline is misconfigured." See [CI/CD Integration](https://docs.voiden.md/docs/developer-tools/voiden-runner/ci-cd) for the full table.
+- `schemaVersion` field on the `--json` and `--output-json` payloads for `run` and `report generate` — a stable, versioned contract for tooling that parses runner output. Currently `"1"`.
+
 ## v2.1.1 - 2026-06-25
 
 ### Fixed

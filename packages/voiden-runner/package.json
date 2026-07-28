@@ -1,6 +1,6 @@
 {
   "name": "@voiden/runner",
-  "version": "2.1.1",
+  "version": "2.2.0",
   "description": "CLI runner for .void files — execute REST, WebSocket, and gRPC requests headlessly",
   "type": "module",
   "license": "MIT",
@@ -18,6 +18,15 @@
   "bin": {
     "voiden-runner": "./dist/index.js"
   },
+  "main": "./dist/lib.js",
+  "types": "./dist/lib.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/lib.d.ts",
+      "import": "./dist/lib.js"
+    },
+    "./package.json": "./package.json"
+  },
   "files": [
     "dist/**",
     "bundled-runners/**",
@@ -33,7 +42,7 @@
   },
   "dependencies": {
     "@grpc/proto-loader": "^0.7.13",
-    "@voiden/executors": "latest",
+    "@voiden/executors": "*",
     "@voiden/sdk": "*",
     "chalk": "^5.3.0",
     "commander": "^12.0.0",

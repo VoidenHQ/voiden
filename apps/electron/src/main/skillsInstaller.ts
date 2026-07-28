@@ -3,6 +3,13 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { AppState } from "src/shared/types";
 import { composeSkillMarkdown } from "./skillsComposer";
+import {
+  installClaudeSkill as installRunnerClaudeSkill,
+  uninstallClaudeSkill as uninstallRunnerClaudeSkill,
+  installCodexSkill as installRunnerCodexSkill,
+  uninstallCodexSkill as uninstallRunnerCodexSkill,
+  RUNNER_SKILL_MARKDOWN,
+} from "@voiden/executors";
 
 function getClaudeSkillDir(): string {
   return path.join(app.getPath("home"), ".claude", "skills", "voiden");
@@ -35,6 +42,7 @@ export function uninstallClaudeSkill(): void {
       if (fs.existsSync(p)) fs.unlinkSync(p);
     }
   } catch {}
+  try { uninstallRunnerClaudeSkill(); } catch {}
 }
 
 // --- Codex ---
@@ -52,6 +60,7 @@ export function uninstallCodexSkill(): void {
     const skillDir = getCodexSkillDir();
     if (fs.existsSync(skillDir)) fs.rmSync(skillDir, { recursive: true, force: true });
   } catch {}
+  try { uninstallRunnerCodexSkill(); } catch {}
 }
 
 // --- Public API ---
@@ -59,13 +68,24 @@ export function uninstallCodexSkill(): void {
 type SkillTargets = { claude: boolean; codex: boolean };
 
 /**
- * Composes skills from all enabled extensions and installs them to the requested targets:
- * ~/.claude/skills/voiden/SKILL.md and/or ~/.codex/skills/voiden/SKILL.md
+ * Installs two distinct skills per target, always kept in sync with each other:
+ *   - ~/.claude|codex/skills/voiden/SKILL.md        — authoring, composed fresh from
+ *     all enabled extensions' skill.md (this app's own content)
+ *   - ~/.claude|codex/skills/voiden-runner/SKILL.md — running/verifying via the MCP
+ *     tools, sourced from @voiden/runner so the CLI and the app never drift apart
+ * Both are fully regenerated and overwritten on every call — there's no partial/stale
+ * state between them.
  */
 export async function recomposeAndInstall(appState: AppState, targets: SkillTargets): Promise<void> {
   const markdown = composeSkillMarkdown(appState);
-  if (targets.claude) installClaude(markdown);
-  if (targets.codex) installCodex(markdown);
+  if (targets.claude) {
+    installClaude(markdown);
+    installRunnerClaudeSkill(RUNNER_SKILL_MARKDOWN);
+  }
+  if (targets.codex) {
+    installCodex(markdown);
+    installRunnerCodexSkill(RUNNER_SKILL_MARKDOWN);
+  }
 }
 
 /**

@@ -3,9 +3,9 @@ import { program } from 'commander'
 import { readFileSync, existsSync, statSync, writeFileSync, mkdirSync, unlinkSync } from 'fs'
 import { resolve, relative, basename, join, dirname } from 'path'
 import { fileURLToPath } from 'url'
-import { readdir } from 'fs/promises'
 import chalk from 'chalk'
 import { runVoidFile } from './runner.js'
+import { resolveFiles } from './discovery.js'
 import { loadEnabledPlugins } from './plugins/loader.js'
 import { exportToCsv } from './report/csv.js'
 import { sendMailReport } from './report/mail.js'
@@ -28,14 +28,40 @@ import {
 } from './plugins/store.js'
 import { checkForPluginUpdates, type PluginUpdateInfo } from './plugins/updateCheck.js'
 import { getInstalledPluginInfo } from './plugins/versionInfo.js'
-import { parseVoidFile } from './parser.js'
-import { classifyBlockVersion } from '@voiden/executors'
+import {
+  classifyBlockVersion,
+  parseVoidFile,
+  installMcpIntegration,
+  uninstallMcpIntegration,
+  getMcpStatus,
+  RUNNER_SKILL_MARKDOWN,
+} from '@voiden/executors'
 import {
   appendSessionResults,
   loadSessionResults,
   clearSession,
 } from './session.js'
 import type { RunResult, CliReportEntry } from './types.js'
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Exit codes — a stable, documented contract CI pipelines can branch on.
+//
+//   0  success — all requests passed
+//   1  one or more requests failed (assertions/errors), or --bail /
+//      --fail-on-error triggered — unchanged from prior releases
+//   2  the runner could not execute the run at all: bad CLI args/flags,
+//      missing files, missing plugins, invalid env — a pipeline/config
+//      problem, not an API failure
+//
+// See CHANGELOG.md and docs.voiden.md/docs/developer-tools/voiden-runner/ci-cd
+// ─────────────────────────────────────────────────────────────────────────────
+const EXIT_SUCCESS = 0
+const EXIT_RUN_FAILURE = 1
+const EXIT_USAGE_ERROR = 2
+
+/** JSON output schema version — bump whenever a field is renamed, removed, or
+ *  reinterpreted (adding a field is not a breaking change and does not need a bump). */
+const JSON_SCHEMA_VERSION = '1'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -68,52 +94,6 @@ function formatBytes(bytes: number): string {
 function formatDuration(ms: number): string {
   if (ms < 1000) return `${ms}ms`
   return `${(ms / 1000).toFixed(2)}s`
-}
-
-/** Recursively collect all .void files under a directory. */
-async function collectVoidFiles(inputPath: string): Promise<string[]> {
-  const abs = resolve(inputPath)
-  if (!existsSync(abs)) return []
-
-  const stat = statSync(abs)
-  if (stat.isFile()) {
-    return abs.endsWith('.void') ? [abs] : []
-  }
-
-  if (stat.isDirectory()) {
-    const entries = await readdir(abs, { withFileTypes: true })
-    const results: string[] = []
-    for (const entry of entries) {
-      const full = resolve(abs, entry.name)
-      if (entry.isDirectory()) {
-        results.push(...(await collectVoidFiles(full)))
-      } else if (entry.isFile() && entry.name.endsWith('.void')) {
-        results.push(full)
-      }
-    }
-    return results
-  }
-
-  return []
-}
-
-/** Expand a list of paths/globs into resolved .void file paths. */
-async function resolveFiles(patterns: string[]): Promise<string[]> {
-  const resolved: string[] = []
-  for (const pattern of patterns) {
-    if (pattern.includes('*')) {
-      const dir = resolve(pattern.replace(/\/?\*.*$/, '') || '.')
-      const entries = await readdir(dir, { withFileTypes: true })
-      for (const entry of entries) {
-        if (entry.isFile() && entry.name.endsWith('.void')) {
-          resolved.push(resolve(dir, entry.name))
-        }
-      }
-    } else {
-      resolved.push(...(await collectVoidFiles(pattern)))
-    }
-  }
-  return resolved
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -321,22 +301,34 @@ function printRunSummary(
   console.log()
 }
 
+/**
+ * Builds the `--json` / `--output-json` payload shape shared by `run` and
+ * `report generate`. `schemaVersion` is the stable contract external tooling
+ * codes against — see the exit-codes comment above for the versioning rule.
+ */
+function buildJsonReport(
+  results: Array<{ file: string; result: RunResult }>,
+  extra: { totalDurationMs?: number; activePlugins?: string[] } = {},
+) {
+  const passed = results.filter(r => r.result.success).length
+  return {
+    schemaVersion: JSON_SCHEMA_VERSION,
+    summary: {
+      total: results.length,
+      passed,
+      failed: results.length - passed,
+      ...extra,
+    },
+    requests: results.map(r => ({ file: r.file, ...r.result })),
+  }
+}
+
 function printRunSummaryJson(
   results: Array<{ file: string; result: RunResult }>,
   totalMs: number,
   activePlugins: string[],
 ): void {
-  const passed = results.filter(r => r.result.success).length
-  const output = {
-    summary: {
-      total: results.length,
-      passed,
-      failed: results.length - passed,
-      totalDurationMs: totalMs,
-      activePlugins,
-    },
-    requests: results.map(r => ({ file: r.file, ...r.result })),
-  }
+  const output = buildJsonReport(results, { totalDurationMs: totalMs, activePlugins })
   console.log(JSON.stringify(output, null, 2))
 }
 
@@ -525,7 +517,7 @@ program
     const changelogPath = resolve(join(dirname(fileURLToPath(import.meta.url)), '../CHANGELOG.md'))
     if (!existsSync(changelogPath)) {
       console.error(chalk.red('  ✗  No CHANGELOG.md found for this install.'))
-      process.exit(1)
+      process.exit(EXIT_USAGE_ERROR)
     }
 
     const entries = parseChangelog(readFileSync(changelogPath, 'utf-8'))
@@ -541,7 +533,7 @@ program
       if (!match) {
         console.error(chalk.red(`  ✗  No changelog entry found for version "${version}".`))
         console.log(chalk.gray(`     Available: ${entries.map(e => e.version).join(', ')}`))
-        process.exit(1)
+        process.exit(EXIT_USAGE_ERROR)
       }
       toShow = [match!]
     } else if (opts.latest) {
@@ -608,13 +600,13 @@ program
       const envPath = resolve(opts.env)
       if (!existsSync(envPath)) {
         console.error(chalk.red(`Env file not found: ${envPath}`))
-        process.exit(1)
+        process.exit(EXIT_USAGE_ERROR)
       }
       try {
         Object.assign(env, loadEnvFile(envPath))
       } catch (err: any) {
         console.error(chalk.red(`  ✗  ${err.message}`))
-        process.exit(1)
+        process.exit(EXIT_USAGE_ERROR)
       }
     }
 
@@ -624,13 +616,13 @@ program
         const eq = pair.indexOf('=')
         if (eq === -1) {
           console.error(chalk.red(`  ✗  Invalid --env-var format: "${pair}" (expected key=value)`))
-          process.exit(1)
+          process.exit(EXIT_USAGE_ERROR)
         }
         const key = pair.slice(0, eq).trim()
         const val = pair.slice(eq + 1).trim().replace(/^["']|["']$/g, '')
         if (!key) {
           console.error(chalk.red(`  ✗  Invalid --env-var format: "${pair}" (key cannot be empty)`))
-          process.exit(1)
+          process.exit(EXIT_USAGE_ERROR)
         }
         env[key] = val
       }
@@ -640,7 +632,7 @@ program
 
     if (resolvedFiles.length === 0) {
       console.error(chalk.red('No .void files found at the given path(s)'))
-      process.exit(1)
+      process.exit(EXIT_USAGE_ERROR)
     }
 
     // --stop-on-failure is a CI-friendly alias for --bail
@@ -662,11 +654,11 @@ program
     if (opts.mail || opts.mailTo) {
       if (!mailTo) {
         console.error(chalk.red('  ✗  Mail error: no recipient found. Please provide --mail-to or set VOIDEN_MAIL_TO.'))
-        process.exit(1)
+        process.exit(EXIT_USAGE_ERROR)
       }
       if (!smtpHost) {
         console.error(chalk.red('  ✗  Mail keys are missing. Please provide SMTP configuration (VOIDEN_SMTP_HOST).'))
-        process.exit(1)
+        process.exit(EXIT_USAGE_ERROR)
       }
     }
 
@@ -776,16 +768,7 @@ program
     // ── Output JSON to file (before mail so it can be attached) ──────────────
     let savedJsonPath: string | undefined
     if (opts.outputJson) {
-      const jsonData = {
-        summary: {
-          total: allResults.length,
-          passed: allResults.filter(r => r.result.success).length,
-          failed: allResults.filter(r => !r.result.success).length,
-          totalDurationMs: totalMs,
-          activePlugins,
-        },
-        requests: allResults.map(r => ({ file: r.file, ...r.result })),
-      }
+      const jsonData = buildJsonReport(allResults, { totalDurationMs: totalMs, activePlugins })
       try {
         mkdirSync(dirname(opts.outputJson), { recursive: true })
         writeFileSync(opts.outputJson, JSON.stringify(jsonData, null, 2) + '\n', 'utf-8')
@@ -832,7 +815,7 @@ program
       notifyProjectStatus(resolvedFiles, process.cwd())
     }
 
-    process.exit(shouldFail ? 1 : 0)
+    process.exit(shouldFail ? EXIT_RUN_FAILURE : EXIT_SUCCESS)
   })
 
 // ── voiden-runner session ─────────────────────────────────────────────────────
@@ -957,7 +940,7 @@ reportCmd
     const results = loadSessionResults()
     if (results.length === 0) {
       console.error(chalk.red('  ✗  No results found in session. Run some .void files first.'))
-      process.exit(1)
+      process.exit(EXIT_USAGE_ERROR)
     }
 
     // Load optional .env for report SMTP settings
@@ -978,12 +961,12 @@ reportCmd
     if (opts.mail || opts.mailTo) {
       if (!mailTo) {
         console.error(chalk.red('  ✗  Mail error: no recipient found. Please provide --mail-to or set VOIDEN_MAIL_TO.'))
-        process.exit(1)
+        process.exit(EXIT_USAGE_ERROR)
       }
       const smtpHost = opts.smtpHost || env.VOIDEN_SMTP_HOST
       if (!smtpHost) {
         console.error(chalk.red('  ✗  Mail keys are missing. Please provide SMTP configuration (VOIDEN_SMTP_HOST).'))
-        process.exit(1)
+        process.exit(EXIT_USAGE_ERROR)
       }
     }
 
@@ -1004,14 +987,7 @@ reportCmd
 
     let savedJsonPath: string | undefined
     if (opts.outputJson) {
-      const jsonData = {
-        summary: {
-          total: results.length,
-          passed: results.filter(r => r.result.success).length,
-          failed: results.filter(r => !r.result.success).length,
-        },
-        requests: results.map(r => ({ file: r.file, ...r.result })),
-      }
+      const jsonData = buildJsonReport(results)
       try {
         mkdirSync(dirname(opts.outputJson), { recursive: true })
         writeFileSync(opts.outputJson, JSON.stringify(jsonData, null, 2) + '\n', 'utf-8')
@@ -1033,7 +1009,7 @@ reportCmd
       if (!smtpHost) {
         console.error(chalk.red('  ✗  SMTP configuration required for email reports.'))
         console.log(chalk.gray('     Set VOIDEN_SMTP_HOST in your environment or use --smtp-host.'))
-        process.exit(1)
+        process.exit(EXIT_USAGE_ERROR)
       }
 
       console.log(chalk.gray(`  ↑  Sending session report to ${mailTo} …`))
@@ -1099,7 +1075,7 @@ pluginCmd
       if (communityPlugins.length > 0) {
         console.log(chalk.gray('  Community (install by name): ' + communityPlugins.map(p => p.id).join(', ')))
       }
-      process.exit(1)
+      process.exit(EXIT_USAGE_ERROR)
     }
 
     let installedCount = 0
@@ -1278,7 +1254,7 @@ pluginCmd
 
     if (targets.length === 0) {
       console.error(chalk.red('  Specify plugin name(s) or use --all'))
-      process.exit(1)
+      process.exit(EXIT_USAGE_ERROR)
       return
     }
 
@@ -1333,14 +1309,14 @@ pluginCmd
     }
     if (!name) {
       console.error(chalk.red('  Specify a plugin name or use --all'))
-      process.exit(1)
+      process.exit(EXIT_USAGE_ERROR)
     }
     const communityPlugins = await fetchCommunityPlugins()
     const commDef = findCommunityPlugin(name, communityPlugins)
     if (commDef && !hasCommunityRunner(name)) {
       console.log(chalk.red(`  ✗  Cannot enable "${name}" — runner not installed`))
       console.log(chalk.gray(`     Run: voiden-runner plugin install ${name}`))
-      process.exit(1)
+      process.exit(EXIT_USAGE_ERROR)
     }
     setPluginEnabled(name, true)
     console.log(chalk.green(`  ✓  Enabled`) + ` ${name}`)
@@ -1378,7 +1354,7 @@ pluginCmd
     }
     if (!name) {
       console.error(chalk.red('  Specify a plugin name or use --all'))
-      process.exit(1)
+      process.exit(EXIT_USAGE_ERROR)
       return
     }
     setPluginEnabled(name, false)
@@ -1472,6 +1448,95 @@ pluginCmd
       console.log(chalk.gray(`  Run: voiden-runner plugin update --all  (${updates.length} update${updates.length !== 1 ? 's' : ''} available)`))
     }
 
+    console.log()
+  })
+
+// ── voiden-runner mcp ─────────────────────────────────────────────────────────
+//
+// Enables the AI-agent loop for CLI-only users (no Voiden app installed):
+// registers @voiden/mcp-server with Claude Code / Codex, and installs a
+// standalone skill teaching the run/verify/write-back workflow. The Voiden
+// app's own Settings toggle does the equivalent for desktop users, reusing
+// the same registration helpers from mcpInstall.ts.
+
+function resolveMcpTargets(opts: { claude?: boolean; codex?: boolean }): { claude: boolean; codex: boolean } {
+  // Default to both when neither flag is given — a single command should be
+  // enough to "just enable this".
+  if (!opts.claude && !opts.codex) return { claude: true, codex: true }
+  return { claude: Boolean(opts.claude), codex: Boolean(opts.codex) }
+}
+
+const mcpCmd = program
+  .command('mcp')
+  .description('Enable AI-agent integration — registers @voiden/mcp-server and installs a run/verify skill')
+
+mcpCmd
+  .command('install')
+  .description(
+    'Register @voiden/mcp-server with Claude Code and/or Codex, and install a skill teaching the run/verify/write-back loop.\n\n' +
+    '  Examples:\n' +
+    '    voiden-runner mcp install                                    # both Claude Code and Codex\n' +
+    '    voiden-runner mcp install --claude                           # Claude Code only\n' +
+    '    voiden-runner mcp install -p ./my-project                    # register against a specific project dir (default: cwd)\n' +
+    '    voiden-runner mcp install --local-server ./dist/index.js     # before publishing: point at a local build instead of npx\n'
+  )
+  .option('--claude', 'Install for Claude Code only')
+  .option('--codex', 'Install for Codex only')
+  .option('-p, --project <path>', 'Project directory to register the MCP server against', '.')
+  .option('--local-server <path>', 'Use `node <path>` instead of `npx -y @voiden/mcp-server` — for testing against a local build before it\'s published')
+  .action((opts) => {
+    const targets = resolveMcpTargets(opts)
+    const serverCommand = opts.localServer
+      ? { command: 'node', args: [resolve(opts.localServer), resolve(opts.project)] }
+      : undefined
+    const installed = installMcpIntegration(opts.project, targets, RUNNER_SKILL_MARKDOWN, serverCommand)
+    if (installed.length === 0) {
+      console.log(chalk.yellow('  Nothing to install.'))
+      return
+    }
+    console.log()
+    for (const target of installed) {
+      console.log(chalk.green(`  ✓  ${target === 'claude' ? 'Claude Code' : 'Codex'}`) + chalk.gray(`  —  skill installed, @voiden/mcp-server registered for ${resolve(opts.project)}`))
+    }
+    if (serverCommand) {
+      console.log(chalk.gray(`  Using local build: node ${serverCommand.args[0]}`))
+    }
+    console.log()
+    console.log(chalk.gray('  Restart Claude Code / Codex (or run /mcp) to pick up the new server.'))
+  })
+
+mcpCmd
+  .command('uninstall')
+  .description('Remove the MCP server registration and skill installed by `mcp install`')
+  .option('--claude', 'Remove Claude Code integration only')
+  .option('--codex', 'Remove Codex integration only')
+  .option('-p, --project <path>', 'Project directory to unregister the MCP server from', '.')
+  .action((opts) => {
+    const targets = resolveMcpTargets(opts)
+    const removed = uninstallMcpIntegration(opts.project, targets)
+    if (removed.length === 0) {
+      console.log(chalk.yellow('  Nothing to remove.'))
+      return
+    }
+    for (const target of removed) {
+      console.log(chalk.green(`  ✓  Removed`) + chalk.gray(` ${target === 'claude' ? 'Claude Code' : 'Codex'} integration`))
+    }
+  })
+
+mcpCmd
+  .command('status')
+  .description('Show whether the MCP server + skill are installed for this project')
+  .option('-p, --project <path>', 'Project directory to check', '.')
+  .action((opts) => {
+    const status = getMcpStatus(opts.project)
+    console.log()
+    console.log(chalk.bold('  Claude Code'))
+    console.log(`    skill installed:     ${status.claude.skillInstalled ? chalk.green('yes') : chalk.gray('no')}`)
+    console.log(`    server registered:   ${status.claude.serverRegistered ? chalk.green('yes') : chalk.gray('no')}`)
+    console.log()
+    console.log(chalk.bold('  Codex'))
+    console.log(`    skill installed:      ${status.codex.skillInstalled ? chalk.green('yes') : chalk.gray('no')}`)
+    console.log(`    server registered:   ${status.codex.serverRegistered ? chalk.green('yes') : chalk.gray('no')}`)
     console.log()
   })
 

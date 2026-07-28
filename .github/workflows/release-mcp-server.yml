@@ -1,0 +1,104 @@
+# Builds and publishes @voiden/mcp-server to npm, and attaches a .tgz to a GitHub Release.
+#
+# Trigger: manual (workflow_dispatch)
+# Bump the version in packages/voiden-mcp-server/package.json, commit, then trigger this workflow.
+#
+# Publishes via npm Trusted Publishing (OIDC) — no NPM_TOKEN secret needed.
+# One-time setup required on npmjs.com: package Settings → Trusted Publisher →
+# add GitHub Actions with org "VoidenHQ", repo "voiden", workflow "release-mcp-server.yml".
+#
+# @voiden/mcp-server depends on @voiden/runner (workspace) — its "main"/"exports"
+# point at @voiden/runner's compiled dist/lib.js, so @voiden/runner has to be
+# built first (same way its own release workflow builds it) before this
+# package's own build/publish can succeed.
+
+name: Release voiden-mcp-server
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  release:
+    name: Build, Publish & Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Read mcp-server version
+        id: version
+        run: |
+          VERSION=$(node -p "require('./packages/voiden-mcp-server/package.json').version")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=mcp-server-v$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Node (with npm registry auth)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Enable Corepack (Yarn)
+        run: corepack enable
+
+      # Same prep the runner/app releases use — clones plugin-registry + core
+      # plugins into plugins/, then yarn installs workspace deps. Needed so
+      # @voiden/runner's own build (next step) succeeds the same way it does
+      # in release-runner.yml.
+      - name: Run cleanup (clone plugins + install deps)
+        run: chmod +x cleanup.sh && ./cleanup.sh
+
+      # @voiden/mcp-server imports @voiden/runner's compiled dist/lib.js at
+      # build time (TypeScript type resolution via "exports") — build it
+      # first the same way release-runner.yml does.
+      - name: Build @voiden/runner
+        working-directory: packages/voiden-runner
+        run: npm run build
+
+      - name: Build @voiden/mcp-server
+        working-directory: packages/voiden-mcp-server
+        run: npm run build
+
+      # ── Publish to npm (Trusted Publishing / OIDC — no token needed) ─────────────
+      - name: Upgrade npm (OIDC support needs npm >=11.5.1)
+        run: npm install -g npm@latest
+
+      - name: Publish to npm
+        working-directory: packages/voiden-mcp-server
+        run: npm publish --access public --provenance
+
+      # ── Attach tarball to GitHub Release ─────────────────────────────────────
+      - name: Pack tarball
+        working-directory: packages/voiden-mcp-server
+        run: npm pack
+
+      - name: Get tarball name
+        id: tarball
+        working-directory: packages/voiden-mcp-server
+        run: echo "name=$(ls *.tgz)" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: voiden-mcp-server ${{ steps.version.outputs.tag }}
+          generate_release_notes: true
+          body: |
+            ### Install
+
+            Registered automatically by `voiden-runner mcp install` (see @voiden/runner), or manually add to Claude Code's `.mcp.json` / Codex's `~/.codex/config.toml`:
+
+            ```json
+            { "mcpServers": { "voiden-runner": { "command": "npx", "args": ["-y", "@voiden/mcp-server", "/path/to/project"] } } }
+            ```
+
+            Or install this release's tarball directly:
+            ```bash
+            npm install -g https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.tag }}/${{ steps.tarball.outputs.name }}
+            ```
+          files: packages/voiden-mcp-server/${{ steps.tarball.outputs.name }}

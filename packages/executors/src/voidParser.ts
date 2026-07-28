@@ -4,10 +4,22 @@
  * Adapted from apps/ui/src/core/editors/voiden/markdownConverter.ts
  * - No TipTap/ProseMirror dependency
  * - No schema validation — trusts the YAML type field as-is
+ *
+ * Lives here (not in @voiden/runner) because both the Voiden app and
+ * @voiden/runner need it — the app for validating externally-written .void
+ * files, the runner for actually executing them — and @voiden/executors is
+ * the one shared package both already depend on without pulling in
+ * @voiden/runner's CLI-specific weight (chalk, commander, nodemailer, the
+ * plugin loader).
  */
 
 import YAML from 'yaml'
-import type { Block } from './types.js'
+
+export interface Block {
+  type: string
+  attrs?: Record<string, any>
+  content?: Block[] | string
+}
 
 /**
  * Restore %%EMPTY_LINE%% placeholders back to empty strings.
