@@ -3,7 +3,7 @@ import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import "@xterm/xterm/css/xterm.css";
-import { useSettings, SYSTEM_DEFAULT_FONT, TERMINAL_DEFAULT_MONO_STACK } from "../../settings/hooks/useSettings";
+import { useSettings, SYSTEM_DEFAULT_FONT, TERMINAL_DEFAULT_MONO_STACK, PROPORTIONAL_FONT_FAMILIES } from "../../settings/hooks/useSettings";
 import { useNerdFont } from "../hooks/useNerdFont";
 import { useClosePanelTab, useGetPanelTabs } from "@/core/layout/hooks";
 import { usePanelStore } from "@/core/stores/panelStore";
@@ -41,8 +41,9 @@ export const Terminal = ({ tabId, cwd }: TerminalProps) => {
 
   // Derive effective font family: prefer Nerd Font when active, otherwise use the app's chosen font
   const appFontFamily = settings?.appearance?.font_family || SYSTEM_DEFAULT_FONT;
+  const isProportionalFont = appFontFamily === SYSTEM_DEFAULT_FONT || PROPORTIONAL_FONT_FAMILIES.includes(appFontFamily);
   const effectiveFontFamily = fontFamily || (
-    appFontFamily === SYSTEM_DEFAULT_FONT ? TERMINAL_DEFAULT_MONO_STACK : `'${appFontFamily}', monospace`
+    isProportionalFont ? TERMINAL_DEFAULT_MONO_STACK : `'${appFontFamily}', monospace`
   );
 
   // Helper to fit terminal and sync dimensions with PTY
@@ -118,12 +119,25 @@ export const Terminal = ({ tabId, cwd }: TerminalProps) => {
     }
   }, [fontSize]);
 
+  // xterm draws into a canvas/WebGL surface, which is a snapshot at draw time.
+  // Unlike DOM text, it does not repaint itself once a lazily-fetched @font-face
+  // (font-display: swap) finishes downloading — so the very first time a given
+  // font family is used, the terminal can get stuck showing the fallback font
+  // forever unless we explicitly wait for the load and force a redraw.
+  const refreshAfterFontLoad = (term: XTerm, family: string, size: number) => {
+    if (typeof document === "undefined" || !document.fonts) return;
+    document.fonts.load(`${size}px ${family}`).then(() => {
+      if (xtermRef.current !== term) return;
+      term.refresh(0, term.rows - 1);
+      debouncedFit();
+    }).catch(() => {});
+  };
+
   // Update terminal font family when Nerd Font or app font setting changes
   useEffect(() => {
     if (xtermRef.current) {
       xtermRef.current.options.fontFamily = effectiveFontFamily;
-      // Debounced fit to prevent excessive re-renders
-      debouncedFit();
+      refreshAfterFontLoad(xtermRef.current, effectiveFontFamily, fontSize);
     }
   }, [effectiveFontFamily]);
 
@@ -253,6 +267,7 @@ export const Terminal = ({ tabId, cwd }: TerminalProps) => {
     xterm.loadAddon(fitAddon);
     xterm.open(terminalRef.current);
     xterm.focus();
+    refreshAfterFontLoad(xterm, effectiveFontFamily, fontSize);
 
    
     const pasteEventHandler = (e: ClipboardEvent) => {
