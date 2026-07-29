@@ -36,8 +36,9 @@ export const Terminal = ({ tabId, cwd }: TerminalProps) => {
   const outputBufferRef = useRef<string>("");
   const writeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Get font size from settings, fallback to 14
-  const fontSize = settings?.appearance?.font_size || 14;
+  // Get font size from settings — the terminal is chrome/UI, not document
+  // content, so it follows UI font size rather than the editor's, fallback to 13
+  const fontSize = settings?.appearance?.ui_font_size || 13;
 
   // Derive effective font family: prefer Nerd Font when active, otherwise use the app's chosen font
   const appFontFamily = settings?.appearance?.font_family || SYSTEM_DEFAULT_FONT;
