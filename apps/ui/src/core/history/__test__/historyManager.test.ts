@@ -95,4 +95,45 @@ describe('historyManager - per-file identity (#520)', () => {
     expect(historyA.entries.map((e) => e.id)).toEqual(['first']);
     expect(historyB.entries).toEqual([]);
   });
+
+  it('adopts a legacy history file when filePath matches', async () => {
+    const projectPath = '/workspace';
+    const fileA = '/workspace/team-a/login.void';
+
+    // Simulate a pre-#525 legacy history file written under the old naming scheme.
+    const legacyEntry = makeEntry('legacy-entry');
+    const legacyHistory = {
+      version: '1.0.0',
+      filePath: fileA,
+      entries: [legacyEntry],
+    };
+    fs.files.set('/workspace/.voiden/history/login-history.json', JSON.stringify(legacyHistory));
+
+    const history = await readHistory(projectPath, fileA, 90);
+    expect(history.entries.map((e) => e.id)).toEqual(['legacy-entry']);
+
+    // Should now be persisted under the new hashed name too.
+    const newNamedFiles = Array.from(fs.files.keys()).filter(
+      (p) => p.includes('/workspace/.voiden/history/') && p !== '/workspace/.voiden/history/login-history.json',
+    );
+    expect(newNamedFiles.length).toBe(1);
+  });
+
+  it('does not adopt a legacy history file when filePath does not match (collided file)', async () => {
+    const projectPath = '/workspace';
+    const fileA = '/workspace/team-a/login.void';
+    const fileB = '/workspace/team-b/login.void';
+
+    // Legacy file was last written by fileB (the collision case from #520) —
+    // fileA must not adopt fileB's history.
+    const legacyHistory = {
+      version: '1.0.0',
+      filePath: fileB,
+      entries: [makeEntry('belongs-to-b')],
+    };
+    fs.files.set('/workspace/.voiden/history/login-history.json', JSON.stringify(legacyHistory));
+
+    const history = await readHistory(projectPath, fileA, 90);
+    expect(history.entries).toEqual([]);
+  });
 });
