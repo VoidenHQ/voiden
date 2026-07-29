@@ -51,7 +51,8 @@ import { CodeEditor as GenericCodeEditor } from "@/core/editors/code/lib/compone
 import { Table, TableBody, TableRow, TableCell } from "@/core/components/ui/table";
 import { NodeViewWrapper } from "@tiptap/react";
 import { useSendRestRequest } from "@/core/request-engine";
-import { RequestBlockHeader } from "@/core/editors/voiden/nodes/RequestBlockHeader";
+import { RequestBlockHeader, BlockHelpTooltip } from "@/core/editors/voiden/nodes/RequestBlockHeader";
+import { RuntimeVariablesHelp } from "@/core/editors/voiden/nodes/help";
 import { useParentResponseDoc } from "@/core/extensions/hooks/useParentResponseDoc";
 import { useResponseBodyHeight } from "@/core/extensions/hooks/useResponseBodyHeight";
 import { Tip } from "@/core/components/ui/Tip";
@@ -558,6 +559,13 @@ const coreBlockOutlineMeta: Record<string, BlockOutlineMeta> = {
   },
 };
 
+// Core (non-plugin) block help content — registered the same way a plugin
+// would via registerBlockHelp, just seeded directly since this node lives in
+// apps/ui core, not a plugin package.
+const coreBlockHelp: Record<string, React.ComponentType> = {
+  "runtime-variables": RuntimeVariablesHelp,
+};
+
 const blockOutlineRegistry = new Map<string, BlockOutlineMeta>(Object.entries(coreBlockOutlineMeta));
 
 /** Returns the outline metadata registered by a plugin for a given node type. */
@@ -573,6 +581,18 @@ export function getBlockDocsUrl(nodeType: string, attrs?: Record<string, any>, n
     return meta.docsUrl(attrs || {}, node);
   }
   return meta.docsUrl;
+}
+
+// Block-type-keyed registry for the header-bar "?" help tooltip
+// (RequestBlockHeader's helpContent). Mirrors blockOutlineRegistry above —
+// register once per node type via context.registerBlockHelp, and any block
+// header that passes blockType picks up the content automatically instead of
+// needing helpContent hand-wired at every NodeView call site.
+const blockHelpRegistry = new Map<string, React.ComponentType>(Object.entries(coreBlockHelp));
+
+/** Returns the help component registered for a given node type, if any. */
+export function getBlockHelp(nodeType: string): React.ComponentType | undefined {
+  return blockHelpRegistry.get(nodeType);
 }
 
 // Global registry for loaded plugin instances (for cleanup)
@@ -1113,6 +1133,7 @@ export const createPlugin = (
         TableCell,
         NodeViewWrapper,
         RequestBlockHeader,
+        BlockHelpTooltip,
         Tip,
       } as any,
       hooks: {
@@ -1300,6 +1321,12 @@ export const createPlugin = (
       extensionLogger.info(`Plugin "${extensionId}" registering ${Object.keys(entries).length} block outline meta entries`);
       Object.entries(entries).forEach(([nodeType, meta]) => {
         blockOutlineRegistry.set(nodeType, meta);
+      });
+    },
+    registerBlockHelp: (entries: Record<string, React.ComponentType>) => {
+      extensionLogger.info(`Plugin "${extensionId}" registering ${Object.keys(entries).length} block help entries`);
+      Object.entries(entries).forEach(([nodeType, component]) => {
+        blockHelpRegistry.set(nodeType, component);
       });
     },
     registerTableSuggestions: (tableType: string, suggestions: { [columnIndex: number]: Array<{ label: string; description?: string }> }) => {
@@ -1500,6 +1527,8 @@ export const getPlugins = async () => {
   tableSuggestionsRegistry.clear();
   blockOutlineRegistry.clear();
   Object.entries(coreBlockOutlineMeta).forEach(([type, meta]) => blockOutlineRegistry.set(type, meta));
+  blockHelpRegistry.clear();
+  Object.entries(coreBlockHelp).forEach(([type, component]) => blockHelpRegistry.set(type, component));
   clearHelpRegistry();
   requestOrchestrator.clear();
   pasteOrchestrator.clear();
