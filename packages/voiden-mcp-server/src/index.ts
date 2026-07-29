@@ -28,6 +28,8 @@ import {
   collectVoidFiles,
   getRequestPreview,
   upsertResponseBlock,
+  findRequestBlock,
+  loadEnabledPlugins,
   type RunResult,
 } from '@voiden/runner'
 
@@ -72,7 +74,19 @@ function textResult(value: unknown) {
 }
 
 function findRequestUid(blocks: any[]): string | undefined {
-  return blocks.find(b => b?.type === 'request')?.attrs?.uid
+  return findRequestBlock(blocks)?.attrs?.uid
+}
+
+// Protocol plugins register their block shape (REQUEST_CONTAINERS-equivalent)
+// with voiden-runner only as a side effect of loadEnabledPlugins() — so
+// list_requests needs plugins loaded too, not just run_request, or
+// findRequestBlock/getRequestPreview see an empty registry and can't find
+// anything beyond a generic fallback. Cached the same way run_request caches
+// it, so listing requests doesn't reload plugins on every call.
+async function ensurePluginsLoaded(): Promise<void> {
+  if (cachedActivePlugins === undefined) {
+    cachedActivePlugins = await loadEnabledPlugins()
+  }
 }
 
 // ─── Server ───────────────────────────────────────────────────────────────────
@@ -103,6 +117,7 @@ server.registerTool(
     },
   },
   async ({ filePath }) => {
+    await ensurePluginsLoaded()
     const resolved = resolveInProject(filePath)
     const content = readFileSync(resolved, 'utf-8')
     const sections = parseVoidFileSections(content)

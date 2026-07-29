@@ -17,6 +17,7 @@
 import { hookRegistry, PipelineStage, requestOrchestrator, executeWebSocket, executeGrpc } from '@voiden/executors'
 import type { RequestBuildHandler, ResponseProcessHandler } from '@voiden/executors'
 import { registerBlockSchema, type BlockSchemaDef } from './blockSchemaRegistry.js'
+import { registerRequestContainer as registerContainerDef, type RequestContainerDef } from './requestContainerRegistry.js'
 import type { RunnerContext, RunnerRequestHandler, RunnerResponseHandler } from '@voiden/sdk/runner'
 
 export function createHeadlessPluginContext(
@@ -94,6 +95,15 @@ export function createHeadlessPluginContext(
       exposeHelpers:               () => {},
       paste: { registerBlockOwner: () => {} },
       project: { openFile: () => {} },
+
+      // Host capability not yet in the published @voiden/sdk RunnerContext
+      // type — lets a protocol plugin (REST, GraphQL, sockets/gRPC, or a
+      // third-party protocol plugin) declare its own request-container block
+      // shape, so list_requests/write_result work for it without voiden-runner's
+      // core needing to hardcode knowledge of every plugin's block types.
+      registerRequestContainer: (def: RequestContainerDef) => {
+        registerContainerDef(def)
+      },
     } as any),
   }
 }

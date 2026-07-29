@@ -6,7 +6,7 @@
  * (e.g. @voiden/mcp-server) to import directly, wired via "main"/"exports".
  */
 
-export { runVoidFile, getRequestPreview } from './runner.js'
+export { runVoidFile, getRequestPreview, findRequestBlock } from './runner.js'
 export type { RunOptions, SectionResult, RunFileResult, RawRequestInfo } from './runner.js'
 
 export { collectVoidFiles, resolveFiles } from './discovery.js'

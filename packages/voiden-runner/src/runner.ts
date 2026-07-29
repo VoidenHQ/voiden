@@ -23,6 +23,7 @@ import { createCliElectron } from './cliElectron.js'
 import { loadEnabledPlugins } from './plugins/loader.js'
 import { getInstalledPluginInfo } from './plugins/versionInfo.js'
 import { normalizeBlocks } from './blockSchemaRegistry.js'
+import { findRequestBlock as findRegisteredRequestBlock, getRequestContainerDef } from './requestContainerRegistry.js'
 import { extractRuntimeVarRows, captureRuntimeVars } from './runtimeVars.js'
 import type { CaptureRequest, CaptureResponse } from './runtimeVars.js'
 import type { RunResult } from './types.js'
@@ -96,14 +97,31 @@ export function getRequestPreview(blocks: any[]): RawRequestInfo {
   return extractRawRequest(blocks)
 }
 
+/**
+ * Finds the block that represents "the request" in a section, whichever
+ * protocol it belongs to. Backed by requestContainerRegistry.ts, populated
+ * by each protocol plugin's own context.registerRequestContainer() call —
+ * exported so callers that only need the block's `uid` (e.g. the MCP
+ * server's list_requests tool) share this same registry instead of
+ * hardcoding their own list of protocol block types.
+ */
+export function findRequestBlock(blocks: any[]): any | undefined {
+  return findRegisteredRequestBlock(blocks)
+}
+
 function extractRawRequest(blocks: any[]): RawRequestInfo {
-  const req = blocks.find((b: any) => b.type === 'request')
   let url    = ''
   let method = 'GET'
-  if (req && Array.isArray(req.content)) {
-    for (const node of req.content) {
-      if (node.type === 'method' && typeof node.content === 'string') method = node.content.trim()
-      if (node.type === 'url'    && typeof node.content === 'string') url    = node.content.trim()
+
+  const req = findRequestBlock(blocks)
+  if (req) {
+    const cfg = getRequestContainerDef(req.type)
+    if (cfg && Array.isArray(req.content)) {
+      for (const node of req.content) {
+        if (cfg.methodType && node.type === cfg.methodType && typeof node.content === 'string') method = node.content.trim()
+        if (node.type === cfg.urlType && typeof node.content === 'string') url = node.content.trim()
+      }
+      if (cfg.defaultMethod) method = cfg.defaultMethod
     }
   }
 

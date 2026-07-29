@@ -112,15 +112,21 @@ export function buildResponseBlockText(result: RunResult, requestUid: string): s
  *   section (i.e. before the next request-separator, or EOF), it's replaced.
  * - Otherwise the new block is inserted immediately after the request block.
  *
- * Throws if no `request` block with a matching `uid` exists in the file.
+ * Matches purely by `uid`, not block `type` — deliberately protocol-agnostic:
+ * REST's request-container block is typed `request`, GraphQL's is `gqlquery`,
+ * WebSocket/gRPC's is `socket-request`, and other plugins may use their own
+ * type name entirely. uids are unique per block regardless of type, so there's
+ * no need to hardcode (and keep updating) a list of "known request types".
+ *
+ * Throws if no block with a matching `uid` exists in the file.
  */
 export function upsertResponseBlock(filePath: string, requestUid: string, result: RunResult): void {
   const content = readFileSync(filePath, 'utf-8')
   const fences  = scanFences(content)
 
-  const requestFence = fences.find(f => f.type === 'request' && f.uid === requestUid)
+  const requestFence = fences.find(f => f.uid === requestUid)
   if (!requestFence) {
-    throw new Error(`No request block with uid "${requestUid}" found in ${filePath}`)
+    throw new Error(`No block with uid "${requestUid}" found in ${filePath}`)
   }
 
   const nextSeparator = fences.find(
