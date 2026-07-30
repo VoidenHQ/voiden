@@ -1,6 +1,32 @@
 {
   "releases": [
     {
+      "version": "2.3.0-beta.1",
+      "date": "July 2026",
+      "whatsnew": [
+        {
+          "icon": "🔌",
+          "title": "Deeper MCP Integration",
+          "description": "Enabling the Claude or Codex skill now auto-registers Voiden's MCP server for your project — no separate setup step. The MCP tools also work across REST, GraphQL, and sockets/gRPC requests generically, and .void blocks are now tagged with the plugin that created them so Voiden can prompt you to install or enable a missing plugin instead of failing silently."
+        },
+        {
+          "icon": "❓",
+          "title": "Inline Block Help",
+          "description": "Blocks can now show contextual documentation right in their header via a new \"?\" tooltip. Runtime Variables' help was rewritten to show the real capture-expression syntax (`{{$res.body...}}`, `{{process.variable}}`) instead of outdated examples."
+        },
+        {
+          "icon": "🖥️",
+          "title": "Terminal Font Fixes",
+          "description": "The terminal now follows your UI font size and no longer gets stuck showing a fallback font the first time it loads a new typeface."
+        },
+        {
+          "icon": "🐛",
+          "title": "Editor & Plugin Manager Fixes",
+          "description": "Word-delete backspace shortcuts now match Mac vs. Windows/Linux conventions correctly, a recurring editor flicker from unnecessary background polling is gone, plugin icons that fail to load fall back gracefully, \"Update All\" batches core plugin updates into one call, and request failures (like a self-signed cert) now show the real error instead of a generic \"fetch failed\"."
+        }
+      ]
+    },
+    {
       "version": "2.2.2",
       "date": "July 2026",
       "whatsnew": [

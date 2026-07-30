@@ -1,5 +1,36 @@
 [
   {
+    "version": "v2.3.0-beta.1",
+    "date": "30/07/2026",
+    "title": "MCP Workflow, Block Help & Editor Reliability",
+    "description": "Beta release deepening the MCP/agent integration — auto-registered MCP server, protocol-agnostic request handling for plugins, and plugin+version validation on .void blocks — alongside inline block help, terminal font fixes, and a batch of editor and plugin-manager reliability fixes.",
+    "icon": "Plug",
+    "iconColor": "text-emerald-400",
+    "bgColor": "bg-gradient-to-br from-emerald-900 to-slate-900",
+    "changes": {
+      "Added": [
+        ".void blocks are now tagged with the plugin id and version that created them — Voiden shows a specific install/enable prompt when a block's plugin is missing or disabled, and voiden-runner validates block/plugin compatibility on open and run, reporting project-wide version status after a run",
+        "MCP server registration is now automatic — toggling the Claude or Codex skill also registers/unregisters the @voiden/mcp-server entry for the active project, so the installed skill instructions and actual tool access never drift apart",
+        "Protocol plugins (REST, GraphQL, sockets/gRPC, and third-party protocol plugins) can now register their own request-container block shape via registerRequestContainer, so the MCP server's list_requests and write_result work generically across whatever protocols are installed instead of only recognizing REST's hardcoded \"request\" block type",
+        ".void files changed externally (e.g. written by an agent) are now validated on save — a parse failure shows a warning toast naming the file and how many blocks failed, instead of failing silently",
+        "Inline block help — a new \"?\" tooltip framework (registerBlockHelp) lets core and plugin blocks show contextual documentation in the block header; Runtime Variables' help content was rewritten to document the actual `{{$res.body...}}` / `{{$req...}}` / `{{process.variable}}` capture-expression syntax instead of the old, incorrect JSONPath example",
+        "\"Update All\" for core plugins — updates every installed core plugin in a single batched call instead of one IPC round-trip per plugin, avoiding concurrent update requests clobbering each other's version bookkeeping",
+        "voiden-runner's --env option now parses YAML (.yaml/.yml) env files in addition to JSON"
+      ],
+      "Improved": [
+        "Terminal font size now follows the UI font size setting instead of the editor font size, and no longer gets stuck on the fallback font the first time a font family loads — it waits for the font to finish loading before redrawing. Proportional fonts (e.g. Inter) picked directly from the font dropdown now fall back to the monospace stack instead of breaking the terminal's character grid",
+        "Word-delete backspace shortcuts (Alt-Backspace, Mod-Backspace) now match each platform's actual convention — Mac and Windows/Linux had been using each other's bindings for delete-to-line-start vs. delete-previous-word",
+        "Extension, environment, and runtime-variable queries no longer poll on an interval, removing a recurring editor flicker",
+        "Plugin browser: a broken or unreachable plugin icon URL now falls back to the default icon instead of showing a broken image",
+        "Checking for plugin updates now clears a stale \"update available\" badge when the real latest release already matches what's installed, instead of nagging indefinitely"
+      ],
+      "Fixed": [
+        "Request errors now surface the underlying cause (e.g. \"self-signed certificate\", a TLS/connection failure reason) instead of a generic \"fetch failed\" message",
+        "A plugin response handler that throws before rendering anything no longer leaves the response panel stuck on an infinite loading spinner — the error now surfaces in the UI"
+      ]
+    }
+  },
+  {
     "version": "v2.2.2",
     "date": "17/07/2026",
     "title": "Cursor Dark Default Theme & Editor Reliability",
