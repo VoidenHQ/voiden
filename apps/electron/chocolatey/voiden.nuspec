@@ -11,7 +11,7 @@
     <authors>Voiden</authors>
     <owners>Voiden</owners>
     <projectUrl>https://voiden.md</projectUrl>
-    <license type="expression">Apache-2.0</license>
+    <licenseUrl>https://github.com/VoidenHQ/voiden/blob/main/LICENSE</licenseUrl>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
     <docsUrl>https://github.com/VoidenHQ/voiden</docsUrl>
     <bugTrackerUrl>https://github.com/VoidenHQ/voiden/issues</bugTrackerUrl>
