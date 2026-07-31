@@ -39,8 +39,6 @@ let
     export CI=1
     # Tell node-pre-gyp to never fetch binaries / always build from source.
     export npm_config_build_from_source=true
-    # Disable Nixify plugin to save on some unnecessary processing.
-    export yarn_enable_nixify=false
   '';
 
   cacheDrv = stdenv.mkDerivation {

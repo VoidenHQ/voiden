@@ -21,7 +21,7 @@
 #   WINGET_GITHUB_TOKEN — classic PAT (public_repo scope) for the account that forks
 #                         microsoft/winget-pkgs and opens the manifest-bump PR (stable only)
 #   CHOCOLATEY_API_KEY — from https://community.chocolatey.org/account, after claiming
-#                        the "voiden" package id there (stable only)
+#                        the "voiden" package id there (beta + stable)
 #   CACHIX_AUTH_TOKEN — auth token for a "voiden" cache created at https://app.cachix.org
 #                       (beta + stable; builds straight from the flake, no S3/build
 #                       artifact dependency)
@@ -165,12 +165,13 @@ jobs:
         if: steps.publish-winget.outcome == 'failure'
         run: echo "::warning::Winget manifest publish failed — continuing without it. Check the 'Publish Winget manifest' step logs." | tee -a "$GITHUB_STEP_SUMMARY"
 
-  # ── chocolatey (stable only) ──────────────────────────────────────────────────
+  # ── chocolatey (beta + stable) ─────────────────────────────────────────────────
   # choco.exe is Windows-only, so this needs its own runner + the win32-x64
   # artifact (unlike apt/snap/winget, which don't need a Windows build at all).
+  # Beta versions (e.g. 2.3.0-beta.1) publish as a Chocolatey prerelease.
   publish-chocolatey:
     name: Publish Chocolatey
-    if: inputs.channel == 'stable'
+    if: inputs.channel == 'beta' || inputs.channel == 'stable'
     runs-on: windows-2022
 
     steps:
@@ -197,7 +198,7 @@ jobs:
         working-directory: apps/electron
         env:
           CHOCOLATEY_API_KEY: ${{ secrets.CHOCOLATEY_API_KEY }}
-        run: node publish-choco.js stable
+        run: node publish-choco.js ${{ inputs.channel }}
 
       - name: Report Chocolatey publish failure
         if: steps.publish-chocolatey.outcome == 'failure'

@@ -15,7 +15,8 @@
  *                        claiming/publishing the "voiden" package id there once)
  *
  * Notes:
- *   - Chocolatey has no beta channel concept — this is a no-op for non-stable builds.
+ *   - Beta builds publish as a Chocolatey prerelease (NuGet prerelease semver,
+ *     e.g. 2.3.0-beta.1) — installable via `choco install voiden --pre`.
  *   - The install script points at the versioned GitHub Release asset
  *     (.../releases/download/vX.Y.Z/Voiden.Setup.X.Y.Z.exe), not a "latest" alias —
  *     that URL must stay immutable forever once a version is published, since
@@ -40,8 +41,8 @@ const channel = process.argv[2] || (isBetaBuild ? 'beta' : 'stable');
 
 console.log(`\n📦 Chocolatey Publisher — Voiden v${version} [${channel}]\n`);
 
-if (channel !== 'stable') {
-  console.log('ℹ️  Chocolatey has no beta channel — nothing to publish for a non-stable build. Skipping.\n');
+if (channel !== 'beta' && channel !== 'stable') {
+  console.log(`ℹ️  Nothing to publish for channel "${channel}". Skipping.\n`);
   process.exit(0);
 }
 
