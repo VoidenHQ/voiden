@@ -58,7 +58,7 @@ jobs:
 
       # ── Publish to npm (Trusted Publishing / OIDC — no token needed) ─────────────
       - name: Upgrade npm (OIDC support needs npm >=11.5.1)
-        run: npm install -g npm@latest
+        run: npm install -g npm@11
 
       # Prerelease versions (2.3.0-beta.1, ...-alpha.N, ...-rc.N) publish under
       # the "beta" dist-tag so `npm install -g @voiden/runner` (no version
