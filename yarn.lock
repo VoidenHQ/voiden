@@ -9340,7 +9340,7 @@ __metadata:
   dependencies:
     "@modelcontextprotocol/sdk": "npm:^1.29.0"
     "@types/node": "npm:^20.14.10"
-    "@voiden/runner": "npm:*"
+    "@voiden/runner": "workspace:*"
     tsx: "npm:^4.15.0"
     typescript: "npm:^5.5.3"
     zod: "npm:^3.23.8"
@@ -9349,7 +9349,7 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@voiden/runner@npm:*, @voiden/runner@workspace:packages/voiden-runner":
+"@voiden/runner@workspace:*, @voiden/runner@workspace:packages/voiden-runner":
   version: 0.0.0-use.local
   resolution: "@voiden/runner@workspace:packages/voiden-runner"
   dependencies:

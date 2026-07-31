@@ -30,7 +30,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "@voiden/runner": "*",
+    "@voiden/runner": "workspace:*",
     "zod": "^3.23.8"
   },
   "devDependencies": {
