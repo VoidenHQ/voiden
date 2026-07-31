@@ -53,7 +53,16 @@ let
       rm $out/.gitignore
     '';
     outputHashMode = "recursive";
-    outputHash = "sha512-bVnd5s62UGEiqYuO7fhAD09Lj/L86sI2DnIhc8pnWKr4K5e8G/MjpO/wOdg0Rx3cN+EmzgOI0g5ksFqvxa231w==";
+    # Yarn resolves different platform-specific optional native binaries
+    # (e.g. esbuild/Rollup prebuilts) depending on which OS/arch is fetching,
+    # so the cache's content — and hash — differs per system. One hash can't
+    # validate all of them; add an entry here after running this derivation
+    # on a new system for the first time and taking the "got" hash from the
+    # resulting mismatch error.
+    outputHash = {
+      aarch64-darwin = "sha512-bVnd5s62UGEiqYuO7fhAD09Lj/L86sI2DnIhc8pnWKr4K5e8G/MjpO/wOdg0Rx3cN+EmzgOI0g5ksFqvxa231w==";
+      x86_64-linux = "sha512-nSbYeeu7skkdug69xwTLKgaWtH518vlLyRUSDhh+3A1cWS8ZHVHgKcaUZDk7qfcenS8f7YgiCMeEXqmKFdF5cw==";
+    }.${stdenv.system} or (throw "yarn-project.nix: no cached yarn-cache hash for system '${stdenv.system}' yet — run the cacheDrv build once on this system and add the resulting hash to yarn-project.nix");
   };
 
   # Main project derivation.

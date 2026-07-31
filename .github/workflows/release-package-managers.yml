@@ -202,6 +202,7 @@ jobs:
 
       - name: Report Chocolatey publish failure
         if: steps.publish-chocolatey.outcome == 'failure'
+        shell: bash
         run: echo "::warning::Chocolatey publish failed — continuing without it. Check the 'Publish Chocolatey package' step logs." | tee -a "$GITHUB_STEP_SUMMARY"
 
   # ── nix binary cache (beta + stable) ──────────────────────────────────────────
