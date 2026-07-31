@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Version is not set here — publish-choco.js invokes `choco pack` with
+  `--version <version>`, which overrides this at pack time.
+-->
+<package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
+  <metadata>
+    <id>voiden</id>
+    <version>0.0.0</version>
+    <title>Voiden</title>
+    <authors>Voiden</authors>
+    <owners>Voiden</owners>
+    <projectUrl>https://voiden.md</projectUrl>
+    <license type="expression">Apache-2.0</license>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <docsUrl>https://github.com/VoidenHQ/voiden</docsUrl>
+    <bugTrackerUrl>https://github.com/VoidenHQ/voiden/issues</bugTrackerUrl>
+    <tags>voiden api testing rest graphql developer-tools</tags>
+    <summary>Build, Test, Document &amp; Collaborate — API development with Voiden</summary>
+    <description>Voiden is an API workspace for building, testing, documenting, and collaborating on APIs. This package installs the Voiden desktop app.</description>
+  </metadata>
+  <files>
+    <file src="tools\**" target="tools" />
+  </files>
+</package>

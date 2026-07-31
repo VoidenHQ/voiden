@@ -18,6 +18,13 @@
 #   VOIDEN_GPG_PRIVATE_KEY / VOIDEN_GPG_KEY_ID / VOIDEN_GPG_PASSPHRASE — apt signing
 #                                 (omit VOIDEN_GPG_PRIVATE_KEY to publish an unsigned repo)
 #   SNAPCRAFT_STORE_CREDENTIALS — output of `snapcraft export-login -`
+#   WINGET_GITHUB_TOKEN — classic PAT (public_repo scope) for the account that forks
+#                         microsoft/winget-pkgs and opens the manifest-bump PR (stable only)
+#   CHOCOLATEY_API_KEY — from https://community.chocolatey.org/account, after claiming
+#                        the "voiden" package id there (stable only)
+#   CACHIX_AUTH_TOKEN — auth token for a "voiden" cache created at https://app.cachix.org
+#                       (beta + stable; builds straight from the flake, no S3/build
+#                       artifact dependency)
 
 name: Release Package Managers
 
@@ -126,3 +133,119 @@ jobs:
       - name: Report Snap publish failure
         if: steps.publish-snap.outcome == 'failure'
         run: echo "::warning::Snap Store publish failed — continuing without it. Check the 'Publish Snap' step logs." | tee -a "$GITHUB_STEP_SUMMARY"
+
+  # ── winget (stable only) ────────────────────────────────────────────────────────
+  # Doesn't need the Linux artifact — opens a manifest-bump PR against
+  # microsoft/winget-pkgs referencing the already-published stable Windows
+  # installer URL. Winget's own bot (wingetbot) validates and auto-merges from there.
+  publish-winget:
+    name: Publish Winget
+    if: inputs.channel == 'stable'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # Not mandatory for a successful release — reported but doesn't fail the job.
+      - name: Publish Winget manifest
+        id: publish-winget
+        continue-on-error: true
+        working-directory: apps/electron
+        env:
+          WINGET_GITHUB_TOKEN: ${{ secrets.WINGET_GITHUB_TOKEN }}
+        run: node publish-winget.js stable
+
+      - name: Report Winget publish failure
+        if: steps.publish-winget.outcome == 'failure'
+        run: echo "::warning::Winget manifest publish failed — continuing without it. Check the 'Publish Winget manifest' step logs." | tee -a "$GITHUB_STEP_SUMMARY"
+
+  # ── chocolatey (stable only) ──────────────────────────────────────────────────
+  # choco.exe is Windows-only, so this needs its own runner + the win32-x64
+  # artifact (unlike apt/snap/winget, which don't need a Windows build at all).
+  publish-chocolatey:
+    name: Publish Chocolatey
+    if: inputs.channel == 'stable'
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Download Windows build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: voiden-win32-x64
+          path: apps/electron/out/make/
+          run-id: ${{ inputs.run_id || github.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # Not mandatory for a successful release — reported but doesn't fail the job.
+      - name: Publish Chocolatey package
+        id: publish-chocolatey
+        continue-on-error: true
+        working-directory: apps/electron
+        env:
+          CHOCOLATEY_API_KEY: ${{ secrets.CHOCOLATEY_API_KEY }}
+        run: node publish-choco.js stable
+
+      - name: Report Chocolatey publish failure
+        if: steps.publish-chocolatey.outcome == 'failure'
+        run: echo "::warning::Chocolatey publish failed — continuing without it. Check the 'Publish Chocolatey package' step logs." | tee -a "$GITHUB_STEP_SUMMARY"
+
+  # ── nix binary cache (beta + stable) ──────────────────────────────────────────
+  # `nix run github:VoidenHQ/voiden` already builds straight from this repo — there's
+  # no separate registry to "publish" to. This just warms a Cachix binary cache so
+  # that build substitutes a prebuilt result instead of compiling Electron + native
+  # modules from source on every user's machine. Independent of the Electron Forge
+  # build entirely — builds directly from the flake.
+  #
+  # Covers the two natively available GitHub-hosted runner architectures
+  # (x86_64-linux, aarch64-darwin). aarch64-linux and x86_64-darwin would need
+  # emulation or self-hosted runners and aren't covered yet.
+  publish-nix-cache:
+    name: Publish Nix Cache — ${{ matrix.label }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: x86_64-linux
+            os: ubuntu-latest
+          - label: aarch64-darwin
+            os: macos-latest
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+
+      # Pushes every new store path built in subsequent steps to the "voiden"
+      # cache automatically (via a post-build hook) — no explicit `cachix push`.
+      - name: Setup Cachix
+        uses: cachix/cachix-action@v17
+        with:
+          name: voiden
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
+      # Not mandatory for a successful release — reported but doesn't fail the job.
+      - name: Build voiden package
+        id: nix-build
+        continue-on-error: true
+        run: nix build .#voiden --print-build-logs
+
+      - name: Report Nix build/push failure
+        if: steps.nix-build.outcome == 'failure'
+        run: echo "::warning::Nix build/cache push failed for ${{ matrix.label }} — continuing without it. Check the 'Build voiden package' step logs." | tee -a "$GITHUB_STEP_SUMMARY"
