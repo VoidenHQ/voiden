@@ -35,8 +35,16 @@ yarnProject.overrideAttrs (oldAttrs: {
   buildPhase = ''
     runHook preBuild
 
-    # Compiles assets offline. We run our custom 'build:nix' script (which 
-    # uses esbuild to bundle and run Vite compilation programmatically) 
+    # node_modules/.bin scripts still have their original "#!/usr/bin/env node"
+    # shebangs at this point — fixupPhase's automatic patchShebangs only runs
+    # after install. Linux's build sandbox has no /usr/bin/env at all (unlike
+    # Darwin, where it's part of the base system), so invoking esbuild here
+    # (via `yarn workspace voiden build:nix`) fails with "bad interpreter"
+    # unless we patch shebangs ourselves first.
+    patchShebangs node_modules
+
+    # Compiles assets offline. We run our custom 'build:nix' script (which
+    # uses esbuild to bundle and run Vite compilation programmatically)
     # instead of 'package' to avoid triggering Electron Forge's network downloads.
     yarn workspace voiden build:nix
 
