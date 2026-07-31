@@ -136,28 +136,55 @@ if (process.env.GITHUB_OUTPUT) {
 }
 
 // ─── Push ───────────────────────────────────────────────────────────────────────
+//
+// choco.exe has no built-in retry for transient server errors (a long-standing
+// gap: https://github.com/chocolatey/choco/issues/385), and push.chocolatey.org
+// gateway timeouts (504) do happen. Retry a few times with backoff before
+// giving up, rather than failing outright on the first transient hiccup.
 
-console.log(`\n📤 Pushing ${nupkgName} to Chocolatey Community Repository...\n`);
-const pushResult = spawnSync('choco', [
-  'push', nupkgPath,
-  '--source', 'https://push.chocolatey.org/',
-  '--api-key', apiKey,
-], { stdio: ['inherit', 'pipe', 'pipe'], encoding: 'utf-8' });
+const PUSH_RETRIES = 4;
+const PUSH_BACKOFF_MS = [15_000, 30_000, 60_000];
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-const pushStdout = pushResult.stdout || '';
-const pushStderr = pushResult.stderr || '';
-if (pushStdout) process.stdout.write(pushStdout);
-if (pushStderr) process.stderr.write(pushStderr);
+async function pushWithRetry() {
+  for (let attempt = 1; attempt <= PUSH_RETRIES; attempt++) {
+    console.log(`\n📤 Pushing ${nupkgName} to Chocolatey Community Repository... (attempt ${attempt}/${PUSH_RETRIES})\n`);
+    const pushResult = spawnSync('choco', [
+      'push', nupkgPath,
+      '--source', 'https://push.chocolatey.org/',
+      '--api-key', apiKey,
+    ], { stdio: ['inherit', 'pipe', 'pipe'], encoding: 'utf-8' });
 
-if (pushResult.status !== 0) {
-  if (/already exists and cannot be modified/i.test(pushStdout + pushStderr)) {
-    console.log(`\nℹ️  voiden ${version} was already pushed. Nothing to do.\n`);
-    process.exit(0);
+    const pushStdout = pushResult.stdout || '';
+    const pushStderr = pushResult.stderr || '';
+    if (pushStdout) process.stdout.write(pushStdout);
+    if (pushStderr) process.stderr.write(pushStderr);
+
+    if (pushResult.status === 0) return;
+
+    if (/already exists and cannot be modified/i.test(pushStdout + pushStderr)) {
+      console.log(`\nℹ️  voiden ${version} was already pushed. Nothing to do.\n`);
+      process.exit(0);
+    }
+
+    const isTransientGatewayError = /50[234] /.test(pushStdout + pushStderr);
+    const attemptsLeft = attempt < PUSH_RETRIES;
+    if (isTransientGatewayError && attemptsLeft) {
+      const delayMs = PUSH_BACKOFF_MS[attempt - 1] ?? PUSH_BACKOFF_MS[PUSH_BACKOFF_MS.length - 1];
+      console.log(`\n⚠️  Transient gateway error — retrying in ${delayMs / 1000}s...\n`);
+      await sleep(delayMs);
+      continue;
+    }
+
+    console.error('\n❌ choco push failed. Output above shows the actual reason.');
+    process.exit(1);
   }
-  console.error('\n❌ choco push failed. Output above shows the actual reason.');
-  process.exit(1);
 }
 
-console.log(`\n✅ Pushed voiden ${version} to Chocolatey.\n`);
-console.log('─── User install command ────────────────────────────────────\n');
-console.log('choco install voiden\n');
+(async () => {
+  await pushWithRetry();
+
+  console.log(`\n✅ Pushed voiden ${version} to Chocolatey.\n`);
+  console.log('─── User install command ────────────────────────────────────\n');
+  console.log('choco install voiden\n');
+})();
