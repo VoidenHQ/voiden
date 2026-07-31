@@ -246,6 +246,17 @@ jobs:
         shell: bash
         run: echo "::warning::Chocolatey publish failed — continuing without it. Check the 'Publish Chocolatey package' step logs." | tee -a "$GITHUB_STEP_SUMMARY"
 
+      # Uploads the built .nupkg regardless of whether `choco push` above
+      # succeeded — lets a failed automated push be retried manually (e.g. via
+      # community.chocolatey.org's web upload) without rebuilding anything.
+      - name: Upload .nupkg artifact
+        if: always() && steps.publish-chocolatey.outputs.nupkg_path != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: voiden-chocolatey-nupkg
+          path: ${{ steps.publish-chocolatey.outputs.nupkg_path }}
+          if-no-files-found: ignore
+
   # ── nix binary cache (beta + stable) ──────────────────────────────────────────
   # `nix run github:VoidenHQ/voiden` already builds straight from this repo — there's
   # no separate registry to "publish" to. This just warms a Cachix binary cache so

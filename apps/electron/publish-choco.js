@@ -128,6 +128,13 @@ if (!fs.existsSync(nupkgPath)) {
   process.exit(1);
 }
 
+// Exposes the built package to a later CI step (e.g. actions/upload-artifact)
+// so it can be downloaded and pushed manually if `choco push` below fails —
+// the nupkg itself is already fully built at this point regardless of push.
+if (process.env.GITHUB_OUTPUT) {
+  fs.appendFileSync(process.env.GITHUB_OUTPUT, `nupkg_path=${nupkgPath}\n`);
+}
+
 // ─── Push ───────────────────────────────────────────────────────────────────────
 
 console.log(`\n📤 Pushing ${nupkgName} to Chocolatey Community Repository...\n`);
