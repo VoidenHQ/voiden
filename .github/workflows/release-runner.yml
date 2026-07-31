@@ -60,9 +60,19 @@ jobs:
       - name: Upgrade npm (OIDC support needs npm >=11.5.1)
         run: npm install -g npm@latest
 
+      # Prerelease versions (2.3.0-beta.1, ...-alpha.N, ...-rc.N) publish under
+      # the "beta" dist-tag so `npm install -g @voiden/runner` (no version
+      # pinned) keeps resolving to the last stable release — users opt into a
+      # prerelease via `npm install @voiden/runner@beta`.
       - name: Publish to npm
         working-directory: packages/voiden-runner
-        run: npm publish --access public --provenance
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          if [[ "$VERSION" == *beta* || "$VERSION" == *alpha* || "$VERSION" == *rc* ]]; then
+            npm publish --access public --provenance --tag beta
+          else
+            npm publish --access public --provenance
+          fi
 
       # ── Attach tarball to GitHub Release ─────────────────────────────────────
       - name: Pack tarball
