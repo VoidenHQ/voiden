@@ -447,6 +447,8 @@ export function TreeNode({
 
   const nameClass = getNameClass(node.data, activeFile);
   const showCollapseAll = node.data.type === "folder" && hasOpenDescendant(node);
+  const isActiveFile = activeFile?.source === node.data.path;
+  const isRangeSelected = node.isSelected && node.tree.selectedNodes.length > 1;
 
   return (
     <div
@@ -454,17 +456,17 @@ export function TreeNode({
       ref={dragHandle}
       className={cn(
         "group h-[22px] overflow-hidden transition-colors border border-transparent",
-        !isDragOver && activeFile?.source !== node.data.path && !node.isSelected && "hover:bg-hover",
+        !isDragOver && !isActiveFile && !node.isSelected && "hover:bg-hover",
         isContextMenuOpen && "border-active",
-        activeFile?.source === node.data.path && !isDragOver && "bg-active",
+        isActiveFile && !isRangeSelected && !isDragOver && "bg-active",
         // Selection stays visible (background) even after focus moves away
         // (e.g. clicking into the editor) — a border is added only while
         // this row is still the actually-focused selection, so the two
         // states ("selected" vs "selected AND focused") read differently,
         // matching Cursor's sidebar.
-        node.isSelected && node.tree.selectedNodes.length <= 1 && activeFile?.source !== node.data.path && !isDragOver && "bg-active",
-        node.isSelected && node.tree.selectedNodes.length <= 1 && node.isFocused && activeFile?.source !== node.data.path && !isDragOver && "border-border",
-        node.isSelected && node.tree.selectedNodes.length > 1 && activeFile?.source !== node.data.path && !isDragOver && "bg-accent/20",
+        node.isSelected && !isRangeSelected && !isActiveFile && !isDragOver && "bg-active",
+        node.isSelected && !isRangeSelected && node.isFocused && !isActiveFile && !isDragOver && "border-border",
+        isRangeSelected && !isDragOver && "bg-accent/20",
         node.isFocused && !isDragOver && "ring-0",
         (isDragOver || isInternalDropTargetFolder) && `bg-accent/30 ${node.data.type === "folder" ? "border-l-2 border-accent" : ""}`,
         isSiblingHighlight && !isDragOver && !isInternalDropTargetFolder && "bg-accent/30 hover:bg-accent/30",

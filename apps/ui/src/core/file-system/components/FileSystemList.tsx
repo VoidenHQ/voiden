@@ -612,14 +612,23 @@ export const FileSystemList = () => {
   }, [treeData, tryStartDuplicateRename]);
 
   useEffect(() => {
-    if (!activeFile?.source) return;
+    if (!activeFile?.source) {
+      const tree = treeRef.current;
+      if (!tree) return;
+      const { anchor, mostRecent } = tree.state.nodes.selection;
+      tree.setSelection({ ids: [], anchor, mostRecent });
+      return;
+    }
 
-    const expandAndScroll = async () => {
+    const source = activeFile.source;
+    let cancelled = false;
+
+    const expandAndSelect = async () => {
       const tree = treeRef.current;
       if (!tree) return;
 
       const ancestors: string[] = [];
-      let cursor = getParentPath(activeFile.source);
+      let cursor = getParentPath(source);
       while (cursor) {
         ancestors.unshift(cursor);
         const parent = getParentPath(cursor);
@@ -628,6 +637,7 @@ export const FileSystemList = () => {
       }
 
       for (const ancestorPath of ancestors) {
+        if (cancelled) return;
         const node = tree.get(ancestorPath);
         if (!node) continue;
 
@@ -650,11 +660,16 @@ export const FileSystemList = () => {
       }
 
       setTimeout(() => {
-        treeRef.current?.scrollTo(activeFile.source, "auto");
+        if (cancelled) return;
+        treeRef.current?.select(source, { align: "auto", focus: false });
       }, 50);
     };
 
-    expandAndScroll();
+    expandAndSelect();
+
+    return () => {
+      cancelled = true;
+    };
   }, [activeFile?.source]);
 
   const getInitialOpenState = (root: ExtendedFileTree) => {
