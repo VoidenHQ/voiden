@@ -16,9 +16,213 @@
         "type": "github"
       }
     },
+    "plugin-md-preview": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1785483551,
+        "narHash": "sha256-N1yHrpgC7mdQz4A+nBUaxYF2P5PsDOVUPbBjeXsgcvU=",
+        "owner": "VoidenHQ",
+        "repo": "plugin-md-preview",
+        "rev": "c076e7603a91182f21bb38525cae2684ef69bd0f",
+        "type": "github"
+      },
+      "original": {
+        "owner": "VoidenHQ",
+        "repo": "plugin-md-preview",
+        "type": "github"
+      }
+    },
+    "plugin-openapi-import": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1783659603,
+        "narHash": "sha256-jQW55Twh1d2r00iy1K1vZo9H6+ZUkxAQu742YEAPz1o=",
+        "owner": "VoidenHQ",
+        "repo": "plugin-openapi-import",
+        "rev": "c1615186cd0a0f6064a453de7ce25c3bea445581",
+        "type": "github"
+      },
+      "original": {
+        "owner": "VoidenHQ",
+        "repo": "plugin-openapi-import",
+        "type": "github"
+      }
+    },
+    "plugin-postman-import": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1783664770,
+        "narHash": "sha256-GsDFBOxgTmL/DF2ITvcbRbqYsRRHf1SJHx9mzjk1JCY=",
+        "owner": "VoidenHQ",
+        "repo": "plugin-postman-import",
+        "rev": "df9036493053f4e6854ff21d8c35bb344e7e8c48",
+        "type": "github"
+      },
+      "original": {
+        "owner": "VoidenHQ",
+        "repo": "plugin-postman-import",
+        "type": "github"
+      }
+    },
+    "plugin-registry": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1785483811,
+        "narHash": "sha256-QxJruyWRkR3NQlllhB/kMHtF5GF3UoqkdiF0NkiLTyo=",
+        "owner": "VoidenHQ",
+        "repo": "plugin-registry",
+        "rev": "cdb39cb9d2a762e9f3d8c3e126b224bec2bf797e",
+        "type": "github"
+      },
+      "original": {
+        "owner": "VoidenHQ",
+        "repo": "plugin-registry",
+        "type": "github"
+      }
+    },
+    "plugin-simple-assertions": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1785322274,
+        "narHash": "sha256-4Sdu5EAs2kqN/IeBPRazJaSDN1ho13gIvyhXpDjcH7o=",
+        "owner": "VoidenHQ",
+        "repo": "plugin-simple-assertions",
+        "rev": "2bf8b1066f8b340507d3992aa2417ce49d8173a8",
+        "type": "github"
+      },
+      "original": {
+        "owner": "VoidenHQ",
+        "repo": "plugin-simple-assertions",
+        "type": "github"
+      }
+    },
+    "plugin-voiden-advanced-auth": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1785322026,
+        "narHash": "sha256-dQAvRi1FMAPjc/ckpS60cetQXsUBzrL1R76zqMmMCpE=",
+        "owner": "VoidenHQ",
+        "repo": "plugin-voiden-advanced-auth",
+        "rev": "1a5b26291ef872ddbd4867be93a2aefcad574e15",
+        "type": "github"
+      },
+      "original": {
+        "owner": "VoidenHQ",
+        "repo": "plugin-voiden-advanced-auth",
+        "type": "github"
+      }
+    },
+    "plugin-voiden-faker": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1781069134,
+        "narHash": "sha256-q9F3gVlbAfjT+QGMlgnXoJft3oBlv9mj2s4cted+lLc=",
+        "owner": "VoidenHQ",
+        "repo": "plugin-voiden-faker",
+        "rev": "47cebf4b2b86b3681670ba41ac0c5188cbbe70b4",
+        "type": "github"
+      },
+      "original": {
+        "owner": "VoidenHQ",
+        "repo": "plugin-voiden-faker",
+        "type": "github"
+      }
+    },
+    "plugin-voiden-graphql": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1785321878,
+        "narHash": "sha256-p02f3jYqE7hi7dWiNG1kdAfSxFPl070Tq3CWKXT+khg=",
+        "owner": "VoidenHQ",
+        "repo": "plugin-voiden-graphql",
+        "rev": "bf5aea3a9094d2e824ba13c03ec3325b392b4d83",
+        "type": "github"
+      },
+      "original": {
+        "owner": "VoidenHQ",
+        "repo": "plugin-voiden-graphql",
+        "type": "github"
+      }
+    },
+    "plugin-voiden-rest-api": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1785322995,
+        "narHash": "sha256-nDjp361n4w5n64TmHLQ9TscGvDRR0y81XlYDKKipqJE=",
+        "owner": "VoidenHQ",
+        "repo": "plugin-voiden-rest-api",
+        "rev": "99f71a6f6bbcecea02298f9ab3a366801823b0aa",
+        "type": "github"
+      },
+      "original": {
+        "owner": "VoidenHQ",
+        "repo": "plugin-voiden-rest-api",
+        "type": "github"
+      }
+    },
+    "plugin-voiden-scripting": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1785322272,
+        "narHash": "sha256-o3+q5aJ1yDkpFuu0VNFUGqmRpMZp+RmEkwbJEj6kJU4=",
+        "owner": "VoidenHQ",
+        "repo": "plugin-voiden-scripting",
+        "rev": "fff58121de4d0910baa9122b79ac6ee3ba123758",
+        "type": "github"
+      },
+      "original": {
+        "owner": "VoidenHQ",
+        "repo": "plugin-voiden-scripting",
+        "type": "github"
+      }
+    },
+    "plugin-voiden-sockets": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1785322025,
+        "narHash": "sha256-qGOGjPKIFTbQnnauA9hUS9Xw6Wx7Bg7Vn6SXG/s8kDE=",
+        "owner": "VoidenHQ",
+        "repo": "plugin-voiden-sockets",
+        "rev": "6848226a91d2f5137cceb5a86bb1b2895a86e5f5",
+        "type": "github"
+      },
+      "original": {
+        "owner": "VoidenHQ",
+        "repo": "plugin-voiden-sockets",
+        "type": "github"
+      }
+    },
+    "plugin-voiden-stitch": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1785742570,
+        "narHash": "sha256-tJo2IefAz4TDwf1+ANFpzyf1CyLT34s6qch+gVi+Fk8=",
+        "owner": "VoidenHQ",
+        "repo": "plugin-voiden-stitch",
+        "rev": "e30a71d1b0bc024b4d11e350a249f7ccf30cd329",
+        "type": "github"
+      },
+      "original": {
+        "owner": "VoidenHQ",
+        "repo": "plugin-voiden-stitch",
+        "type": "github"
+      }
+    },
     "root": {
       "inputs": {
-        "nixpkgs": "nixpkgs"
+        "nixpkgs": "nixpkgs",
+        "plugin-md-preview": "plugin-md-preview",
+        "plugin-openapi-import": "plugin-openapi-import",
+        "plugin-postman-import": "plugin-postman-import",
+        "plugin-registry": "plugin-registry",
+        "plugin-simple-assertions": "plugin-simple-assertions",
+        "plugin-voiden-advanced-auth": "plugin-voiden-advanced-auth",
+        "plugin-voiden-faker": "plugin-voiden-faker",
+        "plugin-voiden-graphql": "plugin-voiden-graphql",
+        "plugin-voiden-rest-api": "plugin-voiden-rest-api",
+        "plugin-voiden-scripting": "plugin-voiden-scripting",
+        "plugin-voiden-sockets": "plugin-voiden-sockets",
+        "plugin-voiden-stitch": "plugin-voiden-stitch"
       }
     }
   },
