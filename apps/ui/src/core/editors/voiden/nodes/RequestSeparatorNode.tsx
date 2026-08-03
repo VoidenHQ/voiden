@@ -8,16 +8,31 @@
 
 import { Node, mergeAttributes } from "@tiptap/core";
 import { NodeViewProps, ReactNodeViewRenderer, NodeViewWrapper } from "@tiptap/react";
-import { useRef, useState, useEffect, useCallback } from "react";
+import { useRef, useState, useEffect, useLayoutEffect, useCallback } from "react";
 import { getSectionLineColor } from "../extensions/sectionIndicator";
 import { useSettings } from "@/core/settings/hooks/useSettings";
 
-const RequestSeparatorView = (props: NodeViewProps) => {
+const REQUEST_NAME_INPUT_MIN_WIDTH = 80;
+
+const requestNameInputTextStyle: React.CSSProperties = {
+  fontSize: "10px",
+  fontWeight: 700,
+  letterSpacing: "1.5px",
+  textTransform: "uppercase",
+  whiteSpace: "nowrap",
+  padding: "2px 8px",
+  boxSizing: "border-box",
+  fontFamily: "inherit",
+};
+
+export const RequestSeparatorView = (props: NodeViewProps) => {
   const { node, updateAttributes, editor } = props;
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const inputSizerRef = useRef<HTMLSpanElement>(null);
   const [decorationColor, setDecorationColor] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState("");
+  const [inputWidth, setInputWidth] = useState(REQUEST_NAME_INPUT_MIN_WIDTH);
   const inputRef = useRef<HTMLInputElement>(null);
   const { settings } = useSettings();
   const alignment = settings?.appearance?.separator_alignment ?? "center";
@@ -54,9 +69,19 @@ const RequestSeparatorView = (props: NodeViewProps) => {
   const textColor = decorationColor ?? getSectionLineColor(colorIndex);
   const label = node.attrs.label || "New Request";
 
+  useLayoutEffect(() => {
+    if (!isEditing || !inputSizerRef.current) return;
+
+    const measuredWidth = Math.ceil(
+      inputSizerRef.current.getBoundingClientRect().width,
+    );
+    setInputWidth(Math.max(REQUEST_NAME_INPUT_MIN_WIDTH, measuredWidth));
+  }, [editValue, isEditing]);
+
   const startEditing = useCallback(() => {
     if (!editor.isEditable) return;
     setEditValue(label === "New Request" ? "" : label);
+    setInputWidth(REQUEST_NAME_INPUT_MIN_WIDTH);
     setIsEditing(true);
     setTimeout(() => inputRef.current?.focus(), 0);
   }, [label, editor.isEditable]);
@@ -93,42 +118,52 @@ const RequestSeparatorView = (props: NodeViewProps) => {
           }}
         />
         {isEditing ? (
-          <input
-            ref={inputRef}
-            type="text"
-            value={editValue}
-            placeholder="New Request"
-            onChange={(e) => setEditValue(e.target.value)}
-            onBlur={commitEdit}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                commitEdit();
-              }
-              if (e.key === "Escape") {
-                setIsEditing(false);
-              }
-              // Prevent ProseMirror from handling these keys
-              e.stopPropagation();
-            }}
-            style={{
-              fontSize: "10px",
-              fontWeight: 700,
-              letterSpacing: "1.5px",
-              textTransform: "uppercase",
-              color: textColor,
-              whiteSpace: "nowrap",
-              background: "var(--editor-bg, transparent)",
-              border: `1px solid ${lineColor}`,
-              borderRadius: "3px",
-              padding: "2px 8px",
-              outline: "none",
-              textAlign: "center",
-              minWidth: "80px",
-              maxWidth: "200px",
-              fontFamily: "inherit",
-            }}
-          />
+          <>
+            <span
+              ref={inputSizerRef}
+              aria-hidden="true"
+              style={{
+                ...requestNameInputTextStyle,
+                position: "absolute",
+                visibility: "hidden",
+                pointerEvents: "none",
+                border: "1px solid transparent",
+              }}
+            >
+              {editValue || "New Request"}
+            </span>
+            <input
+              ref={inputRef}
+              type="text"
+              value={editValue}
+              placeholder="New Request"
+              onChange={(e) => setEditValue(e.target.value)}
+              onBlur={commitEdit}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  commitEdit();
+                }
+                if (e.key === "Escape") {
+                  setIsEditing(false);
+                }
+                // Prevent ProseMirror from handling these keys
+                e.stopPropagation();
+              }}
+              style={{
+                ...requestNameInputTextStyle,
+                color: textColor,
+                background: "var(--editor-bg, transparent)",
+                border: `1px solid ${lineColor}`,
+                borderRadius: "3px",
+                outline: "none",
+                textAlign: "center",
+                width: `${inputWidth}px`,
+                minWidth: `${REQUEST_NAME_INPUT_MIN_WIDTH}px`,
+                maxWidth: "calc(100% - 64px)",
+              }}
+            />
+          </>
         ) : (
           <span
             onDoubleClick={startEditing}
