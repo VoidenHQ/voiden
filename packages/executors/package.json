@@ -4,6 +4,11 @@
   "description": "Shared protocol executors for Voiden — REST, WebSocket, gRPC",
   "type": "module",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/VoidenHQ/voiden",
+    "directory": "packages/executors"
+  },
   "publishConfig": {
     "access": "public"
   },
