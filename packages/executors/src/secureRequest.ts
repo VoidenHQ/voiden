@@ -15,6 +15,7 @@ import mimeTypes from 'mime-types'
 import type { RestApiRequestState } from './pipeline/types.js'
 import { executeWebSocket } from './websocket.js'
 import { executeGrpc } from './grpc.js'
+import { executeMcpOperation } from './mcp.js'
 import { assertNoUnresolvedTemplates } from './unresolvedVariables.js'
 
 // ─── Adapter interface ────────────────────────────────────────────────────────
@@ -250,6 +251,47 @@ export async function executeSecureRequest(
       kind: 'handoff',
       protocol: 'graphql-subscription',
       resolvedUrl: url, resolvedHeaders: headers, resolvedBody: body, requestState,
+    }
+  }
+
+  // MCP (Streamable HTTP) — not reducible to a single fetch() like GraphQL is,
+  // since a spec-compliant server requires an initialize handshake before any
+  // operation. Unlike WS/gRPC above, there's no persistent connection to keep
+  // alive across IPC calls (connect → one call → close), so this returns a
+  // plain kind:'http' result directly instead of a kind:'handoff' — no
+  // Electron-side registry needed, identical behaviour for app and CLI.
+  if (requestState.protocolType === 'mcp') {
+    const mcp = (requestState as any).mcp ?? {}
+    const result = await executeMcpOperation({
+      url,
+      headers,
+      operation: mcp.operation,
+      toolName: mcp.toolName,
+      toolArgs: mcp.toolArgs,
+      resourceUri: mcp.resourceUri,
+      promptName: mcp.promptName,
+      promptArgs: mcp.promptArgs,
+    })
+
+    const responseBody = result.success
+      ? { operation: mcp.operation, ...result.result }
+      : { operation: mcp.operation, error: result.error }
+    const metaHeaders = Object.entries(headers).map(([key, value]) => ({ key, value }))
+
+    return {
+      kind: 'http',
+      ok: result.success,
+      status: result.success ? 200 : 0,
+      // Short, generic text only — this feeds the response panel's top-bar
+      // status chrome, which expects an HTTP-style label ("OK", "Not Found"),
+      // not the full (often multi-line, JSON-bearing) MCP error message. The
+      // full error is already carried in the JSON body (responseBody.error
+      // above), which the mcp-response block renders in full.
+      statusText: result.success ? 'OK' : 'MCP request failed',
+      headers: [['content-type', 'application/json']],
+      body: Buffer.from(JSON.stringify(responseBody, null, 2)),
+      protocol: 'mcp',
+      requestMeta: { method: 'MCP', url, headers: metaHeaders, httpVersion: 'MCP/Streamable-HTTP' },
     }
   }
 

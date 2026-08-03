@@ -1,7 +1,7 @@
 {
   "name": "@voiden/executors",
   "version": "0.1.4",
-  "description": "Shared protocol executors for Voiden — REST, WebSocket, gRPC",
+  "description": "Shared protocol executors for Voiden — REST, WebSocket, gRPC, MCP",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -33,6 +33,7 @@
   },
   "dependencies": {
     "@grpc/grpc-js": "^1.10.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "mime-types": "^2.1.35",
     "ws": "^8.17.0",
     "yaml": "^2.4.2"

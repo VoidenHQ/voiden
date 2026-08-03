@@ -63,12 +63,14 @@ export interface RestApiRequestState {
   authProfile?: string
   preRequestResult?: any
   metadata?: Record<string, any>
-  /** Protocol hint set by parser plugins: 'rest' | 'graphql' | 'grpc' | 'ws' */
+  /** Protocol hint set by parser plugins: 'rest' | 'graphql' | 'grpc' | 'ws' | 'mcp' */
   protocolType?: string
   /** GraphQL operation type: 'query' | 'mutation' | 'subscription' */
   operationType?: string
   /** gRPC-specific config set by the GraphQL/sockets parser */
   grpc?: Record<string, any>
+  /** MCP-specific config set by the voiden-mcp-client parser */
+  mcp?: Record<string, any>
 }
 
 export interface RestApiResponseState {

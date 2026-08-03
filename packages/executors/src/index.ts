@@ -2,6 +2,8 @@ export { replaceEnvVars } from './env.js'
 export type { WebSocketRequest, GrpcRequest, RunResult } from './types.js'
 export { executeWebSocket } from './websocket.js'
 export { executeGrpc } from './grpc.js'
+export type { McpOperation, McpRequest, McpOperationResult } from './mcp.js'
+export { executeMcpOperation } from './mcp.js'
 
 export type { SecureRequestAdapter, SecureHandoffResult, SecureHttpResult, SecureRequestResult } from './secureRequest.js'
 export { executeSecureRequest, hasHttpHeader, deleteHttpHeader, addDefaultHttpHeaders, getFileMimeType } from './secureRequest.js'
