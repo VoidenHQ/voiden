@@ -23,7 +23,8 @@
 #                                 (omit VOIDEN_GPG_PRIVATE_KEY to publish an unsigned repo)
 #   SNAPCRAFT_STORE_CREDENTIALS — output of `snapcraft export-login -`
 #   WINGET_GITHUB_TOKEN — classic PAT (public_repo scope) for the account that forks
-#                         microsoft/winget-pkgs and opens the manifest-bump PR (stable only)
+#                         microsoft/winget-pkgs and opens the manifest-bump PR (beta + stable,
+#                         separate package identifiers: Voiden.Voiden / Voiden.Voiden-Beta)
 #   CHOCOLATEY_API_KEY — from https://community.chocolatey.org/account, after claiming
 #                        the "voiden" package id there (beta + stable)
 #   CACHIX_AUTH_TOKEN — auth token for a "voiden" cache created at https://app.cachix.org
@@ -74,7 +75,7 @@ on:
         type: boolean
         default: true
       run_winget:
-        description: 'Publish Winget (stable only, regardless of this toggle)'
+        description: 'Publish Winget'
         required: false
         type: boolean
         default: true
@@ -175,13 +176,15 @@ jobs:
         if: steps.publish-snap.outcome == 'failure'
         run: echo "::warning::Snap Store publish failed — continuing without it. Check the 'Publish Snap' step logs." | tee -a "$GITHUB_STEP_SUMMARY"
 
-  # ── winget (stable only) ────────────────────────────────────────────────────────
+  # ── winget (beta + stable) ──────────────────────────────────────────────────────
   # Doesn't need the Linux artifact — opens a manifest-bump PR against
-  # microsoft/winget-pkgs referencing the already-published stable Windows
-  # installer URL. Winget's own bot (wingetbot) validates and auto-merges from there.
+  # microsoft/winget-pkgs referencing the already-published Windows installer URL
+  # for the channel. Winget's own bot (wingetbot) validates and auto-merges from
+  # there. Beta publishes under its own package identifier (Voiden.Voiden-Beta) so
+  # a beta build's higher version number can't outrank stable as the default install.
   publish-winget:
     name: Publish Winget
-    if: inputs.run_winget && inputs.channel == 'stable'
+    if: inputs.run_winget && (inputs.channel == 'beta' || inputs.channel == 'stable')
     runs-on: ubuntu-latest
 
     steps:
@@ -200,7 +203,7 @@ jobs:
         working-directory: apps/electron
         env:
           WINGET_GITHUB_TOKEN: ${{ secrets.WINGET_GITHUB_TOKEN }}
-        run: node publish-winget.js stable
+        run: node publish-winget.js ${{ inputs.channel }}
 
       - name: Report Winget publish failure
         if: steps.publish-winget.outcome == 'failure'

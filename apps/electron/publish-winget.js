@@ -3,12 +3,16 @@
 /**
  * Voiden Winget Manifest Publisher
  *
- * Opens a PR against microsoft/winget-pkgs bumping the Voiden.Voiden manifest
- * to the current app version. Stable channel only — winget has no beta channel
- * concept, so this is a no-op for beta/development builds.
+ * Opens a PR against microsoft/winget-pkgs bumping the Voiden manifest to the
+ * current app version. Runs for both channels, each under its own package
+ * identifier since winget resolves `winget install <id>` to the highest
+ * version under that id — a beta build (e.g. 2.3.0-beta.1) would otherwise
+ * outrank stable and become the default install:
+ *   - stable → Voiden.Voiden
+ *   - beta   → Voiden.Voiden-Beta
  *
  * Usage:
- *   node publish-winget.js [stable]
+ *   node publish-winget.js [beta|stable]
  *
  * Required env vars:
  *   WINGET_GITHUB_TOKEN — classic PAT with the "public_repo" scope, belonging to
@@ -17,7 +21,7 @@
  *                         first run if it doesn't exist yet.
  *
  * What it does:
- *   1. Downloads the current stable Windows installer and hashes it (sha256).
+ *   1. Downloads the channel's current Windows installer and hashes it (sha256).
  *   2. Forks microsoft/winget-pkgs under the token's account (idempotent).
  *   3. Copies the existing manifest forward to a new version folder, via the
  *      GitHub Git Data API — no local clone (winget-pkgs is huge).
@@ -38,17 +42,19 @@ const version = packageJson.version;
 const isBetaBuild = version.includes('beta') || version.includes('alpha') || version.includes('rc');
 const channel = process.argv[2] || (isBetaBuild ? 'beta' : 'stable');
 
-const PACKAGE_IDENTIFIER = 'Voiden.Voiden';
+const PACKAGE_NAME_PART = channel === 'beta' ? 'Voiden-Beta' : 'Voiden';
+const PACKAGE_IDENTIFIER = `Voiden.${PACKAGE_NAME_PART}`;
+const MANIFEST_PATH = `manifests/v/Voiden/${PACKAGE_NAME_PART}/${version}`;
 const UPSTREAM_OWNER = 'microsoft';
 const UPSTREAM_REPO = 'winget-pkgs';
 const MANIFEST_SCHEMA_VERSION = '1.12.0';
-const INSTALLER_URL = 'https://voiden.md/api/download/stable/win32/x64/setup-latest.exe';
+const INSTALLER_URL = `https://voiden.md/api/download/${channel}/win32/x64/setup-latest.exe`;
 const GITHUB_API = 'https://api.github.com';
 
 console.log(`\n📦 Winget Publisher — Voiden v${version} [${channel}]\n`);
 
-if (channel !== 'stable') {
-  console.log('ℹ️  Winget has no beta channel — nothing to publish for a non-stable build. Skipping.\n');
+if (channel !== 'beta' && channel !== 'stable') {
+  console.log(`ℹ️  Nothing to publish for channel "${channel}". Skipping.\n`);
   process.exit(0);
 }
 
@@ -115,10 +121,10 @@ function manifestFiles(v, sha256) {
       'PackageLocale: en-US',
       'Publisher: Voiden',
       'PublisherUrl: https://voiden.md',
-      'PackageName: Voiden',
+      `PackageName: Voiden${channel === 'beta' ? ' Beta' : ''}`,
       'PackageUrl: https://voiden.md',
       'License: Apache-2.0',
-      'ShortDescription: Build, Test, Document & Collaborate. Streamline your API development process with Voiden',
+      `ShortDescription: Build, Test, Document & Collaborate. Streamline your API development process with Voiden${channel === 'beta' ? ' (Beta channel)' : ''}`,
       'ManifestType: defaultLocale',
       `ManifestVersion: ${MANIFEST_SCHEMA_VERSION}`,
       '',
@@ -128,9 +134,9 @@ function manifestFiles(v, sha256) {
 
 async function main() {
   // Already published? (re-runs / retries should be harmless no-ops)
-  const existing = await gh('GET', `/repos/${UPSTREAM_OWNER}/${UPSTREAM_REPO}/contents/manifests/v/Voiden/Voiden/${version}`);
+  const existing = await gh('GET', `/repos/${UPSTREAM_OWNER}/${UPSTREAM_REPO}/contents/${MANIFEST_PATH}`);
   if (existing.ok) {
-    console.log(`ℹ️  manifests/v/Voiden/Voiden/${version} already exists upstream. Nothing to do.\n`);
+    console.log(`ℹ️  ${MANIFEST_PATH} already exists upstream. Nothing to do.\n`);
     return;
   }
 
@@ -164,7 +170,7 @@ async function main() {
     });
     if (!blob.ok) throw new Error(`Failed to create blob for ${name}: ${JSON.stringify(blob.json)}`);
     treeEntries.push({
-      path: `manifests/v/Voiden/Voiden/${version}/${name}`,
+      path: `${MANIFEST_PATH}/${name}`,
       mode: '100644',
       type: 'blob',
       sha: blob.json.sha,
@@ -184,7 +190,7 @@ async function main() {
   });
   if (!commit.ok) throw new Error(`Failed to create commit: ${JSON.stringify(commit.json)}`);
 
-  const branch = `voiden-${version}`;
+  const branch = `${PACKAGE_NAME_PART.toLowerCase()}-${version}`;
   console.log(`\n🌿 Pushing branch ${forkOwner}:${branch}...`);
   let ref = await gh('POST', `/repos/${forkOwner}/${UPSTREAM_REPO}/git/refs`, {
     ref: `refs/heads/${branch}`,
