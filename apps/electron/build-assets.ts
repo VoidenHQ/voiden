@@ -44,6 +44,15 @@ interface CustomRendererEnv extends ConfigEnv {
 async function run() {
   const root = __dirname;
 
+  // Forge normally hands every build target (main, preload, renderer) the
+  // same full plugin config, including the renderer list — vite.base.config's
+  // getBuildDefine() reads forgeConfig.renderer to generate the
+  // <NAME>_VITE_DEV_SERVER_URL / <NAME>_VITE_NAME globals main.ts (window.ts)
+  // references at runtime. Leaving it empty for main/preload here meant those
+  // globals were never defined, so referencing them threw a ReferenceError as
+  // soon as a window was created.
+  const rendererTargets = [{ name: 'main_window', config: 'vite.renderer.config.ts' }];
+
   // Main
   const mainEnv: CustomMainEnv = {
     command: 'build',
@@ -53,7 +62,7 @@ async function run() {
       build: [
         { entry: 'src/main.ts', config: 'vite.main.config.ts' }
       ],
-      renderer: []
+      renderer: rendererTargets
     },
     forgeConfigSelf: { entry: 'src/main.ts', config: 'vite.main.config.ts' }
   };
@@ -70,7 +79,7 @@ async function run() {
       build: [
         { entry: 'src/preload.ts', config: 'vite.preload.config.ts' }
       ],
-      renderer: []
+      renderer: rendererTargets
     },
     forgeConfigSelf: { entry: 'src/preload.ts', config: 'vite.preload.config.ts' }
   };

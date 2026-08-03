@@ -5,6 +5,19 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
   };
 
+  # Advertises the "voiden" Cachix binary cache CI pushes to (see
+  # release-package-managers.yml's publish-nix-cache job) so `nix build` /
+  # `nix run` / `nix profile install` substitute a prebuilt result instead of
+  # compiling Electron + native modules from source. Nix will prompt on first
+  # use to trust these settings (or apply them automatically with
+  # `--accept-flake-config` / `accept-flake-config = true` in nix.conf) —
+  # building from source remains the fallback for anyone who declines, or for
+  # architectures/commits the cache hasn't built yet.
+  nixConfig = {
+    extra-substituters = [ "https://voiden.cachix.org" ];
+    extra-trusted-public-keys = [ "voiden.cachix.org-1:oicDzkVuCUndtPka0//GubVRAQGe6XZ6LzZ11nVfknE=" ];
+  };
+
   outputs = { self, nixpkgs }:
     let
       supportedSystems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
