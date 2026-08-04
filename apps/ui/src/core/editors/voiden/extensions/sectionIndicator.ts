@@ -33,6 +33,12 @@ export const SECTION_COLORS = [
   "#6BBF92",  // 9  green
 ];
 
+/**
+ * Request labels are text, so they should use the active theme's readable
+ * foreground rather than the translucent accent used for separator lines.
+ */
+export const SECTION_LABEL_COLOR = "var(--fg-primary, var(--editor-fg, #a9b7c6))";
+
 export function pickDistinctColorIndex(
   prevColorIndex: number,
   nextColorIndex: number
@@ -280,6 +286,7 @@ function buildFirstSectionDecoration(doc: any, editorDom: HTMLElement | null, ed
   if (!hasSeparators || firstNodeIsSeparator) return DecorationSet.empty;
 
   const color = getSectionLineColor(0);
+  const labelColor = SECTION_LABEL_COLOR;
   const label = getFirstSectionLabel(editorDom);
 
   // Read alignment setting
@@ -310,7 +317,7 @@ function buildFirstSectionDecoration(doc: any, editorDom: HTMLElement | null, ed
     labelSpan.title = "Double-click to rename";
     labelSpan.style.cssText = `
       font-size: 10px; font-weight: 700; letter-spacing: 1.5px;
-      text-transform: uppercase; color: ${color}; white-space: nowrap;
+      text-transform: uppercase; color: ${labelColor}; white-space: nowrap;
       cursor: text; padding: 2px 4px; border-radius: 3px;
     `;
 
@@ -328,7 +335,7 @@ function buildFirstSectionDecoration(doc: any, editorDom: HTMLElement | null, ed
       input.placeholder = "Request 1";
       input.style.cssText = `
         font-size: 10px; font-weight: 700; letter-spacing: 1.5px;
-        text-transform: uppercase; color: ${color}; white-space: nowrap;
+        text-transform: uppercase; color: ${labelColor}; white-space: nowrap;
         background: var(--editor-bg, transparent);
         border: 1px solid ${color}; border-radius: 3px;
         padding: 2px 8px; outline: none; text-align: center;
