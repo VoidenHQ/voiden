@@ -491,6 +491,10 @@ declare global {
         clearHistory: () => Promise<boolean>;
         subscribe: (callback: (processes: any[]) => void) => () => void;
       };
+      mcp: {
+        initialize: () => Promise<{ success: boolean; message?: string }>;
+        status: () => Promise<{ registered: boolean }>;
+      };
     };
     platform: NodeJS.Platform;
   }

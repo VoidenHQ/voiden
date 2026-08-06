@@ -1,4 +1,4 @@
-import { PanelLeft, Terminal, Github, MessageCircle, PanelRight, GitCompareArrows, Download, icons, Activity, X, GripHorizontal, Trash2, Logs, Lock, Unlock } from "lucide-react";
+import { PanelLeft, Terminal, Github, MessageCircle, PanelRight, GitCompareArrows, Download, icons, Activity, X, GripHorizontal, Trash2, Logs, Lock, Unlock, Plug } from "lucide-react";
 import { useProjectLock } from "@/core/file-system/hooks";
 import { cn, isMac } from "@/core/lib/utils";
 import { GitBranchesList } from "@/core/git/components/GitBranchesList";
@@ -265,6 +265,9 @@ export const StatusBar = ({
   const rightItems = statusBarItems.filter((item) => item.position === 'right');
   const { mutate: addPanelTab } = useAddPanelTab();
   const [isCheckingUpdates, setIsCheckingUpdates] = useState(false);
+  const [isInitializingMcp, setIsInitializingMcp] = useState(false);
+  const [mcpRegistered, setMcpRegistered] = useState(false);
+  const [mcpInitError, setMcpInitError] = useState(false);
   const [isCompareDialogOpen, setIsCompareDialogOpen] = useState(false);
   const [memStats, setMemStats] = useState<{ heap: number; processes: { type: string; mb: number; cpu: number }[] } | null>(null);
   const [updateProgress, setUpdateProgress] = useState<{ percent?: number; bytesPerSecond?: number; transferred?: number; total?: number; status: string } | null>(null);
@@ -280,6 +283,40 @@ export const StatusBar = ({
       console.error("Failed to check for updates:", error);
     } finally {
       setIsCheckingUpdates(false);
+    }
+  };
+
+  // Persistent "already registered" state — queried on mount and whenever the
+  // active project changes, so the button stays green across app restarts
+  // instead of only flashing right after a click.
+  useEffect(() => {
+    if (!projectRoot) return;
+    let cancelled = false;
+    window.electron?.mcp?.status().then((result) => {
+      if (!cancelled) setMcpRegistered(!!result?.registered);
+    });
+    return () => { cancelled = true; };
+  }, [projectRoot]);
+
+  const handleInitializeMcp = async () => {
+    if (isInitializingMcp) return;
+
+    setIsInitializingMcp(true);
+    setMcpInitError(false);
+    try {
+      const result = await window.electron?.mcp?.initialize();
+      if (result?.success) {
+        setMcpRegistered(true);
+      } else {
+        setMcpInitError(true);
+        console.error("Failed to initialize MCP:", result?.message);
+      }
+    } catch (error) {
+      console.error("Failed to initialize MCP:", error);
+      setMcpInitError(true);
+    } finally {
+      setIsInitializingMcp(false);
+      setTimeout(() => setMcpInitError(false), 2000);
     }
   };
 
@@ -421,6 +458,35 @@ export const StatusBar = ({
               >
                 {isProjectLocked ? <Lock size={13} /> : <Unlock size={13} />}
                 <span className="text-xs">{isProjectLocked ? "Locked" : "Unlocked"}</span>
+              </button>
+            </Tip>
+          )}
+
+          {/* Initialize MCP — registers .mcp.json/config.toml for this project so
+              Claude Code/Codex can launch @voiden/mcp-server, without hunting
+              through Settings' "AI Skills" toggle. */}
+          {projectRoot && (
+            <Tip
+              label={
+                mcpRegistered
+                  ? "This project is registered as an MCP server for Claude Code / Codex. Click to re-sync."
+                  : "Register this project with Claude Code / Codex as an MCP server."
+              }
+              align="end"
+            >
+              <button
+                onClick={() => { void handleInitializeMcp(); }}
+                disabled={isInitializingMcp}
+                className={cn(
+                  "h-full px-2 flex items-center gap-1.5 hover:bg-active transition-colors",
+                  mcpInitError ? "text-red-500" : mcpRegistered ? "text-green-500" : "text-comment",
+                  isInitializingMcp && "opacity-60 cursor-wait",
+                )}
+              >
+                <Plug size={13} />
+                <span className="text-xs">
+                  {isInitializingMcp ? "Initializing…" : mcpInitError ? "MCP failed" : mcpRegistered ? "MCP ready" : "Initialize MCP"}
+                </span>
               </button>
             </Tip>
           )}

@@ -46,6 +46,7 @@ import { proseClasses, previewProseClasses } from "@/core/editors/voiden/VoidenE
 import { useCodeEditorStore } from "@/core/editors/code/CodeEditorStore";
 import { usePanelStore } from "@/core/stores/panelStore";
 import { requestOrchestrator } from "@/core/request-engine/requestOrchestrator";
+import { registerToolCapabilityProvider as registerToolCapabilityProviderFn, clearToolCapabilityProvider, getToolCapabilityProvider, useToolCapabilityProvider, type ToolCapabilityProvider } from "@/core/tools/toolCapabilityRegistry";
 import { pasteOrchestrator } from "@/core/paste/pasteOrchestrator";
 import { CodeEditor as GenericCodeEditor } from "@/core/editors/code/lib/components/CodeEditor";
 import { Table, TableBody, TableRow, TableCell } from "@/core/components/ui/table";
@@ -650,6 +651,7 @@ if (typeof window !== 'undefined') {
     "@/core/stores/panelStore": { usePanelStore },
     "@/core/stores/responsePanelPosition": { getResponsePanelPosition: getResponsePanelPositionFn },
     "@/core/environment/hooks": { useActiveEnvironment, useEnvironments },
+    "@/core/tools/toolCapabilityRegistry": { getToolCapabilityProvider, useToolCapabilityProvider },
     // @voiden/sdk — base classes plugins extend (UIExtension, etc.)
     "@voiden/sdk": { UIExtension, PipelineStage },
     "@voiden/sdk/shared": { parseCookies },
@@ -1290,6 +1292,13 @@ export const createPlugin = (
     registerResponseSection: (section: any) => {
       requestOrchestrator.registerResponseSection(section);
     },
+    // Host capability for the plugin owning the /tool block — hands back its
+    // own discover/validate/verify/plan-served implementation (mirrors
+    // @voiden/runner's registerMcpToolCapabilityProvider for the headless
+    // side), so this app never hardcodes that block's own semantics.
+    registerToolCapabilityProvider: (p: ToolCapabilityProvider) => {
+      registerToolCapabilityProviderFn(p);
+    },
     openVoidenTab: async (title: string, content: any, options?: { readOnly?: boolean }) => {
       try {
         const { useResponseStore } = await import('@/core/request-engine/stores/responseStore');
@@ -1533,6 +1542,7 @@ export const getPlugins = async () => {
   requestOrchestrator.clear();
   pasteOrchestrator.clear();
   historyAdapterRegistry.clear();
+  clearToolCapabilityProvider();
 
   // ── Core history (not a plugin — registered here so it survives plugin reloads) ──
   {

@@ -17,6 +17,13 @@ export { loadEnabledPlugins } from './plugins/loader.js'
 
 export type { RunResult, CliReportEntry } from './types.js'
 
+export { discoverTools, verifyTools, validateTools, upsertToolStatus, registerDynamicTools, registerToolsFromDecisions, planServedTools, getCommitSha, registerMcpToolCapabilityProvider } from './mcpToolCapability.js'
+export type { ToolState, ToolVerifyResult, ToolStatus, ToolValidationIssue, DiscoverToolsOptions, VerifyToolsOptions, ToolStatusRecord, ServeDecision, McpToolCapabilityProvider } from './mcpToolCapability.js'
+export type { ToolDef, ToolExtraction, ToolParamDef, ToolVerifyEntry, ToolVerifyRole, ToolVerifyMode, ToolOnFailure, ToolAnnotations, ToolExtractFn } from './toolRegistry.js'
+
+export { buildMcpServer, registerFixedTools } from './mcpServing.js'
+export type { BuildMcpServerOptions } from './mcpServing.js'
+
 // .void parsing, AI-agent integration (MCP registration + the standalone
 // "voiden-mcp" skill installed alongside the app's own richer "voiden"
 // skill) — all live in @voiden/executors, shared with the Voiden app, and
