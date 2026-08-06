@@ -6,6 +6,13 @@ import { fileURLToPath } from 'url'
 import chalk from 'chalk'
 import { runVoidFile } from './runner.js'
 import { resolveFiles } from './discovery.js'
+import { discoverTools, verifyTools, validateTools, upsertToolStatus, registerToolsFromDecisions, planServedTools, getCommitSha } from './mcpToolCapability.js'
+import type { ToolDef } from './toolRegistry.js'
+import { registerFixedTools } from './mcpServing.js'
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
+import { createServer as createHttpServer } from 'node:http'
 import { loadEnabledPlugins } from './plugins/loader.js'
 import { exportToCsv } from './report/csv.js'
 import { sendMailReport } from './report/mail.js'
@@ -1521,6 +1528,270 @@ mcpCmd
     console.log(`    skill installed:      ${status.codex.skillInstalled ? chalk.green('yes') : chalk.gray('no')}`)
     console.log(`    server registered:   ${status.codex.serverRegistered ? chalk.green('yes') : chalk.gray('no')}`)
     console.log()
+  })
+
+mcpCmd
+  .command('serve [path]')
+  .description(
+    'Serve this project as an MCP server — the same tools @voiden/mcp-server exposes ' +
+    '(list/run/write plus declared /tool capabilities), over stdio (default) or HTTP.\n\n' +
+    '  Examples:\n' +
+    '    voiden-runner mcp serve                          # stdio, current directory\n' +
+    '    voiden-runner mcp serve ./api                     # stdio, specific project\n' +
+    '    voiden-runner mcp serve --http --port 3900         # HTTP on 127.0.0.1:3900\n' +
+    '    voiden-runner mcp serve --check                   # dry run — print what would be served, no live server\n'
+  )
+  .option('--http', 'Serve over streamable HTTP instead of stdio')
+  .option('-p, --port <port>', 'HTTP port (only with --http)', '3000')
+  .option('--host <host>', 'HTTP bind address (only with --http) — binding beyond 127.0.0.1 is a real exposure risk', '127.0.0.1')
+  .option('-e, --env <path>', 'Path to .env file for variable substitution')
+  .option('--check', 'Print what would be served and exit, without starting a live server')
+  .action(async (path: string | undefined, opts) => {
+    const projectRoot = resolve(path ?? '.')
+
+    const env: Record<string, string> = Object.fromEntries(
+      Object.entries(process.env).filter(([, v]) => v !== undefined) as [string, string][]
+    )
+    if (opts.env) {
+      const envPath = resolve(opts.env)
+      if (!existsSync(envPath)) {
+        console.error(chalk.red(`Env file not found: ${envPath}`))
+        process.exit(EXIT_USAGE_ERROR)
+      }
+      try {
+        Object.assign(env, loadEnvFile(envPath))
+      } catch (err: any) {
+        console.error(chalk.red(`  ✗  ${err.message}`))
+        process.exit(EXIT_USAGE_ERROR)
+      }
+    }
+
+    if (opts.check) {
+      // Dry run — no live server. Same underlying decision function real
+      // serving uses, so this can never disagree with what actually gets
+      // registered.
+      const activePlugins = await loadEnabledPlugins()
+      const decisions = await planServedTools(projectRoot, env, activePlugins)
+      console.log(`\n${decisions.length} /tool block(s) found in ${projectRoot}\n`)
+      for (const d of decisions) {
+        if (d.excluded) {
+          console.log(`  [EXCLUDED] ${d.tool.name}`)
+          for (const reason of d.excludedReasons ?? []) console.log(`      ${reason}`)
+          continue
+        }
+        const label = d.served ? (d.descriptionNote ? `SERVED (${d.status!.state})` : 'SERVED') : 'WITHDRAWN'
+        console.log(`  [${label}] ${d.tool.name} — ${d.status!.state}${d.status!.note ? `: ${d.status!.note}` : ''}`)
+      }
+      console.log(chalk.gray(`  (plus the 4 fixed tools: list_void_files, list_requests, run_request, write_result)`))
+      console.log()
+      const anyFailing = decisions.some((d) => d.excluded || d.status?.state === 'failing')
+      process.exit(anyFailing ? EXIT_RUN_FAILURE : EXIT_SUCCESS)
+    }
+
+    // Verification (real network calls) runs exactly once here, regardless
+    // of transport — never repeated per HTTP request below.
+    const activePlugins = await loadEnabledPlugins()
+    const decisions = await planServedTools(projectRoot, env, activePlugins)
+    const commitSha = getCommitSha(projectRoot)
+    const servedCount = decisions.filter((d) => d.served).length
+    // Shared across calls so {{process.xxx}} runtime variables chain the
+    // same way they do for the stdio path and for @voiden/mcp-server.
+    const runtimeVars: Record<string, any> = {}
+
+    if (opts.http) {
+      const port = Number(opts.port)
+      const host = opts.host
+
+      // A fresh McpServer + transport per HTTP request — this is how the
+      // SDK's own stateless example (examples/server/simpleStatelessStreamableHttp.js)
+      // does it, not an arbitrary choice: reusing one transport across
+      // requests returns 500s. Cheap: registration is just schema/handler
+      // wiring against the already-computed `decisions`, no re-verification.
+      const httpServer = createHttpServer(async (req, res) => {
+        try {
+          const requestServer = new McpServer({ name: 'voiden-runner', version: '1.0.0' })
+          registerFixedTools(requestServer, projectRoot, runtimeVars, activePlugins)
+          registerToolsFromDecisions(requestServer, decisions, env, runtimeVars, activePlugins, commitSha, projectRoot)
+          const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined })
+          await requestServer.connect(transport)
+          res.on('close', () => {
+            transport.close()
+            requestServer.close()
+          })
+          await transport.handleRequest(req, res)
+        } catch (err: any) {
+          console.error(chalk.red(`  ✗  Error handling MCP request: ${err?.message ?? String(err)}`))
+          if (!res.headersSent) {
+            res.writeHead(500, { 'content-type': 'application/json' }).end(JSON.stringify({
+              jsonrpc: '2.0', error: { code: -32603, message: 'Internal server error' }, id: null,
+            }))
+          }
+        }
+      })
+      httpServer.listen(port, host, () => {
+        console.error(chalk.green(`  ✓  voiden-runner mcp serve — listening on http://${host}:${port}/mcp`))
+        console.error(chalk.gray(`     ${servedCount} tool(s) served (plus list_void_files, list_requests, run_request, write_result)`))
+        if (host !== '127.0.0.1' && host !== 'localhost') {
+          console.error(chalk.red(`  ⚠  Bound to ${host} — reachable beyond this machine. Make sure that's intended.`))
+        }
+      })
+      // No process.exit() — stays alive until Ctrl-C, same as the stdio path below.
+    } else {
+      // stdio: one persistent server for the process lifetime — stdout is
+      // reserved for the JSON-RPC stream, so nothing gets printed there.
+      // Startup info goes to stderr only, same discipline @voiden/mcp-server's
+      // own entrypoint already follows (it prints nothing).
+      const server = new McpServer({ name: 'voiden-runner', version: '1.0.0' })
+      registerFixedTools(server, projectRoot, runtimeVars, activePlugins)
+      registerToolsFromDecisions(server, decisions, env, runtimeVars, activePlugins, commitSha, projectRoot)
+      await server.connect(new StdioServerTransport())
+    }
+  })
+
+// ── voiden-runner tool ────────────────────────────────────────────────────────
+//
+// Discovery + verification for /tool blocks (voiden-mcp-tool plugin) — the
+// standalone CLI surface for the same discoverTools/verifyTools functions
+// @voiden/mcp-server will use for live agent-serving. No scheduling here:
+// `cadence` on a verify entry is a tag `--cadence` filters by, not something
+// this command enforces timing for — that's a human/CI decision, same as
+// deciding when to run `voiden-runner run` at all.
+
+const toolCmd = program
+  .command('tool')
+  .description('Discover and verify /tool blocks — capabilities declared for AI agents')
+
+toolCmd
+  .command('list [paths...]')
+  .description('List every /tool block found under the given path(s) (default: current directory) — does not execute anything')
+  .option('--json', 'Output as JSON')
+  .action(async (paths: string[], opts) => {
+    const targets = paths.length > 0 ? paths : ['.']
+    const allTools: ToolDef[] = []
+    const activePlugins = await loadEnabledPlugins()
+    for (const p of targets) {
+      allTools.push(...await discoverTools(resolve(p), { activePlugins }))
+    }
+
+    if (opts.json) {
+      console.log(JSON.stringify(allTools, null, 2))
+      return
+    }
+
+    if (allTools.length === 0) {
+      console.log(chalk.yellow('  No /tool blocks found.'))
+      return
+    }
+
+    console.log()
+    for (const tool of allTools) {
+      console.log(chalk.bold(`  ${tool.name}`) + chalk.gray(`  —  ${relative(process.cwd(), tool.filePath)}${tool.sectionLabel ? ` [${tool.sectionLabel}]` : ''}`))
+      if (tool.description) console.log(chalk.gray(`    ${tool.description}`))
+      console.log(chalk.gray(`    params: ${tool.params.length}   verifies: ${tool.verifies.length}   on-failure: ${tool.onFailure}`))
+      console.log()
+    }
+  })
+
+toolCmd
+  .command('verify [paths...]')
+  .description(
+    "Run each /tool block's verification requests and report verified / unverified / failing.\n\n" +
+    '  Examples:\n' +
+    '    voiden-runner tool verify\n' +
+    '    voiden-runner tool verify ./api/ --cadence nightly\n' +
+    '    voiden-runner tool verify --json --write\n'
+  )
+  .option('--cadence <tag>', 'Only run verification requests tagged with this cadence — omit to run every entry regardless of tag')
+  .option('--json', 'Output as JSON (suppresses normal output — useful for CI)')
+  .option('--write', 'Write the computed status back into each /tool block. Off by default — verification always recomputes fresh and never trusts a stale write-back')
+  .option('-e, --env <path>', 'Path to .env or .yaml file for variable substitution')
+  .action(async (paths: string[], opts) => {
+    const targets = paths.length > 0 ? paths : ['.']
+
+    const env: Record<string, string> = Object.fromEntries(
+      Object.entries(process.env).filter(([, v]) => v !== undefined) as [string, string][]
+    )
+    if (opts.env) {
+      const envPath = resolve(opts.env)
+      if (!existsSync(envPath)) {
+        console.error(chalk.red(`Env file not found: ${envPath}`))
+        process.exit(EXIT_USAGE_ERROR)
+      }
+      try {
+        Object.assign(env, loadEnvFile(envPath))
+      } catch (err: any) {
+        console.error(chalk.red(`  ✗  ${err.message}`))
+        process.exit(EXIT_USAGE_ERROR)
+      }
+    }
+
+    const activePlugins = await loadEnabledPlugins()
+    const allTools: ToolDef[] = []
+    for (const p of targets) {
+      allTools.push(...await discoverTools(resolve(p), { activePlugins }))
+    }
+
+    if (allTools.length === 0) {
+      if (opts.json) console.log(JSON.stringify({ tools: [], issues: [] }, null, 2))
+      else console.log(chalk.yellow('  No /tool blocks found.'))
+      process.exit(EXIT_SUCCESS)
+    }
+
+    const { validTools, issues } = await validateTools(resolve(targets[0]), allTools)
+    const statuses = await verifyTools(validTools, { cadence: opts.cadence, env, activePlugins })
+
+    if (opts.write) {
+      for (const status of statuses) {
+        try {
+          upsertToolStatus(status.tool.filePath, status.tool.toolBlockUid, { state: status.state, note: status.note })
+        } catch (err: any) {
+          console.error(chalk.red(`  ✗  Failed to write status for "${status.tool.name}": ${err?.message ?? String(err)}`))
+        }
+      }
+    }
+
+    const anyFailing = statuses.some(s => s.state === 'failing') || issues.length > 0
+
+    if (opts.json) {
+      console.log(JSON.stringify({ tools: statuses, issues }, null, 2))
+    } else {
+      console.log()
+
+      // Structurally excluded tools (§1.6) — reported distinctly from a
+      // verification failure: this is "the contract itself doesn't add up,"
+      // not "the contract's proof failed." Neither ran nor counted below.
+      const excludedNames = [...new Set(issues.map(i => i.tool.name))]
+      for (const name of excludedNames) {
+        console.log(`  ${chalk.red('✗ excluded')}   ${chalk.bold(name)}`)
+        for (const issue of issues.filter(i => i.tool.name === name)) {
+          console.log(chalk.gray(`      [${issue.check}] ${issue.message}`))
+        }
+        console.log()
+      }
+
+      for (const status of statuses) {
+        const icon =
+          status.state === 'verified'   ? chalk.green('✓ verified  ') :
+          status.state === 'failing'    ? chalk.red('✗ failing   ') :
+                                           chalk.yellow('○ unverified')
+        console.log(`  ${icon}  ${chalk.bold(status.tool.name)}` + chalk.gray(`  —  ${relative(process.cwd(), status.tool.filePath)}${status.tool.sectionLabel ? ` [${status.tool.sectionLabel}]` : ''}`))
+        if (status.note) console.log(chalk.gray(`      ${status.note}`))
+        for (const r of status.results) {
+          const rIcon = r.passed ? chalk.green('✓') : chalk.red('✗')
+          console.log(`      ${rIcon} ${r.entry.role}: ${r.entry.sectionLabel}` + (r.reason ? chalk.gray(`  (${r.reason})`) : ''))
+        }
+        console.log()
+      }
+
+      const verified = statuses.filter(s => s.state === 'verified').length
+      const unverified = statuses.filter(s => s.state === 'unverified').length
+      const failing = statuses.filter(s => s.state === 'failing').length
+      console.log(chalk.bold(`  ${statuses.length} tool(s)`) + chalk.gray(` — ${chalk.green(verified + ' verified')}, ${chalk.yellow(unverified + ' unverified')}, ${chalk.red(failing + ' failing')}`) + (excludedNames.length > 0 ? chalk.red(`, ${excludedNames.length} excluded`) : ''))
+      if (opts.write) console.log(chalk.gray('  Status written back into each /tool block.'))
+      console.log()
+    }
+
+    process.exit(anyFailing ? EXIT_RUN_FAILURE : EXIT_SUCCESS)
   })
 
 program.parse()

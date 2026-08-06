@@ -9343,7 +9343,6 @@ __metadata:
     "@voiden/runner": "workspace:*"
     tsx: "npm:^4.15.0"
     typescript: "npm:^5.5.3"
-    zod: "npm:^3.23.8"
   bin:
     voiden-mcp-server: ./dist/index.js
   languageName: unknown
@@ -9354,6 +9353,7 @@ __metadata:
   resolution: "@voiden/runner@workspace:packages/voiden-runner"
   dependencies:
     "@grpc/proto-loader": "npm:^0.7.13"
+    "@modelcontextprotocol/sdk": "npm:^1.29.0"
     "@types/node": "npm:^20.14.10"
     "@types/nodemailer": "npm:^8.0.0"
     "@types/ws": "npm:^8.5.10"
@@ -9365,6 +9365,7 @@ __metadata:
     tsx: "npm:^4.15.0"
     typescript: "npm:^5.5.3"
     yaml: "npm:^2.4.2"
+    zod: "npm:^3.23.8"
   bin:
     voiden-runner: ./dist/index.js
   languageName: unknown

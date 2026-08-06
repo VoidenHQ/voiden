@@ -15,173 +15,51 @@
  * write_result modifies a file on disk with no locking. This server does no
  * extra gating beyond describing that in each tool's description — the MCP
  * host's per-call approval prompt is the intended safety boundary.
+ *
+ * Thin wrapper only — all tool-building (the 4 fixed tools plus /tool
+ * discovery/validation/verification/registration) lives in
+ * @voiden/runner's mcpServing.ts, shared with `voiden-runner mcp serve`
+ * (stdio + HTTP, for CLI-only users with no Voiden app installed) so neither
+ * duplicates the other's registration logic.
  */
 
-import { readFileSync } from 'fs'
-import { resolve, relative, isAbsolute } from 'path'
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { resolve } from 'path'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
-import { z } from 'zod'
-import {
-  runVoidFile,
-  parseVoidFileSections,
-  collectVoidFiles,
-  getRequestPreview,
-  upsertResponseBlock,
-  findRequestBlock,
-  loadEnabledPlugins,
-  type RunResult,
-} from '@voiden/runner'
+import { buildMcpServer, planServedTools, loadEnabledPlugins } from '@voiden/runner'
 
 const projectRoot = resolve(process.argv[2] ?? process.env.VOIDEN_PROJECT_ROOT ?? process.cwd())
+const isCheckMode = process.argv.includes('--check')
 
-// ─── Per-session state (lives for the process lifetime — one MCP session) ────
-// Shared across tool calls so {{process.xxx}} runtime variables chain the same
-// way they do across files in a single CLI invocation.
-const runtimeVars: Record<string, any> = {}
-let cachedActivePlugins: string[] | undefined
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-/** Resolve a tool-supplied path against the project root, refusing to escape it. */
-function resolveInProject(filePath: string): string {
-  const resolved = isAbsolute(filePath) ? resolve(filePath) : resolve(projectRoot, filePath)
-  const rel = relative(projectRoot, resolved)
-  if (rel.startsWith('..') || isAbsolute(rel)) {
-    throw new Error(`"${filePath}" resolves outside the project root (${projectRoot})`)
-  }
-  return resolved
-}
-
-/** Same flat KEY=VALUE .env format the CLI's --env flag accepts. */
-function loadEnvFile(envPath: string): Record<string, string> {
-  const content = readFileSync(envPath, 'utf-8')
-  const env: Record<string, string> = {}
-  for (const rawLine of content.split('\n')) {
-    const line = rawLine.trim()
-    if (!line || line.startsWith('#')) continue
-    const eq = line.indexOf('=')
-    if (eq === -1) continue
-    const key = line.slice(0, eq).trim()
-    const val = line.slice(eq + 1).trim().replace(/^["']|["']$/g, '')
-    if (key) env[key] = val
-  }
-  return env
-}
-
-function textResult(value: unknown) {
-  return { content: [{ type: 'text' as const, text: JSON.stringify(value, null, 2) }] }
-}
-
-function findRequestUid(blocks: any[]): string | undefined {
-  return findRequestBlock(blocks)?.attrs?.uid
-}
-
-// Protocol plugins register their block shape (REQUEST_CONTAINERS-equivalent)
-// with voiden-runner only as a side effect of loadEnabledPlugins() — so
-// list_requests needs plugins loaded too, not just run_request, or
-// findRequestBlock/getRequestPreview see an empty registry and can't find
-// anything beyond a generic fallback. Cached the same way run_request caches
-// it, so listing requests doesn't reload plugins on every call.
-async function ensurePluginsLoaded(): Promise<void> {
-  if (cachedActivePlugins === undefined) {
-    cachedActivePlugins = await loadEnabledPlugins()
-  }
-}
-
-// ─── Server ───────────────────────────────────────────────────────────────────
-
-const server = new McpServer({ name: 'voiden-mcp-server', version: '0.1.0' })
-
-server.registerTool(
-  'list_void_files',
-  {
-    title: 'List .void files',
-    description: 'List every .void file in the current Voiden project, as paths relative to the project root.',
-    inputSchema: {},
-  },
-  async () => {
-    const files = await collectVoidFiles(projectRoot)
-    return textResult(files.map(f => relative(projectRoot, f)))
-  },
+// The MCP-server-process equivalent of "the project's environment" — an MCP
+// host (Claude Code/Codex) already lets a user set env vars for this server
+// process via .mcp.json's `env` block, which is the standard place secrets
+// for a tool param's source:'environment' belong. Same filter the CLI's
+// `run` command already uses for its own process-env base.
+const baseEnv: Record<string, string> = Object.fromEntries(
+  Object.entries(process.env).filter(([, v]) => v !== undefined) as [string, string][],
 )
 
-server.registerTool(
-  'list_requests',
-  {
-    title: 'List requests in a .void file',
-    description:
-      'Parse a .void file and list its requests (one per section) — label, request uid, method, and URL — without executing anything.',
-    inputSchema: {
-      filePath: z.string().describe('Path to the .void file, relative to the project root (or absolute).'),
-    },
-  },
-  async ({ filePath }) => {
-    await ensurePluginsLoaded()
-    const resolved = resolveInProject(filePath)
-    const content = readFileSync(resolved, 'utf-8')
-    const sections = parseVoidFileSections(content)
-    return textResult(
-      sections.map(s => ({
-        sectionLabel: s.label,
-        requestUid: findRequestUid(s.blocks),
-        ...getRequestPreview(s.blocks),
-      })),
-    )
-  },
-)
-
-server.registerTool(
-  'run_request',
-  {
-    title: 'Run a request',
-    description:
-      'Execute a request from a .void file — makes a real HTTP/GraphQL/etc. call using the project\'s plugins and env, exactly as the Voiden app\'s Run button or the voiden-runner CLI would. ' +
-      'Omit sectionLabel to run every section in the file. Returns structured results (pass/fail, status, timing, headers, body).',
-    inputSchema: {
-      filePath: z.string().describe('Path to the .void file, relative to the project root (or absolute).'),
-      sectionLabel: z.string().optional().describe('Run only the section with this request-separator label. Omit to run the whole file.'),
-      envFile: z.string().optional().describe('Path to a KEY=VALUE .env file to merge on top of system env, relative to the project root.'),
-      envVars: z.record(z.string()).optional().describe('Individual env var overrides, applied on top of envFile.'),
-    },
-  },
-  async ({ filePath, sectionLabel, envFile, envVars }) => {
-    const resolved = resolveInProject(filePath)
-    const env = {
-      ...(envFile ? loadEnvFile(resolveInProject(envFile)) : {}),
-      ...(envVars ?? {}),
+if (isCheckMode) {
+  // Dry run: no live server, just report what --check would decide and exit.
+  // The only way to meaningfully test this feature without an actual agent
+  // session connected — also doubles as a real CI-usable dry-run for users.
+  const activePlugins = await loadEnabledPlugins()
+  const decisions = await planServedTools(projectRoot, baseEnv, activePlugins)
+  console.log(`\n${decisions.length} /tool block(s) found in ${projectRoot}\n`)
+  for (const d of decisions) {
+    if (d.excluded) {
+      console.log(`  [EXCLUDED] ${d.tool.name}`)
+      for (const reason of d.excludedReasons ?? []) console.log(`      ${reason}`)
+      continue
     }
+    const label = d.served ? (d.descriptionNote ? `SERVED (${d.status!.state})` : 'SERVED') : 'WITHDRAWN'
+    console.log(`  [${label}] ${d.tool.name} — ${d.status!.state}${d.status!.note ? `: ${d.status!.note}` : ''}`)
+  }
+  console.log()
+  const anyFailing = decisions.some((d) => d.excluded || d.status?.state === 'failing')
+  process.exit(anyFailing ? 1 : 0)
+}
 
-    const result = await runVoidFile(resolved, {
-      env,
-      runtimeVars,
-      sectionLabel,
-      activePlugins: cachedActivePlugins,
-    })
-    cachedActivePlugins = result.activePlugins
-
-    return textResult(result)
-  },
-)
-
-server.registerTool(
-  'write_result',
-  {
-    title: 'Write a result back into the .void file',
-    description:
-      'Record a request\'s execution result (as returned by run_request) into the .void file it came from, as a `response` block placed right after the matching request block. ' +
-      'Replaces any previous response block for the same request. No file locking: if this file is open with unsaved edits in Voiden, the next manual save there can overwrite this, or this can overwrite those edits — avoid calling this on a file someone else may be actively editing.',
-    inputSchema: {
-      filePath: z.string().describe('Path to the .void file, relative to the project root (or absolute).'),
-      requestUid: z.string().describe('The uid of the request block this result belongs to (from list_requests or run_request).'),
-      result: z.record(z.any()).describe('The `result` object for this request from run_request\'s response (i.e. one entry of its `results[].result` array, not the whole run_request response).'),
-    },
-  },
-  async ({ filePath, requestUid, result }) => {
-    const resolved = resolveInProject(filePath)
-    upsertResponseBlock(resolved, requestUid, result as RunResult)
-    return textResult({ written: true, filePath, requestUid })
-  },
-)
+const { server } = await buildMcpServer({ projectRoot, env: baseEnv, serverName: 'voiden-mcp-server', serverVersion: '0.1.0' })
 
 await server.connect(new StdioServerTransport())

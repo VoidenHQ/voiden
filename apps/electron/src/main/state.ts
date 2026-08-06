@@ -37,7 +37,6 @@ import { getSettings } from "./settings";
 import { recomposeAndInstall } from "./skillsInstaller";
 import { reloadMainProcessExtension } from "./extensionLoader";
 import { logger } from "./logger";
-import { registerClaudeMcpServer, upsertCodexMcpSection } from "@voiden/executors";
 
 // Mirrors CodeEditor.tsx's LONG_LINE_THRESHOLD/hasVeryLongLine — a single line
 // this long is its own layout/perf cliff for the editor regardless of total
@@ -59,21 +58,6 @@ function maybeRecomposeSkills(state: AppState): void {
   const skills = getSettings().skills;
   if (skills?.claude || skills?.codex) {
     recomposeAndInstall(state, { claude: skills.claude ?? false, codex: skills.codex ?? false }).catch(() => {});
-  }
-}
-
-// .mcp.json/config.toml registration is per-project, unlike the skill file —
-// so opening/switching to a project needs its own registration call whenever
-// the integration is already enabled (the ipc/skills.ts toggle handler only
-// covers the project that's active *at the moment the toggle is flipped*).
-export function maybeRegisterMcp(projectPath: string): void {
-  if (!projectPath) return;
-  const skills = getSettings().skills;
-  try {
-    if (skills?.claude) registerClaudeMcpServer(projectPath);
-    if (skills?.codex) upsertCodexMcpSection(projectPath);
-  } catch {
-    // Best-effort — don't let a config-write failure block opening the project.
   }
 }
 
@@ -567,7 +551,6 @@ export async function setActiveProject(projectPath: string) {
   appState.directories[projectPath]["hidden"] = false;
 
   await saveState(appState);
-  maybeRegisterMcp(projectPath);
 
   // Update the file watcher using the active window ID as the key so it
   // matches the key used by initializeState — preventing a second watcher

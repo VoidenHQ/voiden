@@ -23,6 +23,7 @@ import { registerContextMenuIpcHandlers } from "./main/ipc/contextMenus";
 import { registerThemeIpcHandlers } from "./main/ipc/themes";
 import { registerCliIpcHandlers } from "./main/ipc/cli";
 import { registerSkillsIpcHandlers } from "./main/ipc/skills";
+import { registerMcpIpcHandlers } from "./main/ipc/mcp";
 import { registerPythonScriptIpcHandler } from "./main/ipc/pythonScript";
 import { registerNodeScriptIpcHandler } from "./main/ipc/nodeScript";
 import { registerCoreExtensionsIpcHandlers, watchBundledPluginsForDevReload, seedBundledPluginsToCache } from "./main/ipc/coreExtensions";
@@ -185,6 +186,7 @@ app.on("ready", async () => {
   registerThemeIpcHandlers();
   registerCliIpcHandlers();
   registerSkillsIpcHandlers();
+  registerMcpIpcHandlers();
   registerPythonScriptIpcHandler();
   registerNodeScriptIpcHandler();
   registerCoreExtensionsIpcHandlers();
@@ -228,19 +230,18 @@ app.on("ready", async () => {
     // Seed bundled plugins into the OTA cache so all plugins are served from one location.
     // Then re-sync core extensions so the freshly seeded files are reflected in the extension list.
     await seedBundledPluginsToCache();
-    const { getAppState, extensionManager, maybeRegisterMcp } = await import("./main/state");
+    const { getAppState, extensionManager } = await import("./main/state");
     extensionManager?.syncCoreExtensions();
     const appState = getAppState();
     if (appState?.extensions) {
       await loadMainProcessExtensions(appState.extensions);
     }
-    // Recompose skills now that state (extensions list) is available
+    // Recompose skills now that state (extensions list) is available. Skill
+    // text install only — MCP registration is a separate, explicit action
+    // (the status bar's Initialize MCP button), never auto-fired here.
     const skills = settings.skills;
     if (appState && (skills?.claude || skills?.codex)) {
       recomposeAndInstall(appState, { claude: skills.claude ?? false, codex: skills.codex ?? false }).catch(() => {});
-      // Covers users who already had the integration enabled before MCP
-      // registration existed, or whose .mcp.json was reset externally.
-      if (appState.activeDirectory) maybeRegisterMcp(appState.activeDirectory);
     }
   } catch (err) {
     console.error("[main] Failed to load main-process extensions:", err);

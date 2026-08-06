@@ -377,6 +377,18 @@ export const skillsApi = {
     ipcRenderer.invoke("skills:setCodex", enabled),
 };
 
+export const mcpApi = {
+  /** Registers .mcp.json/config.toml for the active project and refreshes
+   *  the composed skill — a discoverable shortcut for Settings' "AI Skills"
+   *  toggle, project-scoped, without installing the separate standalone
+   *  voiden-mcp skill or touching that toggle's own persisted state. */
+  initialize: (): Promise<{ success: boolean; message?: string }> =>
+    ipcRenderer.invoke("mcp:initialize"),
+  /** Whether the active project already has .mcp.json/config.toml registered. */
+  status: (): Promise<{ registered: boolean }> =>
+    ipcRenderer.invoke("mcp:status"),
+};
+
 export const variablesApi = {
   getKeys: (envKey?: string) => ipcRenderer.invoke("variables:getKeys", envKey),
   /** Returns only the vars for the specified env bucket (not merged with global). */

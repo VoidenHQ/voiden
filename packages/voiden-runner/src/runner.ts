@@ -247,11 +247,16 @@ export async function runVoidFile(
 
   const content     = readFileSync(filePath, 'utf-8')
   const allSections = parseVoidFileSections(content)
-  const sections    = options.sectionLabel
+  // A file with no request-separators has no real "sections" to disambiguate
+  // between — it's just one request. Only apply the label filter when
+  // there's more than one section to choose from; a single-section file
+  // always means "run the one request present", regardless of what
+  // sectionLabel was asked for (including none, or a stale/mismatched one).
+  const sections    = (options.sectionLabel && allSections.length > 1)
     ? allSections.filter(s => s.label === options.sectionLabel)
     : allSections
 
-  if (options.sectionLabel && sections.length === 0 && allSections.length > 0) {
+  if (options.sectionLabel && allSections.length > 1 && sections.length === 0) {
     return {
       results: [{
         result: {

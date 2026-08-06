@@ -37,15 +37,18 @@ export interface ServerCommand {
 }
 
 /**
- * Default launch command — requires @voiden/mcp-server to be published to
- * npm; until then, pass an explicit `serverCommand` override (e.g. `{command:
- * 'node', args: ['/abs/path/to/voiden-mcp-server/dist/index.js', projectPath]}`)
- * to test against a local build.
+ * Default launch command — the published npm package, pinned to `@latest`
+ * explicitly so every registration always resolves the current release
+ * rather than whatever npx happens to have cached. Callers that need a local
+ * build instead (dev-mode Electron, `voiden-runner mcp install
+ * --local-server`) pass an explicit `serverCommand` override — e.g.
+ * `{command: 'node', args: ['/abs/path/to/voiden-mcp-server/dist/index.js', projectPath]}`
+ * — this function is never called in that case.
  */
 function defaultServerCommand(projectPath: string): ServerCommand {
   return {
     command: 'npx',
-    args: ['-y', '@voiden/mcp-server', projectPath],
+    args: ['-y', '@voiden/mcp-server@latest', projectPath],
   }
 }
 

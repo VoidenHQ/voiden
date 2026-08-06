@@ -92,6 +92,8 @@ export interface RestApiResponseState {
     headers: { key: string; value: string }[]
     httpVersion?: string
     proxy?: { name: string; host: string; port: number }
+    /** Resolved (post-{{...}}-substitution) body actually sent, when the adapter reports one. */
+    body?: string
   }
   metadata?: Record<string, any>
 }

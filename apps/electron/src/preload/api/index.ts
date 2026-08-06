@@ -28,6 +28,7 @@ import {
   fontsApi,
   cliApi,
   skillsApi,
+  mcpApi,
   variablesApi,
   projectApi,
   mainWindow
@@ -61,6 +62,7 @@ export const electronApi = {
   fonts: fontsApi,
   cli: cliApi,
   skills: skillsApi,
+  mcp: mcpApi,
   themes: themesApi,
   autosave: autosaveApi,
   project: projectApi,
