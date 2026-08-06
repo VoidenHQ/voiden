@@ -262,15 +262,33 @@ export async function executeSecureRequest(
   // Electron-side registry needed, identical behaviour for app and CLI.
   if (requestState.protocolType === 'mcp') {
     const mcp = (requestState as any).mcp ?? {}
+    // toolName/resourceUri/promptName are plain strings; toolArgs/promptArgs
+    // are JSON objects the user authored in the operation block's code
+    // editor — either can contain {{...}} placeholders (env, runtime,
+    // faker, tool-param binds) same as any other request field. rv() only
+    // operates on strings, so object args need a recursive walk rather than
+    // the single call url/headers get above.
+    const resolveDeep = async (value: any): Promise<any> => {
+      if (typeof value === 'string') return rv(value)
+      if (Array.isArray(value)) return Promise.all(value.map(resolveDeep))
+      if (value && typeof value === 'object') {
+        const entries = await Promise.all(
+          Object.entries(value).map(async ([k, v]) => [k, await resolveDeep(v)] as const),
+        )
+        return Object.fromEntries(entries)
+      }
+      return value
+    }
+
     const result = await executeMcpOperation({
       url,
       headers,
       operation: mcp.operation,
-      toolName: mcp.toolName,
-      toolArgs: mcp.toolArgs,
-      resourceUri: mcp.resourceUri,
-      promptName: mcp.promptName,
-      promptArgs: mcp.promptArgs,
+      toolName: await resolveDeep(mcp.toolName),
+      toolArgs: await resolveDeep(mcp.toolArgs),
+      resourceUri: await resolveDeep(mcp.resourceUri),
+      promptName: await resolveDeep(mcp.promptName),
+      promptArgs: await resolveDeep(mcp.promptArgs),
     })
 
     const responseBody = result.success
