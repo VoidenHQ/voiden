@@ -163,6 +163,36 @@ function startFlatListSession(sessionId: string, rootDir: string, topN: number):
   };
 }
 
+// Given a buffer that may end mid-way through a multi-byte UTF-8 sequence,
+// returns the number of trailing bytes that belong to that incomplete
+// sequence (0 if the buffer already ends on a code-point boundary).
+// Exported for unit testing.
+export function trailingIncompleteUtf8Length(buf: Buffer): number {
+  const len = buf.length;
+  // A UTF-8 sequence is at most 4 bytes, so its leading byte can be at most
+  // 4 bytes back from the end. Scan back up to 4 bytes to find it.
+  const maxLookback = Math.min(4, len);
+  for (let back = 1; back <= maxLookback; back++) {
+    const byte = buf[len - back];
+    if ((byte & 0b1100_0000) === 0b1000_0000) {
+      // Continuation byte (10xxxxxx) — keep scanning further back.
+      continue;
+    }
+    // Leading byte. Determine how many bytes this code point needs.
+    let expectedLen: number;
+    if ((byte & 0b1000_0000) === 0) expectedLen = 1; // 0xxxxxxx
+    else if ((byte & 0b1110_0000) === 0b1100_0000) expectedLen = 2; // 110xxxxx
+    else if ((byte & 0b1111_0000) === 0b1110_0000) expectedLen = 3; // 1110xxxx
+    else if ((byte & 0b1111_1000) === 0b1111_0000) expectedLen = 4; // 11110xxx
+    else expectedLen = 1; // Invalid leading byte; don't hold it back.
+
+    return expectedLen > back ? back : 0;
+  }
+  // 4 consecutive continuation bytes with no leading byte is not valid
+  // UTF-8 (max sequence length is 4); nothing to hold back.
+  return 0;
+}
+
 export function registerFileIpcHandlers() {
   // Deduplicate: if a tree build is already in-flight, share the result.
   const pendingTreeBuilds = new Map<string, Promise<any>>();
@@ -237,14 +267,25 @@ export function registerFileIpcHandlers() {
 
         const buf = Buffer.alloc(actualSize);
         const { bytesRead } = await fd.read(buf, 0, actualSize, offset);
-        const nextOffset = offset + bytesRead;
+        const isLastRead = offset + bytesRead >= stat.size;
 
-        // Convert to UTF-8. buf.toString handles multi-byte chars correctly
-        // as long as we started on a codepoint boundary (we always read from 0
-        // for the first chunk and use nextOffset as the start for subsequent
-        // ones, so boundaries are preserved).
-        const content = buf.slice(0, bytesRead).toString("utf8");
-        return { content, bytesRead, nextOffset, done: nextOffset >= stat.size, totalSize: stat.size };
+        // A fixed-size chunk boundary can land in the middle of a multi-byte
+        // UTF-8 code point. Trim any incomplete trailing sequence off this
+        // chunk (unless it's the final chunk, where a trailing partial
+        // sequence just means the file itself is invalid UTF-8) and leave it
+        // for the next call by only advancing nextOffset past the bytes we
+        // actually decoded. This keeps chunk boundaries aligned to code-point
+        // boundaries regardless of where the fixed byte size falls.
+        //
+        // Guard against pathologically small chunk sizes: never hold back
+        // the entire chunk, or the read offset would never advance.
+        const rawHeldBack = isLastRead ? 0 : trailingIncompleteUtf8Length(buf.slice(0, bytesRead));
+        const heldBack = rawHeldBack < bytesRead ? rawHeldBack : 0;
+        const decodableLength = bytesRead - heldBack;
+        const nextOffset = offset + decodableLength;
+
+        const content = buf.slice(0, decodableLength).toString("utf8");
+        return { content, bytesRead: decodableLength, nextOffset, done: nextOffset >= stat.size, totalSize: stat.size };
       } finally {
         await fd.close();
       }
