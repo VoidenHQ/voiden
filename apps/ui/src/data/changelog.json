@@ -1,5 +1,23 @@
 [
   {
+    "version": "v2.3.0-beta.2",
+    "date": "07/08/2026",
+    "title": "MCP Tool Serving & MCP Client Blocks",
+    "description": "Beta release turning MCP integration from \"generic access to your .void files\" into \"your own agent-callable tools\" — the new /tool block is discovered, verified, and served by @voiden/mcp-server and voiden-runner mcp serve as real, individually-named tools alongside the four built-in ones, with a new /mcp block for connecting to and testing external MCP servers, and a redesigned Initialize MCP action.",
+    "icon": "Plug",
+    "iconColor": "text-violet-400",
+    "bgColor": "bg-gradient-to-br from-violet-900 to-slate-900",
+    "changes": {
+      "Added": [
+        "/tool block (voiden-mcp-tool plugin) — mark an existing request as a named, described, agent-callable tool with a parameters table (agent-supplied vs. environment-only sources resolved from the project's own env files) and a verification policy (happy-path/error-contract/auth-check rows, each with its own live/sandbox/none mode and optional cadence) — including for a single-request file with nothing to disambiguate, no section label gymnastics required",
+        "Verified /tool blocks are now dynamically served as real, individually-named MCP tools by @voiden/mcp-server and voiden-runner mcp serve, alongside the 4 built-in ones — a failing tool withdraws automatically (or serves flagged degraded, your choice), and a manual enabled override lets you add or remove a tool regardless of verification state from the new MCP tab's Serve view",
+        "/mcp block (voiden-mcp-client plugin) — connect to and test an external Streamable-HTTP MCP server directly from a .void file: list_tools, call_tool, list_resources, read_resource, list_prompts, get_prompt, reusing the existing Auth block, Headers table, and Assertions table, with {{...}} environment and runtime variables resolving correctly in tool/prompt arguments. Paste a Claude Desktop / Cursor / VS Code / Windsurf-style mcpServers JSON config to fill in the connection automatically",
+        "New MCP tab in the Voiden app (top bar plug icon) — List / Verify / Serve views for every /tool block in the project — and voiden-runner tool list / tool verify / mcp serve [--http] [--check] for the same from the CLI",
+        "\"Initialize MCP\" is now its own status bar button, scoped to the currently open project, that reliably registers the server without ever silently overwriting a manually configured .mcp.json or config.toml — no longer a side effect of the Settings → AI Skill toggle or something that re-runs on every app startup/project switch"
+      ]
+    }
+  },
+  {
     "version": "v2.3.0-beta.1",
     "date": "30/07/2026",
     "title": "MCP Workflow, Block Help & Editor Reliability",

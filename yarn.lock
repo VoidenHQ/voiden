@@ -9316,6 +9316,7 @@ __metadata:
   resolution: "@voiden/executors@workspace:packages/executors"
   dependencies:
     "@grpc/grpc-js": "npm:^1.10.0"
+    "@modelcontextprotocol/sdk": "npm:^1.29.0"
     "@types/mime-types": "npm:^2.1.4"
     "@types/node": "npm:^20.14.10"
     "@types/ws": "npm:^8.5.10"

@@ -241,7 +241,21 @@ const menubarTemplate: Array<MenuItemConstructorOptions> = [
       {
         label: "Select All",
         accelerator: "CmdOrCtrl+A",
-        role: "selectAll",
+        // Use a manual click handler instead of role:"selectAll", same fix
+        // as Quit above: role-based menu items are native NSMenuItem
+        // actions on macOS and intercept the accelerator at the physical
+        // key level regardless of registerAccelerator:false — the keydown
+        // never reaches the web page's own handling at all, so no
+        // TipTap/DOM keyboard shortcut for Cmd/Ctrl+A ever fires (this is
+        // what broke every node-scoped Cmd+A override — REST's UrlNode,
+        // MCP's McpUrlNode, etc.). Dropping the role and keeping only a
+        // manual click handler (for when the menu item is clicked directly,
+        // not via the keystroke) lets the keystroke fall through to the
+        // renderer, where those extensions can properly scope it.
+        registerAccelerator: false,
+        click: () => {
+          windowManager.browserWindow?.webContents.selectAll();
+        },
       },
       { type: "separator" },
       {

@@ -3,6 +3,14 @@
 All notable changes to `@voiden/runner` are documented here. This package is
 versioned and released independently of the Voiden desktop app.
 
+## v2.3.0-beta.6 - 2026-08-07
+
+### Added
+- `source: environment` toolparams can now pin their own `envProfile`/`envName`, resolving that exact profile/environment regardless of how many the project has — previously this only ever auto-resolved when the project had exactly one environment, and silently resolved nothing otherwise. Params without either field keep the old single-environment auto-detect behavior, so existing tools need no changes.
+
+### Fixed
+- A tool's verification requests now see the same environment-resolved values a real agent call would — `source: environment` params were previously only resolved for actual tool calls, never for verification, so any tool using one would always fail verification (and get withdrawn) even though the tool itself worked fine when called directly.
+
 ## v2.3.0-beta.5 - 2026-08-06
 
 ### Fixed

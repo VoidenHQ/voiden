@@ -1738,7 +1738,7 @@ toolCmd
     }
 
     const { validTools, issues } = await validateTools(resolve(targets[0]), allTools)
-    const statuses = await verifyTools(validTools, { cadence: opts.cadence, env, activePlugins })
+    const statuses = await verifyTools(validTools, { cadence: opts.cadence, env, activePlugins, projectRoot: resolve(targets[0]) })
 
     if (opts.write) {
       for (const status of statuses) {

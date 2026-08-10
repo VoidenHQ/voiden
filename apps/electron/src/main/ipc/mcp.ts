@@ -56,10 +56,17 @@ export function registerMcpIpcHandlers() {
   // Whether the active project is already registered — lets the status bar
   // button show a persistent "ready" state on open/project-switch, instead
   // of only flashing green right after a click.
+  //
+  // Deliberately keyed off Claude's status (.mcp.json — a real, per-project
+  // file) only, not Codex's. isCodexMcpRegistered() checks a single GLOBAL
+  // ~/.codex/config.toml for the mere presence of a [mcp_servers.voiden-mcp]
+  // section — it isn't, and can't easily be, scoped to "is THIS project
+  // registered". ORing it in meant every project showed "ready" forever
+  // after Codex was registered for any one of them, .mcp.json or not.
   ipcMain.handle("mcp:status", async () => {
     const activeDirectory = getAppState().activeDirectory;
     if (!activeDirectory) return { registered: false };
     const status = getMcpStatus(activeDirectory);
-    return { registered: status.claude.serverRegistered || status.codex.serverRegistered };
+    return { registered: status.claude.serverRegistered };
   });
 }

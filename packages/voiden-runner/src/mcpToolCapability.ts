@@ -62,6 +62,11 @@ export interface VerifyToolsOptions {
   env?: Record<string, string>
   runtimeVars?: Record<string, any>
   activePlugins?: string[]
+  /** When provided, each tool's own source: environment params (with their
+   *  own envProfile/envName) are resolved per-tool and merged over `env`
+   *  before its verification requests run — so verification sees the same
+   *  values a real call would. Omit to skip this and use `env` as-is. */
+  projectRoot?: string
 }
 
 export interface ToolStatusRecord {

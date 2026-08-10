@@ -3,6 +3,14 @@
 All notable changes to `@voiden/mcp-server` are documented here. This package is
 versioned and released independently of the Voiden desktop app and `@voiden/runner`.
 
+## v0.1.5 - 2026-08-07
+
+### Added
+- `source: environment` toolparams can pin their own `envProfile`/`envName` — see `@voiden/runner`'s `2.3.0-beta.6` changelog entry for the underlying fix.
+
+### Fixed
+- Verification now sees the same environment-resolved values a real tool call would, instead of always failing for any tool with an environment-sourced param — see `@voiden/runner`'s `2.3.0-beta.6` changelog entry.
+
 ## v0.1.4 - 2026-08-06
 
 ### Fixed
