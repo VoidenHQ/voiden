@@ -238,6 +238,21 @@ export const envApi = {
   getProfiles: () => ipcRenderer.invoke("env:getProfiles") as Promise<string[]>,
   getProfileFiles: () =>
     ipcRenderer.invoke("env:getProfileFiles") as Promise<Record<string, string>>,
+  /**
+   * Nested sub-project .voiden/ directories found elsewhere in a monorepo,
+   * each with its "default" profile's public/private YAML trees already
+   * loaded. `relPath` is the project-relative folder only (no filename).
+   */
+  getNestedEnvSources: () =>
+    ipcRenderer.invoke("env:getNestedEnvSources") as Promise<
+      Array<{
+        projectPath: string;
+        relPath: string;
+        profile: string;
+        public: Record<string, unknown>;
+        private: Record<string, unknown>;
+      }>
+    >,
   setActiveProfile: (profile: string) =>
     ipcRenderer.invoke("env:setActiveProfile", profile),
   createProfile: (profile: string) =>

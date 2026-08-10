@@ -17,6 +17,13 @@ export interface EnvironmentData {
   // project). Undefined when data came from the legacy per-file .env
   // fallback instead of the YAML system.
   profileFile?: string;
+  // For environments discovered inside a nested .voiden/ directory
+  // elsewhere in a monorepo: maps that env's data key to the folder
+  // (project-relative, no filename) it was found in.
+  sourcePaths?: Record<string, string>;
+  // Same keys as sourcePaths — the profile that nested env came from
+  // (e.g. "default" or a legacy root-level named profile).
+  sourceProfiles?: Record<string, string>;
 }
 
 const loadEnvironments = async (): Promise<EnvironmentData> => {

@@ -19,6 +19,7 @@ import {
   createVoidFile,
   dropFiles,
   dropFolder,
+  VOIDEN_DIR_NAME,
 } from "../fileSystem";
 import type { MoveConflict } from "../fileSystem";
 import { createEmptyProject, createSampleProject } from "../projectUtils";
@@ -130,7 +131,7 @@ function startFlatListSession(sessionId: string, rootDir: string, topN: number):
         try { entries = await fs.promises.readdir(dir, { withFileTypes: true }); }
         catch { continue; }
         for (const entry of entries) {
-          if (entry.name.startsWith(".") && !entry.name.startsWith(".env")) continue;
+          if (entry.name.startsWith(".") && !entry.name.startsWith(".env") && entry.name !== VOIDEN_DIR_NAME) continue;
           const full = path.join(dir, entry.name);
           if (entry.isDirectory()) {
             if (!SKIP.has(entry.name)) queue.push(full);
@@ -651,6 +652,7 @@ export function registerFileIpcHandlers() {
             item.name.startsWith(".env") ||
             item.name.endsWith(".env"))
         ) return true;
+        if (item.isDirectory() && item.name === VOIDEN_DIR_NAME) return true;
         return false;
       });
 
@@ -713,6 +715,7 @@ export function registerFileIpcHandlers() {
               item.name.startsWith(".env") ||
               item.name.endsWith(".env"))
           ) return true;
+          if (item.isDirectory() && item.name === VOIDEN_DIR_NAME) return true;
           return false;
         });
 

@@ -4,10 +4,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { MinusculeMatcher, MatchingMode } from "@voiden/fuzzy-search";
 import { highlightText } from "@/core/editors/voiden/extensions/MatchedFragment";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEnvironments, useSetActiveEnvironment, useProfiles, useProfileFiles, useSetActiveProfile } from "@/core/environment/hooks";
+import { useEnvironments, useSetActiveEnvironment, useProfiles, useProfileFiles, useSetActiveProfile, useNestedEnvSources } from "@/core/environment/hooks";
 import { useAddPanelTab, useActivateTab, useGetPanelTabs } from "@/core/layout/hooks";
 import { useGetProjects } from "@/core/projects/hooks";
-import { ChevronRight, FileText, Ban, Check, Settings2, Layers } from "lucide-react";
+import { ChevronRight, FileText, Ban, Check, Settings2, Layers, FolderOpen } from "lucide-react";
 import { Kbd } from "@/core/components/ui/kbd";
 import { Tip } from "@/core/components/ui/Tip";
 import { matchesShortcut, getShortcutLabel } from "@/core/shortcuts";
@@ -17,6 +17,7 @@ export const EnvSelector = () => {
   const { data: envs } = useEnvironments();
   const { data: profiles } = useProfiles();
   const { data: profileFiles } = useProfileFiles();
+  const { data: nestedSources } = useNestedEnvSources();
   const { data: projects } = useGetProjects();
   const activeProject = projects?.activeProject as string | undefined;
   const { mutate: setActiveEnv } = useSetActiveEnvironment();
@@ -26,13 +27,25 @@ export const EnvSelector = () => {
   const { data: mainTabs } = useGetPanelTabs("main");
   const [open, setOpen] = useState(false);
   const hasMultipleProfiles = profiles && profiles.length > 1;
+  const hasNestedProfiles = !!nestedSources && nestedSources.length > 0;
   const activeProfile = envs?.activeProfile || "default";
+
+  // Which discovered nested-project profile is "selected" for viewing right
+  // now — purely a local UI focus, not persisted state like the active
+  // project's own profile (there's no backend concept of an "active"
+  // profile for a folder you're not directly editing). Selecting one
+  // check-marks it and narrows the Environment list below to just its envs;
+  // selecting it again clears the narrowing.
+  const [selectedNestedKey, setSelectedNestedKey] = useState<string | null>(null);
+  const nestedKey = (projectPath: string, profile: string) => `${projectPath}::${profile}`;
+  const selectedNestedSource = nestedSources?.find((s) => nestedKey(s.projectPath, s.profile) === selectedNestedKey) ?? null;
 
   useEffect(() => {
     if (open) {
       queryClient.invalidateQueries({ queryKey: ["environments"] });
       queryClient.invalidateQueries({ queryKey: ["env-profiles"] });
       queryClient.invalidateQueries({ queryKey: ["env-profile-files"] });
+      queryClient.invalidateQueries({ queryKey: ["nested-env-sources"] });
     }
   }, [open, queryClient]);
 
@@ -121,11 +134,14 @@ export const EnvSelector = () => {
 
   // envs.data keys are either an absolute .env file path (legacy fallback —
   // relativize it to the project root so the subtitle reads like
-  // ".voiden/env-private.yaml" instead of leaking the full filesystem path)
-  // or a dotted YAML environment node name (e.g. "staging.eu" — not a real
+  // ".voiden/env-private.yaml" instead of leaking the full filesystem path),
+  // a dotted YAML environment node name (e.g. "staging.eu" — not a real
   // path at all; multiple environments live as nodes inside one shared
-  // profileYamlPath, so that's what's shown instead).
+  // profileYamlPath, so that's what's shown instead), or a nested
+  // sub-project's environment (envs.sourcePaths has its folder — never the
+  // yaml filename — reported directly by the backend).
   const relativizeToProject = (fileName: string): string => {
+    if (envs?.sourcePaths?.[fileName]) return envs.sourcePaths[fileName];
     if (activeProject) {
       const norm = fileName.replace(/\\/g, "/");
       const normRoot = activeProject.replace(/\\/g, "/").replace(/\/+$/, "");
@@ -182,6 +198,7 @@ export const EnvSelector = () => {
                   <Command.Input
                     className="w-full border-none h-8 px-2 text-sm bg-editor rounded text-text outline-none placeholder:text-comment"
                     placeholder="Search environments..."
+                    value={search}
                     onValueChange={setSearch}
                     onMouseDown={(e)=>{
                       e.stopPropagation()
@@ -194,14 +211,14 @@ export const EnvSelector = () => {
                 <Command.List className="max-h-[400px] overflow-y-auto p-2">
                   <Command.Empty className="py-6 text-center text-comment text-sm">No environments found</Command.Empty>
 
-                  {hasMultipleProfiles && (
+                  {(hasMultipleProfiles || hasNestedProfiles) && (
                     <Command.Group heading={
                       <div className="flex items-center gap-1.5 px-1 pb-1 text-xs font-medium uppercase tracking-wider text-comment">
                         <Layers size={12} />
                         Profile
                       </div>
                     }>
-                      {profiles.map((profile) => {
+                      {hasMultipleProfiles && profiles.map((profile) => {
                         const profilePath = profileFiles?.[profile];
                         // Same rule as the environment list below: only show
                         // the path line if it says something the name above
@@ -215,6 +232,7 @@ export const EnvSelector = () => {
                             className="cursor-pointer px-3 py-2 rounded-md mb-1 text-text data-[selected=true]:bg-active hover:bg-active flex items-center gap-3 outline-none"
                             onSelect={() => {
                               setActiveProfile(profile);
+                              setSelectedNestedKey(null);
                             }}
                           >
                             <div className="flex-1 min-w-0">
@@ -229,10 +247,41 @@ export const EnvSelector = () => {
                           </Command.Item>
                         );
                       })}
+                      {/* Profiles of nested sub-projects (see useNestedEnvSources) —
+                          a folder can have more than one, e.g. a legacy root-level
+                          profile alongside its own .voiden/ default profile. There's
+                          no persisted "active" state for these (all their
+                          environments are always merged into the list below
+                          regardless), so this is local UI selection only:
+                          check-marks the row and narrows the Environment list to
+                          just that folder/profile; selecting it again clears it. */}
+                      {hasNestedProfiles && nestedSources.map((src) => {
+                        const label = src.profile === "default" ? src.relPath : `${src.relPath} · ${src.profile}`;
+                        const key = nestedKey(src.projectPath, src.profile);
+                        const isSelected = selectedNestedKey === key;
+                        return (
+                          <Command.Item
+                            key={`nested-profile-${src.projectPath}-${src.profile}`}
+                            value={`nested-profile:${src.projectPath}:${src.profile}`}
+                            keywords={[src.relPath, src.profile]}
+                            className="cursor-pointer px-3 py-2 rounded-md mb-1 text-text data-[selected=true]:bg-active hover:bg-active flex items-center gap-3 outline-none"
+                            onSelect={() => setSelectedNestedKey(isSelected ? null : key)}
+                          >
+                            <FolderOpen size={14} className="flex-shrink-0 text-comment" />
+                            <div className="flex-1 min-w-0">
+                              <div className="text-sm font-medium truncate">{highlightText(label, matchFragments(label))}</div>
+                              <div className="text-xs text-comment truncate">Other project in this workspace</div>
+                            </div>
+                            {isSelected && (
+                              <Check size={16} className="flex-shrink-0" style={{ color: 'var(--icon-success)' }} />
+                            )}
+                          </Command.Item>
+                        );
+                      })}
                     </Command.Group>
                   )}
 
-                  <Command.Group heading={hasMultipleProfiles ?
+                  <Command.Group heading={(hasMultipleProfiles || hasNestedProfiles) ?
                     <div className="flex items-center gap-1.5 px-1 pb-1 text-xs font-medium uppercase tracking-wider text-comment">
                       <FileText size={12} />
                       Environment
@@ -255,9 +304,16 @@ export const EnvSelector = () => {
                       )}
                     </Command.Item>
 
-                    {/* Render available environments */}
+                    {/* Render available environments — narrowed to just the
+                        selected nested profile's envs when one is checked above. */}
                     {envs?.data &&
-                      Object.entries(envs.data).map(([fileName]) => {
+                      Object.entries(envs.data)
+                        .filter(([fileName]) =>
+                          !selectedNestedSource ||
+                          (envs.sourcePaths?.[fileName] === selectedNestedSource.relPath &&
+                            envs.sourceProfiles?.[fileName] === selectedNestedSource.profile)
+                        )
+                        .map(([fileName]) => {
                         const customName = envs.displayNames?.[fileName];
                         const fallbackName = fileName.replace(/\\/g, "/").split("/").pop() || fileName;
                         const displayName = customName || fallbackName;

@@ -418,6 +418,15 @@ declare global {
         ) => Promise<void>;
         getProfiles: () => Promise<string[]>;
         getProfileFiles: () => Promise<Record<string, string>>;
+        getNestedEnvSources: () => Promise<
+          Array<{
+            projectPath: string;
+            relPath: string;
+            profile: string;
+            public: Record<string, unknown>;
+            private: Record<string, unknown>;
+          }>
+        >;
         setActiveProfile: (profile: string) => Promise<void>;
         createProfile: (profile: string) => Promise<void>;
         deleteProfile: (profile: string) => Promise<void>;

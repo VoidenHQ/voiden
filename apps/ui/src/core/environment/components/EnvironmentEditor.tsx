@@ -1,6 +1,6 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from "react";
 import { cn } from "@/core/lib/utils";
-import { Plus, ChevronDown, Trash2, Check, Search, X, Globe, Lock, Eye, EyeOff, Copy, Clock, RefreshCw, Settings2, AlertTriangle, CornerDownRight, MoreHorizontal, Pencil } from "lucide-react";
+import { Plus, ChevronDown, Trash2, Check, Search, X, Globe, Lock, Eye, EyeOff, Copy, Clock, RefreshCw, Settings2, AlertTriangle, CornerDownRight, MoreHorizontal, Pencil, FolderOpen } from "lucide-react";
 import { MinusculeMatcher, MatchingMode } from "@voiden/fuzzy-search";
 import { useQueryClient } from "@tanstack/react-query";
 import { useYamlEnvironments, useEnvironments } from "@/core/environment/hooks";
@@ -9,6 +9,7 @@ import { useProfiles } from "../hooks/useProfiles.ts";
 import { useCreateProfile } from "@/core/environment/hooks";
 import { useDeleteProfile } from "@/core/environment/hooks";
 import { useRenameProfile } from "@/core/environment/hooks";
+import { useNestedEnvSources } from "@/core/environment/hooks";
 import type { EditableEnvNode, EditableVariable } from "./EnvironmentNode";
 import {
   type EditableEnvTree,
@@ -71,6 +72,22 @@ function flattenTree(tree: EditableEnvTree, parentPath = "", depth = 0): FlatEnv
     }
   }
   return entries;
+}
+
+// A discovered nested source's (projectPath, profile) pair, folded into one
+// string key for React state/keys — a folder can have more than one
+// profile (e.g. a legacy root-level profile alongside its own .voiden/
+// default profile), so projectPath alone can't uniquely key it. "\0" can't
+// occur in either half, so the split back apart is unambiguous.
+const NESTED_OWNER_SEP = "\u0000";
+function nestedOwnerKey(projectPath: string, profile: string): string {
+  return `${projectPath}${NESTED_OWNER_SEP}${profile}`;
+}
+function parseNestedOwnerKey(ownerKey: string): { projectPath: string; profile: string } {
+  const idx = ownerKey.indexOf(NESTED_OWNER_SEP);
+  return idx === -1
+    ? { projectPath: ownerKey, profile: "default" }
+    : { projectPath: ownerKey.slice(0, idx), profile: ownerKey.slice(idx + 1) };
 }
 
 function getNodeAtPath(tree: EditableEnvTree, path: string): EditableEnvNode | null {
@@ -1030,6 +1047,60 @@ const EnvSidebarItem = ({
   );
 };
 
+// ─── Nested (discovered) env sidebar item ──────────────────────────────────────
+// A read-only-structure entry for an environment defined in another
+// .voiden/ found deeper in the project (a monorepo sub-project). Unlike
+// EnvSidebarItem, the source folder is always shown below the name — that's
+// how these are told apart from the active project's own environments —
+// and there's no rename/delete/add-child, since those mutate the *tree*
+// shape, which isn't wired up per discovered project. Variables themselves
+// are still editable once selected.
+
+const NestedEnvSidebarItem = ({
+  entry,
+  isSelected,
+  isCollapsed,
+  onClick,
+  onToggleCollapse,
+}: {
+  entry: FlatEnvEntry & { sourcePath: string; profile: string };
+  isSelected: boolean;
+  isCollapsed: boolean;
+  onClick: () => void;
+  onToggleCollapse: () => void;
+}) => (
+  <div
+    role="button"
+    onClick={onClick}
+    className={cn("w-full flex items-center gap-1 py-1.5 text-sm text-left transition-colors rounded-md cursor-pointer group/item",
+      isSelected ? "bg-accent/10 text-text" : "text-comment hover:bg-active/50 hover:text-text"
+    )}
+    style={{ paddingLeft: `${6 + entry.depth * 14}px`, paddingRight: "6px" }}
+  >
+    <button
+      onClick={(e) => { e.stopPropagation(); if (entry.hasChildren) onToggleCollapse(); }}
+      className={cn("p-0.5 rounded flex-shrink-0 transition-colors", entry.hasChildren ? "hover:bg-border" : "opacity-0 pointer-events-none")}
+    >
+      <ChevronDown
+        size={11}
+        className={cn("text-comment/60 transition-transform", isCollapsed && entry.hasChildren ? "-rotate-90" : "")}
+      />
+    </button>
+    <span className="flex-1 min-w-0 flex flex-col">
+      <span className="truncate font-mono text-md">{entry.name}</span>
+      <span className="flex items-center gap-1 text-[9px] text-comment/70 truncate">
+        <FolderOpen size={9} className="flex-shrink-0" />
+        {entry.sourcePath}
+        {/* A folder can hold more than one profile (e.g. a legacy
+            root-level profile next to its own .voiden/ default profile) —
+            disambiguate those instead of showing two identical-looking rows. */}
+        {entry.profile !== "default" && <span className="text-comment/50">· {entry.profile}</span>}
+      </span>
+    </span>
+    <span className="text-xs text-comment/60 tabular-nums flex-shrink-0">{entry.varCount}</span>
+  </div>
+);
+
 // ─── Main EnvironmentEditor ───────────────────────────────────────────────────
 
 export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
@@ -1045,6 +1116,12 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
   const { mutate: save } = useSaveYamlEnvironments(profileParam);
   const { data: profiles } = useProfiles();
   const { mutate: renameProfile } = useRenameProfile();
+  // Sub-project .voiden/ directories discovered deeper in a monorepo (see
+  // findNestedVoidenDirs in the main process) — always their "default"
+  // profile, saved via its own mutation instance bound to that profile
+  // regardless of which profile is selected above for the active project.
+  const { data: nestedSources } = useNestedEnvSources();
+  const { mutate: saveNested } = useSaveYamlEnvironments(undefined);
   const [editingProfileName, setEditingProfileName] = useState(false);
   const [profileNameValue, setProfileNameValue] = useState("");
   const [profileNameError, setProfileNameError] = useState<string | null>(null);
@@ -1077,9 +1154,81 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
     return draft ? JSON.parse(draft) : {};
   });
   const [selectedEnvPath, setSelectedEnvPath] = useState<string | null>(null);
+  // null when selectedEnvPath is in the active project's own `tree`;
+  // otherwise the nested source's absolute projectPath, keying into
+  // `nestedTrees` below.
+  const [selectedOwner, setSelectedOwner] = useState<string | null>(null);
   const [selectedVarIds, setSelectedVarIds] = useState<Set<string>>(new Set());
   const [selectedRuntimeKeys, setSelectedRuntimeKeys] = useState<Set<string>>(new Set());
-  const [pendingNav, setPendingNav] = useState<{ path: string | null } | null>(null);
+  const [pendingNav, setPendingNav] = useState<{ path: string | null; owner: string | null } | null>(null);
+
+  // Editable trees for discovered nested sources, keyed by an "owner key" —
+  // a folder can have more than one profile (e.g. a not-yet-migrated legacy
+  // root-level profile sitting alongside its own .voiden/ default profile),
+  // so projectPath alone isn't a unique key; nestedOwnerKey folds in the
+  // profile too. Seeded once per source from useNestedEnvSources and edited
+  // locally the same way the active project's own `tree` is, just persisted
+  // through a per-owner debounce instead of the shared `save`/scheduleSave
+  // above — each owner key's save targets its own (projectPath, profile).
+  const [nestedTrees, setNestedTrees] = useState<Record<string, EditableEnvTree>>({});
+  const nestedTreesRef = useRef<Record<string, EditableEnvTree>>({});
+  useEffect(() => { nestedTreesRef.current = nestedTrees; }, [nestedTrees]);
+  useEffect(() => {
+    if (!nestedSources) return;
+    setNestedTrees((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const src of nestedSources) {
+        const key = nestedOwnerKey(src.projectPath, src.profile);
+        if (!next[key]) {
+          next[key] = mergeToEditable(src.public, src.private);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [nestedSources]);
+
+  const saveNestedRef = useRef(saveNested);
+  useEffect(() => { saveNestedRef.current = saveNested; }, [saveNested]);
+  const nestedTimersRef = useRef<Record<string, ReturnType<typeof setTimeout> | null>>({});
+
+  const scheduleNestedSave = useCallback((ownerKey: string, newTree: EditableEnvTree) => {
+    const { projectPath, profile } = parseNestedOwnerKey(ownerKey);
+    const timers = nestedTimersRef.current;
+    if (timers[ownerKey]) clearTimeout(timers[ownerKey]!);
+    timers[ownerKey] = setTimeout(() => {
+      timers[ownerKey] = null;
+      const { publicTree, privateTree } = splitFromEditable(newTree);
+      saveNestedRef.current({ publicTree, privateTree, projectPath, profile });
+    }, DEBOUNCE_MS);
+  }, []);
+
+  // Flush any pending nested saves on unmount, same as the active project's tree below.
+  useEffect(() => {
+    return () => {
+      const timers = nestedTimersRef.current;
+      for (const ownerKey of Object.keys(timers)) {
+        if (!timers[ownerKey]) continue;
+        clearTimeout(timers[ownerKey]!);
+        timers[ownerKey] = null;
+        const ownerTree = nestedTreesRef.current[ownerKey];
+        if (ownerTree) {
+          const { projectPath, profile } = parseNestedOwnerKey(ownerKey);
+          const { publicTree, privateTree } = splitFromEditable(ownerTree);
+          saveNestedRef.current({ publicTree, privateTree, projectPath, profile });
+        }
+      }
+    };
+  }, []);
+
+  const updateNestedNode = useCallback((ownerKey: string, path: string, updated: EditableEnvNode) => {
+    const ownerTree = nestedTreesRef.current[ownerKey] ?? {};
+    const newOwnerTree = updateNodeAtPath(ownerTree, path, updated);
+    nestedTreesRef.current = { ...nestedTreesRef.current, [ownerKey]: newOwnerTree };
+    setNestedTrees((prev) => ({ ...prev, [ownerKey]: newOwnerTree }));
+    scheduleNestedSave(ownerKey, newOwnerTree);
+  }, [scheduleNestedSave]);
 
   // Unconfirmed "add variable" row text — persisted so it survives a tab switch
   // even though it hasn't been committed to the tree yet (no Enter/Add click).
@@ -1105,12 +1254,15 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
     setSelectedRuntimeKeys(new Set());
   }, [selectedEnvPath]);
 
-  // Navigate to an env, prompting if there are unsaved selections
-  const navigateToEnv = useCallback((path: string | null) => {
+  // Navigate to an env, prompting if there are unsaved selections. `owner`
+  // is the nested source's projectPath when navigating to a discovered
+  // environment, or null for the active project's own tree / Global Runtime.
+  const navigateToEnv = useCallback((path: string | null, owner: string | null = null) => {
     if (selectedVarIds.size > 0 || selectedRuntimeKeys.size > 0) {
-      setPendingNav({ path });
+      setPendingNav({ path, owner });
     } else {
       setSelectedEnvPath(path);
+      setSelectedOwner(owner);
     }
   }, [selectedVarIds.size, selectedRuntimeKeys.size]);
 
@@ -1226,6 +1378,9 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
       treeDataRef.current = {};
       treeProjectRef.current = null;
       setSelectedEnvPath(null);
+      setSelectedOwner(null);
+      setNestedTrees({});
+      nestedTreesRef.current = {};
       clearUnsavedDraft(tabId);
     }
   }, [activeProject, tabId, clearUnsavedDraft]);
@@ -1329,6 +1484,7 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
     const foundPath = findVarInLineage(currentTree, envPath, varKey);
     if (foundPath) {
       setSelectedEnvPath(foundPath);
+      setSelectedOwner(null);
       setHighlightTarget({ varKey, envPath: foundPath });
       if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
       highlightTimerRef.current = setTimeout(() => setHighlightTarget(null), 2500);
@@ -1341,6 +1497,7 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
         node.variables.push({ id: genVarId(), key: varKey, value: "", isPrivate: false });
         handleUpdateTree(newTree);
         setSelectedEnvPath(envPath);
+        setSelectedOwner(null);
         setHighlightTarget({ varKey, envPath });
         if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
         highlightTimerRef.current = setTimeout(() => setHighlightTarget(null), 2500);
@@ -1363,15 +1520,22 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
     const newTree = { ...tree, [envName]: { variables: [], children: {} } };
     handleUpdateTree(newTree);
     setSelectedEnvPath(envName);
+    setSelectedOwner(null);
     setRenamingPath(envName);
     setRenameValue("");
   };
 
-  // Update selected node
+  // Update selected node — routes to the nested source's own tree when the
+  // current selection came from a discovered .voiden/ elsewhere in the
+  // monorepo, otherwise the active project's tree as before.
   const handleUpdateSelectedNode = useCallback((updated: EditableEnvNode) => {
     if (!selectedEnvPath) return;
+    if (selectedOwner) {
+      updateNestedNode(selectedOwner, selectedEnvPath, updated);
+      return;
+    }
     handleUpdateTree(updateNodeAtPath(tree, selectedEnvPath, updated));
-  }, [selectedEnvPath, tree, handleUpdateTree]);
+  }, [selectedEnvPath, selectedOwner, tree, handleUpdateTree, updateNestedNode]);
 
   // Delete a single runtime variable from the selected env bucket.
   // Returns whether the delete actually succeeded so bulk delete can report
@@ -1410,7 +1574,7 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
       const node = getNodeAtPath(tree, path);
       if (node && node.variables.length === 0 && Object.keys(node.children).length === 0) {
         handleUpdateTree(deleteNodeAtPath(tree, path));
-        if (selectedEnvPath === path) setSelectedEnvPath(null);
+        if (selectedEnvPath === path) { setSelectedEnvPath(null); setSelectedOwner(null); }
       }
     } else if (trimmed !== lastSegment) {
       const segments = path.split(".");
@@ -1428,7 +1592,7 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
       const newPath = path.includes(".")
         ? path.split(".").slice(0, -1).join(".") + "." + effectiveName
         : effectiveName;
-      if (selectedEnvPath === path) setSelectedEnvPath(newPath);
+      if (selectedEnvPath === path) { setSelectedEnvPath(newPath); setSelectedOwner(null); }
     }
     setRenamingPath(null);
     setRenameValue("");
@@ -1469,7 +1633,7 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
     let newTree = tree;
     for (const p of toDelete) newTree = deleteNodeAtPath(newTree, p);
     handleUpdateTree(newTree);
-    if (selectedEnvPath && selectedEnvPaths.has(selectedEnvPath)) setSelectedEnvPath(null);
+    if (selectedEnvPath && selectedEnvPaths.has(selectedEnvPath)) { setSelectedEnvPath(null); setSelectedOwner(null); }
     setSelectedEnvPaths(new Set());
     setConfirmBulkDeleteEnvs(false);
   }, [selectedEnvPaths, tree, handleUpdateTree, selectedEnvPath]);
@@ -1497,6 +1661,7 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
     // Auto-expand parent and open rename for child
     setCollapsedPaths((prev) => { const next = new Set(prev); next.delete(parentPath); return next; });
     setSelectedEnvPath(childPath);
+    setSelectedOwner(null);
     setRenamingPath(childPath);
     setRenameValue("");
   }, [tree, handleUpdateTree]);
@@ -1520,7 +1685,40 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
     });
   }, [tree, sidebarSearch, collapsedPaths]);
 
-  const selectedNode = selectedEnvPath ? getNodeAtPath(tree, selectedEnvPath) : null;
+  // Collapse state for nested entries is namespaced by owner so a discovered
+  // env's path (e.g. "staging") can't collide with the active project's own.
+  const nestedCollapseKey = (owner: string, path: string) => `${owner} ${path}`;
+
+  const nestedFlatEnvs = useMemo(() => {
+    if (!nestedSources || nestedSources.length === 0) return [];
+    const all: (FlatEnvEntry & { owner: string; sourcePath: string; profile: string })[] = [];
+    for (const src of nestedSources) {
+      const owner = nestedOwnerKey(src.projectPath, src.profile);
+      const ownerTree = nestedTrees[owner];
+      if (!ownerTree) continue;
+      for (const entry of flattenTree(ownerTree)) {
+        all.push({ ...entry, owner, sourcePath: src.relPath, profile: src.profile });
+      }
+    }
+    const searched = sidebarSearch.trim()
+      ? (() => {
+        const matcher = new MinusculeMatcher("* " + sidebarSearch, MatchingMode.IGNORE_CASE, "");
+        return all.filter((e) => matcher.match(e.displayName || e.name) || matcher.match(e.sourcePath) || matcher.match(e.profile));
+      })()
+      : all;
+    return searched.filter((entry) => {
+      const segments = entry.path.split(".");
+      for (let i = 1; i < segments.length; i++) {
+        if (collapsedPaths.has(nestedCollapseKey(entry.owner, segments.slice(0, i).join(".")))) return false;
+      }
+      return true;
+    });
+  }, [nestedSources, nestedTrees, sidebarSearch, collapsedPaths]);
+
+  const selectedNode = !selectedEnvPath ? null
+    : selectedOwner
+      ? getNodeAtPath(nestedTrees[selectedOwner] ?? {}, selectedEnvPath)
+      : getNodeAtPath(tree, selectedEnvPath);
   const runtimeCount = Object.keys(runtimeVars).length;
 
   // Reload YAML when external file changes detected (git pull, external editor, etc.)
@@ -1554,6 +1752,7 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
             setSelectedVarIds(new Set());
             setSelectedRuntimeKeys(new Set());
             setSelectedEnvPath(pendingNav.path);
+            setSelectedOwner(pendingNav.owner);
             setPendingNav(null);
           }}
           onCancel={() => setPendingNav(null)}
@@ -1599,7 +1798,7 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
           )}
         </div>
         <div className="flex items-center gap-2">
-          <ProfileSelector selectedProfile={selectedProfile} onSelectProfile={(p) => { setSelectedProfile(p); setSelectedEnvPath(null); setEditingProfileName(false); }} />
+          <ProfileSelector selectedProfile={selectedProfile} onSelectProfile={(p) => { setSelectedProfile(p); setSelectedEnvPath(null); setSelectedOwner(null); setEditingProfileName(false); }} />
         </div>
       </div>
 
@@ -1699,14 +1898,14 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
                   ) : (
                     <EnvSidebarItem
                       entry={entry}
-                      isSelected={selectedEnvPath === entry.path}
+                      isSelected={!selectedOwner && selectedEnvPath === entry.path}
                       isEnvSelected={selectedEnvPaths.has(entry.path)}
                       isCollapsed={collapsedPaths.has(entry.path)}
                       selectMode={envSelectMode}
                       onClick={() => { navigateToEnv(entry.path); }}
                       onDelete={() => {
                         handleUpdateTree(deleteNodeAtPath(tree, entry.path));
-                        if (selectedEnvPath === entry.path) setSelectedEnvPath(null);
+                        if (selectedEnvPath === entry.path) { setSelectedEnvPath(null); setSelectedOwner(null); }
                       }}
                       onRename={() => { setRenamingPath(entry.path); setRenameValue(entry.name); }}
                       onAddChild={() => handleAddChild(entry.path)}
@@ -1717,6 +1916,24 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
                   )}
                 </div>
               ))
+            )}
+            {nestedFlatEnvs.length > 0 && (
+              <>
+                <div className="flex items-center gap-1.5 px-1 pt-3 pb-1 text-[10px] font-medium uppercase tracking-wider text-comment/60">
+                  <FolderOpen size={10} />
+                  Other projects in this workspace
+                </div>
+                {nestedFlatEnvs.map((entry) => (
+                  <NestedEnvSidebarItem
+                    key={`${entry.owner}:${entry.path}`}
+                    entry={entry}
+                    isSelected={selectedOwner === entry.owner && selectedEnvPath === entry.path}
+                    isCollapsed={collapsedPaths.has(nestedCollapseKey(entry.owner, entry.path))}
+                    onClick={() => navigateToEnv(entry.path, entry.owner)}
+                    onToggleCollapse={() => toggleCollapsed(nestedCollapseKey(entry.owner, entry.path))}
+                  />
+                ))}
+              </>
             )}
           </div>
           {/* Env bulk delete bar */}
@@ -1773,6 +1990,17 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
               <div className="flex items-center gap-3 px-5 py-3 border-b border-border flex-shrink-0">
                 <div className="flex flex-col min-w-0">
                   <h2 className="text-sm font-semibold font-mono truncate">{selectedEnvPath.split(".").pop()}</h2>
+                  {selectedOwner && (() => {
+                    const src = nestedSources?.find((s) => nestedOwnerKey(s.projectPath, s.profile) === selectedOwner);
+                    if (!src) return null;
+                    return (
+                      <span className="flex items-center gap-1 text-[10px] text-comment/70 truncate mt-0.5">
+                        <FolderOpen size={9} className="flex-shrink-0" />
+                        {src.relPath}
+                        {src.profile !== "default" && <span className="text-comment/50">· {src.profile}</span>}
+                      </span>
+                    );
+                  })()}
                   {editingDisplayName ? (
                     <input
                       autoFocus
@@ -1811,22 +2039,26 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
                       {selectedNode.variables.filter((v) => v.isPrivate).length} private
                     </span>
                   )}
-                  <button
-                    onClick={() => handleToggleIntermediate(selectedEnvPath)}
-                    title={selectedNode.intermediate ? "Show in env picker (currently hidden)" : "Hide from env picker"}
-                    className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-md border transition-colors"
-                    style={selectedNode.intermediate ? {
-                      backgroundColor: "color-mix(in srgb, var(--icon-warning) 10%, transparent)",
-                      borderColor: "color-mix(in srgb, var(--icon-warning) 30%, transparent)",
-                      color: "var(--icon-warning)",
-                    } : {
-                      borderColor: "var(--ui-line)",
-                      color: "var(--syntax-comment)",
-                    }}
-                  >
-                    {selectedNode.intermediate ? <EyeOff size={11} /> : <Eye size={11} />}
-                    {selectedNode.intermediate ? "hidden" : "visible"}
-                  </button>
+                  {/* Env-picker visibility is a structural (tree-shape) edit — not
+                      wired up for discovered nested environments, see NestedEnvSidebarItem. */}
+                  {!selectedOwner && (
+                    <button
+                      onClick={() => handleToggleIntermediate(selectedEnvPath)}
+                      title={selectedNode.intermediate ? "Show in env picker (currently hidden)" : "Hide from env picker"}
+                      className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-md border transition-colors"
+                      style={selectedNode.intermediate ? {
+                        backgroundColor: "color-mix(in srgb, var(--icon-warning) 10%, transparent)",
+                        borderColor: "color-mix(in srgb, var(--icon-warning) 30%, transparent)",
+                        color: "var(--icon-warning)",
+                      } : {
+                        borderColor: "var(--ui-line)",
+                        color: "var(--syntax-comment)",
+                      }}
+                    >
+                      {selectedNode.intermediate ? <EyeOff size={11} /> : <Eye size={11} />}
+                      {selectedNode.intermediate ? "hidden" : "visible"}
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -1860,7 +2092,7 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
                 <VariablesPanel
                   node={selectedNode}
                   envPath={selectedEnvPath}
-                  tree={tree}
+                  tree={selectedOwner ? (nestedTrees[selectedOwner] ?? {}) : tree}
                   highlightTarget={highlightTarget}
                   onUpdateNode={handleUpdateSelectedNode}
                   selectedIds={selectedVarIds}
