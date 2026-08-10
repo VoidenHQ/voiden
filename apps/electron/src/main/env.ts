@@ -24,6 +24,11 @@ interface EnvLoadResult {
   activeEnv: string | null;
   data: Record<string, Record<string, string>>;
   displayNames: Record<string, string>;
+  // Project-relative path of the active profile's YAML file, e.g.
+  // ".voiden/env-public.yaml" or, pre-migration, "env-public.yaml" at the
+  // project root. Undefined when data came from the legacy per-file .env
+  // fallback instead — those entries are already real individual paths.
+  profileFile?: string;
 }
 
 /**
@@ -52,11 +57,11 @@ function parseEnvContent(content: string) {
 }
 
 /**
- * Recursively search for files starting with ".env" in the given directory.
- * Returns an array of absolute file paths.
+ * Find files starting with ".env" directly inside one directory (no
+ * recursion into subdirectories). Returns an array of absolute file paths.
  */
-async function findEnvFilesRecursively(dir: string) {
-  let envFiles: string[] = [];
+async function findEnvFilesInDir(dir: string) {
+  const envFiles: string[] = [];
 
   let entries;
   try {
@@ -66,13 +71,8 @@ async function findEnvFilesRecursively(dir: string) {
   }
 
   for (const entry of entries) {
-    const fullPath = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      // Recursively search in subdirectory
-      const subDirEnvFiles = await findEnvFilesRecursively(fullPath);
-      envFiles = envFiles.concat(subDirEnvFiles);
-    } else if (entry.isFile() && entry.name.startsWith(".env")) {
-      envFiles.push(fullPath);
+    if (entry.isFile() && entry.name.startsWith(".env")) {
+      envFiles.push(path.join(dir, entry.name));
     }
   }
 
@@ -80,16 +80,25 @@ async function findEnvFilesRecursively(dir: string) {
 }
 
 /**
- * Load all .env files (including nested ones) in the given project path and combine their content.
+ * Load all legacy flat .env files for a project. Scoped to exactly two
+ * places — the project root and .voiden/ — never recursed into arbitrary
+ * subdirectories. This used to walk the entire project tree looking for
+ * any .env-prefixed file anywhere, which (since this only runs at all when
+ * a project has no .voiden/ YAML environments set up) meant a stray .env in
+ * node_modules, a nested app folder, or anywhere else unrelated to this
+ * project's own config could get silently discovered and merged into every
+ * request's variable resolution.
  * If there are duplicate keys, later files in the array will override earlier ones.
  */
 async function loadProjectEnv(projectPath: string) {
   const envData: Record<string, Record<string, string>> = {};
 
-  // Recursively find .env files starting from the projectPath.
-  const envFiles = await findEnvFilesRecursively(projectPath);
+  const envFiles = [
+    ...(await findEnvFilesInDir(projectPath)),
+    ...(await findEnvFilesInDir(path.join(projectPath, VOIDEN_DIR))),
+  ];
 
-  // Optionally sort the file paths to ensure a consistent order.
+  // Sort the file paths to ensure a consistent order.
   envFiles.sort((a, b) => a.localeCompare(b));
 
   for (const filePath of envFiles) {
@@ -198,38 +207,46 @@ async function discoverProfiles(projectPath: string): Promise<string[]> {
 /**
  * Load and parse a single YAML environment file.
  * Tries the given path first; if not found, falls back to the root-level filename
- * so projects that haven't been migrated yet still load correctly.
+ * so projects that haven't been migrated yet still load correctly. Reports which
+ * of the two paths actually had the data — callers that need to show this file's
+ * location (e.g. the env selector) can't just assume the .voiden/ convention.
  */
-async function loadYamlEnvironment(projectPath: string, envPath: string): Promise<YamlEnvTree> {
+async function loadYamlEnvironment(projectPath: string, envPath: string): Promise<{ tree: YamlEnvTree; usedPath: string }> {
   const envFilePath = path.join(projectPath, envPath);
   try {
     const content = await fs.readFile(envFilePath, 'utf8');
-    return (YAML.parse(content) as YamlEnvTree) || {};
+    return { tree: (YAML.parse(content) as YamlEnvTree) || {}, usedPath: envPath };
   } catch (e: any) {
-    if (e.code !== 'ENOENT') return {};
+    if (e.code !== 'ENOENT') return { tree: {}, usedPath: envPath };
     // Migration: try the old root-level location (e.g. "env-public.yaml" at project root)
-    const rootFallback = path.join(projectPath, path.basename(envPath));
-    if (rootFallback === envFilePath) return {};
+    const rootRelPath = path.basename(envPath);
+    const rootFallback = path.join(projectPath, rootRelPath);
+    if (rootFallback === envFilePath) return { tree: {}, usedPath: envPath };
     try {
       const content = await fs.readFile(rootFallback, 'utf8');
-      return (YAML.parse(content) as YamlEnvTree) || {};
+      return { tree: (YAML.parse(content) as YamlEnvTree) || {}, usedPath: rootRelPath };
     } catch {
-      return {};
+      return { tree: {}, usedPath: envPath };
     }
   }
 }
 
 /**
  * Load and parse environment files for a given profile.
- * Returns a merged tree structure, or null if no files exist.
+ * Returns a merged tree structure, or null if no files exist. `profileFile` is
+ * the public file's actual on-disk location (.voiden/... or, pre-migration,
+ * the project root) — representative of where this profile's data lives, for
+ * display purposes (public/private always sit next to each other).
  */
-async function loadYamlEnvironments(projectPath: string, profile?: string | null): Promise<FlattenResult> {
+async function loadYamlEnvironments(projectPath: string, profile?: string | null): Promise<FlattenResult & { profileFile: string }> {
   const { publicFile, privateFile } = profileFileNames(profile);
-  const publicTree = loadYamlEnvironment(projectPath, publicFile);
-  const privateTree = loadYamlEnvironment(projectPath, privateFile);
+  const publicResult = await loadYamlEnvironment(projectPath, publicFile);
+  const privateResult = await loadYamlEnvironment(projectPath, privateFile);
 
-  // Merge and return
-  return flattenYamlEnvironments(merge({}, await publicTree, await privateTree));
+  return {
+    ...flattenYamlEnvironments(merge({}, publicResult.tree, privateResult.tree)),
+    profileFile: publicResult.usedPath,
+  };
 }
 
 /**
@@ -240,7 +257,7 @@ async function resolveEnvironmentData(
   projectPath: string,
   activeProfile: string | null | undefined,
   activeEnvPath?: string | null
-): Promise<FlattenResult> {
+): Promise<FlattenResult & { profileFile?: string }> {
   const yamlResult = await loadYamlEnvironments(projectPath, activeProfile);
   if (Object.keys(yamlResult.data).length > 0) {
     return yamlResult;
@@ -291,6 +308,7 @@ ipcMain.handle("env:load", async (event:IpcMainInvokeEvent): Promise<EnvLoadResu
     activeProfile,
     data: envs.data,
     displayNames: envs.displayNames,
+    profileFile: envs.profileFile,
   };
 });
 
@@ -420,8 +438,8 @@ ipcMain.handle("env:getYamlTrees", async (event, params?: { profile?: string }) 
   const activeProject = await getActiveProject(event);
   if (!activeProject) return { public: {}, private: {} };
   const { publicFile, privateFile } = profileFileNames(params?.profile);
-  const publicTree = await loadYamlEnvironment(activeProject, publicFile);
-  const privateTree = await loadYamlEnvironment(activeProject, privateFile);
+  const publicTree = (await loadYamlEnvironment(activeProject, publicFile)).tree;
+  const privateTree = (await loadYamlEnvironment(activeProject, privateFile)).tree;
   return { public: publicTree, private: privateTree };
 });
 
@@ -489,6 +507,26 @@ ipcMain.handle("env:getProfiles", async (event) => {
   const activeProject = await getActiveProject(event);
   if (!activeProject) return ["default"];
   return discoverProfiles(activeProject);
+});
+
+// Project-relative path of each profile's public YAML file — same
+// used-path resolution loadYamlEnvironments() does for the active profile
+// (accounting for the pre-migration root-level fallback), just for every
+// discovered profile at once. Kept separate from env:getProfiles (which
+// other callers, e.g. the Environment Editor, expect to return a plain
+// string[]) so this doesn't ripple into unrelated call sites.
+ipcMain.handle("env:getProfileFiles", async (event): Promise<Record<string, string>> => {
+  const activeProject = await getActiveProject(event);
+  if (!activeProject) return {};
+  const profileNames = await discoverProfiles(activeProject);
+  const entries = await Promise.all(
+    profileNames.map(async (profile) => {
+      const { publicFile } = profileFileNames(profile);
+      const { usedPath } = await loadYamlEnvironment(activeProject, publicFile);
+      return [profile, usedPath] as const;
+    }),
+  );
+  return Object.fromEntries(entries);
 });
 
 ipcMain.handle("env:setActiveProfile", async (event, profile: string) => {
@@ -610,8 +648,8 @@ ipcMain.handle('env:extend-env-files', async (event, { comment, variables, envNa
   const { publicFile, privateFile } = profileFileNames(activeProfile);
 
   try {
-    const publicTree = await loadYamlEnvironment(activeProject, publicFile);
-    const privateTree = await loadYamlEnvironment(activeProject, privateFile);
+    const publicTree = (await loadYamlEnvironment(activeProject, publicFile)).tree;
+    const privateTree = (await loadYamlEnvironment(activeProject, privateFile)).tree;
 
     const sanitizedEnvName = envName ? sanitizeEnvKey(envName) : '';
     const segments = sanitizedEnvName

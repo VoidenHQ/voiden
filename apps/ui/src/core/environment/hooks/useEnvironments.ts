@@ -12,6 +12,11 @@ export interface EnvironmentData {
   activeProfile: string | null;
   data: Record<string, Record<string, string>>;
   displayNames: Record<string, string>;
+  // Project-relative path of the active profile's YAML file (e.g.
+  // ".voiden/env-public.yaml", or "env-public.yaml" for an unmigrated
+  // project). Undefined when data came from the legacy per-file .env
+  // fallback instead of the YAML system.
+  profileFile?: string;
 }
 
 const loadEnvironments = async (): Promise<EnvironmentData> => {

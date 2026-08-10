@@ -17,6 +17,7 @@ export { useEnvironmentKeys } from "./useEnvironmentKeys";
 export { useYamlEnvironments } from "./useYamlEnvironments.ts";
 export { useSaveYamlEnvironments } from "./useSaveYamlEnvironments.ts";
 export { useProfiles } from "./useProfiles";
+export { useProfileFiles } from "./useProfileFiles";
 export { useSetActiveProfile } from "./useSetActiveProfile";
 export { useCreateProfile } from "./useCreateProfile";
 export { useDeleteProfile } from "./useDeleteProfile";

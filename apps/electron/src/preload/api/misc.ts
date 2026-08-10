@@ -236,6 +236,8 @@ export const envApi = {
       projectPath,
     }),
   getProfiles: () => ipcRenderer.invoke("env:getProfiles") as Promise<string[]>,
+  getProfileFiles: () =>
+    ipcRenderer.invoke("env:getProfileFiles") as Promise<Record<string, string>>,
   setActiveProfile: (profile: string) =>
     ipcRenderer.invoke("env:setActiveProfile", profile),
   createProfile: (profile: string) =>

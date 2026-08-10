@@ -417,6 +417,7 @@ declare global {
           projectPath?: string,
         ) => Promise<void>;
         getProfiles: () => Promise<string[]>;
+        getProfileFiles: () => Promise<Record<string, string>>;
         setActiveProfile: (profile: string) => Promise<void>;
         createProfile: (profile: string) => Promise<void>;
         deleteProfile: (profile: string) => Promise<void>;
