@@ -1,6 +1,58 @@
 {
   "releases": [
     {
+      "version": "2.3.0-beta.2",
+      "date": "August 2026",
+      "whatsnew": [
+        {
+          "icon": "🔌",
+          "title": "@voiden/mcp-server Now Serves Your Own Tools, Not Just the Generic Four",
+          "description": "Claude Code and Codex already got list/run/write-back tools for your .void files. Now, any request you mark with the new /tool block is served as its own real, named tool too — create_user, refund_order, whatever you call it — with its own description and typed parameters, verified automatically before it's ever handed to an agent. A tool that's currently failing gets withdrawn (or flagged degraded) instead of silently staying available."
+        },
+        {
+          "icon": "🛠️",
+          "title": "Tool Blocks — Turn Any Request Into an Agent-Callable Tool",
+          "description": "The new /tool block lets you mark an existing request as a named, described tool an AI agent can call directly. Split its parameters between agent-supplied and environment-only (never shown to the agent), and add a verification policy pointing at other requests to prove it still works — the Voiden app's new MCP tab shows you exactly what's currently being served."
+        },
+        {
+          "icon": "🧩",
+          "title": "MCP Connection Blocks — Talk to Any MCP Server",
+          "description": "The new /mcp block lets you connect to and test an external MCP server right from a .void file — list its tools, call one, read a resource, or get a prompt — the same way you already test REST and GraphQL requests. Paste a Claude Desktop / Cursor / VS Code style server config to fill in the connection automatically."
+        },
+        {
+          "icon": "📍",
+          "title": "Initialize MCP Is Now Its Own Status Bar Button",
+          "description": "Registering Voiden's MCP server for your project is now a dedicated \"Initialize MCP\" button in the status bar, scoped to whichever project you have open — instead of a side effect of the Settings → AI Skill toggle. Clearer control, and it won't silently overwrite a manually configured .mcp.json anymore."
+        }
+      ]
+    },
+    {
+      "version": "2.3.0-beta.1",
+      "date": "July 2026",
+      "whatsnew": [
+        {
+          "icon": "🔌",
+          "title": "Deeper MCP Integration",
+          "description": "Enabling the Claude or Codex skill now auto-registers Voiden's MCP server for your project — no separate setup step. The MCP tools also work across REST, GraphQL, and sockets/gRPC requests generically, and .void blocks are now tagged with the plugin that created them so Voiden can prompt you to install or enable a missing plugin instead of failing silently."
+        },
+        {
+          "icon": "❓",
+          "title": "Inline Block Help",
+          "description": "Blocks can now show contextual documentation right in their header via a new \"?\" tooltip. Runtime Variables' help was rewritten to show the real capture-expression syntax (`{{$res.body...}}`, `{{process.variable}}`) instead of outdated examples."
+        },
+        {
+          "icon": "🖥️",
+          "title": "Terminal Font Fixes",
+          "description": "The terminal now follows your UI font size and no longer gets stuck showing a fallback font the first time it loads a new typeface."
+        },
+        {
+          "icon": "🐛",
+          "title": "Editor & Plugin Manager Fixes",
+          "description": "Word-delete backspace shortcuts now match Mac vs. Windows/Linux conventions correctly, a recurring editor flicker from unnecessary background polling is gone, plugin icons that fail to load fall back gracefully, \"Update All\" batches core plugin updates into one call, and request failures (like a self-signed cert) now show the real error instead of a generic \"fetch failed\"."
+        }
+      ]
+    },
+    {
       "version": "2.2.2",
       "date": "July 2026",
       "whatsnew": [

@@ -417,6 +417,16 @@ declare global {
           projectPath?: string,
         ) => Promise<void>;
         getProfiles: () => Promise<string[]>;
+        getProfileFiles: () => Promise<Record<string, string>>;
+        getNestedEnvSources: () => Promise<
+          Array<{
+            projectPath: string;
+            relPath: string;
+            profile: string;
+            public: Record<string, unknown>;
+            private: Record<string, unknown>;
+          }>
+        >;
         setActiveProfile: (profile: string) => Promise<void>;
         createProfile: (profile: string) => Promise<void>;
         deleteProfile: (profile: string) => Promise<void>;
@@ -490,6 +500,10 @@ declare global {
         getActive: () => Promise<any[]>;
         clearHistory: () => Promise<boolean>;
         subscribe: (callback: (processes: any[]) => void) => () => void;
+      };
+      mcp: {
+        initialize: () => Promise<{ success: boolean; message?: string }>;
+        status: () => Promise<{ registered: boolean }>;
       };
     };
     platform: NodeJS.Platform;

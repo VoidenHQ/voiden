@@ -102,6 +102,7 @@ export const { CompletionContext, CompletionResult, autocompletion,
     '@tiptap/suggestion': "const _s=window.__voiden_shims__['@tiptap/suggestion']||{};const _def=_s.default||_s.Suggestion||_s;export default _def;export const Suggestion=_s.Suggestion||_def;",
     'lucide-react': "const _s=window.__voiden_shims__['lucide-react']||{};export default _s;export const {AlertCircle,ArrowDown,ArrowDownLeft,ArrowLeft,ArrowLeftRight,ArrowRight,ArrowUp,ArrowUpRight,BookOpen,Check,CheckCheck,ChevronDown,ChevronRight,ChevronsDownUp,ChevronsUpDown,Circle,CircleAlert,CircleX,Clock,Columns2,Copy,CornerDownLeft,CornerDownRight,Download,ExternalLink,Eye,FileDown,FileText,Folder,FolderOpen,History,Info,Link,Loader,Loader2,Mouse,Pen,Pencil,Play,Plus,Radio,RefreshCw,Rows,Search,SkipForward,Sparkles,Square,Trash2,Unlink,Wifi,WifiOff,WrapText,X,XCircle}=_s;",
     'zustand': "const _s=window.__voiden_shims__['zustand']||{};export default _s;export const {create}=_s;",
+    'yaml': "const _s=window.__voiden_shims__['yaml']||{};export default _s;export const {parse,stringify,parseDocument,Document,isDocument,isMap,isPair,isScalar,isSeq,visit}=_s;",
     // tippy.js — used heavily by tiptap extensions; share host instance to avoid duplicate tooltip stacks
     'tippy.js': "const _s=window.__voiden_shims__['tippy.js'];export default (_s&&_s.default)||_s;",
     // react-dnd / react-dnd-html5-backend — shared instances prevent duplicate HTML5 backend
@@ -129,6 +130,7 @@ export const { CompletionContext, CompletionResult, autocompletion,
     '@/core/stores/panelStore': ['usePanelStore'],
     '@/core/stores/responsePanelPosition': ['getResponsePanelPosition'],
     '@/core/environment/hooks': ['useActiveEnvironment', 'useEnvironments'],
+    '@/core/tools/toolCapabilityRegistry': ['getToolCapabilityProvider', 'useToolCapabilityProvider'],
     '@/plugins': ['useEditorEnhancementStore', 'usePluginStore'],
     '@/main': ['getQueryClient'],
   }
@@ -137,7 +139,13 @@ export const { CompletionContext, CompletionResult, autocompletion,
     name: 'voiden-shims',
     enforce: 'pre',
     resolveId(id) {
-      if (id in STATIC_SHIMS) return `\0voiden-shim:${id}`
+      // syntheticNamedExports:'default' lets Rollup resolve ANY named import from
+      // the shim by falling back to the default export's properties — so a shim's
+      // explicit `export const {...}=_s` list only needs to cover the common case;
+      // anything else (e.g. a lucide-react icon nobody's used from a plugin yet)
+      // still resolves at runtime from the real module window.__voiden_shims__
+      // points at. Matches each plugin's own build.mjs (voiden-shims plugin).
+      if (id in STATIC_SHIMS) return { id: `\0voiden-shim:${id}`, syntheticNamedExports: 'default' }
       if (id in CORE_EXPORTS) return `\0voiden-shim:${id}`
       // No catch-all: packages not listed above are bundled from the plugin's own
       // node_modules. This prevents host-unavailable packages from resolving to {}.

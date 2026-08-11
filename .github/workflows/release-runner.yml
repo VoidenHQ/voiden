@@ -3,9 +3,18 @@
 # Trigger: manual (workflow_dispatch)
 # Bump the version in packages/voiden-runner/package.json, commit, then trigger this workflow.
 #
+# @voiden/executors is a separate npm package that voiden-runner depends on.
+# This workflow verifies it's published at the version voiden-runner was just
+# built against and publishes it first if not — then pins voiden-runner's
+# dependency to that exact version before publishing (rather than shipping the
+# "*" range from source, which resolves against whatever happens to be
+# "latest" on npm at *install* time and previously caused a published runner
+# to pull in a stale/incompatible executors build).
+#
 # Publishes via npm Trusted Publishing (OIDC) — no NPM_TOKEN secret needed.
-# One-time setup required on npmjs.com: package Settings → Trusted Publisher →
-# add GitHub Actions with org "VoidenHQ", repo "voiden", workflow "release-runner.yml".
+# One-time setup required on npmjs.com for EACH package (@voiden/runner AND
+# @voiden/executors): package Settings → Trusted Publisher → add GitHub
+# Actions with org "VoidenHQ", repo "voiden", workflow "release-runner.yml".
 
 name: Release voiden-runner
 
@@ -58,11 +67,54 @@ jobs:
 
       # ── Publish to npm (Trusted Publishing / OIDC — no token needed) ─────────────
       - name: Upgrade npm (OIDC support needs npm >=11.5.1)
-        run: npm install -g npm@latest
+        run: npm install -g npm@11
 
+      # Guards against the class of bug where voiden-runner ships depending on
+      # an @voiden/executors version/feature that was never actually pushed
+      # to the npm registry — publish it now if the registry doesn't have it.
+      - name: Verify / publish @voiden/executors
+        id: executors
+        working-directory: packages/executors
+        run: |
+          EXEC_VERSION=$(node -p "require('./package.json').version")
+          echo "version=$EXEC_VERSION" >> "$GITHUB_OUTPUT"
+          if npm view "@voiden/executors@$EXEC_VERSION" version >/dev/null 2>&1; then
+            echo "@voiden/executors@$EXEC_VERSION is already published, skipping."
+          else
+            echo "@voiden/executors@$EXEC_VERSION is not on npm yet — publishing."
+            if [[ "$EXEC_VERSION" == *beta* || "$EXEC_VERSION" == *alpha* || "$EXEC_VERSION" == *rc* ]]; then
+              npm publish --access public --provenance --tag beta
+            else
+              npm publish --access public --provenance
+            fi
+          fi
+
+      # Pin the dependency to the version we just verified is on npm, instead
+      # of the "*" range committed in source (which is only safe locally,
+      # where the yarn workspace resolves it to the live local package).
+      - name: Pin @voiden/executors dependency to published version
+        working-directory: packages/voiden-runner
+        run: |
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            pkg.dependencies['@voiden/executors'] = '${{ steps.executors.outputs.version }}';
+            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+
+      # Prerelease versions (2.3.0-beta.1, ...-alpha.N, ...-rc.N) publish under
+      # the "beta" dist-tag so `npm install -g @voiden/runner` (no version
+      # pinned) keeps resolving to the last stable release — users opt into a
+      # prerelease via `npm install @voiden/runner@beta`.
       - name: Publish to npm
         working-directory: packages/voiden-runner
-        run: npm publish --access public --provenance
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          if [[ "$VERSION" == *beta* || "$VERSION" == *alpha* || "$VERSION" == *rc* ]]; then
+            npm publish --access public --provenance --tag beta
+          else
+            npm publish --access public --provenance
+          fi
 
       # ── Attach tarball to GitHub Release ─────────────────────────────────────
       - name: Pack tarball

@@ -42,8 +42,41 @@ export async function checkAttachmentChanges(entry: HistoryEntry): Promise<Attac
 
 const HISTORY_VERSION = '1.0.0';
 
-/** Derive a safe filename from a .void file path */
+/**
+ * Deterministic short hash of a string (FNV-1a, 32-bit), hex-encoded.
+ * Not cryptographic — only used to disambiguate history filenames that
+ * share a basename but live at different paths.
+ */
+function fnv1aHash(input: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < input.length; i++) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0');
+}
+
+/**
+ * Derive a safe, collision-resistant filename from a .void file path.
+ *
+ * Two distinct files with the same basename (e.g. `team-a/login.void` and
+ * `team-b/login.void`) must never map to the same history file, so the
+ * filename is keyed by the *full* normalized path — the basename is kept
+ * only as a human-readable prefix.
+ */
 function getHistoryFileName(filePath: string): string {
+  const normalized = filePath.replace(/\\/g, '/').replace(/\/+$/, '');
+  const basename = normalized.split('/').pop()?.replace(/\.void$/, '') || 'unknown';
+  const sanitizedBasename = basename.replace(/[^a-zA-Z0-9-_]/g, '_');
+  const identityHash = fnv1aHash(normalized.toLowerCase());
+  return `${sanitizedBasename}-${identityHash}-history.json`;
+}
+
+/**
+ * Legacy (pre-#525) filename derivation, kept only so readHistory can fall
+ * back to it for backward compatibility. Do not use for new writes.
+ */
+function getLegacyHistoryFileName(filePath: string): string {
   const basename = filePath.split('/').pop()?.replace(/\.void$/, '') || 'unknown';
   const sanitized = basename.replace(/[^a-zA-Z0-9-_]/g, '_');
   return `${sanitized}-history.json`;
@@ -125,7 +158,36 @@ export async function readHistory(projectPath: string, filePath: string, retenti
       fileName,
     );
     if (historyPath) {
-      const content = await electronAny()?.files?.read(historyPath);
+      let content = await electronAny()?.files?.read(historyPath);
+      let migratedFromLegacy = false;
+
+      // Backward-compat fallback: if the new hashed-name file doesn't exist yet,
+      // check for a legacy <basename>-history.json. Only adopt it if its stored
+      // filePath matches this file exactly — a legacy file whose filePath points
+      // elsewhere was last written by a different, basename-colliding file (the
+      // #520 bug) and must not be adopted here.
+      if (!content) {
+        const legacyFileName = getLegacyHistoryFileName(filePath);
+        const legacyPath = await electronAny()?.utils?.pathJoin(
+          projectPath,
+          '.voiden',
+          'history',
+          legacyFileName,
+        );
+        if (legacyPath) {
+          const legacyContent = await electronAny()?.files?.read(legacyPath);
+          if (legacyContent) {
+            try {
+              const legacyParsed = JSON.parse(legacyContent) as HistoryFile;
+              if (legacyParsed.filePath === filePath) {
+                content = legacyContent;
+                migratedFromLegacy = true;
+              }
+            } catch { /* corrupt legacy file — ignore, fall through to fresh history */ }
+          }
+        }
+      }
+
       if (content) {
         const parsed = JSON.parse(content) as HistoryFile;
         const prunedEntries = pruneEntriesByRetention(parsed.entries ?? [], retentionDays);
@@ -135,8 +197,11 @@ export async function readHistory(projectPath: string, filePath: string, retenti
           entries: prunedEntries,
         };
 
-        // Persist if pruning removed stale entries.
-        if ((parsed.entries?.length ?? 0) !== prunedEntries.length) {
+        // Persist under the new name if pruning removed entries, or if this
+        // was just migrated from the legacy file — either way, from this
+        // point on the new-named file is authoritative and the legacy
+        // fallback path is not consulted again for this file.
+        if (migratedFromLegacy || (parsed.entries?.length ?? 0) !== prunedEntries.length) {
           await electronAny()?.files?.write(historyPath, JSON.stringify(history, null, 2));
         }
 

@@ -771,7 +771,12 @@ export function registerRequestIpcHandler() {
         };
       }
     } catch (error: any) {
-      const errorMessage = error?.message || "Request failed";
+      // Node's fetch() wraps TLS/connection failures in a generic TypeError("fetch failed")
+      // and puts the actual reason (e.g. "self-signed certificate", ERR_TLS_CERT_ALTNAME_INVALID)
+      // on error.cause — surface it, or users just see "fetch failed" with no clue it's a cert issue.
+      const errorMessage = error?.cause?.message
+        ? `${error.message}: ${error.cause.message}`
+        : (error?.message || "Request failed");
       const protocolType: string = requestState.protocolType || "";
 
       if (protocolType.toLowerCase() === "graphql") {

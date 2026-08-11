@@ -9,6 +9,7 @@ import { Editor } from "@tiptap/core";
 import { sendRequestHybrid } from "./sendRequestHybrid";
 import type { RequestBuildHandler, ResponseProcessHandler, ResponseSection } from "@voiden/sdk/ui";
 import { requestLogger } from "@/core/lib/logger";
+import { useResponseStore } from "./stores/responseStore";
 import { getFirstSectionLabel } from "@/core/editors/voiden/extensions/sectionIndicator";
 import { expandLinkedBlocksInDoc, expandLinkedFilesInDoc } from "@/core/editors/voiden/utils/expandLinkedBlocks";
 import { injectInheritedBlocks } from "./utils/injectInheritedBlocks";
@@ -305,13 +306,25 @@ class RequestOrchestratorImpl implements RequestOrchestrator {
 
     // Step 3: Process response through plugin chain
     requestLogger.info(`Processing response through ${this.responseHandlers.length} plugin handler(s)`);
+    let handlerError: unknown = null;
     for (const handler of this.responseHandlers) {
       try {
         await handler(response);
       } catch (error) {
         requestLogger.error("Error in plugin response handler:", error);
+        handlerError = error;
         // Don't throw - let other handlers execute
       }
+    }
+
+    // A handler throwing before it renders anything (e.g. onProcessResponse in
+    // voiden-rest-api) leaves isLoading stuck true forever — onRequestBuilt already
+    // flipped it on, and nothing else clears it. Surface the error instead of leaving
+    // the UI on an infinite spinner with no feedback at all.
+    if (handlerError && useResponseStore.getState().isLoading) {
+      const tabId = useResponseStore.getState().currentRequestTabId;
+      const message = handlerError instanceof Error ? handlerError.message : String(handlerError);
+      useResponseStore.getState().setError(tabId, `Failed to display response: ${message}`);
     }
 
     import('@/plugins').then(({ emitPluginEvent }) => emitPluginEvent('response:received', { response })).catch(() => {});

@@ -27,6 +27,7 @@ import { PasteHandler } from "./extensions/pasteHandler";
 import { SeamlessNavigation } from "./extensions/seamlessNavigation";
 import { cmdAll } from "./extensions/cmdAll";
 import { RequestSeparatorNode } from "./nodes/RequestSeparatorNode";
+import { MissingPluginBlock } from "./extensions/MissingPluginBlock";
 import { TableCellAutocomplete, isTableCellAutocompleteOpen } from "./extensions/TableCellAutocomplete";
 import { isSlashMenuOpen } from "./SlashCommand";
 
@@ -364,6 +365,7 @@ export const voidenExtensions: AnyExtension[] = [
   SeamlessNavigation,
   VariableCapture,
   RequestSeparatorNode,
+  MissingPluginBlock,
   Link.configure({
     openOnClick: false, // Disable default click handler
     linkOnPaste: false, // disable default link-on-paste behavior

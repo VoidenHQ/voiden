@@ -17,15 +17,65 @@
  */
 
 import { readFileSync } from 'fs'
-import { parseVoidFileSections } from './parser.js'
-import { requestOrchestrator } from '@voiden/executors'
+import { requestOrchestrator, classifyBlockVersion, parseVoidFileSections } from '@voiden/executors'
 import type { PipelineResponse } from '@voiden/executors'
 import { createCliElectron } from './cliElectron.js'
 import { loadEnabledPlugins } from './plugins/loader.js'
+import { getInstalledPluginInfo } from './plugins/versionInfo.js'
 import { normalizeBlocks } from './blockSchemaRegistry.js'
+import { findRequestBlock as findRegisteredRequestBlock, getRequestContainerDef } from './requestContainerRegistry.js'
 import { extractRuntimeVarRows, captureRuntimeVars } from './runtimeVars.js'
 import type { CaptureRequest, CaptureResponse } from './runtimeVars.js'
 import type { RunResult } from './types.js'
+
+// ─── Declared plugin+version check (tagged blocks only — legacy files with no
+// pluginId attr are skipped entirely, unchanged behaviour) ────────────────────
+//
+// Runs before a section is executed. Any non-"ok" status — missing, disabled,
+// or a different version than what saved the block — stops execution with a
+// specific, actionable error instead of the generic "no plugin could build a
+// request" fallback in the shared orchestrator. This is what makes execution
+// deterministic: a file always runs against the exact plugin version it was
+// authored with, never silently against whatever happens to be installed.
+function checkBlockVersions(blocks: any[]): void {
+  for (const block of blocks) {
+    const pluginId = block?.attrs?.pluginId
+    const pluginVersion = block?.attrs?.pluginVersion
+    if (!pluginId || !pluginVersion) continue
+
+    const installed = getInstalledPluginInfo(pluginId)
+    const status = classifyBlockVersion({ pluginId, pluginVersion, blockType: block.type }, installed)
+    if (status === 'ok') continue
+
+    throw new Error(formatVersionError(block.type, pluginId, pluginVersion, status, installed))
+  }
+}
+
+function formatVersionError(
+  blockType: string,
+  pluginId: string,
+  pluginVersion: string,
+  status: 'not-installed' | 'disabled' | 'version-mismatch',
+  installed: { version?: string; enabled?: boolean } | undefined,
+): string {
+  switch (status) {
+    case 'not-installed':
+      return (
+        `Block "${blockType}" requires plugin "${pluginId}" v${pluginVersion}, which is not installed.\n` +
+        `  Run: voiden-runner plugin install ${pluginId}@${pluginVersion}`
+      )
+    case 'disabled':
+      return (
+        `Plugin "${pluginId}" is installed but disabled.\n` +
+        `  Run: voiden-runner plugin enable ${pluginId}`
+      )
+    case 'version-mismatch':
+      return (
+        `Block "${blockType}" requires ${pluginId} v${pluginVersion}, but v${installed?.version} is installed.\n` +
+        `  Run: voiden-runner plugin install ${pluginId}@${pluginVersion}`
+      )
+  }
+}
 
 // ─── Raw request extraction from blocks (used for error reporting) ────────────
 //
@@ -34,21 +84,44 @@ import type { RunResult } from './types.js'
 // This lets us show the user what was attempted even when the request threw
 // before requestMeta was populated (e.g. invalid URL after unresolved {{KEY}}).
 
-interface RawRequestInfo {
+export interface RawRequestInfo {
   url:     string
   method:  string
   headers: Record<string, string>
   body?:   string
 }
 
+/** Public alias — lets callers (e.g. the MCP server's list_requests tool) preview
+ *  a section's method/url without executing anything. */
+export function getRequestPreview(blocks: any[]): RawRequestInfo {
+  return extractRawRequest(blocks)
+}
+
+/**
+ * Finds the block that represents "the request" in a section, whichever
+ * protocol it belongs to. Backed by requestContainerRegistry.ts, populated
+ * by each protocol plugin's own context.registerRequestContainer() call —
+ * exported so callers that only need the block's `uid` (e.g. the MCP
+ * server's list_requests tool) share this same registry instead of
+ * hardcoding their own list of protocol block types.
+ */
+export function findRequestBlock(blocks: any[]): any | undefined {
+  return findRegisteredRequestBlock(blocks)
+}
+
 function extractRawRequest(blocks: any[]): RawRequestInfo {
-  const req = blocks.find((b: any) => b.type === 'request')
   let url    = ''
   let method = 'GET'
-  if (req && Array.isArray(req.content)) {
-    for (const node of req.content) {
-      if (node.type === 'method' && typeof node.content === 'string') method = node.content.trim()
-      if (node.type === 'url'    && typeof node.content === 'string') url    = node.content.trim()
+
+  const req = findRequestBlock(blocks)
+  if (req) {
+    const cfg = getRequestContainerDef(req.type)
+    if (cfg && Array.isArray(req.content)) {
+      for (const node of req.content) {
+        if (cfg.methodType && node.type === cfg.methodType && typeof node.content === 'string') method = node.content.trim()
+        if (node.type === cfg.urlType && typeof node.content === 'string') url = node.content.trim()
+      }
+      if (cfg.defaultMethod) method = cfg.defaultMethod
     }
   }
 
@@ -146,6 +219,8 @@ export interface RunOptions {
    * when running multiple files.
    */
   activePlugins?: string[]
+  /** Run only the section whose request-separator label matches exactly, instead of every section in the file. */
+  sectionLabel?: string
 }
 
 export interface SectionResult {
@@ -170,8 +245,31 @@ export async function runVoidFile(
   // Use pre-loaded plugins if provided (multi-file session), otherwise load fresh.
   const activePlugins = options.activePlugins ?? await loadEnabledPlugins(verbose, skipPlugins)
 
-  const content  = readFileSync(filePath, 'utf-8')
-  const sections = parseVoidFileSections(content)
+  const content     = readFileSync(filePath, 'utf-8')
+  const allSections = parseVoidFileSections(content)
+  // A file with no request-separators has no real "sections" to disambiguate
+  // between — it's just one request. Only apply the label filter when
+  // there's more than one section to choose from; a single-section file
+  // always means "run the one request present", regardless of what
+  // sectionLabel was asked for (including none, or a stale/mismatched one).
+  const sections    = (options.sectionLabel && allSections.length > 1)
+    ? allSections.filter(s => s.label === options.sectionLabel)
+    : allSections
+
+  if (options.sectionLabel && allSections.length > 1 && sections.length === 0) {
+    return {
+      results: [{
+        result: {
+          protocol:  'unknown',
+          url:       '',
+          success:   false,
+          durationMs: 0,
+          error:     `No section labelled "${options.sectionLabel}" found in ${filePath}`,
+        },
+      }],
+      activePlugins,
+    }
+  }
 
   if (sections.length === 0) {
     return {
@@ -222,6 +320,7 @@ export async function runVoidFile(
     //    failed PipelineResponse rather than throwing, so we handle both paths.
     let response: PipelineResponse
     try {
+      checkBlockVersions(normalizedBlocks)
       response = await requestOrchestrator.executeRequest(editor, ipcAdapter)
     } catch (err: any) {
       results.push({

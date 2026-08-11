@@ -5,6 +5,7 @@ export const useGetExtensions = () => {
   return useQuery({
     queryKey: ["extensions"],
     queryFn: async () => window.electron?.extensions.getAll(),
+    refetchInterval: false,
   });
 };
 

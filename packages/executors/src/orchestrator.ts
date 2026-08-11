@@ -61,8 +61,9 @@ export class RequestOrchestrator {
 
     if (!request?.url) {
       throw new Error(
-        request?.errorMessage ||'No plugin could build a request from the document blocks. ' +
-        'Ensure the required plugin (e.g. voiden-rest-api, voiden-graphql) is enabled.',
+        request?.errorMessage || 'No plugin could build a request from the document blocks. ' +
+        'If this file predates plugin-version tagging, ensure the required plugin (e.g. voiden-rest-api, ' +
+        'voiden-graphql) is installed and enabled. Otherwise this may be a plugin bug.',
       )
     }
 

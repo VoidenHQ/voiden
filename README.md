@@ -167,11 +167,22 @@ sudo snap install voiden --channel=beta
 
 Nix (Linux / macOS)
 
-Run Voiden directly using Nix Flakes:
+One-time setup — trust the `voiden` Cachix binary cache so Nix fetches a prebuilt
+result instead of compiling Electron and native modules from source (the default
+multi-user Nix install won't honor a flake's own substituter config without this):
+
+```bash
+nix run nixpkgs#cachix -- use voiden
+```
+
+Then run Voiden directly using Nix Flakes:
 
 ```bash
 nix run github:VoidenHQ/voiden
 ```
+
+If you skip the `cachix use` step, `nix run` still works — Nix just falls back to
+building from source, which is slower.
 
 
 

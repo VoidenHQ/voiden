@@ -24,6 +24,9 @@ import {
 } from './community.js'
 import { createHeadlessPluginContext } from '../headlessContext.js'
 import { clearSchemas } from '../blockSchemaRegistry.js'
+import { clearRequestContainers } from '../requestContainerRegistry.js'
+import { clearToolProviders } from '../toolRegistry.js'
+import { clearMcpToolCapabilityProvider } from '../mcpToolCapability.js'
 import { readStore, setPluginVersion } from './store.js'
 import * as https from 'https'
 import { mkdirSync, createWriteStream, existsSync } from 'fs'
@@ -159,6 +162,9 @@ export async function loadEnabledPlugins(
   requestOrchestrator.clear()
   hookRegistry.clearAll()
   clearSchemas()
+  clearRequestContainers()
+  clearToolProviders()
+  clearMcpToolCapabilityProvider()
 
   const loaded: string[] = []
 

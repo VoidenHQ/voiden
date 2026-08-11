@@ -23,6 +23,7 @@ import { registerContextMenuIpcHandlers } from "./main/ipc/contextMenus";
 import { registerThemeIpcHandlers } from "./main/ipc/themes";
 import { registerCliIpcHandlers } from "./main/ipc/cli";
 import { registerSkillsIpcHandlers } from "./main/ipc/skills";
+import { registerMcpIpcHandlers } from "./main/ipc/mcp";
 import { registerPythonScriptIpcHandler } from "./main/ipc/pythonScript";
 import { registerNodeScriptIpcHandler } from "./main/ipc/nodeScript";
 import { registerCoreExtensionsIpcHandlers, watchBundledPluginsForDevReload, seedBundledPluginsToCache } from "./main/ipc/coreExtensions";
@@ -185,6 +186,7 @@ app.on("ready", async () => {
   registerThemeIpcHandlers();
   registerCliIpcHandlers();
   registerSkillsIpcHandlers();
+  registerMcpIpcHandlers();
   registerPythonScriptIpcHandler();
   registerNodeScriptIpcHandler();
   registerCoreExtensionsIpcHandlers();
@@ -234,7 +236,9 @@ app.on("ready", async () => {
     if (appState?.extensions) {
       await loadMainProcessExtensions(appState.extensions);
     }
-    // Recompose skills now that state (extensions list) is available
+    // Recompose skills now that state (extensions list) is available. Skill
+    // text install only — MCP registration is a separate, explicit action
+    // (the status bar's Initialize MCP button), never auto-fired here.
     const skills = settings.skills;
     if (appState && (skills?.claude || skills?.codex)) {
       recomposeAndInstall(appState, { claude: skills.claude ?? false, codex: skills.codex ?? false }).catch(() => {});

@@ -29,5 +29,6 @@ export const useEnvironmentKeys = () => {
     queryKey: ["environment-keys"],
     queryFn: loadEnvironmentKeys,
     staleTime: 30000, // Keys don't change often, cache for 30s
+    refetchInterval: false,
   });
 };

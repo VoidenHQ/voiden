@@ -1,11 +1,18 @@
 #!/usr/bin/env node
 import { program } from 'commander'
 import { readFileSync, existsSync, statSync, writeFileSync, mkdirSync, unlinkSync } from 'fs'
-import { resolve, basename, join, dirname } from 'path'
+import { resolve, relative, basename, join, dirname } from 'path'
 import { fileURLToPath } from 'url'
-import { readdir } from 'fs/promises'
 import chalk from 'chalk'
 import { runVoidFile } from './runner.js'
+import { resolveFiles } from './discovery.js'
+import { discoverTools, verifyTools, validateTools, upsertToolStatus, registerToolsFromDecisions, planServedTools, getCommitSha } from './mcpToolCapability.js'
+import type { ToolDef } from './toolRegistry.js'
+import { registerFixedTools } from './mcpServing.js'
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
+import { createServer as createHttpServer } from 'node:http'
 import { loadEnabledPlugins } from './plugins/loader.js'
 import { exportToCsv } from './report/csv.js'
 import { sendMailReport } from './report/mail.js'
@@ -27,6 +34,16 @@ import {
   STORE_DIR,
 } from './plugins/store.js'
 import { checkForPluginUpdates, type PluginUpdateInfo } from './plugins/updateCheck.js'
+import { getInstalledPluginInfo } from './plugins/versionInfo.js'
+import {
+  classifyBlockVersion,
+  parseVoidFile,
+  installMcpIntegration,
+  uninstallMcpIntegration,
+  getMcpStatus,
+  MCP_SKILL_MARKDOWN,
+} from '@voiden/executors'
+import { loadEnvFile } from './envFile.js'
 import {
   appendSessionResults,
   loadSessionResults,
@@ -35,26 +52,28 @@ import {
 import type { RunResult, CliReportEntry } from './types.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Exit codes — a stable, documented contract CI pipelines can branch on.
+//
+//   0  success — all requests passed
+//   1  one or more requests failed (assertions/errors), or --bail /
+//      --fail-on-error triggered — unchanged from prior releases
+//   2  the runner could not execute the run at all: bad CLI args/flags,
+//      missing files, missing plugins, invalid env — a pipeline/config
+//      problem, not an API failure
+//
+// See CHANGELOG.md and docs.voiden.md/docs/developer-tools/voiden-runner/ci-cd
+// ─────────────────────────────────────────────────────────────────────────────
+const EXIT_SUCCESS = 0
+const EXIT_RUN_FAILURE = 1
+const EXIT_USAGE_ERROR = 2
+
+/** JSON output schema version — bump whenever a field is renamed, removed, or
+ *  reinterpreted (adding a field is not a breaking change and does not need a bump). */
+const JSON_SCHEMA_VERSION = '1'
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
-
-function loadEnvFile(envPath: string): Record<string, string> {
-  const content = readFileSync(envPath, 'utf-8')
-  const env: Record<string, string> = {}
-  const lines = content.split('\n')
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim()
-    if (!line || line.startsWith('#')) continue
-    const eq = line.indexOf('=')
-    if (eq === -1) throw new Error(`Malformed line ${i + 1} in .env file: missing "="`)
-    const key = line.slice(0, eq).trim()
-    const val = line.slice(eq + 1).trim().replace(/^["']|["']$/g, '')
-    if (!key) throw new Error(`Malformed line ${i + 1} in .env file: empty key`)
-    env[key] = val
-  }
-  return env
-}
-
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes}B`
@@ -65,52 +84,6 @@ function formatBytes(bytes: number): string {
 function formatDuration(ms: number): string {
   if (ms < 1000) return `${ms}ms`
   return `${(ms / 1000).toFixed(2)}s`
-}
-
-/** Recursively collect all .void files under a directory. */
-async function collectVoidFiles(inputPath: string): Promise<string[]> {
-  const abs = resolve(inputPath)
-  if (!existsSync(abs)) return []
-
-  const stat = statSync(abs)
-  if (stat.isFile()) {
-    return abs.endsWith('.void') ? [abs] : []
-  }
-
-  if (stat.isDirectory()) {
-    const entries = await readdir(abs, { withFileTypes: true })
-    const results: string[] = []
-    for (const entry of entries) {
-      const full = resolve(abs, entry.name)
-      if (entry.isDirectory()) {
-        results.push(...(await collectVoidFiles(full)))
-      } else if (entry.isFile() && entry.name.endsWith('.void')) {
-        results.push(full)
-      }
-    }
-    return results
-  }
-
-  return []
-}
-
-/** Expand a list of paths/globs into resolved .void file paths. */
-async function resolveFiles(patterns: string[]): Promise<string[]> {
-  const resolved: string[] = []
-  for (const pattern of patterns) {
-    if (pattern.includes('*')) {
-      const dir = resolve(pattern.replace(/\/?\*.*$/, '') || '.')
-      const entries = await readdir(dir, { withFileTypes: true })
-      for (const entry of entries) {
-        if (entry.isFile() && entry.name.endsWith('.void')) {
-          resolved.push(resolve(dir, entry.name))
-        }
-      }
-    } else {
-      resolved.push(...(await collectVoidFiles(pattern)))
-    }
-  }
-  return resolved
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -318,22 +291,34 @@ function printRunSummary(
   console.log()
 }
 
+/**
+ * Builds the `--json` / `--output-json` payload shape shared by `run` and
+ * `report generate`. `schemaVersion` is the stable contract external tooling
+ * codes against — see the exit-codes comment above for the versioning rule.
+ */
+function buildJsonReport(
+  results: Array<{ file: string; result: RunResult }>,
+  extra: { totalDurationMs?: number; activePlugins?: string[] } = {},
+) {
+  const passed = results.filter(r => r.result.success).length
+  return {
+    schemaVersion: JSON_SCHEMA_VERSION,
+    summary: {
+      total: results.length,
+      passed,
+      failed: results.length - passed,
+      ...extra,
+    },
+    requests: results.map(r => ({ file: r.file, ...r.result })),
+  }
+}
+
 function printRunSummaryJson(
   results: Array<{ file: string; result: RunResult }>,
   totalMs: number,
   activePlugins: string[],
 ): void {
-  const passed = results.filter(r => r.result.success).length
-  const output = {
-    summary: {
-      total: results.length,
-      passed,
-      failed: results.length - passed,
-      totalDurationMs: totalMs,
-      activePlugins,
-    },
-    requests: results.map(r => ({ file: r.file, ...r.result })),
-  }
+  const output = buildJsonReport(results, { totalDurationMs: totalMs, activePlugins })
   console.log(JSON.stringify(output, null, 2))
 }
 
@@ -417,6 +402,84 @@ async function notifyPluginUpdates(): Promise<void> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Project requirements status — scans the files a `run` just processed for
+// plugin+version tagged blocks and compares against what's installed, in the
+// same style as the update notice above, but against what THIS project
+// declares rather than the latest registry release. No lockfile involved —
+// re-scans the files live each time, so it's always accurate and never goes
+// stale, at the cost of re-parsing on every run (files are already small
+// text, so this is cheap). Individual mismatched requests already fail on
+// their own (see checkBlockVersions in runner.ts); this is the consolidated,
+// deduped-by-plugin view across the whole run, surfaced proactively even for
+// files where every other block happened to succeed.
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface ProjectRequirementIssue {
+  pluginId: string
+  requiredVersion: string
+  installedVersion?: string
+  status: 'not-installed' | 'disabled' | 'version-mismatch'
+  files: string[]
+}
+
+function scanProjectRequirements(files: string[], cwd: string): ProjectRequirementIssue[] {
+  // pluginId → version → files that declared it
+  const usages = new Map<string, Map<string, Set<string>>>()
+  for (const file of files) {
+    let content: string
+    try {
+      content = readFileSync(file, 'utf-8')
+    } catch {
+      continue
+    }
+    for (const block of parseVoidFile(content)) {
+      const pluginId = block.attrs?.pluginId
+      const pluginVersion = block.attrs?.pluginVersion
+      if (!pluginId || !pluginVersion) continue
+      if (!usages.has(pluginId)) usages.set(pluginId, new Map())
+      const versions = usages.get(pluginId)!
+      if (!versions.has(pluginVersion)) versions.set(pluginVersion, new Set())
+      versions.get(pluginVersion)!.add(relative(cwd, file))
+    }
+  }
+
+  const issues: ProjectRequirementIssue[] = []
+  for (const [pluginId, versions] of usages) {
+    for (const [version, fileSet] of versions) {
+      const installed = getInstalledPluginInfo(pluginId)
+      const status = classifyBlockVersion({ pluginId, pluginVersion: version, blockType: '' }, installed)
+      if (status === 'ok') continue
+      issues.push({ pluginId, requiredVersion: version, installedVersion: installed?.version, status, files: [...fileSet] })
+    }
+  }
+  return issues
+}
+
+function printProjectStatus(issues: ProjectRequirementIssue[]): void {
+  if (issues.length === 0) return
+  console.log()
+  console.log(chalk.yellow(`  ⚠  ${issues.length} plugin${issues.length !== 1 ? 's' : ''} ${issues.length !== 1 ? "don't" : "doesn't"} match what this project needs`))
+  for (const issue of issues) {
+    const have =
+      issue.status === 'not-installed' ? 'not installed'
+      : issue.status === 'disabled' ? 'installed but disabled'
+      : `v${issue.installedVersion} installed`
+    console.log(chalk.gray(`     ${chalk.bold(issue.pluginId.padEnd(24))} requires v${issue.requiredVersion} — ${have}`))
+    console.log(chalk.gray(`       used in: ${issue.files.join(', ')}`))
+  }
+  console.log(chalk.gray(`     Run: voiden-runner plugin install <name>@<version>`))
+}
+
+/** Best-effort — never throws, never blocks command output on failure. */
+function notifyProjectStatus(files: string[], cwd: string): void {
+  try {
+    printProjectStatus(scanProjectRequirements(files, cwd))
+  } catch {
+    // Informational only
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // CLI
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -444,7 +507,7 @@ program
     const changelogPath = resolve(join(dirname(fileURLToPath(import.meta.url)), '../CHANGELOG.md'))
     if (!existsSync(changelogPath)) {
       console.error(chalk.red('  ✗  No CHANGELOG.md found for this install.'))
-      process.exit(1)
+      process.exit(EXIT_USAGE_ERROR)
     }
 
     const entries = parseChangelog(readFileSync(changelogPath, 'utf-8'))
@@ -460,7 +523,7 @@ program
       if (!match) {
         console.error(chalk.red(`  ✗  No changelog entry found for version "${version}".`))
         console.log(chalk.gray(`     Available: ${entries.map(e => e.version).join(', ')}`))
-        process.exit(1)
+        process.exit(EXIT_USAGE_ERROR)
       }
       toShow = [match!]
     } else if (opts.latest) {
@@ -527,13 +590,13 @@ program
       const envPath = resolve(opts.env)
       if (!existsSync(envPath)) {
         console.error(chalk.red(`Env file not found: ${envPath}`))
-        process.exit(1)
+        process.exit(EXIT_USAGE_ERROR)
       }
       try {
         Object.assign(env, loadEnvFile(envPath))
       } catch (err: any) {
         console.error(chalk.red(`  ✗  ${err.message}`))
-        process.exit(1)
+        process.exit(EXIT_USAGE_ERROR)
       }
     }
 
@@ -543,13 +606,13 @@ program
         const eq = pair.indexOf('=')
         if (eq === -1) {
           console.error(chalk.red(`  ✗  Invalid --env-var format: "${pair}" (expected key=value)`))
-          process.exit(1)
+          process.exit(EXIT_USAGE_ERROR)
         }
         const key = pair.slice(0, eq).trim()
         const val = pair.slice(eq + 1).trim().replace(/^["']|["']$/g, '')
         if (!key) {
           console.error(chalk.red(`  ✗  Invalid --env-var format: "${pair}" (key cannot be empty)`))
-          process.exit(1)
+          process.exit(EXIT_USAGE_ERROR)
         }
         env[key] = val
       }
@@ -559,7 +622,7 @@ program
 
     if (resolvedFiles.length === 0) {
       console.error(chalk.red('No .void files found at the given path(s)'))
-      process.exit(1)
+      process.exit(EXIT_USAGE_ERROR)
     }
 
     // --stop-on-failure is a CI-friendly alias for --bail
@@ -581,11 +644,11 @@ program
     if (opts.mail || opts.mailTo) {
       if (!mailTo) {
         console.error(chalk.red('  ✗  Mail error: no recipient found. Please provide --mail-to or set VOIDEN_MAIL_TO.'))
-        process.exit(1)
+        process.exit(EXIT_USAGE_ERROR)
       }
       if (!smtpHost) {
         console.error(chalk.red('  ✗  Mail keys are missing. Please provide SMTP configuration (VOIDEN_SMTP_HOST).'))
-        process.exit(1)
+        process.exit(EXIT_USAGE_ERROR)
       }
     }
 
@@ -695,16 +758,7 @@ program
     // ── Output JSON to file (before mail so it can be attached) ──────────────
     let savedJsonPath: string | undefined
     if (opts.outputJson) {
-      const jsonData = {
-        summary: {
-          total: allResults.length,
-          passed: allResults.filter(r => r.result.success).length,
-          failed: allResults.filter(r => !r.result.success).length,
-          totalDurationMs: totalMs,
-          activePlugins,
-        },
-        requests: allResults.map(r => ({ file: r.file, ...r.result })),
-      }
+      const jsonData = buildJsonReport(allResults, { totalDurationMs: totalMs, activePlugins })
       try {
         mkdirSync(dirname(opts.outputJson), { recursive: true })
         writeFileSync(opts.outputJson, JSON.stringify(jsonData, null, 2) + '\n', 'utf-8')
@@ -745,10 +799,13 @@ program
       console.log()
     }
 
-    // Surface plugin update notices — skipped in --json mode so output stays machine-readable
-    if (!opts.json) await notifyPluginUpdates()
+    // Surface plugin update / project-requirements notices — skipped in --json mode so output stays machine-readable
+    if (!opts.json) {
+      await notifyPluginUpdates()
+      notifyProjectStatus(resolvedFiles, process.cwd())
+    }
 
-    process.exit(shouldFail ? 1 : 0)
+    process.exit(shouldFail ? EXIT_RUN_FAILURE : EXIT_SUCCESS)
   })
 
 // ── voiden-runner session ─────────────────────────────────────────────────────
@@ -873,7 +930,7 @@ reportCmd
     const results = loadSessionResults()
     if (results.length === 0) {
       console.error(chalk.red('  ✗  No results found in session. Run some .void files first.'))
-      process.exit(1)
+      process.exit(EXIT_USAGE_ERROR)
     }
 
     // Load optional .env for report SMTP settings
@@ -894,12 +951,12 @@ reportCmd
     if (opts.mail || opts.mailTo) {
       if (!mailTo) {
         console.error(chalk.red('  ✗  Mail error: no recipient found. Please provide --mail-to or set VOIDEN_MAIL_TO.'))
-        process.exit(1)
+        process.exit(EXIT_USAGE_ERROR)
       }
       const smtpHost = opts.smtpHost || env.VOIDEN_SMTP_HOST
       if (!smtpHost) {
         console.error(chalk.red('  ✗  Mail keys are missing. Please provide SMTP configuration (VOIDEN_SMTP_HOST).'))
-        process.exit(1)
+        process.exit(EXIT_USAGE_ERROR)
       }
     }
 
@@ -920,14 +977,7 @@ reportCmd
 
     let savedJsonPath: string | undefined
     if (opts.outputJson) {
-      const jsonData = {
-        summary: {
-          total: results.length,
-          passed: results.filter(r => r.result.success).length,
-          failed: results.filter(r => !r.result.success).length,
-        },
-        requests: results.map(r => ({ file: r.file, ...r.result })),
-      }
+      const jsonData = buildJsonReport(results)
       try {
         mkdirSync(dirname(opts.outputJson), { recursive: true })
         writeFileSync(opts.outputJson, JSON.stringify(jsonData, null, 2) + '\n', 'utf-8')
@@ -949,7 +999,7 @@ reportCmd
       if (!smtpHost) {
         console.error(chalk.red('  ✗  SMTP configuration required for email reports.'))
         console.log(chalk.gray('     Set VOIDEN_SMTP_HOST in your environment or use --smtp-host.'))
-        process.exit(1)
+        process.exit(EXIT_USAGE_ERROR)
       }
 
       console.log(chalk.gray(`  ↑  Sending session report to ${mailTo} …`))
@@ -973,6 +1023,14 @@ reportCmd
     }
   })
 
+// Splits a `name` or `name@version` CLI arg. Plugin ids are plain slugs (no
+// leading `@`), so splitting on the first `@` is unambiguous.
+function parsePluginTarget(raw: string): { name: string; pinVersion?: string } {
+  const at = raw.indexOf('@')
+  if (at <= 0) return { name: raw }
+  return { name: raw.slice(0, at), pinVersion: raw.slice(at + 1) }
+}
+
 // ── voiden-runner plugin ──────────────────────────────────────────────────────
 
 const pluginCmd = program
@@ -984,20 +1042,22 @@ pluginCmd
   .command('install [names...]')
   .description(
     'Install one or more plugins, or all core plugins\n\n' +
-    '  --all installs all core plugins only. Community plugins must be installed by name.\n\n' +
+    '  --all installs all core plugins only. Community plugins must be installed by name.\n' +
+    '  Pin an exact version with name@version (e.g. after `voiden-runner lock`, or to\n' +
+    '  match a "Block ... requires plugin X vY" error).\n\n' +
     '  Examples:\n' +
     '    voiden-runner plugin install --all\n' +
     '    voiden-runner plugin install voiden-scripting\n' +
-    '    voiden-runner plugin install apyhub-explorer\n'
+    '    voiden-runner plugin install voiden-rest-api@1.4.7\n'
   )
   .option('--all', 'Install all core plugins (community plugins must be installed by name)')
-  .action(async (names: string[], opts) => {
+  .action(async (rawNames: string[], opts) => {
     const corePlugins = await getCorePlugins()
     const communityPlugins = await fetchCommunityPlugins()
 
-    const targets: string[] = opts.all
-      ? corePlugins.map(p => p.name)
-      : names
+    const targets: { name: string; pinVersion?: string }[] = opts.all
+      ? corePlugins.map(p => ({ name: p.name }))
+      : rawNames.map(parsePluginTarget)
 
     if (targets.length === 0) {
       console.error(chalk.red('Specify plugin name(s) or use --all'))
@@ -1005,21 +1065,26 @@ pluginCmd
       if (communityPlugins.length > 0) {
         console.log(chalk.gray('  Community (install by name): ' + communityPlugins.map(p => p.id).join(', ')))
       }
-      process.exit(1)
+      process.exit(EXIT_USAGE_ERROR)
     }
 
     let installedCount = 0
-    for (const name of targets) {
-      const coreDef = await findPlugin(name)
-      const commDef = !coreDef ? findCommunityPlugin(name, communityPlugins) : undefined
-      if (!coreDef && !commDef) {
+    for (const { name, pinVersion } of targets) {
+      const foundCoreDef = await findPlugin(name)
+      const foundCommDef = !foundCoreDef ? findCommunityPlugin(name, communityPlugins) : undefined
+      if (!foundCoreDef && !foundCommDef) {
         console.log(chalk.yellow(`  ⚠  Unknown plugin "${name}" — skipped`))
         continue
       }
+      // A pinned version overrides the registry's "latest" default — this is what
+      // makes the fix-it command in version-mismatch errors ("plugin install x@y")
+      // actually able to install the exact version a file declares.
+      const coreDef = foundCoreDef && pinVersion ? { ...foundCoreDef, version: pinVersion } : foundCoreDef
+      const commDef = foundCommDef && pinVersion ? { ...foundCommDef, version: pinVersion } : foundCommDef
 
-      // Core plugins: only download if not already bundled in the package or cached
-      // from a previous install — `bundled: true` plugins should need no network call.
-      if (coreDef && !hasCoreRunner(name)) {
+      // Core plugins: only download if not already bundled/cached — unless a
+      // specific version was pinned, in which case always fetch that version.
+      if (coreDef && (pinVersion || !hasCoreRunner(name))) {
         process.stdout.write(`  ↓  Downloading runner for ${chalk.bold(name)} …`)
         try {
           const ok = await downloadCoreRunner(coreDef.name, coreDef.repo, coreDef.runnerAsset, coreDef.version, false)
@@ -1055,6 +1120,12 @@ pluginCmd
       const fresh = installPlugin(name, coreDef?.version ?? commDef?.version)
       if (fresh) {
         console.log(chalk.green(`  ✓  Installed`) + chalk.bold(` ${name}`) + chalk.gray(`  —  ${description}`))
+        installedCount++
+      } else if (pinVersion) {
+        // Re-running install with an explicit pin (e.g. to fix a version-mismatch)
+        // should still record the newly-downloaded version even if already "installed".
+        setPluginVersion(name, coreDef?.version ?? commDef?.version ?? pinVersion)
+        console.log(chalk.green(`  ✓  Installed`) + chalk.bold(` ${name}@${pinVersion}`))
         installedCount++
       } else {
         console.log(chalk.gray(`  ·  Already installed`) + ` ${name}`)
@@ -1159,18 +1230,27 @@ pluginCmd
     '    voiden-runner plugin uninstall --all\n'
   )
   .option('--all', 'Uninstall all installed plugins (core and community)')
-  .action((names: string[], opts: { all?: boolean }) => {
-    const targets: string[] = opts.all ? Object.keys(readStore().installedPlugins) : names
+  .action(async (names: string[], opts: { all?: boolean }) => {
+    // Core plugins are bundled and enabled by default — they may never have
+    // an explicit store record even though they're clearly active, so --all
+    // (and named uninstalls of a bundled plugin) must include the full core
+    // registry, not just names that already happen to have a store record.
+    const corePlugins = await getCorePlugins()
+    const coreNames = new Set(corePlugins.map(p => p.name))
+
+    const targets: string[] = opts.all
+      ? [...new Set([...coreNames, ...getAllInstalledPlugins().map(p => p.name)])]
+      : names
 
     if (targets.length === 0) {
       console.error(chalk.red('  Specify plugin name(s) or use --all'))
-      process.exit(1)
+      process.exit(EXIT_USAGE_ERROR)
       return
     }
 
     let removedCount = 0
     for (const name of targets) {
-      const removed = uninstallPlugin(name)
+      const removed = uninstallPlugin(name, coreNames.has(name))
       if (removed) {
         console.log(chalk.green(`  ✓  Uninstalled`) + ` ${name}`)
         removedCount++
@@ -1198,9 +1278,11 @@ pluginCmd
   .action(async (name: string | undefined, opts: { all?: boolean }) => {
     if (opts.all) {
       const store = readStore()
-      // Re-enable all explicitly disabled plugins (core + community)
+      // Re-enable all explicitly disabled plugins (core + community) — but not
+      // uninstalled ones; bringing those back requires an explicit `plugin
+      // install`, not a blanket --all enable.
       const disabled = Object.entries(store.installedPlugins)
-        .filter(([, r]) => !r.enabled)
+        .filter(([, r]) => !r.enabled && !r.uninstalled)
         .map(([n]) => n)
       // Also ensure all core plugins that were never in the store are treated as enabled (default)
       const disabledCoreNotInStore: string[] = []
@@ -1217,14 +1299,14 @@ pluginCmd
     }
     if (!name) {
       console.error(chalk.red('  Specify a plugin name or use --all'))
-      process.exit(1)
+      process.exit(EXIT_USAGE_ERROR)
     }
     const communityPlugins = await fetchCommunityPlugins()
     const commDef = findCommunityPlugin(name, communityPlugins)
     if (commDef && !hasCommunityRunner(name)) {
       console.log(chalk.red(`  ✗  Cannot enable "${name}" — runner not installed`))
       console.log(chalk.gray(`     Run: voiden-runner plugin install ${name}`))
-      process.exit(1)
+      process.exit(EXIT_USAGE_ERROR)
     }
     setPluginEnabled(name, true)
     console.log(chalk.green(`  ✓  Enabled`) + ` ${name}`)
@@ -1262,7 +1344,7 @@ pluginCmd
     }
     if (!name) {
       console.error(chalk.red('  Specify a plugin name or use --all'))
-      process.exit(1)
+      process.exit(EXIT_USAGE_ERROR)
       return
     }
     setPluginEnabled(name, false)
@@ -1295,10 +1377,14 @@ pluginCmd
 
     for (const def of corePlugins) {
       const record = store.installedPlugins[def.name]
-      const isDisabled = record !== undefined && !record.enabled
-      const statusBadge = isDisabled
-        ? chalk.yellow('  · disabled')
-        : chalk.green('  ✓ enabled')
+      let statusBadge: string
+      if (record?.uninstalled) {
+        statusBadge = chalk.gray('  not installed')
+      } else if (record !== undefined && !record.enabled) {
+        statusBadge = chalk.yellow('  · disabled')
+      } else {
+        statusBadge = chalk.green('  ✓ enabled')
+      }
       console.log(`  ${chalk.bold(def.name.padEnd(24))}${statusBadge}${updateBadge(def.name, def.version)}`)
       console.log(chalk.gray(`    ${def.description}`))
     }
@@ -1353,6 +1439,359 @@ pluginCmd
     }
 
     console.log()
+  })
+
+// ── voiden-runner mcp ─────────────────────────────────────────────────────────
+//
+// Enables the AI-agent loop for CLI-only users (no Voiden app installed):
+// registers @voiden/mcp-server with Claude Code / Codex, and installs a
+// standalone skill teaching the run/verify/write-back workflow. The Voiden
+// app's own Settings toggle does the equivalent for desktop users, reusing
+// the same registration helpers from mcpInstall.ts.
+
+function resolveMcpTargets(opts: { claude?: boolean; codex?: boolean }): { claude: boolean; codex: boolean } {
+  // Default to both when neither flag is given — a single command should be
+  // enough to "just enable this".
+  if (!opts.claude && !opts.codex) return { claude: true, codex: true }
+  return { claude: Boolean(opts.claude), codex: Boolean(opts.codex) }
+}
+
+const mcpCmd = program
+  .command('mcp')
+  .description('Enable AI-agent integration — registers @voiden/mcp-server and installs a run/verify skill')
+
+mcpCmd
+  .command('install')
+  .description(
+    'Register @voiden/mcp-server with Claude Code and/or Codex, and install a skill teaching the run/verify/write-back loop.\n\n' +
+    '  Examples:\n' +
+    '    voiden-runner mcp install                                    # both Claude Code and Codex\n' +
+    '    voiden-runner mcp install --claude                           # Claude Code only\n' +
+    '    voiden-runner mcp install -p ./my-project                    # register against a specific project dir (default: cwd)\n' +
+    '    voiden-runner mcp install --local-server ./dist/index.js     # before publishing: point at a local build instead of npx\n'
+  )
+  .option('--claude', 'Install for Claude Code only')
+  .option('--codex', 'Install for Codex only')
+  .option('-p, --project <path>', 'Project directory to register the MCP server against', '.')
+  .option('--local-server <path>', 'Use `node <path>` instead of `npx -y @voiden/mcp-server` — for testing against a local build before it\'s published')
+  .action((opts) => {
+    const targets = resolveMcpTargets(opts)
+    const serverCommand = opts.localServer
+      ? { command: 'node', args: [resolve(opts.localServer), resolve(opts.project)] }
+      : undefined
+    const installed = installMcpIntegration(opts.project, targets, MCP_SKILL_MARKDOWN, serverCommand)
+    if (installed.length === 0) {
+      console.log(chalk.yellow('  Nothing to install.'))
+      return
+    }
+    console.log()
+    for (const target of installed) {
+      console.log(chalk.green(`  ✓  ${target === 'claude' ? 'Claude Code' : 'Codex'}`) + chalk.gray(`  —  skill installed, @voiden/mcp-server registered for ${resolve(opts.project)}`))
+    }
+    if (serverCommand) {
+      console.log(chalk.gray(`  Using local build: node ${serverCommand.args[0]}`))
+    }
+    console.log()
+    console.log(chalk.gray('  Restart Claude Code / Codex (or run /mcp) to pick up the new server.'))
+  })
+
+mcpCmd
+  .command('uninstall')
+  .description('Remove the MCP server registration and skill installed by `mcp install`')
+  .option('--claude', 'Remove Claude Code integration only')
+  .option('--codex', 'Remove Codex integration only')
+  .option('-p, --project <path>', 'Project directory to unregister the MCP server from', '.')
+  .action((opts) => {
+    const targets = resolveMcpTargets(opts)
+    const removed = uninstallMcpIntegration(opts.project, targets)
+    if (removed.length === 0) {
+      console.log(chalk.yellow('  Nothing to remove.'))
+      return
+    }
+    for (const target of removed) {
+      console.log(chalk.green(`  ✓  Removed`) + chalk.gray(` ${target === 'claude' ? 'Claude Code' : 'Codex'} integration`))
+    }
+  })
+
+mcpCmd
+  .command('status')
+  .description('Show whether the MCP server + skill are installed for this project')
+  .option('-p, --project <path>', 'Project directory to check', '.')
+  .action((opts) => {
+    const status = getMcpStatus(opts.project)
+    console.log()
+    console.log(chalk.bold('  Claude Code'))
+    console.log(`    skill installed:     ${status.claude.skillInstalled ? chalk.green('yes') : chalk.gray('no')}`)
+    console.log(`    server registered:   ${status.claude.serverRegistered ? chalk.green('yes') : chalk.gray('no')}`)
+    console.log()
+    console.log(chalk.bold('  Codex'))
+    console.log(`    skill installed:      ${status.codex.skillInstalled ? chalk.green('yes') : chalk.gray('no')}`)
+    console.log(`    server registered:   ${status.codex.serverRegistered ? chalk.green('yes') : chalk.gray('no')}`)
+    console.log()
+  })
+
+mcpCmd
+  .command('serve [path]')
+  .description(
+    'Serve this project as an MCP server — the same tools @voiden/mcp-server exposes ' +
+    '(list/run/write plus declared /tool capabilities), over stdio (default) or HTTP.\n\n' +
+    '  Examples:\n' +
+    '    voiden-runner mcp serve                          # stdio, current directory\n' +
+    '    voiden-runner mcp serve ./api                     # stdio, specific project\n' +
+    '    voiden-runner mcp serve --http --port 3900         # HTTP on 127.0.0.1:3900\n' +
+    '    voiden-runner mcp serve --check                   # dry run — print what would be served, no live server\n'
+  )
+  .option('--http', 'Serve over streamable HTTP instead of stdio')
+  .option('-p, --port <port>', 'HTTP port (only with --http)', '3000')
+  .option('--host <host>', 'HTTP bind address (only with --http) — binding beyond 127.0.0.1 is a real exposure risk', '127.0.0.1')
+  .option('-e, --env <path>', 'Path to .env file for variable substitution')
+  .option('--check', 'Print what would be served and exit, without starting a live server')
+  .action(async (path: string | undefined, opts) => {
+    const projectRoot = resolve(path ?? '.')
+
+    const env: Record<string, string> = Object.fromEntries(
+      Object.entries(process.env).filter(([, v]) => v !== undefined) as [string, string][]
+    )
+    if (opts.env) {
+      const envPath = resolve(opts.env)
+      if (!existsSync(envPath)) {
+        console.error(chalk.red(`Env file not found: ${envPath}`))
+        process.exit(EXIT_USAGE_ERROR)
+      }
+      try {
+        Object.assign(env, loadEnvFile(envPath))
+      } catch (err: any) {
+        console.error(chalk.red(`  ✗  ${err.message}`))
+        process.exit(EXIT_USAGE_ERROR)
+      }
+    }
+
+    if (opts.check) {
+      // Dry run — no live server. Same underlying decision function real
+      // serving uses, so this can never disagree with what actually gets
+      // registered.
+      const activePlugins = await loadEnabledPlugins()
+      const decisions = await planServedTools(projectRoot, env, activePlugins)
+      console.log(`\n${decisions.length} /tool block(s) found in ${projectRoot}\n`)
+      for (const d of decisions) {
+        if (d.excluded) {
+          console.log(`  [EXCLUDED] ${d.tool.name}`)
+          for (const reason of d.excludedReasons ?? []) console.log(`      ${reason}`)
+          continue
+        }
+        const label = d.served ? (d.descriptionNote ? `SERVED (${d.status!.state})` : 'SERVED') : 'WITHDRAWN'
+        console.log(`  [${label}] ${d.tool.name} — ${d.status!.state}${d.status!.note ? `: ${d.status!.note}` : ''}`)
+      }
+      console.log(chalk.gray(`  (plus the 4 fixed tools: list_void_files, list_requests, run_request, write_result)`))
+      console.log()
+      const anyFailing = decisions.some((d) => d.excluded || d.status?.state === 'failing')
+      process.exit(anyFailing ? EXIT_RUN_FAILURE : EXIT_SUCCESS)
+    }
+
+    // Verification (real network calls) runs exactly once here, regardless
+    // of transport — never repeated per HTTP request below.
+    const activePlugins = await loadEnabledPlugins()
+    const decisions = await planServedTools(projectRoot, env, activePlugins)
+    const commitSha = getCommitSha(projectRoot)
+    const servedCount = decisions.filter((d) => d.served).length
+    // Shared across calls so {{process.xxx}} runtime variables chain the
+    // same way they do for the stdio path and for @voiden/mcp-server.
+    const runtimeVars: Record<string, any> = {}
+
+    if (opts.http) {
+      const port = Number(opts.port)
+      const host = opts.host
+
+      // A fresh McpServer + transport per HTTP request — this is how the
+      // SDK's own stateless example (examples/server/simpleStatelessStreamableHttp.js)
+      // does it, not an arbitrary choice: reusing one transport across
+      // requests returns 500s. Cheap: registration is just schema/handler
+      // wiring against the already-computed `decisions`, no re-verification.
+      const httpServer = createHttpServer(async (req, res) => {
+        try {
+          const requestServer = new McpServer({ name: 'voiden-runner', version: '1.0.0' })
+          registerFixedTools(requestServer, projectRoot, runtimeVars, activePlugins)
+          registerToolsFromDecisions(requestServer, decisions, env, runtimeVars, activePlugins, commitSha, projectRoot)
+          const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined })
+          await requestServer.connect(transport)
+          res.on('close', () => {
+            transport.close()
+            requestServer.close()
+          })
+          await transport.handleRequest(req, res)
+        } catch (err: any) {
+          console.error(chalk.red(`  ✗  Error handling MCP request: ${err?.message ?? String(err)}`))
+          if (!res.headersSent) {
+            res.writeHead(500, { 'content-type': 'application/json' }).end(JSON.stringify({
+              jsonrpc: '2.0', error: { code: -32603, message: 'Internal server error' }, id: null,
+            }))
+          }
+        }
+      })
+      httpServer.listen(port, host, () => {
+        console.error(chalk.green(`  ✓  voiden-runner mcp serve — listening on http://${host}:${port}/mcp`))
+        console.error(chalk.gray(`     ${servedCount} tool(s) served (plus list_void_files, list_requests, run_request, write_result)`))
+        if (host !== '127.0.0.1' && host !== 'localhost') {
+          console.error(chalk.red(`  ⚠  Bound to ${host} — reachable beyond this machine. Make sure that's intended.`))
+        }
+      })
+      // No process.exit() — stays alive until Ctrl-C, same as the stdio path below.
+    } else {
+      // stdio: one persistent server for the process lifetime — stdout is
+      // reserved for the JSON-RPC stream, so nothing gets printed there.
+      // Startup info goes to stderr only, same discipline @voiden/mcp-server's
+      // own entrypoint already follows (it prints nothing).
+      const server = new McpServer({ name: 'voiden-runner', version: '1.0.0' })
+      registerFixedTools(server, projectRoot, runtimeVars, activePlugins)
+      registerToolsFromDecisions(server, decisions, env, runtimeVars, activePlugins, commitSha, projectRoot)
+      await server.connect(new StdioServerTransport())
+    }
+  })
+
+// ── voiden-runner tool ────────────────────────────────────────────────────────
+//
+// Discovery + verification for /tool blocks (voiden-mcp-tool plugin) — the
+// standalone CLI surface for the same discoverTools/verifyTools functions
+// @voiden/mcp-server will use for live agent-serving. No scheduling here:
+// `cadence` on a verify entry is a tag `--cadence` filters by, not something
+// this command enforces timing for — that's a human/CI decision, same as
+// deciding when to run `voiden-runner run` at all.
+
+const toolCmd = program
+  .command('tool')
+  .description('Discover and verify /tool blocks — capabilities declared for AI agents')
+
+toolCmd
+  .command('list [paths...]')
+  .description('List every /tool block found under the given path(s) (default: current directory) — does not execute anything')
+  .option('--json', 'Output as JSON')
+  .action(async (paths: string[], opts) => {
+    const targets = paths.length > 0 ? paths : ['.']
+    const allTools: ToolDef[] = []
+    const activePlugins = await loadEnabledPlugins()
+    for (const p of targets) {
+      allTools.push(...await discoverTools(resolve(p), { activePlugins }))
+    }
+
+    if (opts.json) {
+      console.log(JSON.stringify(allTools, null, 2))
+      return
+    }
+
+    if (allTools.length === 0) {
+      console.log(chalk.yellow('  No /tool blocks found.'))
+      return
+    }
+
+    console.log()
+    for (const tool of allTools) {
+      console.log(chalk.bold(`  ${tool.name}`) + chalk.gray(`  —  ${relative(process.cwd(), tool.filePath)}${tool.sectionLabel ? ` [${tool.sectionLabel}]` : ''}`))
+      if (tool.description) console.log(chalk.gray(`    ${tool.description}`))
+      console.log(chalk.gray(`    params: ${tool.params.length}   verifies: ${tool.verifies.length}   on-failure: ${tool.onFailure}`))
+      console.log()
+    }
+  })
+
+toolCmd
+  .command('verify [paths...]')
+  .description(
+    "Run each /tool block's verification requests and report verified / unverified / failing.\n\n" +
+    '  Examples:\n' +
+    '    voiden-runner tool verify\n' +
+    '    voiden-runner tool verify ./api/ --cadence nightly\n' +
+    '    voiden-runner tool verify --json --write\n'
+  )
+  .option('--cadence <tag>', 'Only run verification requests tagged with this cadence — omit to run every entry regardless of tag')
+  .option('--json', 'Output as JSON (suppresses normal output — useful for CI)')
+  .option('--write', 'Write the computed status back into each /tool block. Off by default — verification always recomputes fresh and never trusts a stale write-back')
+  .option('-e, --env <path>', 'Path to .env or .yaml file for variable substitution')
+  .action(async (paths: string[], opts) => {
+    const targets = paths.length > 0 ? paths : ['.']
+
+    const env: Record<string, string> = Object.fromEntries(
+      Object.entries(process.env).filter(([, v]) => v !== undefined) as [string, string][]
+    )
+    if (opts.env) {
+      const envPath = resolve(opts.env)
+      if (!existsSync(envPath)) {
+        console.error(chalk.red(`Env file not found: ${envPath}`))
+        process.exit(EXIT_USAGE_ERROR)
+      }
+      try {
+        Object.assign(env, loadEnvFile(envPath))
+      } catch (err: any) {
+        console.error(chalk.red(`  ✗  ${err.message}`))
+        process.exit(EXIT_USAGE_ERROR)
+      }
+    }
+
+    const activePlugins = await loadEnabledPlugins()
+    const allTools: ToolDef[] = []
+    for (const p of targets) {
+      allTools.push(...await discoverTools(resolve(p), { activePlugins }))
+    }
+
+    if (allTools.length === 0) {
+      if (opts.json) console.log(JSON.stringify({ tools: [], issues: [] }, null, 2))
+      else console.log(chalk.yellow('  No /tool blocks found.'))
+      process.exit(EXIT_SUCCESS)
+    }
+
+    const { validTools, issues } = await validateTools(resolve(targets[0]), allTools)
+    const statuses = await verifyTools(validTools, { cadence: opts.cadence, env, activePlugins, projectRoot: resolve(targets[0]) })
+
+    if (opts.write) {
+      for (const status of statuses) {
+        try {
+          upsertToolStatus(status.tool.filePath, status.tool.toolBlockUid, { state: status.state, note: status.note })
+        } catch (err: any) {
+          console.error(chalk.red(`  ✗  Failed to write status for "${status.tool.name}": ${err?.message ?? String(err)}`))
+        }
+      }
+    }
+
+    const anyFailing = statuses.some(s => s.state === 'failing') || issues.length > 0
+
+    if (opts.json) {
+      console.log(JSON.stringify({ tools: statuses, issues }, null, 2))
+    } else {
+      console.log()
+
+      // Structurally excluded tools (§1.6) — reported distinctly from a
+      // verification failure: this is "the contract itself doesn't add up,"
+      // not "the contract's proof failed." Neither ran nor counted below.
+      const excludedNames = [...new Set(issues.map(i => i.tool.name))]
+      for (const name of excludedNames) {
+        console.log(`  ${chalk.red('✗ excluded')}   ${chalk.bold(name)}`)
+        for (const issue of issues.filter(i => i.tool.name === name)) {
+          console.log(chalk.gray(`      [${issue.check}] ${issue.message}`))
+        }
+        console.log()
+      }
+
+      for (const status of statuses) {
+        const icon =
+          status.state === 'verified'   ? chalk.green('✓ verified  ') :
+          status.state === 'failing'    ? chalk.red('✗ failing   ') :
+                                           chalk.yellow('○ unverified')
+        console.log(`  ${icon}  ${chalk.bold(status.tool.name)}` + chalk.gray(`  —  ${relative(process.cwd(), status.tool.filePath)}${status.tool.sectionLabel ? ` [${status.tool.sectionLabel}]` : ''}`))
+        if (status.note) console.log(chalk.gray(`      ${status.note}`))
+        for (const r of status.results) {
+          const rIcon = r.passed ? chalk.green('✓') : chalk.red('✗')
+          console.log(`      ${rIcon} ${r.entry.role}: ${r.entry.sectionLabel}` + (r.reason ? chalk.gray(`  (${r.reason})`) : ''))
+        }
+        console.log()
+      }
+
+      const verified = statuses.filter(s => s.state === 'verified').length
+      const unverified = statuses.filter(s => s.state === 'unverified').length
+      const failing = statuses.filter(s => s.state === 'failing').length
+      console.log(chalk.bold(`  ${statuses.length} tool(s)`) + chalk.gray(` — ${chalk.green(verified + ' verified')}, ${chalk.yellow(unverified + ' unverified')}, ${chalk.red(failing + ' failing')}`) + (excludedNames.length > 0 ? chalk.red(`, ${excludedNames.length} excluded`) : ''))
+      if (opts.write) console.log(chalk.gray('  Status written back into each /tool block.'))
+      console.log()
+    }
+
+    process.exit(anyFailing ? EXIT_RUN_FAILURE : EXIT_SUCCESS)
   })
 
 program.parse()

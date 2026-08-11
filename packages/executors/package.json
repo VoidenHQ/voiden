@@ -1,9 +1,14 @@
 {
   "name": "@voiden/executors",
-  "version": "0.1.2",
-  "description": "Shared protocol executors for Voiden — REST, WebSocket, gRPC",
+  "version": "0.1.5",
+  "description": "Shared protocol executors for Voiden — REST, WebSocket, gRPC, MCP",
   "type": "module",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/VoidenHQ/voiden",
+    "directory": "packages/executors"
+  },
   "publishConfig": {
     "access": "public"
   },
@@ -28,8 +33,10 @@
   },
   "dependencies": {
     "@grpc/grpc-js": "^1.10.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "mime-types": "^2.1.35",
-    "ws": "^8.17.0"
+    "ws": "^8.17.0",
+    "yaml": "^2.4.2"
   },
   "devDependencies": {
     "@types/mime-types": "^2.1.4",

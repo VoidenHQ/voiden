@@ -4,6 +4,7 @@ import eventBus from "./eventBus";
 import { invalidateGitCache, ensureVoidenGitignore, getCachedIsRepo } from "./git";
 import { clearTreeResultCache } from "./ipc/files";
 import { logger } from "./logger";
+import { validateVoidFile } from "./voidValidator";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface WatcherEntry {
@@ -33,6 +34,24 @@ function isDeletingActive(filePath: string): boolean {
 
 function isWritingActive(filePath: string): boolean {
   return writingPaths.has(filePath);
+}
+
+// Gives an externally-written (e.g. agent-written) .void file the same
+// immediate feedback a person gets while typing in the editor — instead of
+// silently accepting whatever landed on disk. Only structural parse-validity
+// is checked (see voidValidator.ts); this is not a full schema/lint pass.
+function validateExternalVoidChange(filePath: string): void {
+  try {
+    const { valid, totalFences, parsedBlocks } = validateVoidFile(filePath);
+    if (valid) return;
+    logger.warn("system", "FileWatcher: external .void change failed validation", { filePath, totalFences, parsedBlocks });
+    eventBus.emitEvent("toast:warning", {
+      title: "This .void file has parse issues",
+      description: `${path.basename(filePath)} — ${totalFences - parsedBlocks} of ${totalFences} block(s) failed to parse after an external change`,
+    });
+  } catch (error: any) {
+    logger.warn("system", `FileWatcher: validation error — ${error?.message}`, { filePath });
+  }
 }
 
 function debounce(func: (...args: any[]) => void, wait: number) {
@@ -148,6 +167,7 @@ function startWatching(projectPath: string, watcherId: string) {
       if (isVoidFile(filePath)) {
         if (isWritingActive(filePath)) { writingPaths.delete(filePath); return; }
         emit("apy:changed", { path: filePath, project: projectPath, watcherId });
+        validateExternalVoidChange(filePath);
       } else if (isVoidenYaml(filePath)) {
         emit("voiden:yaml-changed", { path: filePath, project: projectPath, watcherId });
       } else if (isEnvFile(filePath)) {

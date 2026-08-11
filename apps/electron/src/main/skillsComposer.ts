@@ -48,6 +48,12 @@ function getCoreExtensionSkillPath(extensionId: string): string {
   return path.join(repoRoot, "apps", "electron", "skills", "core", `${extensionId}.skill.md`);
 }
 
+// Placeholder token in base.skill.md's frontmatter examples, substituted below
+// with the real running app version — so an agent generating a new .void
+// file can copy the shown `version` literally instead of guessing/inventing
+// one (it has no other way to know what's actually installed).
+const VOIDEN_VERSION_TOKEN = "__VOIDEN_APP_VERSION__";
+
 /**
  * Reads skill.md files from the base + all enabled extensions and concatenates them.
  * Missing skill.md files are silently skipped.
@@ -80,5 +86,5 @@ export function composeSkillMarkdown(appState: AppState): string {
     }
   }
 
-  return parts.join("\n\n---\n\n");
+  return parts.join("\n\n---\n\n").split(VOIDEN_VERSION_TOKEN).join(app.getVersion());
 }

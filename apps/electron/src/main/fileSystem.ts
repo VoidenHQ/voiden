@@ -43,6 +43,10 @@ class IOSemaphore {
   }
 }
 
+// Kept visible in the file tree even though it's a dotfile — see the
+// filter in buildFileTree/files:expandDir/files:expandDirAll below.
+export const VOIDEN_DIR_NAME = ".voiden";
+
 // Directories whose contents are too large to eagerly walk.
 // Defined once outside the recursive function so the Set is not recreated
 // on every directory level (buildFileTree can be called thousands of times).
@@ -95,6 +99,9 @@ export const buildFileTree = async (
     ) {
       return true;
     }
+    // .voiden/ holds the environment YAML files, MCP config, etc. — it must
+    // stay browsable so users can find/inspect them, unlike other dotfiles.
+    if (item.isDirectory() && item.name === VOIDEN_DIR_NAME) return true;
     return false;
   });
 
