@@ -45,10 +45,23 @@ export function registerCustomVariableHighlighter(rule: CustomVariableHighlighte
   window.dispatchEvent(new CustomEvent('voiden:custom-highlighter-updated'));
 }
 
+/** Structural equality check so unrelated rebuilds don't touch unaffected DOM nodes. */
+function decorationsEqual(a: readonly Decoration[], b: readonly Decoration[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (!a[i].eq(b[i])) return false;
+  }
+  return true;
+}
+
 /**
  * Find and highlight variables in the document.
+ * When `oldSet` is given and the rebuild is identical, the same DecorationSet
+ * instance is returned so ProseMirror can skip re-rendering unaffected nodes
+ * (a full rebuild recreating every decoration was orphaning the native caret
+ * paint on unrelated typing).
  */
-function findVariable(doc: Node): DecorationSet {
+function findVariable(doc: Node, oldSet?: DecorationSet): DecorationSet {
   const variableRegex = /{{(.*?)}}/g;
   const decorations: Decoration[] = [];
 
@@ -108,13 +121,15 @@ function findVariable(doc: Node): DecorationSet {
     });
   });
 
+  if (oldSet) {
+    const existing = oldSet.find(0, doc.content.size);
+    if (decorationsEqual(existing, decorations)) return oldSet;
+  }
+
   return DecorationSet.create(doc, decorations);
 }
 
 const pluginKey = new PluginKey("colorHighlighter");
-
-// Debounce timer for scheduling full decoration rebuilds
-let envHighlightTimer: ReturnType<typeof setTimeout> | null = null;
 
 /**
  * Environment highlighter extension.
@@ -137,7 +152,7 @@ export const environmentHighlighter = (envData: Record<string, string> = {}) => 
             apply(transaction, oldState) {
               // Force rebuild: always do full scan immediately
               if (transaction.getMeta("forceHighlightUpdate")) {
-                return findVariable(transaction.doc);
+                return findVariable(transaction.doc, oldState);
               }
               // On doc change: remap positions immediately, schedule full rebuild
               if (transaction.docChanged) {
@@ -148,7 +163,10 @@ export const environmentHighlighter = (envData: Record<string, string> = {}) => 
           },
           // Use view() to schedule debounced full rebuilds after typing pauses,
           // and to react when a plugin registers a new custom highlighter rule.
+          // Timer is scoped per-view (not module-level) so background/cached
+          // tabs don't cancel each other's pending rebuild.
           view(editorView) {
+            let envHighlightTimer: ReturnType<typeof setTimeout> | null = null;
             const onCustomRule = () => {
               editorView.dispatch(editorView.state.tr.setMeta("forceHighlightUpdate", true));
             };
