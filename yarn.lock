@@ -9515,7 +9515,7 @@ __metadata:
     "@voiden/sdk": "npm:*"
     chalk: "npm:^5.3.0"
     commander: "npm:^12.0.0"
-    nodemailer: "npm:^9.0.3"
+    nodemailer: "npm:^8.0.7"
     tsx: "npm:^4.15.0"
     typescript: "npm:^5.5.3"
     yaml: "npm:^2.4.2"
@@ -11700,7 +11700,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"debug@npm:^4.4.3":
+"debug@npm:^4.4.1, debug@npm:^4.4.3":
   version: 4.4.3
   resolution: "debug@npm:4.4.3"
   dependencies:
@@ -17107,7 +17107,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"mime-types@npm:^2.1.12, mime-types@npm:^2.1.35, mime-types@npm:~2.1.24, mime-types@npm:~2.1.34":
+"mime-types@npm:^2.1.35, mime-types@npm:~2.1.24, mime-types@npm:~2.1.34":
   version: 2.1.35
   resolution: "mime-types@npm:2.1.35"
   dependencies:
@@ -17703,10 +17703,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"nodemailer@npm:^9.0.3":
-  version: 9.0.3
-  resolution: "nodemailer@npm:9.0.3"
-  checksum: 10c0/9e93516fb9fcc8835b683cdf3b90135648dabf0133ac9b04890303c2e23eef1d7bae58fe98afb0e251ae10428b96f05df483deb78f0b49f47793debbb0383216
+"nodemailer@npm:^8.0.7":
+  version: 8.0.11
+  resolution: "nodemailer@npm:8.0.11"
+  checksum: 10c0/19229216c63a32eae59d7b39f3dffeba20be317f2335d08d86fb70bd01845a1bf108fecd019c0e90ef186e3d9177cf478192b333cf38620ad0f8c7a6e1e5ae05
   languageName: node
   linkType: hard
 
@@ -23118,7 +23118,7 @@ __metadata:
     "@types/mime-types": "npm:^2"
     "@types/selfsigned": "npm:^2.1.0"
     "@voiden/executors": "npm:*"
-    adm-zip: "npm:^0.5.16"
+    adm-zip: "npm:^0.6.0"
     aws-sdk: "npm:2.1692.0"
     dotenv: "npm:^16.4.5"
     electron: "npm:39.8.8"
