@@ -57,5 +57,10 @@
     "@types/ws": "^8.5.10",
     "tsx": "^4.15.0",
     "typescript": "^5.5.3"
+  },
+  "overrides": {
+    "protobufjs": ">=7.6.1 <8.0.0",
+    "@grpc/grpc-js": ">=1.14.4",
+    "ws": ">=8.21.0"
   }
 }

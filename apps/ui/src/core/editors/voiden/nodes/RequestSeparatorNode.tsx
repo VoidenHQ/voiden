@@ -9,7 +9,7 @@
 import { Node, mergeAttributes } from "@tiptap/core";
 import { NodeViewProps, ReactNodeViewRenderer, NodeViewWrapper } from "@tiptap/react";
 import { useRef, useState, useEffect, useCallback } from "react";
-import { getSectionLineColor } from "../extensions/sectionIndicator";
+import { getSectionLineColor, SECTION_LABEL_COLOR } from "../extensions/sectionIndicator";
 import { useSettings } from "@/core/settings/hooks/useSettings";
 
 const RequestSeparatorView = (props: NodeViewProps) => {
@@ -51,7 +51,6 @@ const RequestSeparatorView = (props: NodeViewProps) => {
 
   const colorIndex = typeof node.attrs.colorIndex === "number" ? node.attrs.colorIndex : 0;
   const lineColor = decorationColor ?? getSectionLineColor(colorIndex);
-  const textColor = decorationColor ?? getSectionLineColor(colorIndex);
   const label = node.attrs.label || "New Request";
 
   const startEditing = useCallback(() => {
@@ -116,7 +115,7 @@ const RequestSeparatorView = (props: NodeViewProps) => {
               fontWeight: 700,
               letterSpacing: "1.5px",
               textTransform: "uppercase",
-              color: textColor,
+              color: SECTION_LABEL_COLOR,
               whiteSpace: "nowrap",
               background: "var(--editor-bg, transparent)",
               border: `1px solid ${lineColor}`,
@@ -138,7 +137,7 @@ const RequestSeparatorView = (props: NodeViewProps) => {
               fontWeight: 700,
               letterSpacing: "1.5px",
               textTransform: "uppercase",
-              color: textColor,
+              color: SECTION_LABEL_COLOR,
               whiteSpace: "nowrap",
               cursor: editor.isEditable ? "text" : "default",
               padding: "2px 4px",
