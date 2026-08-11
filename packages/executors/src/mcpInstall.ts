@@ -37,18 +37,15 @@ export interface ServerCommand {
 }
 
 /**
- * Default launch command — the published npm package, pinned to `@latest`
- * explicitly so every registration always resolves the current release
- * rather than whatever npx happens to have cached. Callers that need a local
- * build instead (dev-mode Electron, `voiden-runner mcp install
- * --local-server`) pass an explicit `serverCommand` override — e.g.
- * `{command: 'node', args: ['/abs/path/to/voiden-mcp-server/dist/index.js', projectPath]}`
- * — this function is never called in that case.
+ * Default launch command — requires @voiden/mcp-server to be published to
+ * npm; until then, pass an explicit `serverCommand` override (e.g. `{command:
+ * 'node', args: ['/abs/path/to/voiden-mcp-server/dist/index.js', projectPath]}`)
+ * to test against a local build.
  */
 function defaultServerCommand(projectPath: string): ServerCommand {
   return {
     command: 'npx',
-    args: ['-y', '@voiden/mcp-server@latest', projectPath],
+    args: ['-y', '@voiden/mcp-server', projectPath],
   }
 }
 
@@ -146,7 +143,12 @@ function codexConfigPath(): string {
 }
 
 function codexSectionRegex(): RegExp {
-  return new RegExp(`\\n?\\[mcp_servers\\.${SERVER_NAME}\\][^\\[]*`, 'm')
+  // Match the whole table body up to (but not including) the next table
+  // header or EOF. Must NOT stop at the first `[` the way `[^\[]*` did —
+  // the `args = [...]` line inside the section is itself a TOML array and
+  // contains `[`/`]`, so that stopped mid-array and left the array dangling
+  // in the file after a replace/remove (producing invalid TOML).
+  return new RegExp(`\\n?\\[mcp_servers\\.${SERVER_NAME}\\][\\s\\S]*?(?=\\n\\[|$)`)
 }
 
 function toTomlStringArray(values: string[]): string {
