@@ -3,6 +3,11 @@
 All notable changes to `@voiden/runner` are documented here. This package is
 versioned and released independently of the Voiden desktop app.
 
+## v2.3.0-beta.8 - 2026-08-11
+
+### Fixed
+- `voiden-mcp-tool`'s `planServedTools()` now resolves the project's `.voiden/env-public.yaml`/`env-private.yaml` before running verification, not just before registering an already-served tool's real calls — previously only `registerServedTools()` applied that merge, so a tool whose own request or verify-target request needed a variable that already lives in the project's env file (but wasn't separately handed to the headless process's own env, e.g. via `.mcp.json`'s `env` block) would fail verification and get wrongly withdrawn, even though calling it afterward would have resolved fine. Same class of gap as beta.6's `source: environment` fix, this time for the general env merge rather than declared toolparams. Fixed upstream in `plugin-voiden-mcp-tool`'s `toolCapability.ts`, re-bundled here.
+
 ## v2.3.0-beta.7 - 2026-08-11
 
 ### Fixed
