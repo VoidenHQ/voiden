@@ -1,6 +1,6 @@
 {
   "name": "@voiden/mcp-server",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "MCP server exposing the .void runner (list requests, run requests, write results back) as tools for AI agents",
   "type": "module",
   "license": "MIT",

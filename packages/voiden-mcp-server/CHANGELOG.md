@@ -3,6 +3,11 @@
 All notable changes to `@voiden/mcp-server` are documented here. This package is
 versioned and released independently of the Voiden desktop app and `@voiden/runner`.
 
+## v0.1.6 - 2026-08-11
+
+### Fixed
+- A tool's verification requests now see the project's `.voiden/env-public.yaml`/`env-private.yaml` variables, not just whatever env this server process was started with (e.g. `.mcp.json`'s `env` block) — see `@voiden/runner`'s `2.3.0-beta.8` changelog entry for the underlying fix.
+
 ## v0.1.5 - 2026-08-07
 
 ### Added
