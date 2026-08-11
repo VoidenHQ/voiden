@@ -1,6 +1,6 @@
 {
   "name": "@voiden/runner",
-  "version": "2.3.0-beta.6",
+  "version": "2.3.0-beta.7",
   "description": "CLI runner for .void files — execute REST, WebSocket, and gRPC requests headlessly",
   "type": "module",
   "license": "MIT",

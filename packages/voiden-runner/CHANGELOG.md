@@ -3,6 +3,11 @@
 All notable changes to `@voiden/runner` are documented here. This package is
 versioned and released independently of the Voiden desktop app.
 
+## v2.3.0-beta.7 - 2026-08-11
+
+### Fixed
+- `mcp install`/`mcp uninstall` no longer corrupt `~/.codex/config.toml` — the section-matching regex stopped at the first `[` it saw, which was the `args = [...]` array inside the `[mcp_servers.voiden-mcp]` table itself, so it never consumed that line. A re-install left the old `args` array orphaned as a dangling, unparseable line; an uninstall left it behind entirely, breaking the file for Codex on next launch. Bumps `@voiden/executors` to `0.1.6` for the underlying fix.
+
 ## v2.3.0-beta.6 - 2026-08-07
 
 ### Added
