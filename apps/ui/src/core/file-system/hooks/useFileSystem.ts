@@ -99,13 +99,18 @@ export const prosemirrorToMarkdown = (content: string, schema: Schema) => {
   return markdownWithVersion;
 };
 
-export const invalidateOnFileSave = (path: string, panelId: string, tabId: string) => {
+export const invalidateOnFileSave = (path: string | null, panelId: string, tabId: string) => {
   const queryClient = getQueryClient();
-  const appState = queryClient.getQueryData<any>(["app:state"]);
-  const activeDirectory = appState?.activeDirectory;
   queryClient.invalidateQueries({ queryKey: ["panel:tabs", panelId] });
   queryClient.invalidateQueries({ queryKey: ["tab:content", panelId, tabId] });
-  queryClient.invalidateQueries({ queryKey: ["files:tree", activeDirectory] });
+  // Saving existing file contents doesn't change the directory structure, so
+  // only refresh the tree when a new file was just created (path was unknown
+  // until the write resolved it) and needs to appear in it.
+  if (!path) {
+    const appState = queryClient.getQueryData<any>(["app:state"]);
+    const activeDirectory = appState?.activeDirectory;
+    queryClient.invalidateQueries({ queryKey: ["files:tree", activeDirectory] });
+  }
 };
 
 export const saveFileUtil = async (path: string | null, content: string, panelId: string, tabId: string, schema: Schema) => {
@@ -128,7 +133,7 @@ export const saveFileUtil = async (path: string | null, content: string, panelId
   // For new (previously unsaved) files, register now that we have the real path.
   if (!path) registerSelfSave(filePath);
 
-  invalidateOnFileSave(filePath, panelId, tabId);
+  invalidateOnFileSave(path, panelId, tabId);
 
   useEditorStore.getState().clearUnsaved(tabId);
   useVoidenEditorStore.getState().setFilePath(filePath);
