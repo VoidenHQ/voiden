@@ -1,0 +1,11 @@
+# Changelog
+
+All notable changes to `@voiden/mcp` are documented here. This package is
+versioned and released independently of the Voiden desktop app.
+
+## v0.0.8 - 2026-08-14
+
+### Fixed
+- A live server (`--http` or stdio) now reports `/tool` blocks that were **discovered but excluded** — e.g. a cross-file `requestFilePath` pointing at an absolute path that only resolves on the machine the `.void` file was authored on, so it silently fails to resolve anywhere else it's deployed. Previously only `--check` printed exclusion reasons; a live server just said `N tool(s) served`, making "tools found but excluded" and "project genuinely has zero /tool blocks" look identical, with no way to tell them apart from the logs.
+- New `--verbose` flag (`VOIDEN_PUBLISH_VERBOSE`) actually surfaces plugin-load diagnostics — previously `loadEnabledPlugins()` was always called with `verbose: false` and there was no flag to change that, so a plugin failing to import/initialize (e.g. `voiden-mcp-tool`, the plugin that understands `/tool` blocks at all) did so completely silently: no console output, no exit code change, just an empty tool list indistinguishable from an empty project.
+- When `voiden-mcp-tool` isn't active (disabled, missing bundled runner, or a load-time error) the server now says so loudly at startup instead of just serving 0 tools with no explanation.
