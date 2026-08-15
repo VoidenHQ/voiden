@@ -222,7 +222,13 @@ export const parseAuthNode = (editor: Doc) => {
       break;
     case "digest": finalConfig = { username: config.username || "", password: config.password || "", realm: config.realm || "", algorithm: config.algorithm || "MD5" }; break;
     case "ntlm": finalConfig = { username: config.username || "", password: config.password || "", domain: config.domain || "", workstation: config.workstation || "" }; break;
-    case "awsSignature": finalConfig = { accessKey: config.access_key || "", secretKey: config.secret_key || "", region: config.region || "us-east-1", service: config.service || "execute-api" }; break;
+    case "awsSignature": finalConfig = {
+      accessKey: config.access_key || "",
+      secretKey: config.secret_key || "",
+      sessionToken: config.session_token || "",
+      region: config.region || "us-east-1",
+      service: config.service || "execute-api",
+    }; break;
   }
 
   return { enabled: true, type: mappedType, config: finalConfig };
@@ -461,13 +467,24 @@ export function replaceEnvVariablesInRequest(data: Request, environment?: Record
       };
       case "oauth": return { ...authConfig, accessToken: replaceInString(authConfig.accessToken), tokenType: authConfig.tokenType ? replaceInString(authConfig.tokenType) : authConfig.tokenType };
       case "api-key": return { ...authConfig, key: replaceInString(authConfig.key), value: replaceInString(authConfig.value), in: authConfig.in };
+      case "aws-signature": return {
+        ...authConfig,
+        accessKey: replaceInString(authConfig.accessKey),
+        secretKey: replaceInString(authConfig.secretKey),
+        sessionToken: authConfig.sessionToken ? replaceInString(authConfig.sessionToken) : authConfig.sessionToken,
+        region: replaceInString(authConfig.region),
+        service: replaceInString(authConfig.service),
+      };
       default: return authConfig;
     }
   };
 
-  const replacedAuth = data.auth
-    ? { ...data.auth, config: replaceInAuthConfig(data.auth.config, data.auth.type) }
-    : undefined;
+  const replacedAuth = {
+    ...data.auth,
+    ...(data.auth.config
+      ? { config: replaceInAuthConfig(data.auth.config, data.auth.type) }
+      : {}),
+  };
 
   return {
     ...data,

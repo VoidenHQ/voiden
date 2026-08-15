@@ -134,7 +134,14 @@ export type APIKey = {
   in: "header" | "query";
 };
 
-type AuthType = "basic-auth" | "bearer-token" | "oauth" | "oauth2" | "none" | "api-key";
+type AuthType =
+  | "basic-auth"
+  | "bearer-token"
+  | "oauth"
+  | "oauth2"
+  | "none"
+  | "api-key"
+  | "aws-signature";
 
 export type Authorization = {
   enabled: boolean;

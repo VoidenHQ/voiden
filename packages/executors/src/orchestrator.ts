@@ -11,6 +11,7 @@
 
 import { executeRequestPipeline } from './pipeline/executor.js'
 import type { PipelineResponse } from './pipeline/types.js'
+import { mergeRequestHandlerResult } from './requestComposition.js'
 
 export type HeadlessEditor = { getJSON(): any }
 
@@ -56,7 +57,7 @@ export class RequestOrchestrator {
     let request: any = {}
 
     for (const handler of this.requestHandlers) {
-      request = await handler(request, editor)
+      request = mergeRequestHandlerResult(request, await handler(request, editor))
     }
 
     if (!request?.url) {

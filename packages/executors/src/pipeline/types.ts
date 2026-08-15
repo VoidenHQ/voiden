@@ -50,6 +50,12 @@ export enum PipelineStage {
 
 // ─── Request / response state ─────────────────────────────────────────────────
 
+export interface RequestAuth {
+  enabled?: boolean
+  type: string
+  config?: Record<string, unknown>
+}
+
 export interface RestApiRequestState {
   method: string
   url: string
@@ -60,6 +66,8 @@ export interface RestApiRequestState {
   contentType?: string
   bodyParams?: Array<{ key: string; value: string | File; type?: string; enabled?: boolean }>
   binary?: File | string | string[]
+  /** Raw auth configuration. Secrets may remain as templates until the secure executor resolves them. */
+  auth?: RequestAuth
   authProfile?: string
   preRequestResult?: any
   metadata?: Record<string, any>

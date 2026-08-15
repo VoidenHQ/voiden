@@ -112,7 +112,10 @@ export interface RestApiRequestState {
     type?: string;
     enabled?: boolean;
   }>;
-  binary?: File | string; // File object or file path string
+  binary?: File | string | string[]; // File object or file path string(s)
+
+  // Raw auth templates are resolved/injected only by the secure executor.
+  auth?: Request['auth'];
 
   // Auth profile reference (not the actual credentials)
   authProfile?: string;

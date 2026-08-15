@@ -17,3 +17,4 @@ export * from './pipeline/index.js'
 
 export type { HeadlessEditor, RequestBuildHandler, ResponseProcessHandler } from './orchestrator.js'
 export { RequestOrchestrator, requestOrchestrator } from './orchestrator.js'
+export { mergeRequestHandlerResult } from './requestComposition.js'

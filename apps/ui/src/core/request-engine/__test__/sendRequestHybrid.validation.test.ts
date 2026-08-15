@@ -84,6 +84,32 @@ describe("sendRequestHybrid unresolved variable handling", () => {
     expect(response?.statusCode).toBe(200);
   });
 
+  it("voiden test : forwards AWS auth templates to the secure executor", async () => {
+    const auth = {
+      enabled: true,
+      type: "aws-signature",
+      config: {
+        accessKey: "{{AWS_ACCESS_KEY}}",
+        secretKey: "{{AWS_SECRET_KEY}}",
+        sessionToken: "{{AWS_SESSION_TOKEN}}",
+        region: "us-east-1",
+        service: "execute-api",
+      },
+    };
+
+    await sendRequestHybrid(
+      restRequest({ url: "https://example.amazonaws.com", auth }),
+      createMockEditor(),
+      undefined,
+      mockElectron,
+    );
+
+    expect(sendSecure).toHaveBeenCalledWith(
+      expect.objectContaining({ auth }),
+      undefined,
+    );
+  });
+
   it("voiden test : throws when sendSecure reports unresolved variables after substitution", async () => {
     sendSecure.mockResolvedValueOnce({
       status: 0,

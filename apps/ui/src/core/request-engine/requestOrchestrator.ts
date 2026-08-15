@@ -8,10 +8,12 @@
 import { Editor } from "@tiptap/core";
 import { sendRequestHybrid } from "./sendRequestHybrid";
 import type { RequestBuildHandler, ResponseProcessHandler, ResponseSection } from "@voiden/sdk/ui";
+import { mergeRequestHandlerResult } from "@voiden/executors";
 import { requestLogger } from "@/core/lib/logger";
 import { getFirstSectionLabel } from "@/core/editors/voiden/extensions/sectionIndicator";
 import { expandLinkedBlocksInDoc, expandLinkedFilesInDoc } from "@/core/editors/voiden/utils/expandLinkedBlocks";
 import { injectInheritedBlocks } from "./utils/injectInheritedBlocks";
+import { applyEnvironmentOverrideToRequest } from "./environmentOverride";
 
 interface RequestOrchestrator {
   /** Registered request build handlers from plugins */
@@ -212,15 +214,14 @@ class RequestOrchestratorImpl implements RequestOrchestrator {
 
     for (const handler of this.requestHandlers) {
       try {
-        const prevEnvOverride = request?.__envOverride;
-        request = await handler(request, handlerEditor);
-        // Preserve internal metadata across handler chain — handlers that return
-        // a fresh object (e.g. voiden-rest-api) must not silently drop these.
-        if (sectionPos !== undefined && request) {
+        request = mergeRequestHandlerResult(
+          request,
+          await handler(request, handlerEditor),
+        );
+        // Keep the execution-scoped section authoritative even if a plugin
+        // returns its own internal metadata.
+        if (sectionPos !== undefined) {
           request.__sectionPos = sectionPos;
-        }
-        if (prevEnvOverride && request && !request.__envOverride) {
-          request.__envOverride = prevEnvOverride;
         }
       } catch (error) {
         requestLogger.error("Error in plugin request handler:", error);
@@ -232,36 +233,7 @@ class RequestOrchestratorImpl implements RequestOrchestrator {
     // Scenario env vars ({{VAR}}) are resolved here so they work even when no
     // active environment is selected in the UI.
     if (request?.__envOverride && Object.keys(request.__envOverride).length > 0) {
-      const env: Record<string, string> = request.__envOverride;
-      const substitute = (text: string): string =>
-        text.replace(/\{\{([^}]+)\}\}/g, (match, varName) => {
-          const key = varName.trim();
-          return Object.prototype.hasOwnProperty.call(env, key) ? env[key] : match;
-        });
-      if (typeof request.url === 'string') request.url = substitute(request.url);
-      if (typeof request.body === 'string') request.body = substitute(request.body);
-      if (Array.isArray(request.headers)) {
-        request.headers = request.headers.map((h: any) => ({ ...h, value: substitute(String(h.value ?? '')) }));
-      }
-      if (Array.isArray(request.params)) {
-        request.params = request.params.map((p: any) => ({ ...p, value: substitute(String(p.value ?? '')) }));
-      }
-      if (Array.isArray(request.path_params)) {
-        request.path_params = request.path_params.map((p: any) => ({ ...p, value: substitute(String(p.value ?? '')) }));
-      }
-      // Binary file path (restFile / fileLink) — file path can be a {{VAR}} reference
-      if (typeof request.binary === 'string') {
-        request.binary = substitute(request.binary);
-      } else if (Array.isArray(request.binary)) {
-        request.binary = request.binary.map((b: any) => typeof b === 'string' ? substitute(b) : b);
-      }
-      // Multipart body params — substitute values for both text and file entries
-      if (Array.isArray(request.body_params)) {
-        request.body_params = request.body_params.map((p: any) => ({
-          ...p,
-          value: typeof p.value === 'string' ? substitute(p.value) : p.value,
-        }));
-      }
+      request = applyEnvironmentOverrideToRequest(request, request.__envOverride);
     }
 
     // No registered plugin recognized a request-shaped block in this section

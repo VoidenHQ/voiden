@@ -247,6 +247,9 @@ async function convertToRestApiRequestState(data: Request): Promise<RestApiReque
       enabled: p.enabled,
     })),
     binary: data.binary,
+    // Keep credentials/templates raw. The Electron/CLI secure executor resolves
+    // them and performs request-dependent auth (including AWS SigV4).
+    auth: data.auth,
     authProfile: undefined, // TODO: Auth profile reference
     preRequestResult: data.preRequestResult,
     metadata: {
