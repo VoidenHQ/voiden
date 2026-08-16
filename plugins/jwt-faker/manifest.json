@@ -1,0 +1,42 @@
+{
+  "id": "jwt-faker",
+  "name": "JWT Faker",
+  "description": "Generate, customize, sign, decode, and copy JSON Web Tokens (JWTs) directly within Voiden for testing authenticated APIs with support for HS256, HS384, HS512, and unsigned tokens.",
+  "version": "1.0.0",
+  "voidenVersion": ">=2.0.0",
+  "author": "Voiden Team",
+  "enabled": true,
+  "priority": 50,
+  "readme": "Generate and decode JWTs for testing authenticated APIs. Supports HS256, HS384, HS512, unsigned tokens (alg: none), custom payload/header editors, expiration/issued-at claim helpers, template saving, and one-click copy.",
+
+  "capabilities": {
+    "ui": {
+      "buttons": [
+        {
+          "id": "jwt-faker-btn",
+          "location": "sidebar-left",
+          "icon": "Sparkles",
+          "tooltip": "JWT Faker",
+          "description": "Opens JWT Faker dialog to generate and decode test JWTs"
+        }
+      ],
+      "description": "Adds JWT Faker generator to UI toolbar and editor actions"
+    }
+  },
+
+  "dependencies": {
+    "core": "^1.0.0",
+    "sdk": "^1.0.0"
+  },
+
+  "features": [
+    "Generate JWTs using HMAC SHA algorithms: HS256, HS384, HS512",
+    "Generate unsigned tokens (alg: none) for testing",
+    "Custom JSON payload editor with validation",
+    "Custom JSON header editor",
+    "Quick claim helpers for exp (expiration), iat (issued-at), nbf (not-before)",
+    "Live preview of encoded and decoded JWT components (Header, Payload, Signature)",
+    "One-click copy of generated JWT token string",
+    "Save and manage reusable JWT claim templates"
+  ]
+}
