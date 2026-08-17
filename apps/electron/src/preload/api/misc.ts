@@ -17,6 +17,17 @@ export const directoriesApi = {
   },
 };
 
+/** Path math for the renderer/plugins, which have no direct Node `path`
+ *  access — e.g. so a plugin's file picker can save a cross-file reference
+ *  relative to the project root instead of the OS dialog's raw absolute
+ *  path, and resolve it back to absolute wherever it's actually read. */
+export const pathApi = {
+  toRelative: (base: string, target: string): Promise<string> =>
+    ipcRenderer.invoke("path:toRelative", base, target),
+  toAbsolute: (base: string, maybeRelative: string): Promise<string> =>
+    ipcRenderer.invoke("path:toAbsolute", base, maybeRelative),
+};
+
 export const dialogApi = {
   openFile: (options: Electron.OpenDialogOptions) =>
     ipcRenderer.invoke("dialog:openFile", options),

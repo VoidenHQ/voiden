@@ -85,4 +85,60 @@ describe('loadEnvFile', () => {
     const filePath = write('scalar.yaml', 'just a bare string\n')
     expect(loadEnvFile(filePath)).toEqual({})
   })
+
+  describe('environmentName scoping', () => {
+    const multiEnv = [
+      'dev:',
+      '  variables:',
+      '    BASE_URL: https://dev.example.com',
+      '    TOKEN: dev-token',
+      'staging:',
+      '  variables:',
+      '    BASE_URL: https://staging.example.com',
+      '    TOKEN: staging-token',
+      '',
+    ].join('\n')
+
+    it('without environmentName, merges every environment together (existing behavior)', () => {
+      const filePath = write('multi.yaml', multiEnv)
+      // staging is processed after dev — its values win on the TOKEN/BASE_URL collision.
+      expect(loadEnvFile(filePath)).toEqual({ BASE_URL: 'https://staging.example.com', TOKEN: 'staging-token' })
+    })
+
+    it('with environmentName, returns only that one environment\'s variables', () => {
+      const filePath = write('multi2.yaml', multiEnv)
+      expect(loadEnvFile(filePath, 'dev')).toEqual({ BASE_URL: 'https://dev.example.com', TOKEN: 'dev-token' })
+      expect(loadEnvFile(filePath, 'staging')).toEqual({ BASE_URL: 'https://staging.example.com', TOKEN: 'staging-token' })
+    })
+
+    it('throws a clear error naming the available environments when the requested one is missing', () => {
+      const filePath = write('multi3.yaml', multiEnv)
+      expect(() => loadEnvFile(filePath, 'prod')).toThrow('Environment "prod" not found in this file. Available: dev, staging')
+    })
+
+    it('resolves a nested child environment, inheriting parent variables with its own overriding', () => {
+      const filePath = write('nested.yaml', [
+        'base:',
+        '  variables:',
+        '    HOST: example.com',
+        '    TOKEN: parent',
+        '  children:',
+        '    staging:',
+        '      variables:',
+        '        TOKEN: child',
+        '',
+      ].join('\n'))
+      expect(loadEnvFile(filePath, 'staging')).toEqual({ HOST: 'example.com', TOKEN: 'child' })
+    })
+
+    it('falls through to normal flat loading when environmentName is given but the file has no named-environment structure', () => {
+      const filePath = write('flat2.yaml', 'FOO: bar\n')
+      expect(loadEnvFile(filePath, 'dev')).toEqual({ FOO: 'bar' })
+    })
+
+    it('ignores environmentName entirely for plain .env files', () => {
+      const filePath = write('vars2.env', 'FOO=bar\n')
+      expect(loadEnvFile(filePath, 'dev')).toEqual({ FOO: 'bar' })
+    })
+  })
 })

@@ -548,9 +548,11 @@ program
     '    voiden-runner run auth.void\n' +
     '    voiden-runner run ./requests/\n' +
     '    voiden-runner run auth.void users.void ./smoke/\n' +
-    '    voiden-runner run ./ --env .env.staging --bail\n'
+    '    voiden-runner run ./ --env .env.staging --bail\n' +
+    '    voiden-runner run ./ --env .voiden/env-public.yaml --environment staging\n'
   )
   .option('-e, --env <path>', 'Path to .env or .yaml file for variable substitution')
+  .option('--environment <name>', 'Scope --env to one named environment in a multi-environment YAML file (e.g. "dev") instead of merging every environment in it together')
   .option('--env-var <key=value>', 'Individual environment variable override (can be used multiple times)', (val, memo: string[]) => {
     memo.push(val)
     return memo
@@ -593,7 +595,7 @@ program
         process.exit(EXIT_USAGE_ERROR)
       }
       try {
-        Object.assign(env, loadEnvFile(envPath))
+        Object.assign(env, loadEnvFile(envPath, opts.environment))
       } catch (err: any) {
         console.error(chalk.red(`  ✗  ${err.message}`))
         process.exit(EXIT_USAGE_ERROR)
@@ -1444,7 +1446,7 @@ pluginCmd
 // ── voiden-runner mcp ─────────────────────────────────────────────────────────
 //
 // Enables the AI-agent loop for CLI-only users (no Voiden app installed):
-// registers @voiden/mcp-server with Claude Code / Codex, and installs a
+// registers @voiden/mcp with Claude Code / Codex, and installs a
 // standalone skill teaching the run/verify/write-back workflow. The Voiden
 // app's own Settings toggle does the equivalent for desktop users, reusing
 // the same registration helpers from mcpInstall.ts.
@@ -1458,26 +1460,28 @@ function resolveMcpTargets(opts: { claude?: boolean; codex?: boolean }): { claud
 
 const mcpCmd = program
   .command('mcp')
-  .description('Enable AI-agent integration — registers @voiden/mcp-server and installs a run/verify skill')
+  .description('Enable AI-agent integration — registers this project\'s fixed-tools MCP server and installs a run/verify skill')
 
 mcpCmd
   .command('install')
   .description(
-    'Register @voiden/mcp-server with Claude Code and/or Codex, and install a skill teaching the run/verify/write-back loop.\n\n' +
+    'Register this project with Claude Code and/or Codex — points .mcp.json / config.toml at ' +
+    '`voiden-runner mcp serve` (the same 4 fixed tools, standalone, no other Voiden package ' +
+    'required), and installs a skill teaching the run/verify/write-back loop.\n\n' +
     '  Examples:\n' +
     '    voiden-runner mcp install                                    # both Claude Code and Codex\n' +
     '    voiden-runner mcp install --claude                           # Claude Code only\n' +
     '    voiden-runner mcp install -p ./my-project                    # register against a specific project dir (default: cwd)\n' +
-    '    voiden-runner mcp install --local-server ./dist/index.js     # before publishing: point at a local build instead of npx\n'
+    '    voiden-runner mcp install --local-server ./dist/index.js     # point at a local build instead of npx\n'
   )
   .option('--claude', 'Install for Claude Code only')
   .option('--codex', 'Install for Codex only')
   .option('-p, --project <path>', 'Project directory to register the MCP server against', '.')
-  .option('--local-server <path>', 'Use `node <path>` instead of `npx -y @voiden/mcp-server` — for testing against a local build before it\'s published')
+  .option('--local-server <path>', 'Use `node <path> mcp serve` instead of `npx -y @voiden/runner mcp serve` — for testing against a local build')
   .action((opts) => {
     const targets = resolveMcpTargets(opts)
     const serverCommand = opts.localServer
-      ? { command: 'node', args: [resolve(opts.localServer), resolve(opts.project)] }
+      ? { command: 'node', args: [resolve(opts.localServer), 'mcp', 'serve', resolve(opts.project)] }
       : undefined
     const installed = installMcpIntegration(opts.project, targets, MCP_SKILL_MARKDOWN, serverCommand)
     if (installed.length === 0) {
@@ -1486,7 +1490,7 @@ mcpCmd
     }
     console.log()
     for (const target of installed) {
-      console.log(chalk.green(`  ✓  ${target === 'claude' ? 'Claude Code' : 'Codex'}`) + chalk.gray(`  —  skill installed, @voiden/mcp-server registered for ${resolve(opts.project)}`))
+      console.log(chalk.green(`  ✓  ${target === 'claude' ? 'Claude Code' : 'Codex'}`) + chalk.gray(`  —  skill installed, fixed-tools MCP server registered for ${resolve(opts.project)}`))
     }
     if (serverCommand) {
       console.log(chalk.gray(`  Using local build: node ${serverCommand.args[0]}`))
@@ -1533,7 +1537,7 @@ mcpCmd
 mcpCmd
   .command('serve [path]')
   .description(
-    'Serve this project as an MCP server — the same tools @voiden/mcp-server exposes ' +
+    'Serve this project as an MCP server — the same tools @voiden/mcp exposes ' +
     '(list/run/write plus declared /tool capabilities), over stdio (default) or HTTP.\n\n' +
     '  Examples:\n' +
     '    voiden-runner mcp serve                          # stdio, current directory\n' +
@@ -1544,7 +1548,8 @@ mcpCmd
   .option('--http', 'Serve over streamable HTTP instead of stdio')
   .option('-p, --port <port>', 'HTTP port (only with --http)', '3000')
   .option('--host <host>', 'HTTP bind address (only with --http) — binding beyond 127.0.0.1 is a real exposure risk', '127.0.0.1')
-  .option('-e, --env <path>', 'Path to .env file for variable substitution')
+  .option('-e, --env <path>', 'Path to .env or .yaml file for variable substitution')
+  .option('--environment <name>', 'Scope --env to one named environment in a multi-environment YAML file (e.g. "dev") instead of merging every environment in it together')
   .option('--check', 'Print what would be served and exit, without starting a live server')
   .action(async (path: string | undefined, opts) => {
     const projectRoot = resolve(path ?? '.')
@@ -1559,7 +1564,7 @@ mcpCmd
         process.exit(EXIT_USAGE_ERROR)
       }
       try {
-        Object.assign(env, loadEnvFile(envPath))
+        Object.assign(env, loadEnvFile(envPath, opts.environment))
       } catch (err: any) {
         console.error(chalk.red(`  ✗  ${err.message}`))
         process.exit(EXIT_USAGE_ERROR)
@@ -1595,7 +1600,7 @@ mcpCmd
     const commitSha = getCommitSha(projectRoot)
     const servedCount = decisions.filter((d) => d.served).length
     // Shared across calls so {{process.xxx}} runtime variables chain the
-    // same way they do for the stdio path and for @voiden/mcp-server.
+    // same way they do for the stdio path and for @voiden/mcp.
     const runtimeVars: Record<string, any> = {}
 
     if (opts.http) {
@@ -1639,7 +1644,7 @@ mcpCmd
     } else {
       // stdio: one persistent server for the process lifetime — stdout is
       // reserved for the JSON-RPC stream, so nothing gets printed there.
-      // Startup info goes to stderr only, same discipline @voiden/mcp-server's
+      // Startup info goes to stderr only, same discipline @voiden/mcp's
       // own entrypoint already follows (it prints nothing).
       const server = new McpServer({ name: 'voiden-runner', version: '1.0.0' })
       registerFixedTools(server, projectRoot, runtimeVars, activePlugins)
@@ -1652,7 +1657,7 @@ mcpCmd
 //
 // Discovery + verification for /tool blocks (voiden-mcp-tool plugin) — the
 // standalone CLI surface for the same discoverTools/verifyTools functions
-// @voiden/mcp-server will use for live agent-serving. No scheduling here:
+// @voiden/mcp will use for live agent-serving. No scheduling here:
 // `cadence` on a verify entry is a tag `--cadence` filters by, not something
 // this command enforces timing for — that's a human/CI decision, same as
 // deciding when to run `voiden-runner run` at all.
@@ -1687,7 +1692,11 @@ toolCmd
     for (const tool of allTools) {
       console.log(chalk.bold(`  ${tool.name}`) + chalk.gray(`  —  ${relative(process.cwd(), tool.filePath)}${tool.sectionLabel ? ` [${tool.sectionLabel}]` : ''}`))
       if (tool.description) console.log(chalk.gray(`    ${tool.description}`))
-      console.log(chalk.gray(`    params: ${tool.params.length}   verifies: ${tool.verifies.length}   on-failure: ${tool.onFailure}`))
+      // onFailure is per verify-entry now, not one tool-wide setting —
+      // summarize instead of showing a single (no-longer-existing) value.
+      const onFailureValues = new Set(tool.verifies.map((v) => v.onFailure || 'withdraw'))
+      const onFailureSummary = tool.verifies.length === 0 ? '—' : onFailureValues.size === 1 ? [...onFailureValues][0] : 'mixed'
+      console.log(chalk.gray(`    params: ${tool.params.length}   verifies: ${tool.verifies.length}   on-failure: ${onFailureSummary}`))
       console.log()
     }
   })
@@ -1705,6 +1714,7 @@ toolCmd
   .option('--json', 'Output as JSON (suppresses normal output — useful for CI)')
   .option('--write', 'Write the computed status back into each /tool block. Off by default — verification always recomputes fresh and never trusts a stale write-back')
   .option('-e, --env <path>', 'Path to .env or .yaml file for variable substitution')
+  .option('--environment <name>', 'Scope --env to one named environment in a multi-environment YAML file (e.g. "dev") instead of merging every environment in it together')
   .action(async (paths: string[], opts) => {
     const targets = paths.length > 0 ? paths : ['.']
 
@@ -1718,7 +1728,7 @@ toolCmd
         process.exit(EXIT_USAGE_ERROR)
       }
       try {
-        Object.assign(env, loadEnvFile(envPath))
+        Object.assign(env, loadEnvFile(envPath, opts.environment))
       } catch (err: any) {
         console.error(chalk.red(`  ✗  ${err.message}`))
         process.exit(EXIT_USAGE_ERROR)

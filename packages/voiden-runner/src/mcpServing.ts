@@ -1,6 +1,6 @@
 /**
  * MCP serving — the shared, transport-agnostic core behind both
- * `@voiden/mcp-server` (stdio, published to npm, auto-registered with
+ * `@voiden/mcp` (stdio, published to npm, auto-registered with
  * Claude Code/Codex) and `voiden-runner mcp serve` (stdio or HTTP, CLI-only
  * users with no Voiden app installed). Neither duplicates the other's
  * tool-building logic — both call buildMcpServer() here and just pick a
@@ -195,7 +195,7 @@ export interface BuildMcpServerOptions {
 export async function buildMcpServer(opts: BuildMcpServerOptions): Promise<{ server: McpServer; decisions: ServeDecision[] }> {
   const activePlugins = await loadEnabledPlugins()
   const runtimeVars: Record<string, any> = {}
-  const server = new McpServer({ name: opts.serverName ?? 'voiden-mcp-server', version: opts.serverVersion ?? '0.1.0' })
+  const server = new McpServer({ name: opts.serverName ?? 'voiden-mcp', version: opts.serverVersion ?? '0.1.0' })
 
   registerFixedTools(server, opts.projectRoot, runtimeVars, activePlugins)
   const decisions = await planServedTools(opts.projectRoot, opts.env, activePlugins)

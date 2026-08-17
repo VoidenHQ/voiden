@@ -461,6 +461,12 @@ const config: ForgeConfig = {
         }
       }
 
+      // The `voiden agent`/`run`/`mcp-stdio` CLI bundle (src/voiden-cli.ts)
+      // no longer needs a bespoke build step here — it's a normal VitePlugin
+      // build entry now (see forge.config.ts's `plugins` array +
+      // vite.cli.config.ts), built by Forge itself alongside main.js/
+      // preload.js into .vite/build/voiden-cli.js, inside app.asar.
+
       const binDir = path.join(__dirname, "bin");
 
       // Replace VOIDEN_VERSION="<any value>" with the current version in bash script
@@ -572,12 +578,25 @@ const config: ForgeConfig = {
       build: [
         { entry: "src/main.ts", config: "vite.main.config.ts" },
         { entry: "src/preload.ts", config: "vite.preload.config.ts" },
+        // `voiden agent`/`run`/`mcp-stdio` — built alongside main/preload so
+        // it lands at .vite/build/voiden-cli.js, inside app.asar next to
+        // main.js, instead of as a separate extraResource outside the
+        // archive (which couldn't safely resolve its own node_modules — see
+        // vite.cli.config.ts's header comment).
+        { entry: "src/voiden-cli.ts", config: "vite.cli.config.ts" },
       ],
       renderer: [{ name: "main_window", config: "vite.renderer.config.ts" }],
     }),
     new FusesPlugin({
       version: FuseVersion.V1,
-      [FuseV1Options.RunAsNode]: false,
+      // true (not the hardened-default false) — required so `bin/voiden`'s
+      // `ELECTRON_RUN_AS_NODE=1 <electron binary> <voiden-cli.js>` dispatch
+      // (agent/run/mcp-stdio) works in a packaged build at all; the fuse
+      // otherwise makes the signed binary ignore that env var entirely.
+      // Trade-off, made deliberately: this reopens the specific thing the
+      // fuse blocks — arbitrary Node execution via that env var against the
+      // signed binary, if something else can control how it's launched.
+      [FuseV1Options.RunAsNode]: true,
       [FuseV1Options.EnableCookieEncryption]: true,
       [FuseV1Options.EnableNodeOptionsEnvironmentVariable]: false,
       [FuseV1Options.EnableNodeCliInspectArguments]: false,

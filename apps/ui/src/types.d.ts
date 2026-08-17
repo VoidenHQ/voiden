@@ -488,6 +488,10 @@ declare global {
           cb: (payload: { projectRoot: string; locked: boolean }) => void,
         ) => () => void;
       };
+      path: {
+        toRelative: (base: string, target: string) => Promise<string>;
+        toAbsolute: (base: string, maybeRelative: string) => Promise<string>;
+      };
       logger: {
         getLogs: () => Promise<any[]>;
         filterLogs: (category?: string, level?: string, sinceTimestamp?: number) => Promise<any[]>;

@@ -9488,17 +9488,18 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@voiden/mcp-server@workspace:packages/voiden-mcp-server":
+"@voiden/mcp@workspace:packages/voiden-mcp":
   version: 0.0.0-use.local
-  resolution: "@voiden/mcp-server@workspace:packages/voiden-mcp-server"
+  resolution: "@voiden/mcp@workspace:packages/voiden-mcp"
   dependencies:
     "@modelcontextprotocol/sdk": "npm:^1.29.0"
     "@types/node": "npm:^20.14.10"
     "@voiden/runner": "workspace:*"
+    commander: "npm:^12.0.0"
     tsx: "npm:^4.15.0"
     typescript: "npm:^5.5.3"
   bin:
-    voiden-mcp-server: ./dist/index.js
+    voiden-mcp: ./dist/index.js
   languageName: unknown
   linkType: soft
 
@@ -23118,8 +23119,10 @@ __metadata:
     "@types/mime-types": "npm:^2"
     "@types/selfsigned": "npm:^2.1.0"
     "@voiden/executors": "npm:*"
+    "@voiden/runner": "workspace:*"
     adm-zip: "npm:^0.6.0"
     aws-sdk: "npm:2.1692.0"
+    commander: "npm:^12.0.0"
     dotenv: "npm:^16.4.5"
     electron: "npm:39.8.8"
     electron-updater: "npm:^6.3.9"

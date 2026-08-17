@@ -3,7 +3,11 @@ import { Plugin, PluginKey, TextSelection, AllSelection } from 'prosemirror-stat
 import { pasteOrchestrator } from '@/core/paste/pasteOrchestrator';
 
 const isTableCell = (node) => node.type.name === 'tableCell' || node.type.name === 'tableHeader';
-const isUrlNode = (node) => node.type.name === 'url';
+// 'url' is voiden-rest-api's request URL field; 'mcpurl' is voiden-mcp-client's
+// MCP server URL field — both are single-line editable text fields nested
+// inside a larger request/connection block, so Cmd+A inside either should
+// select just that field's text, not escalate to the whole block/document.
+const isUrlNode = (node) => node.type.name === 'url' || node.type.name === 'mcpurl';
 const isBlockquote = (node) => node.type.name === 'blockquote';
 const isRegisteredBlock = (node) => pasteOrchestrator.isRegisteredBlockType(node.type.name);
 

@@ -463,7 +463,7 @@ export const StatusBar = ({
           )}
 
           {/* Initialize MCP — registers .mcp.json/config.toml for this project so
-              Claude Code/Codex can launch @voiden/mcp-server, without hunting
+              Claude Code/Codex can launch @voiden/mcp, without hunting
               through Settings' "AI Skills" toggle. */}
           {projectRoot && (
             <Tip

@@ -20,7 +20,7 @@
  *      container extraction).
  *   3. Thin dispatchers with the same names/signatures the old
  *      toolVerification.ts/toolStatusBlock.ts/mcpServing.ts exported
- *      directly — so @voiden/mcp-server (and anything else importing
+ *      directly — so @voiden/mcp (and anything else importing
  *      discoverTools/verifyTools/etc. from @voiden/runner) needs zero
  *      changes. They gracefully no-op when no provider is registered
  *      (e.g. voiden-mcp-tool disabled), matching how toolRegistry.ts's
@@ -75,6 +75,36 @@ export interface ToolStatusRecord {
   note?: string
 }
 
+/** One verify entry's last-known result, cached across scheduler ticks so
+ *  each entry can be re-verified on its own declared `cadence` instead of
+ *  the whole server sharing one fixed interval. Keyed by
+ *  `${tool.toolBlockUid}::${entryIndex}` — stable across re-discovery as
+ *  long as verify rows aren't reordered/added/removed; if they are, a
+ *  cache miss just means that one entry is treated as never-verified
+ *  (immediately due), which is the correct, safe fallback either way. */
+export interface VerifyEntryCacheRecord {
+  passed: boolean
+  reason?: 'auth-failure' | 'contract-failure'
+  runResult?: any
+  verifiedAt: number
+}
+export type VerifyEntryCache = Map<string, VerifyEntryCacheRecord>
+
+export interface PlanServedToolsOptions {
+  /** Reused across calls (the caller owns and persists it — typically the
+   *  scheduler in @voiden/mcp) so each verify entry is only actually
+   *  re-run when its own cadence says it's due; entries not yet due reuse
+   *  their cached result instead of a fresh network call. Omit for a
+   *  fully-fresh run with no caching (e.g. `--check`, or a one-shot
+   *  discoverDecisions call with no scheduler behind it). */
+  entryCache?: VerifyEntryCache
+  /** Epoch ms "now" — defaults to Date.now() if omitted. Threaded through
+   *  explicitly (rather than each cache check calling Date.now() itself)
+   *  so every entry in the same planServedTools() call is judged against
+   *  the exact same instant. */
+  now?: number
+}
+
 export interface ServeDecision {
   tool: ToolDef
   served: boolean
@@ -95,8 +125,8 @@ export interface ServeDecision {
 export interface McpToolCapabilityProvider {
   discoverTools(projectRoot: string, opts: { activePlugins: string[] }): Promise<ToolDef[]>
   validateTools(projectRoot: string, tools: ToolDef[]): Promise<{ validTools: ToolDef[]; issues: ToolValidationIssue[] }>
-  verifyTools(tools: ToolDef[], opts: VerifyToolsOptions & { activePlugins: string[] }): Promise<ToolStatus[]>
-  planServedTools(projectRoot: string, env: Record<string, string>, activePlugins: string[]): Promise<ServeDecision[]>
+  verifyTools(tools: ToolDef[], opts: VerifyToolsOptions & { activePlugins: string[]; entryCache?: VerifyEntryCache; now?: number }): Promise<ToolStatus[]>
+  planServedTools(projectRoot: string, env: Record<string, string>, activePlugins: string[], opts?: PlanServedToolsOptions): Promise<ServeDecision[]>
   registerServedTools(
     server: McpServer,
     decisions: ServeDecision[],
@@ -105,6 +135,7 @@ export interface McpToolCapabilityProvider {
     activePlugins: string[],
     commitSha: string | undefined,
     projectRoot: string,
+    mode?: 'static' | 'dynamic',
   ): void
   upsertToolStatus(filePath: string, toolBlockUid: string, status: { state: ToolState; note?: string }): void
   /** Best-effort — never throws. Not every project is a git repo. */
@@ -126,7 +157,7 @@ export function getMcpToolCapabilityProvider(): McpToolCapabilityProvider | unde
 }
 
 // ─── Thin dispatchers — same names/signatures the old core implementation
-// exported directly, so every existing caller (index.ts, @voiden/mcp-server)
+// exported directly, so every existing caller (index.ts, @voiden/mcp)
 // needs zero changes at the call site. ───────────────────────────────────
 
 export async function discoverTools(projectRoot: string, opts: DiscoverToolsOptions = {}): Promise<ToolDef[]> {
@@ -144,14 +175,14 @@ export async function validateTools(projectRoot: string, tools: ToolDef[]): Prom
   return provider.validateTools(projectRoot, tools)
 }
 
-export async function verifyTools(tools: ToolDef[], opts: VerifyToolsOptions = {}): Promise<ToolStatus[]> {
+export async function verifyTools(tools: ToolDef[], opts: VerifyToolsOptions & { entryCache?: VerifyEntryCache; now?: number } = {}): Promise<ToolStatus[]> {
   if (!provider) return []
   return provider.verifyTools(tools, { ...opts, activePlugins: opts.activePlugins ?? [] })
 }
 
-export async function planServedTools(projectRoot: string, env: Record<string, string>, activePlugins: string[]): Promise<ServeDecision[]> {
+export async function planServedTools(projectRoot: string, env: Record<string, string>, activePlugins: string[], opts?: PlanServedToolsOptions): Promise<ServeDecision[]> {
   if (!provider) return []
-  return provider.planServedTools(projectRoot, env, activePlugins)
+  return provider.planServedTools(projectRoot, env, activePlugins, opts)
 }
 
 export function registerToolsFromDecisions(
@@ -162,8 +193,9 @@ export function registerToolsFromDecisions(
   activePlugins: string[],
   commitSha: string | undefined,
   projectRoot: string,
+  mode?: 'static' | 'dynamic',
 ): void {
-  provider?.registerServedTools(server, decisions, baseEnv, runtimeVars, activePlugins, commitSha, projectRoot)
+  provider?.registerServedTools(server, decisions, baseEnv, runtimeVars, activePlugins, commitSha, projectRoot, mode)
 }
 
 /** Computes decisions once, then registers them. Used by the stdio path,

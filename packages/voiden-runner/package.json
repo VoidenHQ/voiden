@@ -1,6 +1,6 @@
 {
   "name": "@voiden/runner",
-  "version": "2.3.0-beta.8",
+  "version": "2.3.0-beta.12",
   "description": "CLI runner for .void files — execute REST, WebSocket, and gRPC requests headlessly",
   "type": "module",
   "license": "MIT",
@@ -34,8 +34,7 @@
   ],
   "scripts": {
     "prebuild": "cd ../../packages/executors && tsc",
-    "build": "tsc",
-    "postbuild": "chmod +x dist/index.js && node ../../scripts/build-runners.mjs",
+    "build": "tsc && chmod +x dist/index.js && node ../../scripts/build-runners.mjs",
     "build:runners": "node ../../scripts/build-runners.mjs",
     "dev": "tsx --tsconfig tsconfig.dev.json src/index.ts",
     "start": "node dist/index.js"

@@ -179,6 +179,54 @@ Then restart your terminal.`,
 }
 
 /**
+ * Silently repair the CLI symlink if it's stale, on every app startup —
+ * never installs it fresh for a user who hasn't opted in via the Settings
+ * button at least once (no surprise sudo prompt on a first launch from
+ * someone who never asked for terminal access).
+ *
+ * isCliInstalled()'s own check is deliberately loose (accepts anything
+ * ending in ".../Voiden.app/Contents/Resources/bin/voiden") — right for
+ * its purpose (a quick "is *something* pointing roughly at a Voiden.app
+ * plausibly installed" status check for the Settings toggle), but it means
+ * a symlink left over from a different Voiden.app location (the app moved,
+ * a second copy was installed and this one is now the "real" one, etc.)
+ * reads as "installed" there even though it's stale. This does the exact
+ * comparison instead — does the existing symlink point at precisely where
+ * THIS running instance's own script actually lives — and only touches
+ * anything when that's false.
+ *
+ * Windows isn't covered: installCli() doesn't create anything there yet
+ * (manual PATH instructions only), so there's nothing to reconcile.
+ */
+export async function reconcileCliInstall(): Promise<void> {
+  if (platform === "win32") return;
+
+  const targetPath = getTargetPath();
+  const correctScriptPath = getCliScriptPath();
+
+  let linkTarget: string;
+  try {
+    const stats = fs.lstatSync(targetPath);
+    if (!stats.isSymbolicLink()) return; // not ours to manage — leave it alone
+    linkTarget = fs.readlinkSync(targetPath);
+  } catch {
+    return; // never installed — respect that, don't install on their behalf
+  }
+
+  if (linkTarget === correctScriptPath) return; // already correct, nothing to do
+
+  try {
+    await installCli();
+  } catch {
+    // Best-effort — a failed silent repair (e.g. sudo-prompt dismissed,
+    // since sudo-prompt can't distinguish "user-initiated" from
+    // "background repair" once it shows its native dialog) just leaves the
+    // stale symlink in place; the user can still repair manually from
+    // Settings, same as before this existed.
+  }
+}
+
+/**
  * Uninstall CLI from PATH
  */
 export async function uninstallCli(): Promise<{ success: boolean; message: string }> {

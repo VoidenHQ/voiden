@@ -5,22 +5,36 @@ import { getAppState } from "../state";
 import { updateComposedSkillOnly } from "../skillsInstaller";
 import { registerClaudeMcpServer, upsertCodexMcpSection, getMcpStatus, type ServerCommand } from "@voiden/executors";
 
-// Dev builds must register the in-repo @voiden/mcp-server build (so testing
-// picks up local changes instantly); packaged/binary builds (yarn make, and
-// anything installed from a release) must register the published npm
-// package instead — a built app has no monorepo dist to point at, and a dev
-// checkout shouldn't silently depend on whatever's currently on npm.
-// app.isPackaged is exactly this boundary (same convention already used by
-// extensionLoader.ts/projectUtils.ts/skillsComposer.ts for other
-// dev-vs-packaged path resolution). Returning undefined here falls back to
-// executors' own defaultServerCommand (npx @voiden/mcp-server@latest).
-function devLocalServerCommand(projectPath: string): ServerCommand | undefined {
-  if (app.isPackaged) return undefined;
-  // __dirname (compiled) is apps/electron/.vite/build — four levels under
-  // the repo root.
-  const distPath = path.join(__dirname, "../../../../packages/voiden-mcp-server/dist/index.js");
-  if (!fs.existsSync(distPath)) return undefined;
-  return { command: "node", args: [distPath, projectPath] };
+// Points at the SAME hidden `mcp-stdio` entry `voiden agent` registers (see
+// apps/electron/src/voiden-cli.ts's own doc comment) — the lightweight
+// 4-fixed-tools server, not @voiden/mcp (that's a separate, standalone
+// server for publishing `/tool` blocks, unrelated to this button). This
+// handler and `voiden agent` are two entry points — GUI button, CLI command
+// — for the exact same registration, so they must always target the same
+// command or one silently overwrites the other's working entry with a
+// mismatched one under the same .mcp.json key.
+//
+// Dev builds register the in-repo bundled CLI (voiden-cli.ts is a normal
+// VitePlugin build entry now — forge.config.ts + vite.cli.config.ts — built
+// as a sibling of main.js in .vite/build/, so testing picks up local
+// changes on the next `yarn start`/rebuild, no separate build/publish
+// step); packaged builds register the packaged app's own `voiden` binary,
+// which must be on PATH the same way `voiden agent` itself assumes when
+// writing its own .mcp.json (see its inline `serverCommand` in
+// apps/electron/src/voiden-cli.ts's `agent` action). app.isPackaged is the
+// same dev-vs-packaged boundary already used by
+// extensionLoader.ts/projectUtils.ts/skillsComposer.ts.
+function resolveMcpStdioServerCommand(projectPath: string): ServerCommand | undefined {
+  if (app.isPackaged) {
+    return { command: "voiden", args: ["mcp-stdio", projectPath] };
+  }
+  // __dirname (compiled) is apps/electron/.vite/build — voiden-cli.js is
+  // Forge's VitePlugin building src/voiden-cli.ts as a sibling entry right
+  // alongside main.js in that same output directory (see forge.config.ts's
+  // VitePlugin `build` array), not a separately-resourced bundle elsewhere.
+  const bundledCliPath = path.join(__dirname, "voiden-cli.js");
+  if (!fs.existsSync(bundledCliPath)) return undefined;
+  return { command: "node", args: [bundledCliPath, "mcp-stdio", projectPath] };
 }
 
 export function registerMcpIpcHandlers() {
@@ -43,7 +57,7 @@ export function registerMcpIpcHandlers() {
       return { success: false, message: "No active project" };
     }
     try {
-      const serverCommand = devLocalServerCommand(activeDirectory);
+      const serverCommand = resolveMcpStdioServerCommand(activeDirectory);
       registerClaudeMcpServer(activeDirectory, serverCommand);
       upsertCodexMcpSection(activeDirectory, serverCommand);
       updateComposedSkillOnly(getAppState(), { claude: true, codex: true });

@@ -18,7 +18,6 @@
  */
 
 export type ToolParamType = 'string' | 'number' | 'integer' | 'boolean' | 'object' | 'array'
-export type ToolParamSource = 'agent' | 'environment'
 export type ToolVerifyRole = 'happy-path' | 'error-contract' | 'auth-check'
 /** Per-verify-entry, not tool-wide (matches voiden-mcp-blocks-spec.md §1.9's
  *  illustrative shape, where only some entries specify a mode).
@@ -43,7 +42,11 @@ export interface ToolParamDef {
   type: ToolParamType
   required: boolean
   description?: string
-  source: ToolParamSource
+  /** Every param is agent-supplied at call time — see toolBlocks.ts's
+   *  matching type (the plugin-side source of truth) for the full
+   *  reasoning. testValue is what verification substitutes in place of a
+   *  live agent call. */
+  testValue?: string
 }
 
 export interface ToolVerifyEntry {
@@ -55,6 +58,11 @@ export interface ToolVerifyEntry {
   cadence?: string
   /** Defaults to 'live' when omitted. 'none' skips running this specific entry automatically. */
   mode?: ToolVerifyMode
+  /** Per-entry, not tool-wide — what happens to the whole tool if THIS
+   *  request fails. When entries disagree, the most conservative failed one
+   *  wins (any 'withdraw' among failed entries withdraws the tool). Defaults
+   *  to 'withdraw' when omitted. */
+  onFailure?: ToolOnFailure
 }
 
 export interface ToolAnnotations {
@@ -77,11 +85,15 @@ export interface ToolExtraction {
   requestUid?: string
   params: ToolParamDef[]
   verifies: ToolVerifyEntry[]
-  onFailure: ToolOnFailure
   /** Manual serve override, independent of verification state — set via the
    *  MCP tab's Serve preview. Core never interprets this, just carries it
    *  through; the plugin's own decideServing() is what acts on it. */
   enabled: boolean
+  /** Cross-file/cross-section request binding — absent means "not bound,
+   *  use the sibling request in this tool's own section" (the original
+   *  behavior). Core never interprets this either, purely carried through. */
+  requestFilePath?: string
+  requestSectionLabel?: string
 }
 
 /** Full tool declaration once discovered project-wide. */

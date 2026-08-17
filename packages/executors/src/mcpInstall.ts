@@ -1,21 +1,31 @@
 /**
- * Shared "enable AI-agent integration" logic — registers @voiden/mcp-server
- * with Claude Code / Codex, and (for CLI-only users who don't have the
- * Voiden app's richer composed skill available) installs a standalone skill
- * describing the run/verify/write-back loop.
+ * Shared "enable AI-agent integration" logic — registers a stdio MCP server
+ * exposing the 4 fixed tools (list_void_files/list_requests/run_request/
+ * write_result) with Claude Code / Codex, and (for CLI-only users who don't
+ * have the Voiden app's richer composed skill available) installs a
+ * standalone skill describing the run/verify/write-back loop.
  *
- * Lives in @voiden/executors (not @voiden/runner) so both callers can use it
- * without either depending on the other:
+ * This is deliberately NOT @voiden/mcp — that's a separate, standalone
+ * server for publishing `/tool` blocks (with verification, scheduling,
+ * optional HTTP hosting), a different concern from "let an agent editor run
+ * .void files in this project." Every caller below registers the lightweight
+ * fixed-tools server; nothing here ever points at @voiden/mcp.
+ *
+ * Lives in @voiden/executors (not @voiden/runner) so every caller can use it
+ * without depending on each other:
+ *   - the `voiden` CLI's `agent` command (apps/electron) — passes its own
+ *     explicit serverCommand pointing at itself (`voiden mcp-stdio`); see
+ *     that command's own file for what replaced the old standalone
+ *     @voiden/mcp-host package (retired, folded in directly)
  *   - packages/voiden-runner's own CLI (`voiden-runner mcp install|uninstall|status`)
+ *     — relies on the default below (`voiden-runner mcp serve`, which already
+ *     serves the same fixed tools standalone, no Electron app required)
  *   - apps/electron's Settings "Claude/Codex integration" toggle, which already
  *     installs its own richer composed skill (skillsInstaller.ts) and only
  *     needs the MCP *registration* half from here — it does not call
  *     installClaudeSkill/uninstallClaudeSkill etc., to avoid writing a second,
- *     more minimal skill file alongside its own.
- *
- * Note: @voiden/mcp-server itself is never a dependency of either caller —
- * it's an independent package the AI agent's host (Claude Code, Codex, etc.)
- * downloads and runs on its own via `npx`, per the command written here.
+ *     more minimal skill file alongside its own. Also passes its own explicit
+ *     serverCommand (mirrors `agent`'s), for the same reason.
  */
 
 import * as fs from 'fs'
@@ -37,15 +47,21 @@ export interface ServerCommand {
 }
 
 /**
- * Default launch command — requires @voiden/mcp-server to be published to
- * npm; until then, pass an explicit `serverCommand` override (e.g. `{command:
- * 'node', args: ['/abs/path/to/voiden-mcp-server/dist/index.js', projectPath]}`)
- * to test against a local build.
+ * Fallback launch command, used only when a caller doesn't pass its own
+ * explicit `serverCommand` (the `voiden` CLI's `agent` command and the app's
+ * Settings toggle both do — see resolveMcpStdioServerCommand in
+ * apps/electron/src/main/ipc/mcp.ts and apps/electron/src/voiden-cli.ts).
+ *
+ * Points at `voiden-runner mcp serve` — @voiden/runner already ships that
+ * command, and it serves the very same 4 fixed tools standalone (no
+ * Electron app, no other Voiden package required), matching @voiden/runner's
+ * own role as "a standalone capability users can install on CI servers."
+ * This is what `voiden-runner mcp install` ends up registering by default.
  */
 function defaultServerCommand(projectPath: string): ServerCommand {
   return {
     command: 'npx',
-    args: ['-y', '@voiden/mcp-server', projectPath],
+    args: ['-y', '@voiden/runner', 'mcp', 'serve', projectPath],
   }
 }
 

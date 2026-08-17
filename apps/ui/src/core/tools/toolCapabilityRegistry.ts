@@ -40,6 +40,11 @@ export interface ToolCapabilityProvider {
    *  section-label dropdown, picking from what actually exists in that file
    *  instead of a typed/guessed value. */
   getFileSections(filePath: string): Promise<{ index: number; label: string }[]>
+  /** A section's actual blocks, for a file that may not be open in any
+   *  editor tab — powers "Auto-populate params" for a tool bound to an
+   *  external request (requestFilePath set). Returns null if the section
+   *  can't be found. */
+  getSectionBlocks(filePath: string, sectionLabel: string): Promise<any[] | null>
 }
 
 interface ToolCapabilityState {

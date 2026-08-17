@@ -31,6 +31,7 @@ import {
   mcpApi,
   variablesApi,
   projectApi,
+  pathApi,
   mainWindow
 } from "./misc";
 
@@ -66,6 +67,7 @@ export const electronApi = {
   themes: themesApi,
   autosave: autosaveApi,
   project: projectApi,
+  path: pathApi,
   mainwindow: mainWindow,
   logger: loggerAPI,
   processMonitor: processMonitorAPI,
