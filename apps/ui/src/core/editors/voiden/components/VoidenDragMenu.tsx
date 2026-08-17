@@ -516,10 +516,13 @@ interface DragPopoverContentProps {
   pluginBlockItems: PluginContextMenuItem[];
   pluginBlockTarget: { node: Node | null; nodeType: string; pos: number };
   docsUrl?: string;
+  onSelectBlock: () => void;
+  onClearSelection: () => void;
+  hasBlockSelection: boolean;
 }
 
 const DragPopoverContent: React.FC<DragPopoverContentProps> = React.memo(
-  ({ duplicateNode, handleAddBlockAbove, handleAddBlockBelow, deleteNode, duplicateShortcut, deleteShortcut, copyNode, cutNode, linkNode, copyDisabled, showLinkBlock, onKeyDown, isSectionSeparator, copySectionBlock, cutSectionBlock, deleteSectionBlock, linkSectionBlock, pluginBlockItems, pluginBlockTarget, docsUrl }: DragPopoverContentProps) => {
+  ({ duplicateNode, handleAddBlockAbove, handleAddBlockBelow, deleteNode, duplicateShortcut, deleteShortcut, copyNode, cutNode, linkNode, copyDisabled, showLinkBlock, onKeyDown, isSectionSeparator, copySectionBlock, cutSectionBlock, deleteSectionBlock, linkSectionBlock, pluginBlockItems, pluginBlockTarget, docsUrl, onSelectBlock, onClearSelection, hasBlockSelection }: DragPopoverContentProps) => {
     const isMac = navigator.userAgent.includes("Mac");
     const modKey = isMac ? "⌘" : "Ctrl";
     const contentRef = useRef<HTMLDivElement>(null);
@@ -560,6 +563,14 @@ const DragPopoverContent: React.FC<DragPopoverContentProps> = React.memo(
               <DragMenuItem onClick={cutNode} label="Cut Block" shortcut={<span className="inline-block mr-1"><Kbd keys="⌘X" size="sm"></Kbd></span>} disabled={copyDisabled} />
               {showLinkBlock && (
                 <DragMenuItem onClick={linkNode} label="Link Block" shortcut={<span className="inline-block mr-1"><Kbd keys="⌘L" size="sm"></Kbd></span>} disabled={copyDisabled} />
+              )}
+              <div className="h-px bg-border my-1" />
+              <DragMenuItem
+                onClick={onSelectBlock}
+                label={hasBlockSelection ? "Extend Selection to Here" : "Select Block"}
+              />
+              {hasBlockSelection && (
+                <DragMenuItem onClick={onClearSelection} label="Clear Selection" />
               )}
               <div className="h-px bg-border my-1" />
               <DragMenuItem onClick={deleteNode} label="Delete" shortcut={<span className="inline-block mr-1"><Kbd keys="⌫" size="sm"></Kbd></span>} />
@@ -603,6 +614,12 @@ export const VoidenDragMenu = React.memo(({ editor }: { editor: Editor }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [dropIndicator, setDropIndicator] = useState<{ top: number; insertPos: number } | null>(null);
+  // Explicit "Select Block" range, discoverable via the grip menu — an
+  // alternative to shift+click/drag for building a multi-block selection.
+  // Tracked by uid (not raw position) so it survives edits shifting
+  // positions around; re-resolved to positions on demand.
+  const [blockSelectRange, setBlockSelectRange] = useState<{ anchorUid: string; headUid: string } | null>(null);
+  const [selectHighlightRects, setSelectHighlightRects] = useState<Array<{ top: number; height: number }>>([]);
   const menuOpenRef = useRef(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const lastMouseNodePos = useRef<number>(-1);
@@ -631,6 +648,117 @@ export const VoidenDragMenu = React.memo(({ editor }: { editor: Editor }) => {
     moveNode,
     resolveDragRange,
   } = useActions(editor);
+
+  // Resolves the current blockSelectRange (a pair of uids) to a live
+  // position/size, re-scanning the doc each time since edits shift
+  // positions. Returns null (and the caller should treat the range as gone)
+  // if either endpoint's block no longer exists.
+  const resolveExplicitRange = useCallback((): { pos: number; size: number } | null => {
+    if (!blockSelectRange) return null;
+    const { doc } = editor.state;
+    let anchorPos = -1, anchorSize = 0, headPos = -1, headSize = 0;
+    let pos = 0;
+    for (let i = 0; i < doc.childCount; i++) {
+      const node = doc.child(i);
+      if (node.attrs?.uid === blockSelectRange.anchorUid) { anchorPos = pos; anchorSize = node.nodeSize; }
+      if (node.attrs?.uid === blockSelectRange.headUid) { headPos = pos; headSize = node.nodeSize; }
+      pos += node.nodeSize;
+    }
+    if (anchorPos === -1 || headPos === -1) return null;
+    const from = Math.min(anchorPos, headPos);
+    const to = Math.max(anchorPos + anchorSize, headPos + headSize);
+    return { pos: from, size: to - from };
+  }, [editor, blockSelectRange]);
+
+  // "Select Block" menu action: first click starts a single-block selection
+  // anchored there; each click after that moves the far end to whichever
+  // block was clicked, covering everything between — the same range you'd
+  // get from shift+click, just discoverable through the menu. Never extends
+  // across a request-separator boundary; clicking a block in a different
+  // section starts a fresh selection there instead.
+  const toggleSelectBlock = useCallback(() => {
+    const uid = currentNode?.attrs?.uid;
+    if (!uid || currentNodePos === -1) return;
+
+    setBlockSelectRange((prev) => {
+      if (!prev) return { anchorUid: uid, headUid: uid };
+
+      const { doc } = editor.state;
+      let anchorPos = -1;
+      let pos = 0;
+      for (let i = 0; i < doc.childCount; i++) {
+        const node = doc.child(i);
+        if (node.attrs?.uid === prev.anchorUid) { anchorPos = pos; break; }
+        pos += node.nodeSize;
+      }
+      if (anchorPos === -1) return { anchorUid: uid, headUid: uid };
+
+      const from = Math.min(anchorPos, currentNodePos);
+      const to = Math.max(anchorPos, currentNodePos);
+      let crossesSeparator = false;
+      doc.nodesBetween(from, to, (node, p, parent) => {
+        if (parent !== doc) return false;
+        if (node.type.name === 'request-separator' && p > from) crossesSeparator = true;
+        return false;
+      });
+      if (crossesSeparator) return { anchorUid: uid, headUid: uid };
+
+      return { anchorUid: prev.anchorUid, headUid: uid };
+    });
+  }, [editor, currentNode, currentNodePos]);
+
+  const clearBlockSelectRange = useCallback(() => setBlockSelectRange(null), []);
+
+  // Recomputes the highlight bars' screen positions for whatever the
+  // current blockSelectRange resolves to. Called on doc/selection changes
+  // and after scrolling settles (see the scroll-tracking effect below).
+  const updateSelectHighlights = useCallback(() => {
+    if (!editorContainer) { setSelectHighlightRects([]); return; }
+    const range = resolveExplicitRange();
+    if (!range) { setSelectHighlightRects([]); return; }
+
+    const containerRect = editorContainer.getBoundingClientRect();
+    const rects: Array<{ top: number; height: number }> = [];
+    const { doc } = editor.state;
+    let pos = 0;
+    for (let i = 0; i < doc.childCount; i++) {
+      const node = doc.child(i);
+      if (pos >= range.pos && pos < range.pos + range.size) {
+        try {
+          const dom = editor.view.nodeDOM(pos);
+          if (dom instanceof HTMLElement) {
+            const rect = dom.getBoundingClientRect();
+            rects.push({ top: rect.top - containerRect.top, height: rect.height });
+          }
+        } catch { /* skip */ }
+      }
+      pos += node.nodeSize;
+    }
+    setSelectHighlightRects(rects);
+  }, [editor, editorContainer, resolveExplicitRange]);
+
+  useEffect(() => {
+    updateSelectHighlights();
+    editor.on('update', updateSelectHighlights);
+    editor.on('selectionUpdate', updateSelectHighlights);
+    return () => {
+      editor.off('update', updateSelectHighlights);
+      editor.off('selectionUpdate', updateSelectHighlights);
+    };
+  }, [editor, updateSelectHighlights]);
+
+  // A plain click/cursor placement elsewhere in the doc — including the one
+  // that lands right after a completed drag — consumes the selection, same
+  // as clicking away deselects blocks in most block editors.
+  useEffect(() => {
+    const clearOnPlainSelection = () => {
+      if (blockSelectRange && editor.state.selection.empty) {
+        setBlockSelectRange(null);
+      }
+    };
+    editor.on('selectionUpdate', clearOnPlainSelection);
+    return () => { editor.off('selectionUpdate', clearOnPlainSelection); };
+  }, [editor, blockSelectRange]);
 
   // Suppress the popover click after a drag so the menu doesn't open on mouseup
   const suppressNextClickRef = useRef(false);
@@ -691,7 +819,11 @@ export const VoidenDragMenu = React.memo(({ editor }: { editor: Editor }) => {
     const startY = e.clientY;
     // If a multi-block selection currently covers the grip's node, drag the
     // whole selected range together; otherwise this is just the one node.
-    dragSourceRef.current = resolveDragRange() ?? { pos: currentNodePos, size: currentNode.nodeSize };
+    // An explicit "Select Block" range (menu-driven) takes priority over a
+    // plain multi-sibling text selection when both would apply.
+    const explicitRange = resolveExplicitRange();
+    const explicitCoversGrip = explicitRange && currentNodePos >= explicitRange.pos && currentNodePos < explicitRange.pos + explicitRange.size;
+    dragSourceRef.current = (explicitCoversGrip ? explicitRange : null) ?? resolveDragRange() ?? { pos: currentNodePos, size: currentNode.nodeSize };
 
     let dragging = false;
 
@@ -751,7 +883,7 @@ export const VoidenDragMenu = React.memo(({ editor }: { editor: Editor }) => {
 
     document.addEventListener('mousemove', onMouseMove);
     document.addEventListener('mouseup', onMouseUp);
-  }, [currentNode, currentNodePos, getDropInfo, moveNode, resolveDragRange]);
+  }, [currentNode, currentNodePos, getDropInfo, moveNode, resolveDragRange, resolveExplicitRange]);
 
   // Find the editor container
   useEffect(() => {
@@ -776,6 +908,7 @@ export const VoidenDragMenu = React.memo(({ editor }: { editor: Editor }) => {
       scrollEndTimerRef.current = window.setTimeout(() => {
         isScrollingRef.current = false;
         scrollEndTimerRef.current = null;
+        updateSelectHighlights();
       }, 150);
     };
 
@@ -784,7 +917,7 @@ export const VoidenDragMenu = React.memo(({ editor }: { editor: Editor }) => {
       scrollContainer.removeEventListener('scroll', onScroll);
       if (scrollEndTimerRef.current !== null) clearTimeout(scrollEndTimerRef.current);
     };
-  }, []);
+  }, [updateSelectHighlights]);
 
   const resolveTopLevelNodeFromSelection = useCallback(() => {
     const { state, view } = editor;
@@ -1124,8 +1257,14 @@ export const VoidenDragMenu = React.memo(({ editor }: { editor: Editor }) => {
     currentNode.type.name === "method" ||
     currentNode.type.name === "url";
 
-  // When dragging, always render the portal (for the drop indicator) even if menu is hidden
-  if (hideMenu && !isDragging) {
+  // When dragging (for the drop indicator) or an explicit block selection is
+  // active (its highlight bars must persist even while the grip itself isn't
+  // currently shown), always render the portal even if the menu is hidden —
+  // as long as there's actually somewhere to portal into.
+  if (!editorContainer) {
+    return null;
+  }
+  if (hideMenu && !isDragging && !blockSelectRange) {
     return null;
   }
 
@@ -1172,6 +1311,9 @@ export const VoidenDragMenu = React.memo(({ editor }: { editor: Editor }) => {
             pluginBlockItems={pluginBlockItems}
             pluginBlockTarget={pluginBlockTarget}
             docsUrl={docsUrl}
+            onSelectBlock={toggleSelectBlock}
+            onClearSelection={clearBlockSelectRange}
+            hasBlockSelection={blockSelectRange !== null}
           />
         </Popover>
       </div>
@@ -1188,7 +1330,17 @@ export const VoidenDragMenu = React.memo(({ editor }: { editor: Editor }) => {
     </div>
   );
 
-  return createPortal(<>{gripHandle}{dropIndicatorEl}</>, editorContainer!);
+  // Left-border + faint tint on every block currently covered by the
+  // explicit "Select Block" range (see toggleSelectBlock above).
+  const selectHighlightEls = selectHighlightRects.map((r, i) => (
+    <div
+      key={i}
+      className="absolute left-0 right-0 pointer-events-none border-l-2 border-accent bg-accent/10"
+      style={{ top: `${r.top}px`, height: `${r.height}px`, zIndex: 5 }}
+    />
+  ));
+
+  return createPortal(<>{selectHighlightEls}{gripHandle}{dropIndicatorEl}</>, editorContainer!);
 });
 
 
