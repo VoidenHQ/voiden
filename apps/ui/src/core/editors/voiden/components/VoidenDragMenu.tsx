@@ -405,25 +405,72 @@ export const useActions = (editor: Editor) => {
     }
   }, [getSectionNodes, activeDocument, queryClient]);
 
+  // Moves whatever top-level content sits in [srcPos, srcPos + srcSize) to
+  // insertPos in one transaction (one undo step). Works identically for a
+  // single block or a multi-block range — slicing at exact sibling
+  // boundaries always yields a closed Slice (openStart/openEnd 0), so
+  // re-inserting its Fragment reproduces however many nodes were in it.
   const moveNode = useCallback((srcPos: number, srcSize: number, insertPos: number) => {
     const { state } = editor;
-    const srcNode = state.doc.nodeAt(srcPos);
-    if (!srcNode) return;
+    const slice = state.doc.slice(srcPos, srcPos + srcSize);
+    if (slice.content.size === 0) return;
 
-    const nodeJSON = srcNode.toJSON();
     // When deleting before inserting, positions after srcPos shift by -srcSize
     const adjustedInsertPos = insertPos > srcPos ? insertPos - srcSize : insertPos;
 
     try {
-      const newNode = state.schema.nodeFromJSON(nodeJSON);
       const tr = state.tr.delete(srcPos, srcPos + srcSize);
-      tr.insert(adjustedInsertPos, newNode);
+      tr.insert(adjustedInsertPos, slice.content);
       editor.view.dispatch(tr);
       setTimeout(() => safeFocusEditor(adjustedInsertPos + 1), 0);
     } catch (e) {
-      console.error('Error moving block:', e);
+      console.error('Error moving block(s):', e);
     }
   }, [editor, safeFocusEditor]);
+
+  // When the grip is grabbed while a plain (non-cell, non-empty) selection
+  // spans more than one top-level sibling — and the grip's own node falls
+  // inside that span — drag the WHOLE covered range together instead of
+  // just the single node the grip happens to be anchored to. Falls back to
+  // the existing single-node behavior for every other case.
+  const resolveDragRange = useCallback((): { pos: number; size: number } | null => {
+    if (!currentNode || currentNodePos === -1) return null;
+    const single = { pos: currentNodePos, size: currentNode.nodeSize };
+
+    const { state } = editor;
+    const { selection } = state;
+    // CellSelection (and similar) carry multiple ranges — not a block range.
+    if (selection.empty || (selection as any).ranges?.length > 1) return single;
+
+    const doc = state.doc;
+    let blockRange;
+    try {
+      blockRange = state.selection.$from.blockRange(state.selection.$to);
+    } catch {
+      return single;
+    }
+    // Only a range whose shared parent IS the doc (top-level siblings) counts.
+    if (!blockRange || blockRange.parent !== doc) return single;
+
+    const rangeFrom = blockRange.start;
+    const rangeTo = blockRange.end;
+    if (currentNodePos < rangeFrom || currentNodePos >= rangeTo) return single;
+
+    let siblingCount = 0;
+    let crossesSeparator = false;
+    doc.nodesBetween(rangeFrom, rangeTo, (node, pos, parent) => {
+      if (parent !== doc) return false;
+      siblingCount++;
+      if (node.type.name === 'request-separator' && pos > rangeFrom) crossesSeparator = true;
+      return false;
+    });
+
+    // A single covered sibling, or a span crossing into another request's
+    // section, isn't a multi-block drag — fall back to the normal single-node path.
+    if (siblingCount < 2 || crossesSeparator) return single;
+
+    return { pos: rangeFrom, size: rangeTo - rangeFrom };
+  }, [editor, currentNode, currentNodePos]);
 
   return {
     currentNode,
@@ -442,6 +489,7 @@ export const useActions = (editor: Editor) => {
     deleteSectionBlock,
     linkSectionBlock,
     moveNode,
+    resolveDragRange,
   };
 };
 
@@ -581,6 +629,7 @@ export const VoidenDragMenu = React.memo(({ editor }: { editor: Editor }) => {
     deleteSectionBlock,
     linkSectionBlock,
     moveNode,
+    resolveDragRange,
   } = useActions(editor);
 
   // Suppress the popover click after a drag so the menu doesn't open on mouseup
@@ -640,7 +689,9 @@ export const VoidenDragMenu = React.memo(({ editor }: { editor: Editor }) => {
 
     const startX = e.clientX;
     const startY = e.clientY;
-    dragSourceRef.current = { pos: currentNodePos, size: currentNode.nodeSize };
+    // If a multi-block selection currently covers the grip's node, drag the
+    // whole selected range together; otherwise this is just the one node.
+    dragSourceRef.current = resolveDragRange() ?? { pos: currentNodePos, size: currentNode.nodeSize };
 
     let dragging = false;
 
@@ -692,7 +743,7 @@ export const VoidenDragMenu = React.memo(({ editor }: { editor: Editor }) => {
 
     document.addEventListener('mousemove', onMouseMove);
     document.addEventListener('mouseup', onMouseUp);
-  }, [currentNode, currentNodePos, getDropInfo, moveNode]);
+  }, [currentNode, currentNodePos, getDropInfo, moveNode, resolveDragRange]);
 
   // Find the editor container
   useEffect(() => {
