@@ -16,7 +16,7 @@ import type { RestApiRequestState } from './pipeline/types.js'
 import { executeWebSocket } from './websocket.js'
 import { executeGrpc } from './grpc.js'
 import { assertNoUnresolvedTemplates } from './unresolvedVariables.js'
-import { assertS3PathIsFetchSafe, signAwsRequest, type AwsSigV4Config } from './awsSigV4.js'
+import { secureAuthProviders } from './secureAuthProviders/index.js'
 
 // ─── Adapter interface ────────────────────────────────────────────────────────
 
@@ -116,49 +116,6 @@ export function getFileMimeType(filePath: string): string {
   return mimeTypes.lookup(filePath) || 'application/octet-stream'
 }
 
-const AWS_SERVICE_ALIASES: Record<string, string> = {
-  cloudwatch: 'monitoring',
-}
-
-function isAwsSigV4Auth(requestState: RestApiRequestState): boolean {
-  const auth = requestState.auth
-  return auth?.enabled !== false && (auth?.type === 'aws-signature' || auth?.type === 'awsSignature')
-}
-
-async function resolveAwsSigV4Config(
-  requestState: RestApiRequestState,
-  replaceVar: (text: string) => Promise<string>,
-): Promise<AwsSigV4Config | undefined> {
-  if (!isAwsSigV4Auth(requestState)) return undefined
-
-  const raw = requestState.auth?.config ?? {}
-  const resolve = async (camelCase: string, snakeCase?: string): Promise<string> => {
-    const value = raw[camelCase] ?? (snakeCase ? raw[snakeCase] : undefined) ?? ''
-    return replaceVar(String(value))
-  }
-
-  const accessKey = (await resolve('accessKey', 'access_key')).trim()
-  const secretKey = (await resolve('secretKey', 'secret_key')).trim()
-  const sessionToken = (await resolve('sessionToken', 'session_token')).trim()
-  const region = (await resolve('region')).trim().toLowerCase()
-  const rawService = raw.service ?? raw.signingService ?? raw.signing_service ?? ''
-  const requestedService = (await replaceVar(String(rawService))).trim().toLowerCase()
-  const service = AWS_SERVICE_ALIASES[requestedService] ?? requestedService
-
-  assertNoUnresolvedTemplates([accessKey, secretKey, sessionToken, region, service])
-
-  const missing = [
-    !accessKey && 'access key',
-    !secretKey && 'secret key',
-    !region && 'region',
-    !service && 'signing service',
-  ].filter(Boolean)
-  if (missing.length > 0) {
-    throw new Error(`AWS SigV4 configuration is missing: ${missing.join(', ')}`)
-  }
-  return { accessKey, secretKey, sessionToken: sessionToken || undefined, region, service }
-}
-
 function validateResolvedOutgoing(
   url: string,
   headers: Record<string, string>,
@@ -212,13 +169,17 @@ export async function executeSecureRequest(
 
   // ── 5. Replace variables in body text ────────────────────────────────────
   const body = requestState.body ? await rv(requestState.body) : undefined
-  const awsSigV4 = await resolveAwsSigV4Config(requestState, rv)
+  const auth = requestState.auth
+  const authProvider = auth?.enabled !== false
+    ? secureAuthProviders.getForAuthType(auth?.type)
+    : undefined
+  const authConfig = authProvider && auth ? await authProvider.resolveConfig(auth, rv) : undefined
 
   // ── 6. Ensure URL has a protocol prefix ──────────────────────────────────
   if (!url.match(/^(https?|wss?|grpcs?):\/\//i)) url = `http://${url}`
 
   validateResolvedOutgoing(url, headers, body)
-  if (awsSigV4) assertS3PathIsFetchSafe(url, awsSigV4.service)
+  authProvider?.validateUrl?.(url, authConfig)
 
   // ── 7. Protocol detection — hand off WS / gRPC / GQL-sub to caller ───────
   const proto = new URL(url).protocol
@@ -306,17 +267,17 @@ export async function executeSecureRequest(
   const fetchOptions: any = {
     method: requestState.method || 'GET',
     headers,
-    // A followed redirect can change host/path/query and invalidates SigV4.
-    // Re-signing redirect targets safely is out of scope, so signed requests
-    // always expose the redirect response to the caller.
-    redirect: awsSigV4 ? 'manual' : followRedirects ? 'follow' : 'manual',
+    // A followed redirect can change host/path/query and invalidate a signed
+    // request. Re-signing redirect targets safely is out of scope, so requests
+    // using such a provider always expose the redirect response to the caller.
+    redirect: authProvider?.forcesManualRedirect ? 'manual' : followRedirects ? 'follow' : 'manual',
   }
 
   // ── 9. Build request body ─────────────────────────────────────────────────
   if (requestState.binary) {
     if (Array.isArray(requestState.binary)) {
-      if (awsSigV4) {
-        throw new Error('AWS SigV4 does not support multipart/form-data in this request pipeline because deterministic request bytes are unavailable')
+      if (authProvider && authProvider.supportsMultipartBody === false) {
+        throw new Error(`${authProvider.id} does not support multipart/form-data in this request pipeline because deterministic request bytes are unavailable`)
       }
       // Multiple binary files → send as multipart/form-data, one entry per file
       if (!adapter.readFile) throw new Error('Multi-file binary upload requires adapter.readFile')
@@ -347,8 +308,8 @@ export async function executeSecureRequest(
     const resolvedBodyParamTexts: string[] = []
 
     if (requestState.contentType === 'multipart/form-data') {
-      if (awsSigV4) {
-        throw new Error('AWS SigV4 does not support multipart/form-data in this request pipeline because deterministic request bytes are unavailable')
+      if (authProvider && authProvider.supportsMultipartBody === false) {
+        throw new Error(`${authProvider.id} does not support multipart/form-data in this request pipeline because deterministic request bytes are unavailable`)
       }
       const formData = new FormData()
       for (const p of bodyParams) {
@@ -404,27 +365,30 @@ export async function executeSecureRequest(
   // Auth injection intentionally happens here: URL/path/query/header variables
   // and the exact outgoing body have all been materialized, but fetch has not
   // started. This keeps signing in the secure executor rather than renderer hooks.
-  if (awsSigV4) {
+  let sensitiveHeaders: string[] = []
+  if (authProvider) {
     const outgoingBody = fetchOptions.body
-    if (outgoingBody instanceof FormData) {
-      throw new Error('AWS SigV4 does not support multipart/form-data in this request pipeline because deterministic request bytes are unavailable')
+    if (outgoingBody instanceof FormData && authProvider.supportsMultipartBody === false) {
+      throw new Error(`${authProvider.id} does not support multipart/form-data in this request pipeline because deterministic request bytes are unavailable`)
     }
     if (outgoingBody !== undefined && typeof outgoingBody !== 'string' && !ArrayBuffer.isView(outgoingBody)) {
-      throw new Error('AWS SigV4 requires a request body with deterministic bytes')
+      throw new Error(`${authProvider.id} requires a request body with deterministic bytes`)
     }
     const payload = typeof outgoingBody === 'string'
       ? Buffer.from(outgoingBody)
       : outgoingBody === undefined
         ? new Uint8Array()
         : new Uint8Array(outgoingBody.buffer, outgoingBody.byteOffset, outgoingBody.byteLength)
-    signAwsRequest({
+    const applyResult = await authProvider.apply({
       method: fetchOptions.method,
       url,
       headers,
       payload,
-      config: awsSigV4,
-      now: adapter.now?.(),
+      config: authConfig,
+      resolveVar: rv,
+      now: adapter.now ?? (() => new Date()),
     })
+    sensitiveHeaders = applyResult.sensitiveHeaders ?? []
   }
 
   fetchOptions.headers = headers
@@ -434,13 +398,11 @@ export async function executeSecureRequest(
   const buffer = response.body ? await response.arrayBuffer() : null
 
   // ── 13. Build request metadata for display ────────────────────────────────
-  const requestMetaHeaders = Object.entries(headers).map(([key, value]) => {
-    const lowerKey = key.toLowerCase()
-    const isSensitiveAwsHeader = awsSigV4 && (
-      lowerKey === 'authorization' || lowerKey === 'x-amz-security-token'
-    )
-    return { key, value: isSensitiveAwsHeader ? '[REDACTED]' : value as string }
-  })
+  const sensitiveHeaderNames = new Set(sensitiveHeaders.map(name => name.toLowerCase()))
+  const requestMetaHeaders = Object.entries(headers).map(([key, value]) => ({
+    key,
+    value: sensitiveHeaderNames.has(key.toLowerCase()) ? '[REDACTED]' : (value as string),
+  }))
   const isHttps = new URL(url).protocol === 'https:'
   const tlsInfo = isHttps
     ? { protocol: 'TLS 1.3', cipher: 'TLS_AES_128_GCM_SHA256', isSecure: true }

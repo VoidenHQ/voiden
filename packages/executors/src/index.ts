@@ -6,6 +6,9 @@ export { executeGrpc } from './grpc.js'
 export type { SecureRequestAdapter, SecureHandoffResult, SecureHttpResult, SecureRequestResult } from './secureRequest.js'
 export { executeSecureRequest, hasHttpHeader, deleteHttpHeader, addDefaultHttpHeaders, getFileMimeType } from './secureRequest.js'
 
+export type { SecureAuthProvider, SecureAuthApplyContext, SecureAuthApplyResult } from './secureAuthProviders/index.js'
+export { SecureAuthProviderRegistry, secureAuthProviders } from './secureAuthProviders/index.js'
+
 export {
   UnresolvedVariablesError,
   assertNoUnresolvedTemplates,
