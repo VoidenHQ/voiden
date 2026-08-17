@@ -9,7 +9,7 @@ REM ============================================
 REM ============================================
 REM VERSION - Replaced at build time by forge.config.ts
 REM ============================================
-set "VOIDEN_VERSION=2.2.2"
+set "VOIDEN_VERSION=2.3.0-beta.2"
 
 REM ============================================
 REM Functions (using CALL with labels)
@@ -140,10 +140,23 @@ for %%a in (%*) do (
 )
 
 REM ============================================
+REM `agent`/`run`/`mcp-stdio` are bundled CLI subcommands (see voiden-cli.ts),
+REM dispatched straight into the Node CLI further below — they have their
+REM own flags (e.g. `agent --claude`) that this launcher's GUI-path flag
+REM validation doesn't know about, so skip it for them.
+REM ============================================
+set "IS_CLI_SUBCOMMAND="
+if "%~1"=="agent" set "IS_CLI_SUBCOMMAND=1"
+if "%~1"=="run" set "IS_CLI_SUBCOMMAND=1"
+if "%~1"=="mcp-stdio" set "IS_CLI_SUBCOMMAND=1"
+
+REM ============================================
 REM Validate Arguments
 REM ============================================
 set "HAS_INVALID_FLAG=0"
 set "INVALID_FLAG="
+
+if defined IS_CLI_SUBCOMMAND goto :skip_validate
 
 for %%a in (%*) do (
     set "arg=%%~a"
@@ -167,6 +180,8 @@ for %%a in (%*) do (
     )
 )
 
+:skip_validate
+
 REM ============================================
 REM Find Voiden Installation
 REM ============================================
@@ -185,6 +200,22 @@ if exist "%LOCALAPPDATA%\voiden\Voiden.exe" (
     echo Unable to find Voiden installation
     echo Searched common installation locations
     exit /b 1
+)
+
+REM ============================================
+REM `agent`/`run`/`mcp-stdio`: run the bundled CLI (inside app.asar, next to
+REM main.js — see voiden-cli.ts's own doc comment) as plain Node via the
+REM packaged Electron binary's ELECTRON_RUN_AS_NODE mode, instead of falling
+REM through to "open this as a GUI file/folder path" below. Runs in the
+REM foreground (no `start /B`) so stdin/stdout stay directly connected —
+REM required for `mcp-stdio`, which speaks the MCP protocol over them.
+REM ============================================
+if defined IS_CLI_SUBCOMMAND (
+    for %%F in ("%VOIDEN_PATH%") do set "VOIDEN_DIR=%%~dpF"
+    set "CLI_JS=!VOIDEN_DIR!resources\app.asar\.vite\build\voiden-cli.js"
+    set "ELECTRON_RUN_AS_NODE=1"
+    "%VOIDEN_PATH%" "!CLI_JS!" %*
+    exit /b !ERRORLEVEL!
 )
 
 REM ============================================

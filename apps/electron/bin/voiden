@@ -6,7 +6,7 @@
 # ============================================
 # VERSION - Replaced at build time by forge.config.ts
 # ============================================
-VOIDEN_VERSION="2.2.2"
+VOIDEN_VERSION="2.3.0-beta.2"
 
 # Show version
 show_version() {
@@ -109,8 +109,20 @@ for arg in "$@"; do
     esac
 done
 
+# `agent`/`run`/`mcp-stdio` are bundled CLI subcommands (see voiden-cli.ts),
+# dispatched straight into the Node CLI further below — they have their own
+# flags (e.g. `agent --claude`) that this launcher's GUI-path flag validation
+# doesn't know about, so skip it for them.
+case "$1" in
+    agent|run|mcp-stdio)
+        IS_CLI_SUBCOMMAND=1
+        ;;
+esac
+
 # Validate all arguments (will exit if invalid flags found)
-validate_arguments "$@"
+if [ -z "$IS_CLI_SUBCOMMAND" ]; then
+    validate_arguments "$@"
+fi
 
 # Determine the application path
 APP_PATH="$(app_realpath "${BASH_SOURCE[0]}")"
@@ -151,6 +163,17 @@ if [ "$(uname)" == "Darwin" ]; then
         exit 1
     fi
 
+    # `agent`/`run`/`mcp-stdio`: run the bundled CLI (inside app.asar, next to
+    # main.js — see voiden-cli.ts's own doc comment) as plain Node via the
+    # packaged Electron binary's ELECTRON_RUN_AS_NODE mode, instead of
+    # falling through to "open this as a GUI file/folder path" below. `exec`
+    # replaces this script so stdin/stdout stay directly connected — required
+    # for `mcp-stdio`, which speaks the MCP protocol over them.
+    if [ -n "$IS_CLI_SUBCOMMAND" ]; then
+        CLI_JS="$APP_PATH/Contents/Resources/app.asar/.vite/build/voiden-cli.js"
+        exec env ELECTRON_RUN_AS_NODE=1 "$ELECTRON" "$CLI_JS" "$@"
+    fi
+
     # Process arguments and resolve paths
     RESOLVED_ARGS=()
     
@@ -184,6 +207,12 @@ else
     if [ ! -f "$ELECTRON" ]; then
 		echo "Voiden executable not found at: $APP_PATH"
         exit 1
+    fi
+
+    # See the matching macOS branch above for why.
+    if [ -n "$IS_CLI_SUBCOMMAND" ]; then
+        CLI_JS="$APP_PATH/resources/app.asar/.vite/build/voiden-cli.js"
+        exec env ELECTRON_RUN_AS_NODE=1 "$ELECTRON" "$CLI_JS" "$@"
     fi
 
     # Process arguments and resolve paths

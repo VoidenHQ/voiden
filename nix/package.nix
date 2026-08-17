@@ -192,11 +192,31 @@ yarnProject.overrideAttrs (oldAttrs: {
     # runtime reads plugins/ itself.
     rm -rf $out/share/voiden/plugins
 
-    # Wrap the app with Nixpkgs' native Electron package pointing to the apps/electron folder.
-    # When Electron starts, it loads apps/electron/package.json which runs the main bundle.
-    makeWrapper ${electron}/bin/electron $out/bin/voiden \
-      --add-flags "$out/share/voiden/apps/electron" \
-      --prefix PATH : ${lib.makeBinPath [ git nodejs_22 ]}
+    # Wrap the app with Nixpkgs' native Electron package. Two distinct launch
+    # modes, mirroring apps/electron/bin/voiden's own dispatch (see that
+    # script's comment) — `agent`/`run`/`mcp-stdio` run the bundled CLI
+    # (.vite/build/voiden-cli.js, built above by build:nix) as plain Node via
+    # Electron's ELECTRON_RUN_AS_NODE mode; everything else opens the GUI,
+    # pointed at apps/electron (Electron loads apps/electron/package.json,
+    # which runs the main bundle). A plain `makeWrapper` call can't express
+    # that branch, so this is a hand-written wrapper script instead — without
+    # it, `voiden agent`/`mcp-stdio` silently opened a GUI window instead of
+    # registering with / speaking to an agent editor.
+    mkdir -p $out/bin
+    cat > $out/bin/voiden <<WRAPPER_EOF
+#!/usr/bin/env bash
+set -e
+export PATH="${lib.makeBinPath [ git nodejs_22 ]}:\$PATH"
+
+case "\$1" in
+  agent|run|mcp-stdio)
+    exec env ELECTRON_RUN_AS_NODE=1 "${electron}/bin/electron" "$out/share/voiden/apps/electron/.vite/build/voiden-cli.js" "\$@"
+    ;;
+esac
+
+exec "${electron}/bin/electron" "$out/share/voiden/apps/electron" "\$@"
+WRAPPER_EOF
+    chmod +x $out/bin/voiden
 
     runHook postInstall
   '';
