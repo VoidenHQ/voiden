@@ -375,6 +375,32 @@ export const voidenExtensions: AnyExtension[] = [
       rel: "noopener noreferrer",
     },
   }).extend({
+    // This ships with no input rule for markdown link syntax at all (only a
+    // linkOnPaste option, which is off) — typing `[label](url)` anywhere,
+    // headings included, never became a link. DisableMarkdownInTables's
+    // catch-all (priority 10000) already swallows every keystroke inside
+    // table cells/custom blocks before any other input rule sees it, so this
+    // naturally never fires there — no extra guarding needed here.
+    addInputRules() {
+      return [
+        ...(this.parent?.() ?? []),
+        new InputRule({
+          find: /(?:^|\s)\[([^\]]+)\]\(([^)\s]+)\)$/,
+          handler: ({ state, range, match }) => {
+            const [fullMatch, label, href] = match;
+            if (!label || !href) return null;
+
+            const { tr } = state;
+            const from = range.from + fullMatch.search(/\S/);
+            const to = range.to;
+
+            tr.insertText(label, from, to);
+            tr.addMark(from, from + label.length, state.schema.marks.link.create({ href }));
+            tr.removeStoredMark(state.schema.marks.link);
+          },
+        }),
+      ];
+    },
     addPasteRules() {
       return [
         new PasteRule({
