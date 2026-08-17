@@ -714,7 +714,15 @@ export const VoidenDragMenu = React.memo(({ editor }: { editor: Editor }) => {
       if (!info || !dragSourceRef.current) { setDropIndicator(null); return; }
 
       const { pos: srcPos, size: srcSize } = dragSourceRef.current;
-      if (info.insertPos === srcPos || info.insertPos === srcPos + srcSize) {
+      // For a single-node source, getDropInfo can only ever land exactly on
+      // srcPos or srcPos + srcSize (it snaps to top-level node boundaries),
+      // so an equality check was enough. A multi-block RANGE has boundaries
+      // *between* its own covered siblings too — mouseY over the gap between
+      // two blocks that are both part of the drag would satisfy the old
+      // equality check while still being inside the source, showing a bogus
+      // "valid" drop line in the middle of the blocks being dragged. Exclude
+      // the whole span instead of just its two ends.
+      if (info.insertPos >= srcPos && info.insertPos <= srcPos + srcSize) {
         setDropIndicator(null);
       } else {
         setDropIndicator(info);
@@ -729,7 +737,7 @@ export const VoidenDragMenu = React.memo(({ editor }: { editor: Editor }) => {
         suppressNextClickRef.current = true;
         const source = dragSourceRef.current;
         const info = getDropInfo(upE.clientY);
-        if (source && info && info.insertPos !== source.pos && info.insertPos !== source.pos + source.size) {
+        if (source && info && (info.insertPos < source.pos || info.insertPos > source.pos + source.size)) {
           moveNode(source.pos, source.size, info.insertPos);
         }
       }
