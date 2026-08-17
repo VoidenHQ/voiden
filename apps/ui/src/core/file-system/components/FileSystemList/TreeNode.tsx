@@ -17,7 +17,7 @@ import { useEditorStore } from "@/core/editors/voiden/VoidenEditor";
 import { getSchema } from "@tiptap/core";
 import { voidenExtensions } from "@/core/editors/voiden/extensions";
 import { prosemirrorToMarkdown } from "@/core/file-system/hooks";
-import { useEditorEnhancementStore } from "@/plugins";
+import { useEditorEnhancementStore, getContextMenuItems } from "@/plugins";
 import { confirmAndSaveTab } from "@/core/stores/unsavedChangesDialogStore";
 
 export interface TreeNodeProps extends NodeRendererProps<ExtendedFileTree> {
@@ -436,11 +436,11 @@ export function TreeNode({
         })),
       );
     } else {
+      const fileTarget = { path: node.data.path, type: node.data.type, name: node.data.name };
       window.electron?.files.showFileContextMenu({
-        path: node.data.path,
-        type: node.data.type,
-        name: node.data.name,
+        ...fileTarget,
         isProjectRoot: node.level === 0,
+        pluginItems: getContextMenuItems('file', fileTarget).map((i) => ({ id: i.id, label: i.label })),
       });
     }
   };
