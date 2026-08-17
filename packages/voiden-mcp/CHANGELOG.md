@@ -3,6 +3,11 @@
 All notable changes to `@voiden/mcp` are documented here. This package is
 versioned and released independently of the Voiden desktop app.
 
+## v0.0.9 - 2026-08-17
+
+### Fixed
+- `0.0.8` was published with an unresolved `"@voiden/runner": "workspace:*"` dependency — that protocol is Yarn-only, so `npm install @voiden/mcp@latest` failed outright with `EUNSUPPORTEDPROTOCOL`. Caused by publishing directly with a plain `npm publish` instead of through `release-mcp.yml`, which exists specifically to pin this dependency to the exact already-published `@voiden/runner` version before publishing (see that workflow's own comments). `0.0.8` has been deprecated on npm; this release pins correctly. Going forward, releases should go through the GitHub Actions workflow, not a local `npm publish`.
+
 ## v0.0.8 - 2026-08-14
 
 ### Fixed
