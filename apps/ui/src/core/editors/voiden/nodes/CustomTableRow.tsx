@@ -25,6 +25,22 @@ const pickContrastingStrokeColor = (hex: string): string => {
   return contrastWithBlack > contrastWithWhite ? "#111111" : "#ffffff";
 };
 
+// True when every cell in `row` has no content — used to let Backspace delete
+// a pointless empty row without first requiring a full CellSelection of it.
+// A cell's own content.size counts its wrapping paragraph node (nodeSize 2)
+// even when that paragraph is empty, so — same as the existing single-cell
+// isEmpty check below — this looks at each cell's block content (the
+// paragraph's own content.size, i.e. its actual text) rather than the cell's.
+const isRowEmpty = (row: any): boolean => {
+  let empty = true;
+  row.forEach((cell: any) => {
+    cell.forEach((block: any) => {
+      if (block.content.size > 0) empty = false;
+    });
+  });
+  return empty;
+};
+
 const handleTableDelete = (editor: Editor) => {
   const { selection } = editor.state;
 
@@ -47,6 +63,17 @@ const handleTableDelete = (editor: Editor) => {
     const isEmpty = selection.$head.node().content.size === 0;
 
     if (isWrapperNode && isEmpty) {
+      // Cursor sits in an empty cell of one of our REST-block tables. If every
+      // other cell in this row is ALSO empty, Backspace here should remove the
+      // whole (otherwise pointless) empty row — previously this required first
+      // making a full CellSelection of the row (drag-select or a row handle),
+      // which most users never discover. Never fires on a table's last
+      // remaining row, so the table itself can't be deleted this way.
+      const row = findParentNodeClosestToPos(selection.$head, (node) => node.type.name === "tableRow");
+      const table = findParentNodeClosestToPos(selection.$head, (node) => node.type.name === "table");
+      if (row && table && table.node.childCount > 1 && isRowEmpty(row.node)) {
+        editor.chain().focus().deleteRow().run();
+      }
       return true;
     } else {
       return false;
