@@ -488,8 +488,15 @@ const linkableNodeTypes = new Set<string>(coreLinkableNodeTypes);
 // Global registry for node display names (for showing human-readable names in UI)
 const nodeDisplayNames = new Map<string, string>(Object.entries(coreNodeDisplayNames));
 
-// Global registry for table cell autocomplete suggestions (plugin-owned)
-const tableSuggestionsRegistry = new Map<string, { [columnIndex: number]: Array<{ label: string; description?: string }> }>();
+// Global registry for table cell autocomplete suggestions (plugin-owned).
+// A column's suggestions can be a static list, or a function of the other
+// cells already filled in on that row (e.g. headers-table's value column
+// tailoring its list to whichever header key was typed in column 0).
+export type TableSuggestionItem = { label: string; description?: string };
+export type TableSuggestionsForColumn =
+  | TableSuggestionItem[]
+  | ((rowContext: Record<number, string>) => TableSuggestionItem[]);
+const tableSuggestionsRegistry = new Map<string, { [columnIndex: number]: TableSuggestionsForColumn }>();
 
 // Global registry for block outline metadata (label + lucide icon name) — registered by plugins
 export interface BlockOutlineMeta {
@@ -710,10 +717,13 @@ export const getNodeDisplayName = (nodeType: string): string | undefined => {
 export const getTableSuggestions = (
   tableType: string,
   columnIndex: number,
+  rowContext: Record<number, string> = {},
 ): Array<{ label: string; description?: string }> => {
   const config = tableSuggestionsRegistry.get(tableType);
   if (!config) return [];
-  return config[columnIndex] || [];
+  const forColumn = config[columnIndex];
+  if (!forColumn) return [];
+  return typeof forColumn === 'function' ? forColumn(rowContext) : forColumn;
 };
 
 export class PluginPermissionError extends Error {
@@ -1338,7 +1348,7 @@ export const createPlugin = (
         blockHelpRegistry.set(nodeType, component);
       });
     },
-    registerTableSuggestions: (tableType: string, suggestions: { [columnIndex: number]: Array<{ label: string; description?: string }> }) => {
+    registerTableSuggestions: (tableType: string, suggestions: { [columnIndex: number]: TableSuggestionsForColumn }) => {
       extensionLogger.info(`Plugin "${extensionId}" registering table suggestions for "${tableType}"`);
       tableSuggestionsRegistry.set(tableType, suggestions);
     },

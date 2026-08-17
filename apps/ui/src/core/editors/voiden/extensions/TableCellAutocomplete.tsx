@@ -14,7 +14,7 @@ import Suggestion from "@tiptap/suggestion";
 import tippy, { Instance, Props } from "tippy.js";
 import VariableList from "./VariableList";
 import { getNodeType } from "./utils";
-import { getCellColumnIndex } from "./tableCellSuggestions";
+import { getCellColumnIndex, getRowCellsText } from "./tableCellSuggestions";
 import { getTableSuggestions } from "@/plugins";
 
 interface SuggestionItem {
@@ -80,8 +80,11 @@ export const TableCellAutocomplete = Extension.create({
           const columnIndex = getCellColumnIndex(editor.state);
           if (columnIndex < 0) return [];
 
-          // Look up suggestions from the plugin registry
-          const items = getTableSuggestions(tableType, columnIndex);
+          // Look up suggestions from the plugin registry — row's other cells
+          // (e.g. the header key already typed in column 0) let a plugin
+          // tailor a column's suggestions instead of a fixed static list.
+          const rowContext = getRowCellsText(editor.state);
+          const items = getTableSuggestions(tableType, columnIndex, rowContext);
           if (!items.length) return [];
 
           if (!query) return items;
