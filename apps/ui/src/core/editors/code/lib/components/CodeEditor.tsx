@@ -1,4 +1,4 @@
-import { useRef, useEffect, useContext, createContext } from "react";
+import { useRef, useEffect, useMemo, useContext, createContext } from "react";
 import { isValidRegex } from "@/core/file-system/components/RegexHighlightOverlay";
 
 /** Editors rendered inside this context will not react to the global searchParamsStore. */
@@ -359,274 +359,298 @@ export const CodeEditor = ({
   // Create a key from extension count to force remount when extensions change
   const extensionsKey = codemirrorExtensionsFromStore.length;
 
-  const extensions = [
-    searchField,
-    // Unified search highlight support (used by both VoidenEditor and ResponsePanel)
-    unifiedSearchField,
-    // When embedded in TipTap, skip CM's search extension entirely —
-    // the unified search panel handles find/replace
-    ...(tiptapProps ? [] : [search({ top: true, createPanel: () => ({ dom: document.createElement("div") }) })]),
-    // Disable selection matching for large content or read-only editors (response panel).
-    // In read-only mode it's distracting — highlighting only makes sense when searching.
-    ...(isLargeContent || effectiveReadOnly ? [] : [highlightSelectionMatches()]),
-    EditorView.theme({
-      "&": {
-        "--editor-selection": "rgba(255, 99, 132, 0.6)",
-      },
-    }),
-    // Very large content: skip syntax highlight entirely (lezer parses the full doc)
-    // Large content: keep highlight but skip the linter (expensive on huge files)
-    ...((isVeryLargeContent && !forceHighlight) ? [] : renderLang(lang, isLargeContent)),
-    // Disable env-variable decorations for large content — needlessly scans full doc
-    ...(isLargeContent ? [] : [createHighlightPlugin(activeEnvData, processData)]),
-    // Indentation support
-    indentOnInput(),
-    indentUnit.of("  "),
-    // Line wrapping: always on. For very large content this is critical —
-    // a single 500 KB+ line without wrapping creates a multi-million-pixel-wide
-    // DOM layout that hangs the browser. Wrapping keeps each visual row
-    // viewport-width wide and CodeMirror only renders visible rows.
-    EditorView.lineWrapping,
-    ...codemirrorExtensionsFromStore, // Add dynamic extensions from plugins
-    // Custom inline linter from validateFn prop (skip for large content)
-    ...(!isLargeContent && validateFn ? [
-      lintTooltipTheme,
-      lintGutter(),
-      linter((view) => {
-        const content = view.state.doc.toString();
-        const allResults = validateFn(content);
-        const results = allResults.length > 100 ? allResults.slice(0, 100) : allResults;
-        return results.map((r) => {
-          try {
-            const line = view.state.doc.line(r.line);
-            const from = line.from + Math.max(0, r.column - 1);
-            const to = line.to;
-            return {
-              from,
-              to,
-              message: r.message,
-              severity: (r.severity || 'error') as 'error' | 'warning' | 'info',
-              renderMessage: () => {
-                const box = document.createElement('div');
-                box.style.cssText = 'padding:6px 10px;font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word;max-width:320px;';
-                box.textContent = r.message;
-                return box;
-              },
-            };
-          } catch {
-            return null;
-          }
-        }).filter(Boolean) as any[];
+  // Unmemoized, this was a brand-new array on every render of this
+  // component — and @uiw/react-codemirror's internal effect treats a new
+  // `extensions` reference as a config change, reconfiguring the live
+  // CodeMirror instance every time regardless of whether anything in it
+  // actually differs. Harmless-looking parent re-renders (e.g. a sibling
+  // node toggling open/closed while this one, already mounted, just
+  // happens to re-render alongside it) were enough to visibly flash/reset
+  // this editor. Memoized so it's only rebuilt when something that could
+  // actually change its contents changes.
+  const extensions = useMemo(() => {
+    const exts = [
+      searchField,
+      // Unified search highlight support (used by both VoidenEditor and ResponsePanel)
+      unifiedSearchField,
+      // When embedded in TipTap, skip CM's search extension entirely —
+      // the unified search panel handles find/replace
+      ...(tiptapProps ? [] : [search({ top: true, createPanel: () => ({ dom: document.createElement("div") }) })]),
+      // Disable selection matching for large content or read-only editors (response panel).
+      // In read-only mode it's distracting — highlighting only makes sense when searching.
+      ...(isLargeContent || effectiveReadOnly ? [] : [highlightSelectionMatches()]),
+      EditorView.theme({
+        "&": {
+          "--editor-selection": "rgba(255, 99, 132, 0.6)",
+        },
       }),
-    ] : []),
-    // Filter out Ctrl-w from defaultKeymap to allow browser tab closing
-    keymap.of(defaultKeymap.filter(binding => {
-      return binding.key !== "Ctrl-w" && binding.key !== "Mod-w";
-    })),
-    Prec.highest(keymap.of([
-      // For standalone use, override Mod-f/h to open the persistent panel.
-      // For tiptap-embedded use, these bubble up to the VoidenEditor handler.
-      ...(tiptapProps ? [] : [
-        {
-          key: "Mod-f", preventDefault: true, run: () => {
-            useSearchStore.getState().setShowReplace(false);
-            useSearchStore.getState().setIsOpen(true);
-            useSearchStore.getState().setUnifiedSearchActive(true);
-            return true;
-          }
-        },
-        {
-          key: "Mod-h", preventDefault: true, run: () => {
-            useSearchStore.getState().setShowReplace(true);
-            useSearchStore.getState().setIsOpen(true);
-            useSearchStore.getState().setUnifiedSearchActive(true);
-            return true;
-          }
-        },
-        { key: "F3", run: findNext },
-        { key: "Mod-g", run: findNext },
-        { key: "Shift-F3", run: findPrevious },
-        { key: "Shift-Mod-g", run: findPrevious },
-      ]),
-      {
-        key: "Escape", run: () => {
-          const store = useSearchStore.getState();
-          if (!store.isOpen) return false;
-          store.setIsOpen(false);
-          store.setUnifiedSearchActive(false);
-          return true;
-        }
-      }
-    ])),
-  ];
-
-  // Only add codemirrorKeymap for editable editors
-  // Read-only editors (like in BlockPreviewEditor) shouldn't navigate out
-  if (tiptapProps && !effectiveReadOnly) {
-    extensions.push(
-      keymap.of([...(codemirrorKeymap(tiptapProps) as KeyBinding[])])
-    );
-  }
-
-  extensions.push(
-    Prec.highest(
-      keymap.of([
-        {
-          key: "Ctrl-/",
-          run: (lang === "json" || lang === "jsonc") ? toggleCommentJSON : toggleComment,
-          preventDefault: true,
-        },
-        {
-          key: "Mod-/",
-          run: (lang === "json" || lang === "jsonc") ? toggleCommentJSON : toggleComment,
-          preventDefault: true,
-        },
-      ])
-    )
-  );
-
-  extensions.push(
-    Prec.highest(
-      keymap.of([
-        {
-          key: "Mod-Enter",
-          run: () => true,
-          preventDefault: true,
-        },
-      ])
-    )
-  );
-
-  extensions.push(
-    Prec.highest(
-      keymap.of([
-        {
-          key: "Mod-s",
-          run: () => {
-            globalSaveFile().catch(console.error);
-            return true;
+      // Very large content: skip syntax highlight entirely (lezer parses the full doc)
+      // Large content: keep highlight but skip the linter (expensive on huge files)
+      ...((isVeryLargeContent && !forceHighlight) ? [] : renderLang(lang, isLargeContent)),
+      // Disable env-variable decorations for large content — needlessly scans full doc
+      ...(isLargeContent ? [] : [createHighlightPlugin(activeEnvData, processData)]),
+      // Indentation support
+      indentOnInput(),
+      indentUnit.of("  "),
+      // Line wrapping: always on. For very large content this is critical —
+      // a single 500 KB+ line without wrapping creates a multi-million-pixel-wide
+      // DOM layout that hangs the browser. Wrapping keeps each visual row
+      // viewport-width wide and CodeMirror only renders visible rows.
+      EditorView.lineWrapping,
+      ...codemirrorExtensionsFromStore, // Add dynamic extensions from plugins
+      // Custom inline linter from validateFn prop (skip for large content)
+      ...(!isLargeContent && validateFn ? [
+        lintTooltipTheme,
+        lintGutter(),
+        linter((view) => {
+          const content = view.state.doc.toString();
+          const allResults = validateFn(content);
+          const results = allResults.length > 100 ? allResults.slice(0, 100) : allResults;
+          return results.map((r) => {
+            try {
+              const line = view.state.doc.line(r.line);
+              const from = line.from + Math.max(0, r.column - 1);
+              const to = line.to;
+              return {
+                from,
+                to,
+                message: r.message,
+                severity: (r.severity || 'error') as 'error' | 'warning' | 'info',
+                renderMessage: () => {
+                  const box = document.createElement('div');
+                  box.style.cssText = 'padding:6px 10px;font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word;max-width:320px;';
+                  box.textContent = r.message;
+                  return box;
+                },
+              };
+            } catch {
+              return null;
+            }
+          }).filter(Boolean) as any[];
+        }),
+      ] : []),
+      // Filter out Ctrl-w from defaultKeymap to allow browser tab closing
+      keymap.of(defaultKeymap.filter(binding => {
+        return binding.key !== "Ctrl-w" && binding.key !== "Mod-w";
+      })),
+      Prec.highest(keymap.of([
+        // For standalone use, override Mod-f/h to open the persistent panel.
+        // For tiptap-embedded use, these bubble up to the VoidenEditor handler.
+        ...(tiptapProps ? [] : [
+          {
+            key: "Mod-f", preventDefault: true, run: () => {
+              useSearchStore.getState().setShowReplace(false);
+              useSearchStore.getState().setIsOpen(true);
+              useSearchStore.getState().setUnifiedSearchActive(true);
+              return true;
+            }
           },
-        },
-      ])
-    )
-  );
+          {
+            key: "Mod-h", preventDefault: true, run: () => {
+              useSearchStore.getState().setShowReplace(true);
+              useSearchStore.getState().setIsOpen(true);
+              useSearchStore.getState().setUnifiedSearchActive(true);
+              return true;
+            }
+          },
+          { key: "F3", run: findNext },
+          { key: "Mod-g", run: findNext },
+          { key: "Shift-F3", run: findPrevious },
+          { key: "Shift-Mod-g", run: findPrevious },
+        ]),
+        {
+          key: "Escape", run: () => {
+            const store = useSearchStore.getState();
+            if (!store.isOpen) return false;
+            store.setIsOpen(false);
+            store.setUnifiedSearchActive(false);
+            return true;
+          }
+        }
+      ])),
+    ];
 
-  // Only add seamless navigation for editable editors
-  // Read-only editors (like in BlockPreviewEditor) shouldn't navigate out
-  if (tiptapProps && !effectiveReadOnly) {
-    extensions.push(
+    // Only add codemirrorKeymap for editable editors
+    // Read-only editors (like in BlockPreviewEditor) shouldn't navigate out
+    if (tiptapProps && !effectiveReadOnly) {
+      exts.push(
+        keymap.of([...(codemirrorKeymap(tiptapProps) as KeyBinding[])])
+      );
+    }
+
+    exts.push(
       Prec.highest(
         keymap.of([
           {
-            key: "ArrowUp",
-            run: (view) => {
-              const { state } = view;
-              const line = state.doc.lineAt(state.selection.main.head);
-              // Navigate out if on first line
-              if (line.number === 1) {
-                const { editor, getPos } = tiptapProps;
-                const pos = getPos();
-                if (pos > 0) {
-                  // Try to set position before the block
-                  // If it fails, appendTransaction will fix it
-                  try {
-                    editor.commands.focus();
-                    editor.commands.setTextSelection(pos - 1);
-                  } catch (e) {
-                    // Position is invalid, try setting to the start of the node
-                    try {
-                      editor.commands.focus();
-                      editor.commands.setTextSelection(pos);
-                    } catch (e2) {
-                      return false;
-                    }
-                  }
-                }
-                return true;
-              }
-              return false;
-            },
+            key: "Ctrl-/",
+            run: (lang === "json" || lang === "jsonc") ? toggleCommentJSON : toggleComment,
+            preventDefault: true,
           },
           {
-            key: "ArrowDown",
-            run: (view) => {
-              const { state } = view;
-              const totalLines = state.doc.lines;
-              const line = state.doc.lineAt(state.selection.main.head);
-              // Navigate out if on last line
-              if (line.number === totalLines) {
-                const { editor, getPos, node } = tiptapProps;
-                const pos = getPos();
-                const endPos = pos + node.nodeSize;
-
-                try {
-                  // If we're at the end of document, stay in CodeMirror
-                  if (endPos >= editor.state.doc.content.size) {
-                    return false;
-                  }
-                  editor.commands.focus();
-                  editor.commands.setTextSelection(endPos);
-                } catch (e) {
-                  return false;
-                }
-                return true;
-              }
-              return false;
-            },
+            key: "Mod-/",
+            run: (lang === "json" || lang === "jsonc") ? toggleCommentJSON : toggleComment,
+            preventDefault: true,
           },
-          {
-            key: "ArrowLeft",
-            run: (view) => {
-              const { state } = view;
-              const { main } = state.selection;
+        ])
+      )
+    );
 
-              if (main.empty && main.head === 0) {
-                const { editor, getPos } = tiptapProps;
-                const pos = getPos();
-                if (pos > 0) {
-                  try {
-                    editor.commands.focus();
-                    editor.commands.setTextSelection(pos - 1);
-                    return true; // Only return true after successful navigation
-                  } catch (e) {
-                    return false; // Let CodeMirror handle it if navigation fails
-                  }
-                }
-              }
-              return false; // Let CodeMirror handle normal left arrow
-            },
+    exts.push(
+      Prec.highest(
+        keymap.of([
+          {
+            key: "Mod-Enter",
+            run: () => true,
+            preventDefault: true,
           },
+        ])
+      )
+    );
+
+    exts.push(
+      Prec.highest(
+        keymap.of([
           {
-            key: "ArrowRight",
-            run: (view) => {
-              const { state } = view;
-              const { main } = state.selection;
-              const docLength = state.doc.length;
-
-              // Only navigate out if there's no selection and cursor is at the end
-              if (main.empty && main.head === docLength) {
-                const { editor, getPos, node } = tiptapProps;
-                const pos = getPos();
-                const endPos = pos + node.nodeSize;
-
-                try {
-                  if (endPos >= editor.state.doc.content.size) {
-                    return false;
-                  }
-                  editor.commands.focus();
-                  editor.commands.setTextSelection(endPos);
-                  return true; // Only return true after successful navigation
-                } catch (e) {
-                  return false; // Let CodeMirror handle it if navigation fails
-                }
-              }
-              return false; // Let CodeMirror handle normal right arrow
+            key: "Mod-s",
+            run: () => {
+              globalSaveFile().catch(console.error);
+              return true;
             },
           },
         ])
       )
     );
-  }
+
+    // Only add seamless navigation for editable editors
+    // Read-only editors (like in BlockPreviewEditor) shouldn't navigate out
+    if (tiptapProps && !effectiveReadOnly) {
+      exts.push(
+        Prec.highest(
+          keymap.of([
+            {
+              key: "ArrowUp",
+              run: (view) => {
+                const { state } = view;
+                const line = state.doc.lineAt(state.selection.main.head);
+                // Navigate out if on first line
+                if (line.number === 1) {
+                  const { editor, getPos } = tiptapProps;
+                  const pos = getPos();
+                  if (pos > 0) {
+                    // Try to set position before the block
+                    // If it fails, appendTransaction will fix it
+                    try {
+                      editor.commands.focus();
+                      editor.commands.setTextSelection(pos - 1);
+                    } catch (e) {
+                      // Position is invalid, try setting to the start of the node
+                      try {
+                        editor.commands.focus();
+                        editor.commands.setTextSelection(pos);
+                      } catch (e2) {
+                        return false;
+                      }
+                    }
+                  }
+                  return true;
+                }
+                return false;
+              },
+            },
+            {
+              key: "ArrowDown",
+              run: (view) => {
+                const { state } = view;
+                const totalLines = state.doc.lines;
+                const line = state.doc.lineAt(state.selection.main.head);
+                // Navigate out if on last line
+                if (line.number === totalLines) {
+                  const { editor, getPos, node } = tiptapProps;
+                  const pos = getPos();
+                  const endPos = pos + node.nodeSize;
+
+                  try {
+                    // If we're at the end of document, stay in CodeMirror
+                    if (endPos >= editor.state.doc.content.size) {
+                      return false;
+                    }
+                    editor.commands.focus();
+                    editor.commands.setTextSelection(endPos);
+                  } catch (e) {
+                    return false;
+                  }
+                  return true;
+                }
+                return false;
+              },
+            },
+            {
+              key: "ArrowLeft",
+              run: (view) => {
+                const { state } = view;
+                const { main } = state.selection;
+
+                if (main.empty && main.head === 0) {
+                  const { editor, getPos } = tiptapProps;
+                  const pos = getPos();
+                  if (pos > 0) {
+                    try {
+                      editor.commands.focus();
+                      editor.commands.setTextSelection(pos - 1);
+                      return true; // Only return true after successful navigation
+                    } catch (e) {
+                      return false; // Let CodeMirror handle it if navigation fails
+                    }
+                  }
+                }
+                return false; // Let CodeMirror handle normal left arrow
+              },
+            },
+            {
+              key: "ArrowRight",
+              run: (view) => {
+                const { state } = view;
+                const { main } = state.selection;
+                const docLength = state.doc.length;
+
+                // Only navigate out if there's no selection and cursor is at the end
+                if (main.empty && main.head === docLength) {
+                  const { editor, getPos, node } = tiptapProps;
+                  const pos = getPos();
+                  const endPos = pos + node.nodeSize;
+
+                  try {
+                    if (endPos >= editor.state.doc.content.size) {
+                      return false;
+                    }
+                    editor.commands.focus();
+                    editor.commands.setTextSelection(endPos);
+                    return true; // Only return true after successful navigation
+                  } catch (e) {
+                    return false; // Let CodeMirror handle it if navigation fails
+                  }
+                }
+                return false; // Let CodeMirror handle normal right arrow
+              },
+            },
+          ])
+        )
+      );
+    }
+
+    return exts;
+  }, [
+    tiptapProps,
+    isLargeContent,
+    effectiveReadOnly,
+    isVeryLargeContent,
+    forceHighlight,
+    lang,
+    activeEnvData,
+    processData,
+    codemirrorExtensionsFromStore,
+    validateFn,
+  ]);
 
   useEffect(() => {
     if (autofocus && editorRef.current) {

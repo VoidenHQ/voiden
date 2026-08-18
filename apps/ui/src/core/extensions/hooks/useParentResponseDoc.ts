@@ -24,6 +24,21 @@ export const useParentResponseDoc = (editor: any, getPos: () => number) => {
   });
 
   useEffect(() => {
+    // Every child node inside a response-doc (request-headers, response-body,
+    // response-headers, assertion-results, ...) mounts its own instance of
+    // this hook. "transaction" fires for EVERY transaction in the WHOLE
+    // editor — not just ones touching this node — and each fire used to call
+    // setParentState() unconditionally with a brand-new object, so opening
+    // (or editing) any ONE of these nodes re-rendered ALL of the others too,
+    // visible as a flicker across the whole response area. Only update state
+    // when the actual values changed, and drop the "transaction" listener
+    // entirely: openNodes/parentPos only ever change via a doc-changing
+    // transaction (an attr edit or a position-shifting edit), which "update"
+    // already covers — "transaction" additionally fires for pure selection
+    // changes, which can never affect either value.
+    let lastOpenNodes: ResponseChildNodeType[] = [];
+    let lastParentPos: number | null = null;
+
     const updateParentState = () => {
       try {
         const pos = getPos();
@@ -36,7 +51,16 @@ export const useParentResponseDoc = (editor: any, getPos: () => number) => {
             const openNodes: ResponseChildNodeType[] = Array.isArray(rawOpenNodes)
               ? rawOpenNodes
               : [];
-            setParentState({ openNodes, parentPos: $pos.before(d) });
+            const parentPos = $pos.before(d);
+
+            const sameOpenNodes =
+              openNodes.length === lastOpenNodes.length &&
+              openNodes.every((n, i) => n === lastOpenNodes[i]);
+            if (sameOpenNodes && parentPos === lastParentPos) return;
+
+            lastOpenNodes = openNodes;
+            lastParentPos = parentPos;
+            setParentState({ openNodes, parentPos });
             return;
           }
         }
@@ -47,11 +71,9 @@ export const useParentResponseDoc = (editor: any, getPos: () => number) => {
 
     updateParentState();
     editor.on("update", updateParentState);
-    editor.on("transaction", updateParentState);
 
     return () => {
       editor.off("update", updateParentState);
-      editor.off("transaction", updateParentState);
     };
   }, [editor, getPos]);
 
