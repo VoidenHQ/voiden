@@ -45,7 +45,11 @@ const handleTableDelete = (editor: Editor) => {
   const { selection } = editor.state;
 
   if (!isCellSelection(selection)) {
-    const isWrapperNode = findParentNodeClosestToPos(selection.ranges[0].$from, (node) => {
+    // Present for a REST-block table (headers, query, ...); absent for a
+    // plain Markdown table inserted via /table — both need the same
+    // empty-row deletion, they just differ in what "delete the whole thing"
+    // means once the last row goes (deleteNode a wrapper vs. deleteTable).
+    const wrapperNode = findParentNodeClosestToPos(selection.ranges[0].$from, (node) => {
       return (
         node.type.name === "headers-table" ||
         node.type.name === "multipart-table" ||
@@ -61,23 +65,38 @@ const handleTableDelete = (editor: Editor) => {
     // Use content.size instead of textContent so inline atom nodes (e.g. fileLink)
     // are not mistaken for empty — atoms have no text but do have content size.
     const isEmpty = selection.$head.node().content.size === 0;
+    const table = findParentNodeClosestToPos(selection.$head, (node) => node.type.name === "table");
 
-    if (isWrapperNode && isEmpty) {
-      // Cursor sits in an empty cell of one of our REST-block tables. If every
-      // other cell in this row is ALSO empty, Backspace here should remove the
-      // whole (otherwise pointless) empty row — previously this required first
-      // making a full CellSelection of the row (drag-select or a row handle),
-      // which most users never discover. Never fires on a table's last
-      // remaining row, so the table itself can't be deleted this way.
-      const row = findParentNodeClosestToPos(selection.$head, (node) => node.type.name === "tableRow");
-      const table = findParentNodeClosestToPos(selection.$head, (node) => node.type.name === "table");
-      if (row && table && table.node.childCount > 1 && isRowEmpty(row.node)) {
-        editor.chain().focus().deleteRow().run();
-      }
-      return true;
-    } else {
+    if (!table || !isEmpty) {
       return false;
     }
+
+    // Cursor sits in an empty cell of a table (REST-block or plain
+    // Markdown). If every other cell in this row is ALSO empty, Backspace
+    // here should remove the whole (otherwise pointless) empty row —
+    // previously this required first making a full CellSelection of the
+    // row (drag-select or a row handle), which most users never discover.
+    const row = findParentNodeClosestToPos(selection.$head, (node) => node.type.name === "tableRow");
+    if (row && isRowEmpty(row.node)) {
+      if (table.node.childCount > 1) {
+        editor.chain().focus().deleteRow().run();
+      } else if (wrapperNode) {
+        // This is the table's only (empty) row — deleteRow() would be a
+        // no-op here (prosemirror-tables refuses to remove a table's last
+        // row) and the row itself is pointless with nothing left to delete
+        // down to. A fresh headers/query/etc. table always starts with
+        // exactly one blank row, so this is the common case, not an edge
+        // case — mirror what the full-CellSelection branch below already
+        // does when every cell in the table is selected: remove the whole
+        // wrapper block.
+        editor.chain().focus().deleteNode(wrapperNode.node.type.name).run();
+      } else {
+        // Same idea for a plain Markdown table with no wrapper — nothing
+        // left to delete down to, so remove the table itself.
+        editor.chain().focus().deleteTable().run();
+      }
+    }
+    return true;
   }
 
   let cellCount = 0;
