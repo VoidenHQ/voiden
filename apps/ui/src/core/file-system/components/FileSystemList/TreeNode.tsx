@@ -447,7 +447,6 @@ export function TreeNode({
 
   const nameClass = getNameClass(node.data, activeFile);
   const showCollapseAll = node.data.type === "folder" && hasOpenDescendant(node);
-  const isActiveFile = activeFile?.source === node.data.path;
   const isRangeSelected = node.isSelected && node.tree.selectedNodes.length > 1;
 
   return (
@@ -456,16 +455,15 @@ export function TreeNode({
       ref={dragHandle}
       className={cn(
         "group h-[22px] overflow-hidden transition-colors border border-transparent",
-        !isDragOver && !isActiveFile && !node.isSelected && "hover:bg-hover",
+        !isDragOver && !node.isSelected && "hover:bg-hover",
         isContextMenuOpen && "border-active",
-        isActiveFile && !isRangeSelected && !isDragOver && "bg-active",
         // Selection stays visible (background) even after focus moves away
         // (e.g. clicking into the editor) — a border is added only while
         // this row is still the actually-focused selection, so the two
         // states ("selected" vs "selected AND focused") read differently,
         // matching Cursor's sidebar.
-        node.isSelected && !isRangeSelected && !isActiveFile && !isDragOver && "bg-active",
-        node.isSelected && !isRangeSelected && node.isFocused && !isActiveFile && !isDragOver && "border-border",
+        node.isSelected && !isRangeSelected && !isDragOver && "bg-active",
+        node.isSelected && !isRangeSelected && node.isFocused && !isDragOver && "border-border",
         isRangeSelected && !isDragOver && "bg-accent/20",
         node.isFocused && !isDragOver && "ring-0",
         (isDragOver || isInternalDropTargetFolder) && `bg-accent/30 ${node.data.type === "folder" ? "border-l-2 border-accent" : ""}`,

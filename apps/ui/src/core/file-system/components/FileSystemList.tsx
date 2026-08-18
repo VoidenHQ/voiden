@@ -612,21 +612,21 @@ export const FileSystemList = () => {
   }, [treeData, tryStartDuplicateRename]);
 
   useEffect(() => {
+    const tree = treeRef.current;
+    if (!tree) return;
+
     if (!activeFile?.source) {
-      const tree = treeRef.current;
-      if (!tree) return;
       const { anchor, mostRecent } = tree.state.nodes.selection;
       tree.setSelection({ ids: [], anchor, mostRecent });
       return;
     }
 
     const source = activeFile.source;
+    tree.setSelection({ ids: [source], anchor: source, mostRecent: source });
+
     let cancelled = false;
 
-    const expandAndSelect = async () => {
-      const tree = treeRef.current;
-      if (!tree) return;
-
+    const expandAndScroll = async () => {
       const ancestors: string[] = [];
       let cursor = getParentPath(source);
       while (cursor) {
@@ -661,11 +661,11 @@ export const FileSystemList = () => {
 
       setTimeout(() => {
         if (cancelled) return;
-        treeRef.current?.select(source, { align: "auto", focus: false });
+        treeRef.current?.scrollTo(source, "auto");
       }, 50);
     };
 
-    expandAndSelect();
+    expandAndScroll();
 
     return () => {
       cancelled = true;
