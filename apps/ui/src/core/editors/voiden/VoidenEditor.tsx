@@ -917,6 +917,25 @@ const VoidenEditorInner = ({
     useVoidenEditorStore.getState().setFilePath(source);
   }, [editor, isActive, source]);
 
+  // Restore focus when this tab becomes active again. Cached tabs stay mounted
+  // (VoidenEditor.tsx never unmounts on tab switch) so the ProseMirror
+  // selection itself is never lost — but switching away blurs the DOM
+  // (handleClickOutside) and nothing re-focuses it on the way back, so the
+  // caret stays invisible and typing/clicking lands wherever the user clicks
+  // next instead of resuming at the old position. Re-focusing at the existing
+  // selection (no position arg — this does not move it) fixes both.
+  useEffect(() => {
+    if (!editor || !isActive || editor.isDestroyed || editor.isFocused) return;
+    // Defer a frame so the visibility:hidden -> visible flip (PanelContent)
+    // has already been applied before we try to focus the DOM node.
+    const raf = requestAnimationFrame(() => {
+      if (!editor.isDestroyed && isActive && !editor.isFocused) {
+        editor.commands.focus(undefined, { scrollIntoView: false });
+      }
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [editor, isActive]);
+
   useEffect(() => {
     if (!editor) return;
     return () => {

@@ -16,10 +16,23 @@ export function updateVariableKeys(keys: string[]) {
   currentVariableMap = new Map(keys.map((k) => [k, ""]));
 }
 
+/** Structural equality check so unrelated rebuilds don't touch unaffected DOM nodes. */
+function decorationsEqual(a: readonly Decoration[], b: readonly Decoration[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (!a[i].eq(b[i])) return false;
+  }
+  return true;
+}
+
 /**
  * Find and highlight process variables in the document.
+ * When `oldSet` is given and the rebuild is identical, the same DecorationSet
+ * instance is returned so ProseMirror can skip re-rendering unaffected nodes
+ * (a full rebuild recreating every decoration was orphaning the native caret
+ * paint on unrelated typing).
  */
-function findProcessVariables(doc: Node): DecorationSet {
+function findProcessVariables(doc: Node, oldSet?: DecorationSet): DecorationSet {
   const variableRegex = /{{(.*?)}}/g;
   const decorations: Decoration[] = [];
 
@@ -64,13 +77,15 @@ function findProcessVariables(doc: Node): DecorationSet {
     });
   });
 
+  if (oldSet) {
+    const existing = oldSet.find(0, doc.content.size);
+    if (decorationsEqual(existing, decorations)) return oldSet;
+  }
+
   return DecorationSet.create(doc, decorations);
 }
 
 const pluginKey = new PluginKey("variableHighlighter");
-
-// Debounce timer for scheduling full decoration rebuilds
-let varHighlightTimer: ReturnType<typeof setTimeout> | null = null;
 
 /**
  * Variable highlighter extension.
@@ -94,7 +109,7 @@ export const variableHighlighter = (
             apply(transaction, oldState) {
               // Force rebuild: always do full scan immediately
               if (transaction.getMeta("forceVariableHighlightUpdate")) {
-                return findProcessVariables(transaction.doc);
+                return findProcessVariables(transaction.doc, oldState);
               }
               // On doc change: remap positions immediately, schedule full rebuild
               if (transaction.docChanged) {
@@ -103,8 +118,11 @@ export const variableHighlighter = (
               return oldState;
             },
           },
-          // Use view() to schedule debounced full rebuilds after typing pauses
+          // Use view() to schedule debounced full rebuilds after typing pauses.
+          // Timer is scoped per-view (not module-level) so background/cached
+          // tabs don't cancel each other's pending rebuild.
           view() {
+            let varHighlightTimer: ReturnType<typeof setTimeout> | null = null;
             return {
               update(view, prevState) {
                 if (view.state.doc.eq(prevState.doc)) return;
