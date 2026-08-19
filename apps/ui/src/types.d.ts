@@ -491,6 +491,7 @@ declare global {
       path: {
         toRelative: (base: string, target: string) => Promise<string>;
         toAbsolute: (base: string, maybeRelative: string) => Promise<string>;
+        findProjectRoot: (filePath: string) => Promise<string | null>;
       };
       logger: {
         getLogs: () => Promise<any[]>;

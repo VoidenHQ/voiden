@@ -26,6 +26,11 @@ export const pathApi = {
     ipcRenderer.invoke("path:toRelative", base, target),
   toAbsolute: (base: string, maybeRelative: string): Promise<string> =>
     ipcRenderer.invoke("path:toAbsolute", base, maybeRelative),
+  /** Walks up from a file's directory looking for the nearest ancestor with
+   *  a .voiden marker folder. Returns null if the file isn't part of any
+   *  Voiden project (or itself doesn't exist / isn't accessible). */
+  findProjectRoot: (filePath: string): Promise<string | null> =>
+    ipcRenderer.invoke("path:findProjectRoot", filePath),
 };
 
 export const dialogApi = {
