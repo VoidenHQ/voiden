@@ -38,13 +38,16 @@ export interface ToolCapabilityProvider {
   setToolEnabled(tool: any, enabled: boolean): Promise<void>
   /** Real, discovered section labels for a file — powers the verify row's
    *  section-label dropdown, picking from what actually exists in that file
-   *  instead of a typed/guessed value. */
-  getFileSections(filePath: string): Promise<{ index: number; label: string }[]>
+   *  instead of a typed/guessed value. `ownFilePath` (the file the /tool or
+   *  toolverifies row referencing `filePath` itself lives in) resolves a
+   *  relative `filePath` against ITS OWN project root, not whatever's
+   *  globally active in the sidebar — pass it whenever available. */
+  getFileSections(filePath: string, ownFilePath?: string): Promise<{ index: number; label: string }[]>
   /** A section's actual blocks, for a file that may not be open in any
    *  editor tab — powers "Auto-populate params" for a tool bound to an
    *  external request (requestFilePath set). Returns null if the section
-   *  can't be found. */
-  getSectionBlocks(filePath: string, sectionLabel: string): Promise<any[] | null>
+   *  can't be found. See getFileSections for `ownFilePath`. */
+  getSectionBlocks(filePath: string, sectionLabel: string, ownFilePath?: string): Promise<any[] | null>
 }
 
 interface ToolCapabilityState {
