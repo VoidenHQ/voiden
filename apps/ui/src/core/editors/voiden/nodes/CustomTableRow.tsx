@@ -102,6 +102,9 @@ export const CustomTableRow = TableRow.extend({
       disabled: {
         default: false,
       },
+      omitIfUnresolved: {
+        default: false,
+      },
     };
   },
   renderHTML({ node, HTMLAttributes }) {
@@ -210,9 +213,100 @@ export const CustomTableRow = TableRow.extend({
             const checkStrokeColor = pickContrastingStrokeColor(accentColor);
 
             state.doc.nodesBetween(0, state.doc.content.size, (node, pos) => {
+              if (node.type.name === "table") {
+                const $table = state.doc.resolve(pos + 1);
+                const wrapperName = Array.from(
+                  { length: $table.depth + 1 },
+                  (_, index) => $table.node(index).type.name,
+                ).find((name) =>
+                  [
+                    "headers-table",
+                    "query-table",
+                    "cookies-table",
+                    "multipart-table",
+                    "url-table",
+                    "path-table",
+                    "options-table",
+                  ].includes(name),
+                );
+
+                if (wrapperName) {
+                  const supportsRequired = [
+                    "headers-table",
+                    "query-table",
+                    "cookies-table",
+                    "multipart-table",
+                    "url-table",
+                  ].includes(wrapperName);
+                  const hasDescription = wrapperName !== "cookies-table" && (node.firstChild?.childCount ?? 0) >= 3;
+                  const headerWidget = Decoration.widget(
+                    pos + 1,
+                    () => {
+                      const tr = document.createElement("tr");
+                      tr.setAttribute("contenteditable", "false");
+                      tr.setAttribute("data-request-table-labels", "true");
+
+                      const addHeader = (label: string, width?: number) => {
+                        const th = document.createElement("th");
+                        th.textContent = label;
+                        th.scope = "col";
+                        th.style.cssText = [
+                          width ? `width:${width}px;min-width:${width}px;max-width:${width}px` : "",
+                          "height:30px",
+                          "padding:7px 12px",
+                          "text-align:left",
+                          "vertical-align:middle",
+                          "font-size:10px",
+                          "font-weight:500",
+                          "line-height:1",
+                          "letter-spacing:0.025em",
+                          "text-transform:uppercase",
+                          "color:var(--fg-secondary,var(--editor-fg))",
+                          "border-bottom:1px solid var(--ui-line)",
+                          "border-right:1px solid var(--ui-line)",
+                          "background:transparent",
+                        ].filter(Boolean).join(";");
+                        tr.appendChild(th);
+                        return th;
+                      };
+
+                      const enabledHeader = addHeader("", 28);
+                      enabledHeader.style.padding = "0";
+                      enabledHeader.setAttribute("aria-label", "Enabled");
+
+                      if (supportsRequired) {
+                        const requiredHeader = addHeader("Required", 96);
+                        requiredHeader.style.padding = "7px 10px";
+                        requiredHeader.style.whiteSpace = "nowrap";
+                        requiredHeader.title = "When selected, fail the request if one of this row's variables cannot be resolved";
+                      }
+
+                      addHeader("Key");
+                      const valueHeader = addHeader("Value");
+                      if (hasDescription) {
+                        const descriptionHeader = addHeader("Description");
+                        descriptionHeader.style.borderRight = "none";
+                      } else {
+                        valueHeader.style.borderRight = "none";
+                      }
+
+                      return tr;
+                    },
+                    { side: -10 },
+                  );
+
+                  decorations.push(headerWidget);
+                }
+              }
+
               if (node.type.name !== "tableRow") return;
 
               const disabled = !!node.attrs.disabled;
+              const $row = state.doc.resolve(pos + 1);
+              const supportsOptionalRows = Array.from({ length: $row.depth + 1 }, (_, index) => $row.node(index).type.name)
+                .some((name) =>
+                  ["headers-table", "query-table", "cookies-table", "multipart-table", "url-table"].includes(name),
+                );
 
               const widget = Decoration.widget(
                 pos + 1,
@@ -269,10 +363,88 @@ export const CustomTableRow = TableRow.extend({
 
                   return td;
                 },
-                { side: -1 },
+                { side: -2 },
               );
 
               decorations.push(widget);
+
+              if (supportsOptionalRows) {
+                const required = node.attrs.omitIfUnresolved !== true;
+                const optionalWidget = Decoration.widget(
+                  pos + 1,
+                  (view, getPos) => {
+                    const td = document.createElement("td");
+                    td.setAttribute("contenteditable", "false");
+                    td.setAttribute("data-row-required", String(required));
+                    td.setAttribute("role", "checkbox");
+                    td.setAttribute("aria-checked", String(required));
+                    td.setAttribute("aria-label", "Require all variables in this row to resolve");
+                    td.tabIndex = 0;
+                    td.style.cssText =
+                      "width:96px;min-width:96px;max-width:96px;padding:0;text-align:center;user-select:none;cursor:pointer;vertical-align:middle;border-right:1px solid var(--ui-line,#3a3a3a);";
+
+                    const box = document.createElement("div");
+                    box.style.cssText =
+                      "width:13px;height:13px;border-radius:3px;margin:2px auto;display:flex;align-items:center;justify-content:center;border:1.5px solid;transition:opacity 0.1s;";
+
+                    if (required) {
+                      box.style.borderColor = accentColor;
+                      box.style.backgroundColor = accentColor;
+                      box.innerHTML =
+                        `<svg viewBox="0 0 10 8" fill="none" xmlns="http://www.w3.org/2000/svg" style="width:8px;height:8px;display:block"><path d="M1 4L3.5 6.5L9 1" stroke="${checkStrokeColor}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+                    } else {
+                      box.style.borderColor = "var(--ui-line,#555)";
+                      box.style.backgroundColor = "transparent";
+                    }
+
+                    td.title = required
+                      ? "Required: fail the request if a variable is unresolved"
+                      : "Optional: omit this row if a variable is unresolved";
+                    td.appendChild(box);
+
+                    const toggleRequired = () => {
+                      const { state: s, dispatch } = view;
+                      if (!dispatch) return;
+
+                      const widgetPos = getPos();
+                      if (widgetPos == null) return;
+
+                      const $pos = s.doc.resolve(widgetPos);
+                      for (let d = $pos.depth; d >= 0; d--) {
+                        if ($pos.node(d).type.name === "tableRow") {
+                          const rowPos = $pos.before(d);
+                          const rowNode = $pos.node(d);
+                          dispatch(
+                            s.tr.setNodeMarkup(rowPos, null, {
+                              ...rowNode.attrs,
+                              omitIfUnresolved: !rowNode.attrs.omitIfUnresolved,
+                            }),
+                          );
+                          return;
+                        }
+                      }
+                    };
+
+                    td.addEventListener("mousedown", (e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      toggleRequired();
+                    });
+
+                    td.addEventListener("keydown", (e) => {
+                      if (e.key !== "Enter" && e.key !== " ") return;
+                      e.preventDefault();
+                      e.stopPropagation();
+                      toggleRequired();
+                    });
+
+                    return td;
+                  },
+                  { side: -1 },
+                );
+
+                decorations.push(optionalWidget);
+              }
               return false;
             });
 

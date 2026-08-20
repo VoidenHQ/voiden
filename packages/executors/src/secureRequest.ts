@@ -15,7 +15,11 @@ import mimeTypes from 'mime-types'
 import type { RestApiRequestState } from './pipeline/types.js'
 import { executeWebSocket } from './websocket.js'
 import { executeGrpc } from './grpc.js'
-import { assertNoUnresolvedTemplates } from './unresolvedVariables.js'
+import {
+  assertNoUnresolvedTemplates,
+  UnresolvedVariablesError,
+  validateResolvedStrings,
+} from './unresolvedVariables.js'
 
 // ─── Adapter interface ────────────────────────────────────────────────────────
 
@@ -125,6 +129,31 @@ function validateResolvedOutgoing(
   assertNoUnresolvedTemplates(parts)
 }
 
+type RequestField = {
+  key: string
+  value: string
+  enabled?: boolean
+  omitIfUnresolved?: boolean
+}
+
+async function resolveRequestField(
+  field: RequestField,
+  replaceVar: (text: string) => Promise<string>,
+): Promise<{ key: string; value: string } | null> {
+  if (field.enabled === false) return null
+
+  const key = await replaceVar(String(field.key ?? ''))
+  const value = await replaceVar(String(field.value ?? ''))
+  const validation = validateResolvedStrings([key, value])
+
+  if (!validation.ok) {
+    if (field.omitIfUnresolved === true) return null
+    throw new UnresolvedVariablesError(validation.message, validation.unresolved)
+  }
+
+  return { key, value }
+}
+
 // ─── Main executor ────────────────────────────────────────────────────────────
 
 export async function executeSecureRequest(
@@ -139,19 +168,31 @@ export async function executeSecureRequest(
   // ── 2. Replace variables in headers ──────────────────────────────────────
   const headers: Record<string, string> = {}
   for (const h of requestState.headers ?? []) {
-    if (h.enabled !== false && h.key) {
-      headers[await rv(h.key)] = await rv(h.value)
+    const resolved = await resolveRequestField(h, rv)
+    if (resolved?.key) headers[resolved.key] = resolved.value
+  }
+
+  // Cookies remain separate rows until this point so an optional unresolved
+  // cookie can be omitted without affecting the other Cookie header values.
+  const cookieParts: string[] = []
+  for (const cookie of requestState.cookies ?? []) {
+    const resolved = await resolveRequestField(cookie, rv)
+    if (resolved?.key) cookieParts.push(`${resolved.key}=${resolved.value}`)
+  }
+  if (cookieParts.length > 0) {
+    const existingCookieHeader = Object.keys(headers).find(key => key.toLowerCase() === 'cookie')
+    if (existingCookieHeader) {
+      headers[existingCookieHeader] = [headers[existingCookieHeader], ...cookieParts].filter(Boolean).join('; ')
+    } else {
+      headers.Cookie = cookieParts.join('; ')
     }
   }
 
   // ── 3. Replace variables in query params → append to URL ─────────────────
   const queryParts: string[] = []
   for (const p of requestState.queryParams ?? []) {
-    if (p.enabled !== false) {
-      const k = await rv(p.key)
-      const v = await rv(p.value)
-      if (k) queryParts.push(`${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
-    }
+    const resolved = await resolveRequestField(p, rv)
+    if (resolved?.key) queryParts.push(`${encodeURIComponent(resolved.key)}=${encodeURIComponent(resolved.value)}`)
   }
   if (queryParts.length > 0) {
     url += url.includes('?') ? `&${queryParts.join('&')}` : `?${queryParts.join('&')}`
@@ -262,6 +303,7 @@ export async function executeSecureRequest(
   }
 
   // ── 9. Build request body ─────────────────────────────────────────────────
+  const resolvedBodyParamSummaries: Array<{ key: string; value: string; type?: string }> = []
   if (requestState.binary) {
     if (Array.isArray(requestState.binary)) {
       // Multiple binary files → send as multipart/form-data, one entry per file
@@ -290,24 +332,23 @@ export async function executeSecureRequest(
     }
   } else if (requestState.bodyParams?.length) {
     const bodyParams = requestState.bodyParams as any[]
-    const resolvedBodyParamTexts: string[] = []
 
     if (requestState.contentType === 'multipart/form-data') {
       const formData = new FormData()
       for (const p of bodyParams) {
-        if (p.enabled === false) continue
-        if (p.type === 'file' && p.value) {
+        const resolved = await resolveRequestField(p, rv)
+        if (!resolved) continue
+        if (p.type === 'file' && resolved.value) {
           if (!adapter.readFile) throw new Error('Multipart file upload requires adapter.readFile')
-          const filePath = await rv(p.value as string)
-          resolvedBodyParamTexts.push(filePath)
+          const filePath = resolved.value
           const fileBuffer = await adapter.readFile(filePath)
           const fileName = filePath.split('/').pop() ?? 'file'
           const blob = new Blob([fileBuffer], { type: getFileMimeType(filePath) })
-          formData.append(p.key, blob, fileName)
+          formData.append(resolved.key, blob, fileName)
+          resolvedBodyParamSummaries.push({ key: resolved.key, value: filePath, type: 'file' })
         } else if (p.type === 'text') {
-          const resolvedValue = await rv(p.value as string)
-          resolvedBodyParamTexts.push(resolvedValue)
-          formData.append(p.key, resolvedValue)
+          formData.append(resolved.key, resolved.value)
+          resolvedBodyParamSummaries.push({ key: resolved.key, value: resolved.value, type: 'text' })
         }
       }
       fetchOptions.body = formData
@@ -315,17 +356,22 @@ export async function executeSecureRequest(
     } else if (requestState.contentType === 'application/x-www-form-urlencoded') {
       const params = new URLSearchParams()
       for (const p of bodyParams) {
-        if (p.enabled !== false && p.type === 'text') {
-          const resolvedValue = await rv(p.value as string)
-          resolvedBodyParamTexts.push(resolvedValue)
-          params.append(p.key, resolvedValue)
-        }
+        if (p.type !== 'text') continue
+        const resolved = await resolveRequestField(p, rv)
+        if (!resolved) continue
+        params.append(resolved.key, resolved.value)
+        resolvedBodyParamSummaries.push({ key: resolved.key, value: resolved.value, type: 'text' })
       }
       fetchOptions.body = params.toString()
       if (!hasHttpHeader(headers, 'Content-Type')) headers['Content-Type'] = 'application/x-www-form-urlencoded'
     }
 
-    validateResolvedOutgoing(url, headers, body, resolvedBodyParamTexts)
+    validateResolvedOutgoing(
+      url,
+      headers,
+      body,
+      resolvedBodyParamSummaries.flatMap(param => [param.key, param.value]),
+    )
   } else if (requestState.method !== 'GET' && body) {
     fetchOptions.body = body
     if (requestState.contentType && !hasHttpHeader(headers, 'Content-Type')) {
@@ -364,18 +410,16 @@ export async function executeSecureRequest(
     requestBodySent = body
     requestBodyContentType = requestState.contentType ?? headers['Content-Type'] ?? null
   } else if (requestState.bodyParams?.length) {
-    const bodyParams = requestState.bodyParams as any[]
     if (requestState.contentType === 'multipart/form-data') {
-      requestBodySent = bodyParams
-        .filter(p => p.enabled !== false)
+      requestBodySent = resolvedBodyParamSummaries
         .map(p => p.type === 'file'
           ? `${p.key}: [file] ${String(p.value).split('/').pop()}`
           : `${p.key}: ${p.value}`)
         .join('\n')
       requestBodyContentType = 'multipart/form-data'
     } else if (requestState.contentType === 'application/x-www-form-urlencoded') {
-      requestBodySent = bodyParams
-        .filter(p => p.enabled !== false && p.type === 'text')
+      requestBodySent = resolvedBodyParamSummaries
+        .filter(p => p.type === 'text')
         .map(p => `${p.key}=${p.value}`)
         .join('&')
       requestBodyContentType = 'application/x-www-form-urlencoded'

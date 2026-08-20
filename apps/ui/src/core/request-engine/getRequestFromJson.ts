@@ -84,6 +84,7 @@ export const getTable = (
     key: string;
     value: string;
     enabled: boolean;
+    omitIfUnresolved: boolean;
     importedFrom?: string;
     type?: "text" | "file";
   };
@@ -95,7 +96,7 @@ export const getTable = (
         if (node.type === "table") {
           node.content?.forEach((rowNode) => {
             if (rowNode.type === "tableRow") {
-              const kv: KeyValueType = { key: "", value: "", enabled: true, type: "text" };
+              const kv: KeyValueType = { key: "", value: "", enabled: true, omitIfUnresolved: false, type: "text" };
               rowNode.content?.forEach((cellNode, cellIndex) => {
                 if (cellNode.type === "tableCell") {
                   const text = ((cellNode.content && cellNode.content[0].content && cellNode.content[0].content[0]?.text) || "").trim();
@@ -107,7 +108,12 @@ export const getTable = (
                 }
               });
               if (kv.key && kv.value) {
-                allKeyValues.push({ ...kv, enabled: !rowNode.attrs?.disabled, importedFrom: rootNode.attrs?.importedFrom });
+                allKeyValues.push({
+                  ...kv,
+                  enabled: !rowNode.attrs?.disabled,
+                  omitIfUnresolved: rowNode.attrs?.omitIfUnresolved === true,
+                  importedFrom: rootNode.attrs?.importedFrom,
+                });
               }
             }
           });
@@ -239,7 +245,7 @@ export const buildHeadersWithCookies = (editor: Doc, environment?: Record<string
     const cookieString = cookies.map((c) => `${c.key}=${c.value}`).join("; ");
     const idx = headers.findIndex((h) => h.key.toLowerCase() === "cookie");
     if (idx !== -1) headers[idx] = { ...headers[idx], value: headers[idx].value + "; " + cookieString };
-    else headers.push({ key: "Cookie", value: cookieString, enabled: true });
+    else headers.push({ key: "Cookie", value: cookieString, enabled: true, omitIfUnresolved: false });
   }
   return headers;
 };

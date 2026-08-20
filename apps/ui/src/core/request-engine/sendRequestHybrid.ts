@@ -38,7 +38,14 @@ function parseNumberSafe(value: string): number | LosslessNumber {
 /**
  * Get headers with auth merged
  */
-async function getHeaders(headers: any[], auth?: any): Promise<Record<string, string>> {
+type RequestFieldRow = {
+  key: string;
+  value: string;
+  enabled?: boolean;
+  omitIfUnresolved?: boolean;
+};
+
+async function getHeaders(headers: any[], auth?: any): Promise<RequestFieldRow[]> {
   const authHeaders: Record<string, string> = {};
 
   if (auth && auth.enabled && auth.config) {
@@ -91,7 +98,7 @@ async function getHeaders(headers: any[], auth?: any): Promise<Record<string, st
         parts.push('oauth_signature_method="PLAINTEXT"');
         let signature = `${auth.config.consumerSecret || ""}&${auth.config.tokenSecret || ""}`;
         try {
-          signature = await window.electron?.env?.replaceVariables(signature);
+          signature = (await window.electron?.env?.replaceVariables(signature)) ?? signature;
         } catch (e) { console.warn("[auth] Failed to resolve env variables in oauth1 signature:", e); }
           try {
           signature = await replaceProcessVariablesInText(signature);
@@ -117,9 +124,15 @@ async function getHeaders(headers: any[], auth?: any): Promise<Record<string, st
     }
   }
 
-  const finalHeaders: Record<string, string> = headers
+  const finalHeaders: RequestFieldRow[] = Object.entries(authHeaders).map(([key, value]) => ({
+    key,
+    value,
+    enabled: true,
+  }));
+
+  headers
     .filter((header) => header.enabled)
-    .reduce((acc: Record<string, string>, header) => {
+    .forEach((header) => {
       const key = header.key;
       const value = header.value;
 
@@ -128,51 +141,23 @@ async function getHeaders(headers: any[], auth?: any): Promise<Record<string, st
       // must come from the actual FormData we build, or the server can't
       // find the real part delimiter and multipart parsing breaks.
       if (key.trim().toLowerCase() === "content-type" && value.trim().toLowerCase().startsWith("multipart/form-data")) {
-        return acc;
+        return;
       }
 
       if (key && value) {
-        acc[key] = value;
+        const next = {
+          key,
+          value,
+          enabled: true,
+          omitIfUnresolved: header.omitIfUnresolved === true,
+        };
+        const existingIndex = finalHeaders.findIndex((candidate) => candidate.key === key);
+        if (existingIndex >= 0) finalHeaders[existingIndex] = next;
+        else finalHeaders.push(next);
       }
-
-      return acc;
-    }, authHeaders);
+    });
 
   return finalHeaders;
-}
-
-/**
- * Get query parameters with auth merged
- */
-function getParameters(parameters: any[], auth?: any): string {
-  let authQuery = "";
-  if (auth && auth.config && auth.enabled) {
-    if (auth.type === "api-key" && auth.config.in === "query") {
-      authQuery = `${auth.config.key}=${auth.config.value}`;
-    } else if (auth.type === "oauth2" && auth.config.addTokenTo === "query" && auth.config.accessToken) {
-      authQuery = `access_token=${encodeURIComponent(auth.config.accessToken)}`;
-    }
-  }
-
-  const filteredParameters = parameters.filter((parameter) => parameter.enabled && (parameter.key || parameter.value));
-
-  const queryString = filteredParameters
-    .map((obj) => {
-      const key = obj.key;
-      const value = obj.value;
-      return `${key}=${value}`;
-    })
-    .join("&");
-
-  if (authQuery && queryString) {
-    return `?${authQuery}&${queryString}`;
-  } else if (authQuery) {
-    return `?${authQuery}`;
-  } else if (queryString) {
-    return `?${queryString}`;
-  }
-
-  return "";
 }
 
 /**
@@ -184,15 +169,6 @@ async function convertToRestApiRequestState(data: Request): Promise<RestApiReque
   // Merge auth into headers and query params
   const mergedHeaders = await getHeaders(data.headers, data.auth);
 
-  const parameters = getParameters(data.params, data.auth);
-
-  // Convert headers object back to array format
-  const headersArray = Object.entries(mergedHeaders).map(([key, value]) => ({
-    key,
-    value,
-    enabled: true,
-  }));
-
   // Parse query params
   const queryParamsArray = data.params
     .filter((p) => p.enabled)
@@ -200,6 +176,7 @@ async function convertToRestApiRequestState(data: Request): Promise<RestApiReque
       key: p.key,
       value: p.value,
       enabled: p.enabled,
+      omitIfUnresolved: p.omitIfUnresolved === true,
     }));
 
   // Add auth query params if present
@@ -209,12 +186,14 @@ async function convertToRestApiRequestState(data: Request): Promise<RestApiReque
         key: data.auth.config.key,
         value: data.auth.config.value || '',
         enabled: true,
+        omitIfUnresolved: false,
       });
     } else if (data.auth.type === 'oauth2' && data.auth.config.addTokenTo === 'query' && data.auth.config.accessToken) {
       queryParamsArray.push({
         key: 'access_token',
         value: data.auth.config.accessToken,
         enabled: true,
+        omitIfUnresolved: false,
       });
     }
   }
@@ -229,7 +208,15 @@ async function convertToRestApiRequestState(data: Request): Promise<RestApiReque
   const result = {
     method: data.method,
     url: data.url,
-    headers: headersArray,
+    headers: mergedHeaders,
+    cookies: (data.cookies || [])
+      .filter((cookie) => cookie.enabled)
+      .map((cookie) => ({
+        key: cookie.key,
+        value: cookie.value,
+        enabled: true,
+        omitIfUnresolved: cookie.omitIfUnresolved === true,
+      })),
     queryParams: queryParamsArray,
     pathParams: (data.path_params || [])
       .filter((p) => p.enabled)
@@ -240,11 +227,12 @@ async function convertToRestApiRequestState(data: Request): Promise<RestApiReque
       })),
     body: normalizedBody,
     contentType: data.content_type,
-    bodyParams: data.body_params?.map((p) => ({
+    bodyParams: data.body_params?.filter((p) => p.value !== null).map((p) => ({
       key: p.key,
-      value: p.value,
+      value: p.value as string | File,
       type: p.type,
       enabled: p.enabled,
+      omitIfUnresolved: p.omitIfUnresolved === true,
     })),
     binary: data.binary,
     authProfile: undefined, // TODO: Auth profile reference
@@ -322,10 +310,7 @@ export async function sendRequestHybrid(
     } else if (request.protocolType === 'graphql') {
       // Merge auth into headers for GraphQL (same logic as REST via getHeaders)
       const mergedHeaders = await getHeaders(request.headers || [], request.auth);
-      const headersArray = Object.entries(mergedHeaders).map(([key, value]) => ({
-        key, value, enabled: true,
-      }));
-      requestState = { ...request, headers: headersArray };
+      requestState = { ...request, headers: mergedHeaders };
     }
 
     const url = requestState.url.toLowerCase();
