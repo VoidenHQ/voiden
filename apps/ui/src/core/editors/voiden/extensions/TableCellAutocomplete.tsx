@@ -165,8 +165,14 @@ export const TableCellAutocomplete = Extension.create({
           // Look up suggestions from the plugin registry — row's other cells
           // (e.g. the header key already typed in column 0) let a plugin
           // tailor a column's suggestions instead of a fixed static list.
+          // tabId (set on the editor at mount, see VoidenEditor.tsx) lets a
+          // plugin go further and pull suggestions from live app state, e.g.
+          // the current tab's last response (see assertions-table).
           const rowContext = getRowCellsText(editor.state);
-          const items = getTableSuggestions(tableType, columnIndex, rowContext);
+          const items = getTableSuggestions(tableType, columnIndex, {
+            rowContext,
+            tabId: editor.storage?.tabId,
+          });
           if (!items.length) return [];
 
           if (!query) return items;
@@ -273,7 +279,10 @@ export const TableCellAutocomplete = Extension.create({
         if (columnIndex < 0) return false;
 
         const rowContext = getRowCellsText(state);
-        const items = getTableSuggestions(tableType, columnIndex, rowContext);
+        const items = getTableSuggestions(tableType, columnIndex, {
+          rowContext,
+          tabId: editor.storage?.tabId,
+        });
         if (!items.length) return false;
 
         openManualSuggestionPopup(editor, items);

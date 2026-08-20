@@ -489,13 +489,21 @@ const linkableNodeTypes = new Set<string>(coreLinkableNodeTypes);
 const nodeDisplayNames = new Map<string, string>(Object.entries(coreNodeDisplayNames));
 
 // Global registry for table cell autocomplete suggestions (plugin-owned).
-// A column's suggestions can be a static list, or a function of the other
-// cells already filled in on that row (e.g. headers-table's value column
-// tailoring its list to whichever header key was typed in column 0).
+// A column's suggestions can be a static list, or a function of the row/tab
+// context — e.g. headers-table's value column tailoring its list to whichever
+// header key was typed in column 0 (rowContext), or assertions-table's field
+// column offering paths pulled from the current tab's last response (tabId,
+// added for issue #548 — see plugins/simple-assertions).
 export type TableSuggestionItem = { label: string; description?: string };
+export interface TableSuggestionContext {
+  /** Other cells already filled in on this row, keyed by column index. */
+  rowContext: Record<number, string>;
+  /** tabId of the editor the table lives in (editor.storage.tabId), if known. */
+  tabId?: string;
+}
 export type TableSuggestionsForColumn =
   | TableSuggestionItem[]
-  | ((rowContext: Record<number, string>) => TableSuggestionItem[]);
+  | ((context: TableSuggestionContext) => TableSuggestionItem[]);
 const tableSuggestionsRegistry = new Map<string, { [columnIndex: number]: TableSuggestionsForColumn }>();
 
 // Global registry for block outline metadata (label + lucide icon name) — registered by plugins
@@ -717,13 +725,13 @@ export const getNodeDisplayName = (nodeType: string): string | undefined => {
 export const getTableSuggestions = (
   tableType: string,
   columnIndex: number,
-  rowContext: Record<number, string> = {},
+  context: TableSuggestionContext = { rowContext: {} },
 ): Array<{ label: string; description?: string }> => {
   const config = tableSuggestionsRegistry.get(tableType);
   if (!config) return [];
   const forColumn = config[columnIndex];
   if (!forColumn) return [];
-  return typeof forColumn === 'function' ? forColumn(rowContext) : forColumn;
+  return typeof forColumn === 'function' ? forColumn(context) : forColumn;
 };
 
 export class PluginPermissionError extends Error {
