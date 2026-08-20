@@ -126,19 +126,48 @@ else
 fi
 echo ""
 
-# ─── Step 8: Build local workspace packages consumed by apps/electron ────────
+# ─── Step 8: Install plugin-local dependencies ────────────────────────────────
+# Each plugin repo under plugins/ manages its own package.json/node_modules
+# (they're separate git repos, not part of the yarn workspace), so deps like
+# @faker-js/faker never get hoisted by the root `yarn install` above unless
+# some other workspace package happens to depend on the same package too.
+# This must run before Step 9 builds @voiden/runner, because that step's
+# postbuild (build-runners.mjs) esbuild-bundles each plugin's runner.ts
+# straight out of the plugin's own node_modules.
+if [ "$SKIP_INSTALL" = true ]; then
+  echo -e "${YELLOW}Skipping plugin dependency install (--skip-install)${NC}"
+else
+  step "Step 8: Plugin dependencies"
+  for PLUGIN_DIR in "$PLUGINS_DIR"/*/; do
+    [ -d "$PLUGIN_DIR" ] || continue
+    [ -f "$PLUGIN_DIR/package.json" ] || continue
+    if [ ! -d "$PLUGIN_DIR/node_modules" ]; then
+      PLUGIN_NAME=$(basename "$PLUGIN_DIR")
+      echo -n "  $PLUGIN_NAME... "
+      if (cd "$PLUGIN_DIR" && npm install --no-package-lock --silent 2>/dev/null); then
+        echo -e "${GREEN}installed${NC}"
+      else
+        echo -e "${YELLOW}skipped (no deps or install failed)${NC}"
+      fi
+    fi
+  done
+  ok "Plugin dependencies ready"
+fi
+echo ""
+
+# ─── Step 9: Build local workspace packages consumed by apps/electron ────────
 # dist/ for these is gitignored and was just wiped in Step 4 — apps/electron
 # imports @voiden/runner (which itself needs @voiden/executors) at the source
 # level via package.json main/exports, so both must be rebuilt or `yarn
 # workspace voiden start` fails to resolve @voiden/runner's entry point.
-step "Step 8: Local workspace packages"
+step "Step 9: Local workspace packages"
 yarn workspace @voiden/executors run build || fail "Failed to build @voiden/executors"
 ok "@voiden/executors built"
 yarn workspace @voiden/runner build || fail "Failed to build @voiden/runner"
 ok "@voiden/runner built"
 echo ""
 
-# ─── Step 9: Build each plugin from local source ─────────────────────────────
+# ─── Step 10: Build each plugin from local source ─────────────────────────────
 if [ "$PLUGIN_COUNT" -gt 0 ]; then
   echo -e "${YELLOW}Building plugins from plugins/...${NC}"
 
@@ -156,7 +185,8 @@ if [ "$PLUGIN_COUNT" -gt 0 ]; then
 
     echo -n "  $PLUGIN_ID... "
 
-    # Reinstall plugin deps if missing
+    # Deps are installed in Step 8; this is just a safety net in case a
+    # plugin was added to plugins/ after that step ran (e.g. --skip-install).
     if [ ! -d "$PLUGIN_DIR/node_modules" ]; then
       (cd "$PLUGIN_DIR" && npm install --no-package-lock --silent 2>/dev/null) || true
     fi
