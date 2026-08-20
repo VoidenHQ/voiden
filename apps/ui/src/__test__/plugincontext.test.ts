@@ -81,6 +81,7 @@ vi.mock('@/core/editors/voiden/VoidenEditor', () => ({
     getState: vi.fn(),
   },
   proseClasses: ['prose', 'prose-sm'],
+  previewProseClasses: 'prose prose-sm text-preview',
 }));
 
 vi.mock('@/core/editors/code/CodeEditorStore', () => ({
@@ -468,7 +469,12 @@ describe('createPlugin', () => {
 
       const { sidebar } = usePluginStore.getState();
       expect(sidebar.left).toHaveLength(1);
-      expect(sidebar.left[0]).toEqual(testTab);
+      expect(sidebar.left[0]).toMatchObject({
+        id: testTab.id,
+        title: testTab.title,
+        component: expect.any(Function),
+      });
+      expect(sidebar.left[0].component).not.toBe(testTab.component);
     });
 
     it('voiden test : call electron API when registering sidebar tabs', async () => {
@@ -580,7 +586,12 @@ describe('createPlugin', () => {
 
       const { panels } = usePluginStore.getState();
       expect(panels.main).toHaveLength(1);
-      expect(panels.main[0]).toEqual(panel);
+      expect(panels.main[0]).toMatchObject({
+        id: panel.id,
+        title: panel.title,
+        component: expect.any(Function),
+      });
+      expect(panels.main[0].component).not.toBe(panel.component);
     });
   });
 
