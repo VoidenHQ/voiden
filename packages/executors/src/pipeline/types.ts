@@ -62,6 +62,12 @@ export interface RestApiRequestState {
   binary?: File | string | string[]
   authProfile?: string
   preRequestResult?: any
+  /**
+   * Per-request overrides sourced from the request's options-table block.
+   * Known keys: `follow_redirects` (boolean), `disable_tls_verification` (boolean) —
+   * both override their app-wide settings.requests.* default for this request only,
+   * and fall back to the global default when absent.
+   */
   metadata?: Record<string, any>
   /** Protocol hint set by parser plugins: 'rest' | 'graphql' | 'grpc' | 'ws' | 'mcp' */
   protocolType?: string

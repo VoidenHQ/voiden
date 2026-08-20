@@ -197,12 +197,19 @@ function createMultipartBlob(bytes: ArrayBuffer | ArrayLike<number>, type?: stri
 /**
  * Get dispatcher (Agent or ProxyAgent) based on settings
  * Returns the dispatcher and proxy info for metadata
+ *
+ * @param tlsVerificationOverride Per-request override of the global
+ *   disable_tls_verification setting (from the request's options-table block).
+ *   `true`/`false` wins over the global setting; `undefined` falls back to it.
  */
 function getDispatcher(
   settings: any,
   requestUrl: string,
+  tlsVerificationOverride?: boolean,
 ): { dispatcher?: Agent | ProxyAgent; proxyInfo?: { name: string; host: string; port: number } } {
-  const disableTls = settings?.requests?.disable_tls_verification === true;
+  const disableTls = tlsVerificationOverride !== undefined
+    ? tlsVerificationOverride
+    : settings?.requests?.disable_tls_verification === true;
   const timeoutSec = settings?.requests?.timeout ?? 300;
   const timeoutMs = timeoutSec > 0 ? timeoutSec * 1000 : 0;
   const proxyEnabled = settings?.proxy?.enabled === true;
@@ -680,7 +687,8 @@ export function registerRequestIpcHandler() {
         }
       },
 
-      getDispatcher: (url: string) => getDispatcher(settings, url),
+      getDispatcher: (url: string, options?: { disableTlsVerification?: boolean }) =>
+        getDispatcher(settings, url, options?.disableTlsVerification),
       followRedirects,
       isElectron: true,
     };
@@ -693,7 +701,7 @@ export function registerRequestIpcHandler() {
         const { protocol, resolvedUrl, resolvedHeaders, resolvedBody } = result;
 
         if (protocol === "ws" || protocol === "wss") {
-          const { dispatcher, proxyInfo } = getDispatcher(settings, resolvedUrl);
+          const { dispatcher, proxyInfo } = getDispatcher(settings, resolvedUrl, requestState.metadata?.disable_tls_verification);
           return handleWsConnection(resolvedUrl, {
             headers: resolvedHeaders,
             dispatcher,
