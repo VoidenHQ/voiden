@@ -126,4 +126,77 @@ describe("executeSecureRequest unresolved variable validation", () => {
 
     expect(mockFetch).not.toHaveBeenCalled();
   });
+
+  it("voiden test : omits optional unresolved header, query, and cookie rows", async () => {
+    await executeSecureRequest(
+      {
+        method: "GET",
+        url: "https://api.example.com/items",
+        headers: [
+          { key: "X-Optional", value: "{{MISSING_HEADER}}", enabled: true, omitIfUnresolved: true },
+          { key: "X-Kept", value: "yes", enabled: true },
+        ],
+        cookies: [
+          { key: "missing", value: "{{MISSING_COOKIE}}", enabled: true, omitIfUnresolved: true },
+          { key: "session", value: "present", enabled: true },
+        ],
+        queryParams: [
+          { key: "optional", value: "{{MISSING_QUERY}}", enabled: true, omitIfUnresolved: true },
+          { key: "kept", value: "yes", enabled: true },
+        ],
+        pathParams: [],
+      },
+      createEnvAdapter(),
+    );
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockFetch.mock.calls[0][0]).toBe("https://api.example.com/items?kept=yes");
+    expect(mockFetch.mock.calls[0][1].headers).toMatchObject({
+      "X-Kept": "yes",
+      Cookie: "session=present",
+    });
+    expect(mockFetch.mock.calls[0][1].headers).not.toHaveProperty("X-Optional");
+  });
+
+  it("voiden test : omits an optional unresolved form field", async () => {
+    await executeSecureRequest(
+      {
+        method: "POST",
+        url: "https://api.example.com/items",
+        headers: [],
+        queryParams: [],
+        pathParams: [],
+        contentType: "application/x-www-form-urlencoded",
+        bodyParams: [
+          { key: "optional", value: "{{MISSING_FORM_VALUE}}", type: "text", enabled: true, omitIfUnresolved: true },
+          { key: "kept", value: "yes", type: "text", enabled: true },
+        ],
+      },
+      createEnvAdapter(),
+    );
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockFetch.mock.calls[0][1].body).toBe("kept=yes");
+  });
+
+  it("voiden test : still blocks an unresolved form field that is required", async () => {
+    await expect(
+      executeSecureRequest(
+        {
+          method: "POST",
+          url: "https://api.example.com/items",
+          headers: [],
+          queryParams: [],
+          pathParams: [],
+          contentType: "application/x-www-form-urlencoded",
+          bodyParams: [
+            { key: "required", value: "{{MISSING_FORM_VALUE}}", type: "text", enabled: true },
+          ],
+        },
+        createEnvAdapter(),
+      ),
+    ).rejects.toBeInstanceOf(UnresolvedVariablesError);
+
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
 });
