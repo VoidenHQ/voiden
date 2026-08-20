@@ -5,11 +5,12 @@ export const coreApi = {
   removeListener: (channel: any) => ipcRenderer.removeAllListeners(channel),
   openExternal: (url: string) => ipcRenderer.send("open-external", url),
   onLogin: (callback: (event: Electron.IpcRendererEvent, url: string) => void) => ipcRenderer.on("handle-login", callback),
-  sendRequest: (urlForRequest: string, fetchOptions: RequestInit, signalState: AbortSignal) =>
+  sendRequest: (urlForRequest: string, fetchOptions: RequestInit, signalState: AbortSignal, options?: { disableTlsVerification?: boolean }) =>
     ipcRenderer.invoke("send-request", {
       urlForRequest,
       fetchOptions,
       signalState,
+      tlsVerificationOverride: options?.disableTlsVerification,
     }),
   startSearch: (args: { query: string; matchCase: boolean; matchWholeWord: boolean; useRegex: boolean; useMultiline: boolean; searchId: number; fileMask?: string; dirMask?: string; includeHidden?: boolean }) =>
     ipcRenderer.send("search-files:start", args),

@@ -61,6 +61,9 @@ declare global {
         signalState?: {
           aborted: boolean;
         },
+        options?: {
+          disableTlsVerification?: boolean;
+        },
       ) => Promise<Response>;
       connectWss: (wsId: string) => Promise<void>;
       getVersion: () => Promise<string>;

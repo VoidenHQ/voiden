@@ -193,6 +193,10 @@ export interface Request {
   auth: Authorization;
   openApiSpecs?: JsonData;
   preRequestResult?: PreRequestResult;
+  // Key/value rows from the request's options-table block (e.g. follow_redirects,
+  // disable_tls_verification). Values are stored as raw strings from the table cell;
+  // consumers coerce them (e.g. === 'true') the same way follow_redirects does.
+  options?: Record<string, string>;
 }
 
 interface DeletedRequest {

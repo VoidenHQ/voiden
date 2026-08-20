@@ -251,6 +251,12 @@ async function convertToRestApiRequestState(data: Request): Promise<RestApiReque
     preRequestResult: data.preRequestResult,
     metadata: {
       ...(data.options?.follow_redirects === 'false' ? { follow_redirects: false } : {}),
+      // Per-request TLS override (options-table key `disable_tls_verification`).
+      // Any explicit value on the request wins over the global setting; an absent
+      // key means "no override" so the request falls back to the global default.
+      ...(data.options?.disable_tls_verification !== undefined
+        ? { disable_tls_verification: data.options.disable_tls_verification === 'true' }
+        : {}),
     },
   };
 

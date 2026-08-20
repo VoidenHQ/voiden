@@ -28,8 +28,13 @@ export interface SecureRequestAdapter {
   /**
    * Return an undici-compatible dispatcher and optional proxy metadata for a URL.
    * Electron passes an Agent or ProxyAgent; CLI omits this for plain fetch.
+   *
+   * `options.disableTlsVerification`, when present, is this request's per-request
+   * TLS override (from requestState.metadata.disable_tls_verification) and takes
+   * priority over the app-wide disable_tls_verification setting; omit it to fall
+   * back to the global setting.
    */
-  getDispatcher?(url: string): { dispatcher?: any; proxyInfo?: any }
+  getDispatcher?(url: string, options?: { disableTlsVerification?: boolean }): { dispatcher?: any; proxyInfo?: any }
   /** Whether to follow HTTP redirects. Defaults to true. */
   followRedirects?: boolean
   /**
@@ -396,7 +401,11 @@ export async function executeSecureRequest(
   // ── 10. Apply dispatcher (proxy / TLS agent) ──────────────────────────────
   let proxyInfo: any
   if (adapter.getDispatcher) {
-    const { dispatcher, proxyInfo: pi } = adapter.getDispatcher(url)
+    const disableTlsVerification = requestState.metadata?.disable_tls_verification
+    const { dispatcher, proxyInfo: pi } = adapter.getDispatcher(
+      url,
+      typeof disableTlsVerification === 'boolean' ? { disableTlsVerification } : undefined,
+    )
     if (dispatcher) fetchOptions.dispatcher = dispatcher
     proxyInfo = pi
   }
