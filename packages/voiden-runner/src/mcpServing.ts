@@ -20,12 +20,12 @@
 import { readFileSync } from 'fs'
 import { relative, resolve, isAbsolute } from 'path'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import { runVoidFile, getRequestPreview, findRequestBlock } from './runner.js'
+import { runVoidFile, getRequestPreview, findRequestBlock, createLinkedBlockResolver } from './runner.js'
 import { collectVoidFiles } from './discovery.js'
 import { upsertResponseBlock } from './resultBlock.js'
 import { loadEnabledPlugins } from './plugins/loader.js'
 import { planServedTools, registerToolsFromDecisions, getCommitSha, type ServeDecision } from './mcpToolCapability.js'
-import { parseVoidFileSections } from '@voiden/executors'
+import { parseVoidFile, groupBlocksIntoSections, resolveLinkedFiles, resolveLinkedBlocks } from '@voiden/executors'
 import type { RunResult } from './types.js'
 import { z } from 'zod'
 
@@ -117,7 +117,11 @@ export function registerFixedTools(
     async ({ filePath }: { filePath: string }) => {
       const resolved = resolveInProject(projectRoot, filePath)
       const content = readFileSync(resolved, 'utf-8')
-      const sections = parseVoidFileSections(content)
+      const resolver = createLinkedBlockResolver(projectRoot)
+      let rawBlocks = parseVoidFile(content)
+      rawBlocks = await resolveLinkedFiles(rawBlocks, resolver)
+      rawBlocks = await resolveLinkedBlocks(rawBlocks, resolver)
+      const sections = groupBlocksIntoSections(rawBlocks)
       return textResult(
         sections.map((s) => ({
           sectionLabel: s.label,
@@ -150,7 +154,7 @@ export function registerFixedTools(
         ...(envVars ?? {}),
       }
 
-      const result = await runVoidFile(resolved, { env, runtimeVars, sectionLabel, activePlugins })
+      const result = await runVoidFile(resolved, { env, runtimeVars, sectionLabel, activePlugins, projectRoot })
       return textResult(result)
     },
   )

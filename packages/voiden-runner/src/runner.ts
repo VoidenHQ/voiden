@@ -16,9 +16,17 @@
  *   3. Map PipelineResponse → RunResult
  */
 
-import { readFileSync } from 'fs'
-import { requestOrchestrator, classifyBlockVersion, parseVoidFileSections } from '@voiden/executors'
-import type { PipelineResponse } from '@voiden/executors'
+import { readFileSync, existsSync } from 'fs'
+import { join } from 'path'
+import {
+  requestOrchestrator,
+  classifyBlockVersion,
+  parseVoidFile,
+  groupBlocksIntoSections,
+  resolveLinkedBlocks,
+  resolveLinkedFiles,
+} from '@voiden/executors'
+import type { PipelineResponse, LinkedBlockResolver } from '@voiden/executors'
 import { createCliElectron } from './cliElectron.js'
 import { loadEnabledPlugins } from './plugins/loader.js'
 import { getInstalledPluginInfo } from './plugins/versionInfo.js'
@@ -27,6 +35,38 @@ import { findRequestBlock as findRegisteredRequestBlock, getRequestContainerDef 
 import { extractRuntimeVarRows, captureRuntimeVars } from './runtimeVars.js'
 import type { CaptureRequest, CaptureResponse } from './runtimeVars.js'
 import type { RunResult } from './types.js'
+
+// ─── linkedBlock / linkedFile resolution ───────────────────────────────────
+//
+// `originalFile` on a linkedBlock/linkedFile is project-root-relative, but
+// unlike the Tool block's requestFilePath (which forbids a leading slash —
+// see toolCapability.ts's resolvePath), the app's own linkedBlock/linkedFile
+// UI (BlockLink.tsx, LinkedFile.tsx) always resolves it via
+// `window.electron.utils.pathJoin(activeProject, originalFile)`, which is
+// literally Node's `path.join` (apps/electron/src/main/utils.ts) — and
+// `path.join` does NOT treat a leading slash on a later segment as anchoring
+// to filesystem root, it just joins+normalises. The skill's own examples
+// (e.g. `/shared/base-headers.void`) rely on exactly this. Match that exact
+// behaviour here instead of the Tool block's stricter isAbsolute() rule, so
+// files already authored (by the app or the skill) resolve the same way.
+function resolveProjectPath(filePath: string, projectRoot: string | undefined): string {
+  if (!projectRoot) return filePath
+  return join(projectRoot, filePath)
+}
+
+export function createLinkedBlockResolver(projectRoot: string | undefined): LinkedBlockResolver {
+  return {
+    readFile: async (relPath: string) => {
+      try {
+        const absPath = resolveProjectPath(relPath, projectRoot)
+        if (!existsSync(absPath)) return null
+        return readFileSync(absPath, 'utf-8')
+      } catch {
+        return null
+      }
+    },
+  }
+}
 
 // ─── Declared plugin+version check (tagged blocks only — legacy files with no
 // pluginId attr are skipped entirely, unchanged behaviour) ────────────────────
@@ -221,6 +261,13 @@ export interface RunOptions {
   activePlugins?: string[]
   /** Run only the section whose request-separator label matches exactly, instead of every section in the file. */
   sectionLabel?: string
+  /**
+   * Project root that linkedBlock/linkedFile `originalFile` paths resolve
+   * against (same convention as the Tool block's requestFilePath). Defaults
+   * to process.cwd() when not provided — matches how --env file paths are
+   * already resolved for this same command.
+   */
+  projectRoot?: string
 }
 
 export interface SectionResult {
@@ -245,8 +292,16 @@ export async function runVoidFile(
   // Use pre-loaded plugins if provided (multi-file session), otherwise load fresh.
   const activePlugins = options.activePlugins ?? await loadEnabledPlugins(verbose, skipPlugins)
 
-  const content     = readFileSync(filePath, 'utf-8')
-  const allSections = parseVoidFileSections(content)
+  const content  = readFileSync(filePath, 'utf-8')
+  const resolver = createLinkedBlockResolver(options.projectRoot ?? process.cwd())
+
+  // Resolve linkedFile first (it can carry its own request-separators, which
+  // must be visible before section-splitting), then linkedBlock, then group
+  // into sections — same ordering the app's own expandLinkedBlocks.ts uses.
+  let rawBlocks = parseVoidFile(content)
+  rawBlocks = await resolveLinkedFiles(rawBlocks, resolver)
+  rawBlocks = await resolveLinkedBlocks(rawBlocks, resolver)
+  const allSections = groupBlocksIntoSections(rawBlocks)
   // A file with no request-separators has no real "sections" to disambiguate
   // between — it's just one request. Only apply the label filter when
   // there's more than one section to choose from; a single-section file

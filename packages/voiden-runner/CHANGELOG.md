@@ -3,6 +3,12 @@
 All notable changes to `@voiden/runner` are documented here. This package is
 versioned and released independently of the Voiden desktop app.
 
+## v2.3.0-beta.13 - 2026-08-21
+
+### Fixed
+- `linkedBlock`/`linkedFile` imports (a shared headers/auth/body block reused across requests, or a whole section imported from another file) now resolve when running headlessly — previously only the Voiden app resolved these (built on `window.electron`, React Query, and a live editor), so a request that only got its headers/auth/body from an imported block silently sent without them when run via `voiden-runner` or `voiden-mcp` — no error, just an empty header set. `@voiden/executors` bumped to `0.1.8`, which adds the resolver (`resolveLinkedBlocks`/`resolveLinkedFiles`); `originalFile` paths resolve against a new `projectRoot` (matching the Tool block's own `requestFilePath` convention — the `run` command defaults it to `process.cwd()`, `mcp`/`tool` commands pass their existing project directory through).
+- Multipart file uploads (`multipart-table`, including `fileLink`/file attachments) and raw binary request bodies (`restFile`) are now supported when running headlessly — previously unsupported outright rather than just import-broken, even though the network layer (`@voiden/executors`' `secureRequest.ts`) already fully handled multipart `FormData` and binary uploads. Fixed upstream in `plugin-voiden-rest-api`'s `runner.ts` (now reuses the app's own `requestBuilder.ts` body-building logic instead of the headless parser only ever handling json/xml/yml bodies), re-bundled here.
+
 ## v2.3.0-beta.8 - 2026-08-11
 
 ### Fixed

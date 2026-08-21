@@ -687,7 +687,7 @@ program
         // --no-session: each file is fully isolated — no vars flow from one file to another.
         // Session mode: all files share runtimeVars so captured vars chain across files.
         const fileVars = opts.session ? runtimeVars : {}
-        const { results } = await runVoidFile(file, { env, verbose: opts.verbose, runtimeVars: fileVars, activePlugins })
+        const { results } = await runVoidFile(file, { env, verbose: opts.verbose, runtimeVars: fileVars, activePlugins, projectRoot: process.cwd() })
         stopSpinner()
         for (const { result } of results) {
           if (!result.success) anyFailed = true

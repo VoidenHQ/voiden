@@ -91,12 +91,16 @@ export interface VoidSection {
 }
 
 /**
- * Parse .void file content into sections split at request-separator blocks.
- * A file with no separators returns a single section.
+ * Group an already-parsed flat block array into sections split at
+ * request-separator blocks. A file with no separators returns a single
+ * section.
+ *
+ * Split out from parseVoidFileSections so callers that need to transform the
+ * flat block array first (e.g. @voiden/runner resolving linkedBlock/linkedFile
+ * imports — a linkedFile can carry its own request-separators, which must be
+ * visible before section-splitting) can do so without re-parsing.
  */
-export function parseVoidFileSections(content: string): VoidSection[] {
-  const allBlocks = parseVoidFile(content)
-
+export function groupBlocksIntoSections(allBlocks: Block[]): VoidSection[] {
   const sections: VoidSection[] = [{ blocks: [] }]
 
   for (const block of allBlocks) {
@@ -111,4 +115,12 @@ export function parseVoidFileSections(content: string): VoidSection[] {
   }
 
   return sections.filter(s => s.blocks.length > 0)
+}
+
+/**
+ * Parse .void file content into sections split at request-separator blocks.
+ * A file with no separators returns a single section.
+ */
+export function parseVoidFileSections(content: string): VoidSection[] {
+  return groupBlocksIntoSections(parseVoidFile(content))
 }
