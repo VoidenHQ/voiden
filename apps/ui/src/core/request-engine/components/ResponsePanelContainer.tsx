@@ -373,11 +373,28 @@ export function ResponsePanelContainer() {
       (isWssOrGrpc && !isSuccess));
 
   const hasPluginResults = pluginResponseSections.length > 0;
+  // Whether this tab has more than one request-separator section. `latestResponse`
+  // is keyed off the highest sectionIndex only, so on a multi-section Run All, an
+  // error on ANY single section (not necessarily the last-touched one) must not be
+  // allowed to hide every other section's already-successful response, or take over
+  // the whole panel with the single-response error overlay below.
+  const isMultiSection = sectionResponses.length > 1;
+  const anySectionHasContentOrError = sectionResponses.some(
+    (s) => s.response.responseDoc || s.response.error
+  );
   // Plugin sections (e.g. stitch results) are shown regardless of the HTTP loading state —
   // isLoading only reflects individual request execution, not the plugin's own state.
-  const showContent = hasPluginResults || (!isLoading && !error && !!responseDoc);
-  const showEmpty = !isLoading && !error && !responseDoc && !hasPluginResults;
-  const showError = !isLoading && !!error;
+  const showContent = hasPluginResults || (!isLoading && (
+    isMultiSection ? anySectionHasContentOrError : (!error && !!responseDoc)
+  ));
+  const showEmpty = !isLoading && !hasPluginResults && (
+    isMultiSection ? !anySectionHasContentOrError : (!error && !responseDoc)
+  );
+  // The full-panel "Unable to Complete Request" overlay only makes sense when the
+  // whole panel legitimately IS that one failed request. For a multi-section file,
+  // each section renders its own inline error in the stacked list below instead —
+  // see the sections.map() error branch.
+  const showError = !isLoading && !!error && !isMultiSection;
   // Only show the "Executing request…" spinner when plugin sections aren't occupying the panel.
   const showLoadingSpinner = isLoading && !hasPluginResults;
 
@@ -717,7 +734,11 @@ export function ResponsePanelContainer() {
 
             const sections = Object.entries(tabSectionData || {})
               .map(([key, resp]) => ({ sectionIndex: Number(key), response: resp }))
-              .filter((s) => s.response?.responseDoc)
+              // Include error-only sections (no responseDoc) too — otherwise a
+              // section that failed with e.g. an unresolved-variable error just
+              // silently disappears from the stacked list instead of showing
+              // its own error inline. See the error branch in sections.map() below.
+              .filter((s) => s.response?.responseDoc || s.response?.error)
               .sort((a, b) => a.sectionIndex - b.sectionIndex);
 
             return (
@@ -905,6 +926,61 @@ export function ResponsePanelContainer() {
                         const borderColor = getSectionBorderColor(colorIndex);
 
                         const isCollapsed = collapsedSections.has(`${tabId}:${sectionIndex}`);
+
+                        // Section failed before a response document existed at all (e.g. an
+                        // unresolved-variable error) — no status/label/url to show, since those
+                        // all come from a successful response's attrs. Render a compact,
+                        // section-scoped error card instead of the normal status header, rather
+                        // than crashing/blanking on a null doc or (the bug this fixes) letting
+                        // the full-panel overlay elsewhere hide every other section to show this
+                        // one error.
+                        if (!doc && response.error) {
+                          return (
+                            <div
+                              key={sectionIndex}
+                              className="min-w-0"
+                              style={{ borderLeft: `3px solid ${borderColor}` }}
+                            >
+                              <div
+                                className="flex min-w-0 items-center gap-2 overflow-hidden px-3 py-1.5 border-b border-border bg-bg cursor-pointer hover:bg-active transition-colors select-none"
+                                onClick={() => toggleSectionCollapse(tabId, sectionIndex)}
+                              >
+                                {isCollapsed
+                                  ? <ChevronRight size={14} className="text-comment flex-shrink-0" />
+                                  : <ChevronDown size={14} className="text-comment flex-shrink-0" />
+                                }
+                                <div className="size-2 rounded-full flex-shrink-0" style={{ backgroundColor: "var(--error, #f87171)" }} />
+                                <span className="font-mono text-xs font-bold text-red-500">Error</span>
+                                <span
+                                  className="text-xs font-semibold uppercase flex-shrink-0"
+                                  style={{ color: borderColor, letterSpacing: "0.5px" }}
+                                >
+                                  Request {sectionIndex + 1}
+                                </span>
+                                {timestamp && (
+                                  <Tip label={formatAbsoluteTime(timestamp)} side="bottom">
+                                    <span className="text-comment text-[10px] flex-shrink-0 opacity-60 cursor-default ml-auto">
+                                      {formatRelativeTime(timestamp)}
+                                    </span>
+                                  </Tip>
+                                )}
+                              </div>
+                              {!isCollapsed && (
+                                <div className="ml-2 px-3 py-3">
+                                  <div className="flex items-start gap-3">
+                                    <svg className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    </svg>
+                                    <div className="flex-1 min-w-0">
+                                      <h4 className="text-sm font-semibold text-red-500 mb-1">Unable to Complete Request</h4>
+                                      <div className="text-text text-xs whitespace-pre-wrap font-mono">{response.error}</div>
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        }
 
                         return (
                           <div

@@ -32,7 +32,7 @@
         {
           "icon": "▶️",
           "title": "Run All No Longer Stops Dead on One Bad Placeholder",
-          "description": "If a request in the middle of a multi-request file referenced a variable your active environment doesn't define, Run All used to stop entirely — every request after it silently never ran, and the error didn't even show up on the request that actually failed. Run All now shows the error on the right request and keeps going through the rest of the file."
+          "description": "If a request in the middle of a multi-request file referenced a variable your active environment doesn't define, Run All used to stop entirely — every request after it silently never ran. It also showed the error as a full-panel overlay that covered every other request's already-successful response instead of appearing under the one request that actually failed. Run All now shows each error inline, under the right request, and keeps going through the rest of the file."
         }
       ]
     },
