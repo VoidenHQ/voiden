@@ -129,6 +129,12 @@ export const useSendRestRequest = (_editor: Editor) => {
         const cursorPos = sectionIndex !== undefined ? undefined : editor.state.selection.$from.pos;
         console.log('[useSendRequest] sectionIndex:', sectionIndex, 'cursorPos:', cursorPos);
 
+        // Record which section is actually executing so a failure raised before
+        // any response comes back (e.g. an unresolved-variable error, thrown
+        // during variable resolution — before a request is even built) gets
+        // attributed to this section by handleSendError/setError, not section 0.
+        useResponseStore.getState().setCurrentRequestSectionIndex(sectionIndex ?? null);
+
         const filePath = activeDocument?.source ?? undefined;
         const response = await requestOrchestrator.executeRequest(
           editor,
@@ -242,9 +248,14 @@ export const useSendRestRequest = (_editor: Editor) => {
     try {
       for (let sectionIdx = startSection; sectionIdx < sectionCount; sectionIdx++) {
         if (abortControllerRef.current?.signal.aborted) break;
-        // Re-set currentRequestTabId before each section so the response handler
-        // can find the correct tab (it gets cleared after each response)
+        // Re-set currentRequestTabId/SectionIndex before each section so the
+        // response handler finds the right tab, and so a failure raised before
+        // any response comes back (e.g. an unresolved-variable error, thrown
+        // during variable resolution — before a request is even built) gets
+        // attributed to *this* section instead of always falling back to
+        // section 0 (both get cleared after each response/error).
         useResponseStore.getState().setCurrentRequestTabId(activeDocument?.id ?? null);
+        useResponseStore.getState().setCurrentRequestSectionIndex(sectionIdx);
         try {
           await requestOrchestrator.executeRequest(
             editor,
@@ -261,11 +272,16 @@ export const useSendRestRequest = (_editor: Editor) => {
             continue;
           }
           if (err instanceof UnresolvedVariablesError) {
+            // Record the error against *this* section (now correctly attributed,
+            // see setCurrentRequestSectionIndex above) and move on — an
+            // unresolved placeholder in one section shouldn't prevent every
+            // later section in the file from running.
             handleSendError(err);
-            break;
+            continue;
           }
           // Continue to next section on individual failure
           console.warn(`[runAll] Section ${sectionIdx} failed:`, err);
+          handleSendError(err);
         }
       }
       queryClient.invalidateQueries({ queryKey: ["void-variable-keys"] });

@@ -89,6 +89,16 @@ interface ResponseStore {
   /** Set the tab ID for the current request */
   setCurrentRequestTabId: (tabId: string | null) => void;
 
+  /**
+   * Set the section index of the currently executing request, so that a
+   * failure raised before any response comes back (e.g. UnresolvedVariablesError,
+   * thrown during variable resolution — before a request is even built) gets
+   * attributed to the right section by setError() instead of always falling
+   * back to section 0. Callers must set this immediately before invoking
+   * requestOrchestrator.executeRequest for a given section.
+   */
+  setCurrentRequestSectionIndex: (index: number | null) => void;
+
   /** Set loading state and optionally the requesting tab ID */
   setLoading: (loading: boolean, tabId?: string | null) => void;
 
@@ -242,6 +252,8 @@ export const useResponseStore = create<ResponseStore>()(
       setActiveTabId: (tabId) => set({ activeTabId: tabId }),
 
       setCurrentRequestTabId: (tabId) => set({ currentRequestTabId: tabId }),
+
+      setCurrentRequestSectionIndex: (index) => set({ currentRequestSectionIndex: index }),
 
       setLoading: (loading, tabId) => set((state) => ({
         isLoading: loading,
