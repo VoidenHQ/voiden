@@ -80,6 +80,7 @@ content:
 - **Strings**: Quote values containing special characters, colons, or spaces
 - **Timestamps**: ISO 8601 format (`2025-01-15T10:30:00.000Z`)
 - **Block order inside `request`**: method → url → auth → headers-table → query-table → path-table → body → assertions → scripts
+- **Singleton blocks**: several block types are allowed at most once per section — see "Singleton Blocks — One Per Section" below **before** inserting a block that might already exist in the current section. When in doubt, edit the existing block instead of adding a second one.
 
 ## Workflows
 
@@ -136,7 +137,7 @@ attrs:
 
 - Everything before the first separator is **section 0**.
 - Each separator introduces a new section — blocks after it belong to that section.
-- Singleton blocks (e.g. `request`, `json_body`) are enforced **per section**, not per file.
+- Singleton blocks (e.g. `request`, `json_body`) are enforced **per section**, not per file — see "Singleton Blocks — One Per Section" below for the full list.
 - **Run All** (`⌘⇧↵`) executes every section in document order, top to bottom.
 - Clicking **Run** inside a section runs only that section.
 - Variables set by a script in one section flow into subsequent sections (unless isolation is enabled by Stitch Runner).
@@ -222,6 +223,70 @@ attrs:
       content: "{{BASE_URL}}/users"
 ---
 ```
+
+## Singleton Blocks — One Per Section
+
+A **section** is section 0 (everything before the first `request-separator`) or the content between one `request-separator` and the next. Certain block types are allowed **at most once per section**. If you're about to add a block type that might already be present in the current section, **check first — if it exists, edit it in place; do not insert a second one.** Writing two of the same singleton block into one section produces an invalid file: today the app has no guard against this when a file is written directly (only its own slash-command menu and paste actions are guarded), so getting this right here is on you, not a safety net downstream.
+
+**Core / voiden-rest-api** — each of these is independently singleton (only checked against itself, not against the others in this row):
+
+| Block type | Notes |
+|---|---|
+| `request` | The method+url container — one per section |
+| `headers-table` | |
+| `query-table` | |
+| `path-table` | |
+| `url-table` | |
+| `multipart-table` | |
+| `cookies-table` | |
+| `options-table` | |
+| `json_body` | Independent of `xml_body` / `yml_body` |
+| `xml_body` | Independent of `json_body` / `yml_body` |
+| `yml_body` | Independent of `json_body` / `xml_body` |
+| `restFile` (binary file body) | One file-upload body per section |
+
+**voiden-advanced-auth** — unlike the body types above, every auth variant shares **one single slot**:
+
+| Block type | Notes |
+|---|---|
+| `auth` | Only one `auth` block total per section, regardless of type — `bearer`, `basic`, `apiKey`, `oauth1`, `oauth2`, `digest`, `awsSignature`, `ntlm`, `hawk`, `netrc`, `atlassianAsap`, and `inherit`/`none` all fill this same slot. "Switch auth type" means changing this block's `authType` and fields, never inserting a second `auth` block. |
+
+**voiden-graphql**
+
+| Block type | Notes |
+|---|---|
+| `gqlquery` | |
+| `gqlvariables` | Independent of `gqlquery` |
+
+**voiden-mcp-client**
+
+| Block type | Notes |
+|---|---|
+| `mcp-connection` | One MCP server connection per section |
+
+**voiden-mcp-tool**
+
+| Block type | Notes |
+|---|---|
+| `tool` | A section declares at most one agent-callable tool |
+
+**voiden-scripting**
+
+| Block type | Notes |
+|---|---|
+| `pre_script` | Independent of `post_script` |
+| `post_script` | Independent of `pre_script` — having one of each in a section is the normal shape, not a duplicate |
+
+**Explicitly NOT singleton** — these are meant to repeat, don't "fix" a file by removing extras:
+
+| Block type | Notes |
+|---|---|
+| `request-separator` | Defines sections themselves — as many as the file needs |
+| `socket-request` (voiden-sockets-grpcs) | Multiple WebSocket/gRPC requests per file, each in its own `request-separator` section, is the intended pattern |
+| `stitch` (voiden-stitch) | Multiple stitch-runner blocks per file are allowed |
+| `assertions-table` (simple-assertions) | Not enforced as singleton by the app today, but one per section/request is still the recommended shape for readability — don't split one request's assertions across two tables |
+| `linkedBlock` / `linkedFile` | Link as many blocks/files as you need |
+| `runtime-variables` | Capture as many named variables as you need |
 
 ## Importing Blocks from Other Files
 
@@ -444,7 +509,54 @@ Reference with `{{VARIABLE_NAME}}` in any block field — resolved from the acti
 - Header value: `Bearer {{API_TOKEN}}`
 - Body field: `"email": "{{USER_EMAIL}}"`
 
-Runtime-captured values (e.g. an ID extracted from a previous response via a script) are referenced the same way and persisted per-environment in `.voiden/.process.env.json` (gitignored).
+Runtime-captured values (e.g. an ID extracted from a previous response by the `runtime-variables` block below) are **not** referenced the same way as a profile/environment variable — see `{{process.variable_name}}` below — and are persisted in `.voiden/.process.env.json` (gitignored), not per-environment.
+
+### runtime-variables — Capturing Values from a Response
+
+A dedicated block for pulling a value out of a request's own response (or the
+request that was just sent) and saving it for later requests — e.g. an auth
+token from a login response, or a created record's id.
+
+```yaml
+---
+type: runtime-variables
+attrs:
+  uid: "uid"
+content:
+  - type: table
+    rows:
+      - attrs: { disabled: false }
+        row: [access_token, "{{$res.body.access_token}}"]
+      - attrs: { disabled: false }
+        row: [user_id, "{{$res.body.user.id}}", "The created user's id"]
+      - attrs: { disabled: false }
+        row: [sent_url, "{{$req.url}}", "The exact URL sent, after variable substitution"]
+---
+```
+
+| Column | What it's for |
+|--------|----------------|
+| **Key** | The variable name — do not include a `{{}}` wrapper or the `process.` prefix here, only in the value/expression and when referencing it later. |
+| **Value** | A **capture expression**, not a literal value — evaluated against the response (and the request that was just sent) once the request finishes. See the expression table below. |
+| **Description** *(optional 3rd column)* | Human-readable note. Not read by the capture logic. |
+
+**Capture expressions** (what goes in the Value column):
+
+| Expression | Captures |
+|------------|----------|
+| `{{$res.body.path}}` | A field from the response body — dot/bracket path, e.g. `$res.body.data.id` |
+| `{{$res.headers.name}}` | A response header |
+| `{{$res.status}}` / `{{$res.statusText}}` / `{{$res.time}}` / `{{$res.size}}` | Response status code / text / duration / size |
+| `{{$req.url}}` / `{{$req.method}}` | The exact URL/method sent, after variable substitution — from the request, not the response |
+| `{{$req.headers.name}}` | A header sent on the request, e.g. `$req.headers.Authorization` |
+| `{{$req.body.path}}` | A field from the request body that was sent — dot/bracket path, e.g. `$req.body.email` |
+
+**Referencing a captured value elsewhere:** `{{process.variable_name}}` — the
+`process.` prefix is **required**; a bare `{{variable_name}}` will not
+resolve, even though the Key column itself is written without it.
+
+Insert with `/runtime-variables`. Not protocol-specific — works the same
+across REST, GraphQL, and socket/gRPC requests.
 
 ## Running & Verifying Requests
 

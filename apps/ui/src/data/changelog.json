@@ -14,6 +14,9 @@
         "/mcp block (voiden-mcp-client plugin) — connect to and test an external Streamable-HTTP MCP server directly from a .void file: list_tools, call_tool, list_resources, read_resource, list_prompts, get_prompt, reusing the existing Auth block, Headers table, and Assertions table, with {{...}} environment and runtime variables resolving correctly in tool/prompt arguments. Paste a Claude Desktop / Cursor / VS Code / Windsurf-style mcpServers JSON config to fill in the connection automatically",
         "New MCP tab in the Voiden app (top bar plug icon) — List / Verify / Serve views for every /tool block in the project — and voiden-runner tool list / tool verify / mcp serve [--http] [--check] for the same from the CLI",
         "\"Initialize MCP\" is now its own status bar button, scoped to the currently open project, that reliably registers the server without ever silently overwriting a manually configured .mcp.json or config.toml — no longer a side effect of the Settings → AI Skill toggle or something that re-runs on every app startup/project switch"
+      ],
+      "Fixed": [
+        "The bundled voiden skill (base.skill.md) now documents which .void block types are allowed at most once per request section — across core (request, headers-table, query-table, path-table, url-table, multipart-table, cookies-table, options-table, and independently json_body/xml_body/yml_body) and every bundled plugin that owns a singleton block type (voiden-advanced-auth's single auth slot regardless of type, voiden-graphql, voiden-mcp-client, voiden-mcp-tool, voiden-scripting), plus which block types are explicitly NOT singleton and shouldn't be \"deduplicated\" (request-separator, socket-request, stitch, assertions-table). Previously undocumented, which could lead an AI agent authoring .void files directly to insert duplicate singleton blocks — something the app has no load-time guard against."
       ]
     }
   },

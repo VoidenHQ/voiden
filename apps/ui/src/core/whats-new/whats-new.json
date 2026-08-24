@@ -23,6 +23,11 @@
           "icon": "📍",
           "title": "Initialize MCP Is Now Its Own Status Bar Button",
           "description": "Registering Voiden's MCP server for your project is now a dedicated \"Initialize MCP\" button in the status bar, scoped to whichever project you have open — instead of a side effect of the Settings → AI Skill toggle. Clearer control, and it won't silently overwrite a manually configured .mcp.json anymore."
+        },
+        {
+          "icon": "🐛",
+          "title": "AI Agents No Longer Duplicate Request Blocks",
+          "description": "The AI skill Voiden ships to Claude Code and other agents now spells out which request blocks — auth, headers, body, and more, across REST, GraphQL, MCP, and scripting — can only appear once per request. Agents previously had no way to know this and could insert a second one instead of editing the first."
         }
       ]
     },
