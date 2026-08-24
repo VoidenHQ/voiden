@@ -526,7 +526,7 @@ content:
   - type: table
     rows:
       - attrs: { disabled: false }
-        row: [access_token, "{{$res.body.access_token}}"]
+        row: [access_token, "{{$res.body.access_token}}", ""]
       - attrs: { disabled: false }
         row: [user_id, "{{$res.body.user.id}}", "The created user's id"]
       - attrs: { disabled: false }
@@ -538,7 +538,9 @@ content:
 |--------|----------------|
 | **Key** | The variable name — do not include a `{{}}` wrapper or the `process.` prefix here, only in the value/expression and when referencing it later. |
 | **Value** | A **capture expression**, not a literal value — evaluated against the response (and the request that was just sent) once the request finishes. See the expression table below. |
-| **Description** *(optional 3rd column)* | Human-readable note. Not read by the capture logic. |
+| **Description** | Human-readable note. Not read by the capture logic. |
+
+The table as a whole can be 2 columns (Key, Value) or 3 (Key, Value, Description) — but every row in it must have the **same** number of elements. Whether a Description column renders at all is decided by the *first* row's length alone, so a row with a different length than the others (e.g. one 2-element row mixed into an otherwise 3-element table) produces a broken/mismatched table, not an "optional" per-row field. Pick a column count for the whole block and use it for every row — default to all 3 (empty string `""` for rows with nothing to say) to match what inserting this block via `/runtime-variables` in the app produces today.
 
 **Capture expressions** (what goes in the Value column):
 

@@ -26,8 +26,8 @@
         },
         {
           "icon": "🐛",
-          "title": "AI Agents No Longer Duplicate Request Blocks",
-          "description": "The AI skill Voiden ships to Claude Code and other agents now spells out which request blocks — auth, headers, body, and more, across REST, GraphQL, MCP, and scripting — can only appear once per request. Agents previously had no way to know this and could insert a second one instead of editing the first."
+          "title": "AI Agents Author More Reliable Voiden Blocks",
+          "description": "The AI skill Voiden ships to Claude Code and other agents now spells out which request blocks — auth, headers, body, and more, across REST, GraphQL, MCP, and scripting — can only appear once per request, and keeps its table examples (headers, query params, path params, form data, and more) in sync with the app's current column layout. Agents previously had no way to know either and could insert duplicate blocks or malformed tables into your .void files."
         }
       ]
     },
