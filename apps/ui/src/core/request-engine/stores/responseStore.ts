@@ -24,6 +24,16 @@ interface SectionResponse {
 
   /** Timestamp when the response was received */
   timestamp: number;
+
+  /**
+   * Section label/colorIndex, for when there's an error and no responseDoc
+   * to read doc.attrs.sectionLabel/sectionColorIndex from (those are only
+   * ever set on a successful response). Passed in by the caller at error
+   * time — see getSectionLabelAndColorByIndex — so the response panel can
+   * still show the real request name instead of falling back to "Request N".
+   */
+  sectionLabel?: string;
+  sectionColorIndex?: number;
 }
 
 /** Legacy single-response format (for backward compat) */
@@ -102,8 +112,13 @@ interface ResponseStore {
   /** Set loading state and optionally the requesting tab ID */
   setLoading: (loading: boolean, tabId?: string | null) => void;
 
-  /** Set error state for a specific tab */
-  setError: (tabId: string | null, error: string | null) => void;
+  /**
+   * Set error state for a specific tab. Optional `meta` carries the failing
+   * section's label/colorIndex (from getSectionLabelAndColorByIndex) — an
+   * error can happen before any responseDoc exists, so this is the only way
+   * the response panel can show the real request name instead of "Request N".
+   */
+  setError: (tabId: string | null, error: string | null, meta?: { sectionLabel?: string; sectionColorIndex?: number }) => void;
 
   /** Get current active response (convenience getter) */
   getCurrentResponse: () => TabResponse | null;
@@ -265,7 +280,7 @@ export const useResponseStore = create<ResponseStore>()(
           : state.responses,
       })),
 
-      setError: (tabId, error) => {
+      setError: (tabId, error, meta) => {
         if (!tabId) {
           set({ isLoading: false, currentRequestTabId: null, currentRequestSectionIndex: null });
           return;
@@ -281,6 +296,8 @@ export const useResponseStore = create<ResponseStore>()(
               [sectionIndex]: {
                 ...(state.responses[tabId]?.[sectionIndex] || { responseDoc: null, responseMarkdown: null }),
                 error,
+                ...(meta?.sectionLabel !== undefined ? { sectionLabel: meta.sectionLabel } : {}),
+                ...(meta?.sectionColorIndex !== undefined ? { sectionColorIndex: meta.sectionColorIndex } : {}),
               },
             },
           },

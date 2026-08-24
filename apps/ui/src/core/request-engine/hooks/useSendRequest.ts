@@ -18,6 +18,7 @@ import { toast } from "@/core/components/ui/sonner";
 import { useVoidenEditorStore } from "@/core/editors/voiden/VoidenEditor";
 import { expandLinkedFilesInDoc } from "@/core/editors/voiden/utils/expandLinkedBlocks";
 import { UnresolvedVariablesError } from "../utils/collectUnresolvedVariables";
+import { getSectionLabelAndColorByIndex } from "@/core/editors/voiden/extensions/sectionIndicator";
 
 export const useSendRestRequest = (_editor: Editor) => {
   // Always use the main VoidenEditor, not the passed editor.
@@ -31,9 +32,12 @@ export const useSendRestRequest = (_editor: Editor) => {
   const sectionIndexOverrideRef = useRef<number | undefined>(undefined);
   const queryClient = useQueryClient();
 
-  const handleSendError = (error: unknown) => {
+  const handleSendError = (
+    error: unknown,
+    meta?: { sectionLabel?: string; sectionColorIndex?: number }
+  ) => {
     if (error instanceof UnresolvedVariablesError) {
-      useResponseStore.getState().setError(activeDocument?.id || null, error.message);
+      useResponseStore.getState().setError(activeDocument?.id || null, error.message, meta);
       return;
     }
 
@@ -42,7 +46,7 @@ export const useSendRestRequest = (_editor: Editor) => {
     }
 
     const friendlyMessage = mapErrorToMessage(error);
-    useResponseStore.getState().setError(activeDocument?.id || null, friendlyMessage);
+    useResponseStore.getState().setError(activeDocument?.id || null, friendlyMessage, meta);
   };
 
   /** Open the response panel and activate the response tab. */
@@ -87,6 +91,9 @@ export const useSendRestRequest = (_editor: Editor) => {
         }
         useResponseStore.getState().setLoading(true, activeDocument?.id);
       };
+      // Declared outside the try block (not just inside it) so the catch block
+      // below can also read it, to attribute an error to the right section.
+      let sectionIndex: number | undefined;
       try {
         const showScriptToastIfNeeded = (message: string) => {
           const isScriptCancel = message.includes("Request cancelled by pre-request script");
@@ -113,7 +120,7 @@ export const useSendRestRequest = (_editor: Editor) => {
         // Determine which section to execute.
         // If an override was set (e.g., from a play button click via refetchFromElement),
         // use it directly. Otherwise detect from DOM or ProseMirror selection.
-        let sectionIndex: number | undefined = sectionIndexOverrideRef.current;
+        sectionIndex = sectionIndexOverrideRef.current;
         sectionIndexOverrideRef.current = undefined; // Clear after reading
 
         if (sectionIndex === undefined) {
@@ -164,8 +171,12 @@ export const useSendRestRequest = (_editor: Editor) => {
           return;
         }
 
+        const sectionMeta = sectionIndex !== undefined
+          ? getSectionLabelAndColorByIndex(editor.state.doc, sectionIndex)
+          : undefined;
+
         if (error instanceof UnresolvedVariablesError) {
-          handleSendError(error);
+          handleSendError(error, sectionMeta);
           return;
         }
 
@@ -190,7 +201,7 @@ export const useSendRestRequest = (_editor: Editor) => {
           });
         }
 
-        handleSendError(error);
+        handleSendError(error, sectionMeta);
 
         if (error instanceof Error && error.name === "AbortError") {
           throw new Error("Request was cancelled");
@@ -271,17 +282,20 @@ export const useSendRestRequest = (_editor: Editor) => {
             // it silently, leave no entry in the response panel.
             continue;
           }
+          // The section's request-separator label/color, so the error card
+          // shows the real request name instead of falling back to "Request N".
+          const sectionMeta = getSectionLabelAndColorByIndex(editor.state.doc, sectionIdx);
           if (err instanceof UnresolvedVariablesError) {
             // Record the error against *this* section (now correctly attributed,
             // see setCurrentRequestSectionIndex above) and move on — an
             // unresolved placeholder in one section shouldn't prevent every
             // later section in the file from running.
-            handleSendError(err);
+            handleSendError(err, sectionMeta);
             continue;
           }
           // Continue to next section on individual failure
           console.warn(`[runAll] Section ${sectionIdx} failed:`, err);
-          handleSendError(err);
+          handleSendError(err, sectionMeta);
         }
       }
       queryClient.invalidateQueries({ queryKey: ["void-variable-keys"] });

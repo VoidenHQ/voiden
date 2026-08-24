@@ -78,6 +78,37 @@ export function getSectionLineColor(colorIndex: number): string {
 }
 
 /**
+ * Look up a specific section's label/colorIndex by walking request-separator
+ * nodes in document order — same pattern requestOrchestrator.ts uses when it
+ * has a successful response to attach these to, but callable independently
+ * so a failure that never produces a response (e.g. an unresolved-variable
+ * error) can still record which section it belongs to, before the section's
+ * request is even built. sectionIndex 0 is section 0 (before the first
+ * separator — no colorIndex/label of its own). sectionIndex N (N>=1) is the
+ * section starting at the Nth separator.
+ */
+export function getSectionLabelAndColorByIndex(
+  doc: any,
+  sectionIndex: number
+): { sectionLabel?: string; sectionColorIndex?: number } {
+  if (!doc || sectionIndex <= 0) return {};
+  let result: { sectionLabel?: string; sectionColorIndex?: number } = {};
+  let sepIdx = 0;
+  doc.forEach((child: any) => {
+    if (child.type.name === "request-separator") {
+      sepIdx++;
+      if (sepIdx === sectionIndex) {
+        result = {
+          sectionLabel: child.attrs.label || undefined,
+          sectionColorIndex: typeof child.attrs.colorIndex === "number" ? child.attrs.colorIndex : undefined,
+        };
+      }
+    }
+  });
+  return result;
+}
+
+/**
  * Compute section ranges from the document.
  * Returns an array of { colorIndex, firstPos, lastPos } for each section,
  * using document offsets so we can reliably find DOM elements via the view.

@@ -917,8 +917,11 @@ export function ResponsePanelContainer() {
                       })}
                       {sections.map(({ sectionIndex, response }) => {
                         const doc = response.responseDoc;
-                        const colorIndex = doc?.attrs?.sectionColorIndex ?? sectionIndex;
-                        const label = doc?.attrs?.sectionLabel;
+                        // response.sectionColorIndex/sectionLabel (set by getSectionLabelAndColorByIndex
+                        // at error time) cover the case where there's no responseDoc to read
+                        // doc.attrs.* from at all — e.g. an unresolved-variable error.
+                        const colorIndex = doc?.attrs?.sectionColorIndex ?? response.sectionColorIndex ?? sectionIndex;
+                        const label = doc?.attrs?.sectionLabel ?? response.sectionLabel;
                         const status = doc?.attrs?.statusCode;
                         const statusMsg = doc?.attrs?.statusMessage;
                         const elapsed = doc?.attrs?.elapsedTime;
@@ -955,7 +958,7 @@ export function ResponsePanelContainer() {
                                   className="text-xs font-semibold uppercase flex-shrink-0"
                                   style={{ color: borderColor, letterSpacing: "0.5px" }}
                                 >
-                                  Request {sectionIndex + 1}
+                                  {label || `Request ${sectionIndex + 1}`}
                                 </span>
                                 {timestamp && (
                                   <Tip label={formatAbsoluteTime(timestamp)} side="bottom">
