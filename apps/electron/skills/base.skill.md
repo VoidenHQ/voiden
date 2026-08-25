@@ -136,13 +136,53 @@ attrs:
 ### Rules
 
 - Everything before the first separator is **section 0**.
-- Each separator introduces a new section — blocks after it belong to that section.
+- Each separator introduces a new section — **everything after it belongs to that section, including plain markdown** (headings, paragraphs, lists) — not just `void` code-fenced blocks. There is no special case for prose: the document is one flat sequence of nodes, split purely by where each `request-separator` sits in that sequence.
 - Singleton blocks (e.g. `request`, `json_body`) are enforced **per section**, not per file — see "Singleton Blocks — One Per Section" below for the full list.
 - **Run All** (`⌘⇧↵`) executes every section in document order, top to bottom.
 - Clicking **Run** inside a section runs only that section.
 - Variables set by a script in one section flow into subsequent sections (unless isolation is enabled by Stitch Runner).
 
 > **UIDs in examples are illustrative only.** Always generate a fresh UUID v4 for every `uid`. Use a `label` that describes the section (e.g. `"Create User"`, `"Login"`). Pick a `colorIndex` that is unique within the file.
+
+### Placing a Section's Documentation — a common mistake
+
+A heading meant to describe an upcoming section has to go **after** that section's `request-separator`, not before it. Putting it before looks natural to read top-to-bottom, but it's wrong: content before a separator belongs to the section that *precedes* it, so the heading silently attaches to the end of the previous section instead of introducing the one that follows.
+
+```markdown
+❌ WRONG — "## Create User" ends up part of whatever section came before this
+             separator, not attached to the request that follows it:
+
+## Create User
+
+```void
+type: request-separator
+attrs: { uid: "...", colorIndex: 0, label: "Create User" }
+```
+```void
+type: request
+...
+```
+```
+
+```markdown
+✅ RIGHT — the separator's own `label` attribute is what names the section
+            (shown in the UI) — you don't need a heading for that at all. If you
+            want additional prose for the section, put it AFTER the separator:
+
+```void
+type: request-separator
+attrs: { uid: "...", colorIndex: 0, label: "Create User" }
+```
+
+Creates a new user account. Requires an admin token.
+
+```void
+type: request
+...
+```
+```
+
+Default to relying on the separator's `label` alone — it's already shown as the section name in the UI, so a redundant heading is rarely needed. Only add prose after the separator when there's something the label can't convey (auth requirements, expected status codes, caveats).
 
 ### Multi-Request File Example
 
@@ -204,6 +244,8 @@ attrs:
   label: "List Users"
 ---
 ```
+
+Returns every user. Supports `?page=` and `?limit=` query params — omitted here since none are required by default. Note this description comes *after* the separator above, not before it — see "Placing a Section's Documentation" earlier in this file.
 
 ```void
 ---
