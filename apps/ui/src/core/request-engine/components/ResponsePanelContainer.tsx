@@ -54,7 +54,13 @@ const MAX_CACHED_RESPONSE_VIEWERS = 8;
 /** Check if a tab has any section responses */
 function hasAnyResponse(tabSections: Record<number, any> | undefined): boolean {
   if (!tabSections) return false;
-  return Object.values(tabSections).some((s: any) => s?.responseDoc);
+  // s?.error alone (no responseDoc) is a real result to show — an unresolved-
+  // variable error, for instance. Missing this meant the tab never entered
+  // cachedResponseTabIds at all, so it never rendered in the stacked list no
+  // matter how correct showContent/isMultiSection were computed elsewhere —
+  // an all-error tab (e.g. every section in a Run All failing before ever
+  // producing a response) stayed a genuinely empty panel.
+  return Object.values(tabSections).some((s: any) => s?.responseDoc || s?.error);
 }
 
 /**
