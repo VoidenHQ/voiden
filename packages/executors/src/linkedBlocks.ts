@@ -28,10 +28,19 @@ export interface LinkedBlockResolver {
 
 const MAX_DEPTH = 10
 
+// linkedBlock/linkedFile are pointers, not content — never resolve to one of
+// these even if its own `uid` happens to collide with the uid being searched
+// for (e.g. a hand-authored file that copied a block's uid onto the
+// linkedBlock wrapper instead of generating a fresh one, or a self-referencing
+// link into the same file). Matching a pointer node here would hand back a
+// linkedBlock as if it were resolved content, which then gets executed as the
+// imported block itself instead of failing loudly.
+const NON_TARGETABLE_TYPES = new Set(['linkedBlock', 'linkedFile'])
+
 /** Recursively finds a block with the given uid anywhere in a block tree (mirrors the app's BlockLink.tsx findBlockByUid). */
 function findBlockByUid(blocks: Block[], uid: string): Block | null {
   for (const block of blocks) {
-    if (block.attrs?.uid === uid) return block
+    if (block.attrs?.uid === uid && !NON_TARGETABLE_TYPES.has(block.type)) return block
     if (Array.isArray(block.content)) {
       const found = findBlockByUid(block.content, uid)
       if (found) return found

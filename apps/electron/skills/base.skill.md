@@ -358,8 +358,12 @@ When asked to import a block from another file:
 
 1. **Read the target `.void` file** to find the block the user wants (headers-table, auth, json_body, etc.)
 2. **Copy its `uid`** — that becomes `blockUid`
-3. **Generate a fresh UUID** for the `linkedBlock`'s own `uid`
+3. **Generate a fresh UUID** for the `linkedBlock`'s own `uid` — never reuse `blockUid` (or any other block's `uid`) here, even by copy-pasting the target block's attrs. A `linkedBlock` whose own `uid` collides with a `blockUid` elsewhere in the project can get matched as if it *were* the resolved content, silently corrupting whatever imports it.
 4. **Set `originalFile`** to the path of that file from the project root
+
+**Never set `originalFile` to the file you are currently writing.** `linkedBlock` (and `linkedFile`) exist to pull a block in from *another* file — pointing one at its own file is a self-reference the resolver cannot untangle, and it corrupts the block for every file that imports it, including itself.
+
+If the block you want to reuse is already in the current file, don't `linkedBlock` it at all — sections are fully isolated (see "request-separator" above), so just duplicate the block into the section that needs it, with a **fresh `uid`** on the copy. Never reuse the original block's `uid` on that copy.
 
 ### Override Logic
 
