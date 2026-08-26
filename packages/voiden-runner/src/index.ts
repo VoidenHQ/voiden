@@ -1384,6 +1384,14 @@ pluginCmd
         statusBadge = chalk.gray('  not installed')
       } else if (record !== undefined && !record.enabled) {
         statusBadge = chalk.yellow('  · disabled')
+      } else if (!hasCoreRunner(def.name)) {
+        // "enabled" (the plugins.json bit, or no record = default-enabled) is not the
+        // same as "usable" — loadEnabledPlugins() also requires an actual runner.js,
+        // bundled in this package install or cached in ~/.voiden/extensions/. Reporting
+        // "✓ enabled" here regardless would silently disagree with what run_request /
+        // the MCP server can actually load, which is exactly the confusing state this
+        // command exists to surface.
+        statusBadge = chalk.gray('  not installed  [no runner]')
       } else {
         statusBadge = chalk.green('  ✓ enabled')
       }
