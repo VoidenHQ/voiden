@@ -3,6 +3,12 @@
 All notable changes to `@voiden/runner` are documented here. This package is
 versioned and released independently of the Voiden desktop app.
 
+## v2.3.0-beta.14 - 2026-08-26
+
+### Fixed
+- `plugin list`'s core-plugin status badge now checks whether a `runner.js` actually exists (bundled in this package install, or cached in `~/.voiden/extensions/<id>/runner.js`), not just whether the plugin is enabled in `~/.voiden/plugins.json`. Previously it could report "✓ enabled" for a plugin with no usable runner anywhere — exactly the state `loadEnabledPlugins()` treats as unavailable at request-run time (`activePlugins: []`, "not installed" errors from `run_request`) — so the two disagreed with no way to tell why. Now shows "not installed [no runner]" in that case, matching what actually gets loaded.
+- A `linkedBlock`/`linkedFile` pointer node could get resolved as if it *were* the target content instead of the real block it points to, when its own `uid` collided with the `blockUid` being searched for (e.g. a hand-authored file that copied a block's `uid` onto the wrapper instead of generating a fresh one, most likely when linking a block into the same file it lives in). `resolveLinkedBlocks`/`resolveLinkedFiles` now exclude `linkedBlock`/`linkedFile` nodes from ever matching as resolved content — a colliding `uid` now resolves to the real block if one still carries it, or is left unresolved, instead of silently substituting the pointer itself. `@voiden/executors` bumped to `0.1.9`.
+
 ## v2.3.0-beta.13 - 2026-08-21
 
 ### Fixed

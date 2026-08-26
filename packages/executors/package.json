@@ -1,6 +1,6 @@
 {
   "name": "@voiden/executors",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "Shared protocol executors for Voiden — REST, WebSocket, gRPC, MCP",
   "type": "module",
   "license": "MIT",
