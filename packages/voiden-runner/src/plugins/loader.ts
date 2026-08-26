@@ -28,6 +28,7 @@ import { clearRequestContainers } from '../requestContainerRegistry.js'
 import { clearToolProviders } from '../toolRegistry.js'
 import { clearMcpToolCapabilityProvider } from '../mcpToolCapability.js'
 import { readStore, setPluginVersion } from './store.js'
+import { isDisabledInElectronApp } from './electronAppState.js'
 import * as https from 'https'
 import { mkdirSync, createWriteStream, existsSync } from 'fs'
 import { dirname } from 'path'
@@ -94,10 +95,20 @@ export async function downloadCoreRunner(pluginId: string, repo: string, assetNa
 // ─── Per-plugin enabled check ─────────────────────────────────────────────────
 
 // Core plugins default to enabled; only skip if explicitly set to false in store.
+//
+// An explicit voiden-runner-side record (set via `voiden-runner plugin
+// enable/disable`) always wins — that's the user directly telling this CLI
+// what they want. Absent that, fall back to the Electron app's own
+// core-disabled.json instead of defaulting straight to enabled: most users
+// manage plugins from the app's Settings screen, never voiden-runner's CLI,
+// so without this fallback a plugin the user just disabled in the app would
+// still run here, and one they just re-enabled there could still read as
+// disabled if a stale explicit record exists. See electronAppState.ts.
 export function isCorePluginEnabled(name: string): boolean {
   const store = readStore()
   const record = store.installedPlugins[name]
-  return record === undefined ? true : record.enabled
+  if (record !== undefined) return record.enabled
+  return !isDisabledInElectronApp(name)
 }
 
 // Community plugins default to disabled; must be explicitly installed.

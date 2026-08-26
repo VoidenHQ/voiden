@@ -491,26 +491,32 @@ const processCubeBlockText = (text: string, schema: any): JSONContent => {
   // Recursively inflate the node (for both tables and collapsed text).
   nodeJson = inflateSimplifiedNode(nodeJson);
 
-  // Migrate old gqlquery format (has body attr, no content children) to new gqlurl+gqlbody format
+  // Migrate old gqlquery format (has body attr, no content children) to new gqlurl+gqlbody format.
+  // Only `body`/`operationType`/`schemaFileName`/`schemaFilePath`/`schemaUrl`/`endpoint` actually
+  // moved to the new child nodes — everything else on the container (`uid`, `pluginId`,
+  // `pluginVersion`, `importedFrom`, ...) must carry over unchanged. Rebuilding `attrs` from
+  // scratch here previously dropped all of those, including `uid` — silently orphaning the
+  // block's identity so anything that looks it up afterward (write_result, list_requests'
+  // requestUid, linkedBlock targets) could no longer find it.
   if (nodeJson.type === 'gqlquery' && nodeJson.attrs?.body !== undefined && !(nodeJson.content?.length)) {
-    const endpointText = nodeJson.attrs.endpoint || '';
+    const { body, operationType, schemaFileName, schemaFilePath, schemaUrl, endpoint, ...containerAttrs } = nodeJson.attrs;
     nodeJson = {
       type: 'gqlquery',
-      attrs: { importedFrom: nodeJson.attrs.importedFrom },
+      attrs: containerAttrs,
       content: [
         {
           type: 'gqlurl',
-          content: endpointText ? [{ type: 'text', text: endpointText }] : [],
+          content: endpoint ? [{ type: 'text', text: endpoint }] : [],
         },
         {
           type: 'gqlbody',
           attrs: {
-            body: nodeJson.attrs.body || '',
-            operationType: nodeJson.attrs.operationType || 'query',
-            schemaFileName: nodeJson.attrs.schemaFileName ?? null,
-            schemaFilePath: nodeJson.attrs.schemaFilePath ?? null,
-            schemaUrl: nodeJson.attrs.schemaUrl ?? null,
-            importedFrom: nodeJson.attrs.importedFrom,
+            body: body || '',
+            operationType: operationType || 'query',
+            schemaFileName: schemaFileName ?? null,
+            schemaFilePath: schemaFilePath ?? null,
+            schemaUrl: schemaUrl ?? null,
+            importedFrom: containerAttrs.importedFrom,
           },
         },
       ],
