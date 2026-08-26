@@ -601,7 +601,12 @@ The table as a whole can be 2 columns (Key, Value) or 3 (Key, Value, Description
 
 **Referencing a captured value elsewhere:** `{{process.variable_name}}` — the
 `process.` prefix is **required**; a bare `{{variable_name}}` will not
-resolve, even though the Key column itself is written without it.
+resolve, even though the Key column itself is written without it. Given a
+`runtime-variables` Key of `access_token`, later fields reference it exactly
+like the environment-variable examples above, just with the prefix added:
+- URL: `{{BASE_URL}}/users/{{process.user_id}}`
+- Header value: `Bearer {{process.access_token}}` — **not** `Bearer {{access_token}}`
+- Body field: `"userId": "{{process.user_id}}"`
 
 Insert with `/runtime-variables`. Not protocol-specific — works the same
 across REST, GraphQL, and socket/gRPC requests.
