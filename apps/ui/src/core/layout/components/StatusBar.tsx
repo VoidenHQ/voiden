@@ -294,6 +294,12 @@ export const StatusBar = ({
     let cancelled = false;
     window.electron?.mcp?.status().then((result) => {
       if (!cancelled) setMcpRegistered(!!result?.registered);
+    }).catch((error) => {
+      // Without this, an IPC failure here leaves mcpRegistered stuck at its
+      // initial `false` forever with zero indication — the button just reads
+      // "Initialize MCP" even when the project actually is registered,
+      // indistinguishable from the real unregistered case.
+      if (!cancelled) console.error("Failed to check MCP status:", error);
     });
     return () => { cancelled = true; };
   }, [projectRoot]);

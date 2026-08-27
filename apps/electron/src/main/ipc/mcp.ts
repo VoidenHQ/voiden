@@ -51,8 +51,8 @@ export function registerMcpIpcHandlers() {
   // project switching. See state.ts/main.ts/ipc/skills.ts's history: those
   // used to also auto-register, which meant an unrelated toggle or a plain
   // relaunch could silently overwrite a manually-configured .mcp.json.
-  ipcMain.handle("mcp:initialize", async () => {
-    const activeDirectory = getAppState().activeDirectory;
+  ipcMain.handle("mcp:initialize", async (event) => {
+    const activeDirectory = getAppState(event).activeDirectory;
     if (!activeDirectory) {
       return { success: false, message: "No active project" };
     }
@@ -60,7 +60,7 @@ export function registerMcpIpcHandlers() {
       const serverCommand = resolveMcpStdioServerCommand(activeDirectory);
       registerClaudeMcpServer(activeDirectory, serverCommand);
       upsertCodexMcpSection(activeDirectory, serverCommand);
-      updateComposedSkillOnly(getAppState(), { claude: true, codex: true });
+      updateComposedSkillOnly(getAppState(event), { claude: true, codex: true });
       return { success: true };
     } catch (error: any) {
       return { success: false, message: error?.message ?? "Unknown error" };
@@ -77,8 +77,8 @@ export function registerMcpIpcHandlers() {
   // section — it isn't, and can't easily be, scoped to "is THIS project
   // registered". ORing it in meant every project showed "ready" forever
   // after Codex was registered for any one of them, .mcp.json or not.
-  ipcMain.handle("mcp:status", async () => {
-    const activeDirectory = getAppState().activeDirectory;
+  ipcMain.handle("mcp:status", async (event) => {
+    const activeDirectory = getAppState(event).activeDirectory;
     if (!activeDirectory) return { registered: false };
     const status = getMcpStatus(activeDirectory);
     return { registered: status.claude.serverRegistered };
