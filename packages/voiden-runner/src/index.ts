@@ -1485,12 +1485,24 @@ mcpCmd
   .option('--claude', 'Install for Claude Code only')
   .option('--codex', 'Install for Codex only')
   .option('-p, --project <path>', 'Project directory to register the MCP server against', '.')
-  .option('--local-server <path>', 'Use `node <path> mcp serve` instead of `npx -y @voiden/runner mcp serve` — for testing against a local build')
+  .option('--local-server <path>', 'Use `node <path> mcp serve` instead of `npx -y @voiden/runner@<this version> mcp serve` — for testing against a local build')
   .action((opts) => {
     const targets = resolveMcpTargets(opts)
+    // Pin to the exact version of this CLI the user is running `mcp install`
+    // from — never a bare, unpinned `npx -y @voiden/runner`. Unpinned resolves
+    // to whatever npm's "latest" dist-tag happens to point at, which can sit
+    // far behind the actively-developed prerelease line this MCP tooling
+    // actually lives on (e.g. "latest" stuck on a stable 2.2.0 cut from
+    // before write_result/list_requests/the plugin registry existed, while
+    // real fixes ship under the "beta" tag) — every agent session would
+    // silently run that stale version forever, with no way to notice short of
+    // diffing tool output against what this CLI's own docs say it does.
+    // Pinning to what's actually installed right now is deterministic: it's
+    // exactly what was tested when `mcp install` ran, and picks up newer
+    // fixes the moment the user updates this CLI and re-runs `mcp install`.
     const serverCommand = opts.localServer
       ? { command: 'node', args: [resolve(opts.localServer), 'mcp', 'serve', resolve(opts.project)] }
-      : undefined
+      : { command: 'npx', args: ['-y', `@voiden/runner@${pkg.version}`, 'mcp', 'serve', resolve(opts.project)] }
     const installed = installMcpIntegration(opts.project, targets, MCP_SKILL_MARKDOWN, serverCommand)
     if (installed.length === 0) {
       console.log(chalk.yellow('  Nothing to install.'))
@@ -1500,8 +1512,10 @@ mcpCmd
     for (const target of installed) {
       console.log(chalk.green(`  ✓  ${target === 'claude' ? 'Claude Code' : 'Codex'}`) + chalk.gray(`  —  skill installed, fixed-tools MCP server registered for ${resolve(opts.project)}`))
     }
-    if (serverCommand) {
+    if (opts.localServer) {
       console.log(chalk.gray(`  Using local build: node ${serverCommand.args[0]}`))
+    } else {
+      console.log(chalk.gray(`  Pinned to this CLI's version: @voiden/runner@${pkg.version}`))
     }
     console.log()
     console.log(chalk.gray('  Restart Claude Code / Codex (or run /mcp) to pick up the new server.'))
