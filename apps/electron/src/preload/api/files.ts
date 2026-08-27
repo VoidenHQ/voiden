@@ -104,6 +104,18 @@ export const filesApi = {
     ipcRenderer.invoke("files:deleteDirectory", path),
   bulkDelete: (items: FileTreeItem[]) =>
     ipcRenderer.invoke("files:bulkDelete", items),
+  // Confirm + trash + tab-cleanup for one or more items — the same logic the
+  // context menu's "Delete" item runs, exposed directly so the file tree's
+  // keyboard shortcut can trigger it without a popup menu being open.
+  deleteItems: (items: FileTreeItem[]) =>
+    ipcRenderer.invoke("files:deleteItems", items),
+  revealInFinder: (path: string) =>
+    ipcRenderer.invoke("files:revealInFinder", path),
+  // Reports the file tree's currently focused/selected item (or null on
+  // blur) so the main process's Option+Cmd+R / Ctrl+Shift+R handler can
+  // decide between "Reveal in Finder" and "Force Reload".
+  setTreeFocusState: (item: FileTreeItem | null) =>
+    ipcRenderer.send("filetree:focus-state", item),
   getVoidFiles: () => ipcRenderer.invoke("files:getVoidFiles"),
   listDir: (dirPath: string): Promise<string[]> => ipcRenderer.invoke("files:listDir", dirPath),
   stat: (filePath: string): Promise<{ exists: boolean; size?: number; mtime?: number }> => ipcRenderer.invoke("files:stat", filePath),

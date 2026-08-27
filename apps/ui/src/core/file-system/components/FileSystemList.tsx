@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { NodeApi, Tree, TreeApi } from "react-arborist";
+import type { FileTreeItem } from "@/types";
 import { fileTreeDndManager } from "@/core/file-system/components/FileSystemList/dndManager";
 import { ChevronRight, CopyMinus, CopyPlus, FilePlus, FolderPlus, Loader } from "lucide-react";
 import useResizeObserver from "use-resize-observer";
@@ -37,6 +38,8 @@ import { useFullTextSearch } from "./FileSystemList/useFullTextSearch";
 import { SearchPanel } from "./FileSystemList/SearchPanel";
 import { SearchResults } from "./FileSystemList/SearchResults";
 import { EmptyState } from "./FileSystemList/EmptyState";
+
+const isMac = typeof navigator !== "undefined" && /Mac|iPod|iPhone|iPad/.test(navigator.platform);
 
 export const FileSystemList = () => {
   const { data, isPending, isFetching, dataUpdatedAt } = useFileTree();
@@ -346,6 +349,33 @@ export const FileSystemList = () => {
     },
     [loadingDirs],
   );
+
+  /** Selected/focused tree nodes as deletable FileTreeItems — excludes the
+   * project root (Delete is hidden for it in the context menu too) and any
+   * in-flight "new file/folder" placeholder node. */
+  const buildDeletableItems = (): FileTreeItem[] => {
+    const rootPath = treeData?.[0]?.path;
+    const nodes = treeRef.current?.selectedNodes?.length
+      ? treeRef.current.selectedNodes
+      : treeRef.current?.focusedNode
+        ? [treeRef.current.focusedNode]
+        : [];
+    return nodes
+      .filter((n) => n && !n.data.isTemporary && n.data.path !== rootPath)
+      .map((n) => ({ path: n.data.path, type: n.data.type, name: n.data.name }));
+  };
+
+  /** Reports the tree's current focus/selection to the main process so its
+   * Option+Cmd+R / Ctrl+Shift+R handler can reveal it instead of force-
+   * reloading — see getFileTreeFocus() in menus.ts. Unlike buildDeletableItems,
+   * the project root is a valid reveal target (only Delete excludes it). */
+  const reportTreeFocus = (node: NodeApi<ExtendedFileTree> | null | undefined) => {
+    if (!node || node.data.isTemporary) {
+      window.electron?.files.setTreeFocusState(null);
+      return;
+    }
+    window.electron?.files.setTreeFocusState({ path: node.data.path, type: node.data.type, name: node.data.name });
+  };
 
   const handleActivate = async (node: NodeApi<ExtendedFileTree>) => {
     if (node.data.type === "file") {
@@ -1078,6 +1108,28 @@ export const FileSystemList = () => {
             <div
               ref={dndRootElement}
               onKeyDown={async (e) => {
+                // Delete — Cmd+Backspace (macOS) or Delete (others), matching
+                // the file context menu's own "Delete" accelerator (see
+                // menus.ts). That accelerator only works while the popup is
+                // actually open — Electron doesn't globally register
+                // accelerators declared on a context menu — so a file/folder
+                // merely being focused/selected needs its own listener here.
+                // Skip while the tree's inline rename input is focused: on
+                // non-mac, plain "Delete" is a normal text-editing key there,
+                // and this handler sits on an ancestor of that input, so it
+                // would otherwise also fire on every bubbled keydown from it.
+                const isDeleteCombo = !treeRef.current?.isEditing && (isMac
+                  ? e.key === "Backspace" && e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey
+                  : e.key === "Delete" && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey);
+                if (isDeleteCombo) {
+                  const items = buildDeletableItems();
+                  if (items.length > 0) {
+                    e.preventDefault();
+                    await window.electron?.files.deleteItems(items);
+                  }
+                  return;
+                }
+
                 // event.key is "Enter" regardless of modifiers, so Cmd/Ctrl+Enter
                 // (send request) was being caught here too whenever keyboard focus
                 // was still on the tree — e.g. right after single-clicking a file,
@@ -1090,6 +1142,14 @@ export const FileSystemList = () => {
                 if (!focused || focused.data.isTemporary) return;
                 e.preventDefault();
                 await handleActivate(focused);
+              }}
+              onBlur={(e) => {
+                // Cleared focus (not just moved to a different row inside the
+                // tree) — let Option+Cmd+R / Ctrl+Shift+R fall through to
+                // Force Reload again instead of reveal. See reportTreeFocus.
+                if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+                  window.electron?.files.setTreeFocusState(null);
+                }
               }}
             >
               {treeData && (
@@ -1109,6 +1169,8 @@ export const FileSystemList = () => {
                   onMove={handleMove}
                   disableDrag={() => false}
                   onCreate={handleCreate}
+                  onFocus={reportTreeFocus}
+                  onSelect={(nodes) => reportTreeFocus(nodes?.[0])}
                   disableDrop={({ parentNode, dragNodes }) => {
                     if (!parentNode) return true;
                     return dragNodes.some((node) => node.data.parent === parentNode.data.path);

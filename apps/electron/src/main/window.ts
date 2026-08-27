@@ -5,7 +5,7 @@ import { getRecentPaths } from "./fileSystem";
 import { setActiveProject, addTabToPanel, activateTabInLayout, getAppState, createNewDocumentTab, activateTab, addPanelTab } from "./state";
 import { Tab } from "../shared/types";
 import { saveState } from "./persistState";
-import { createFileTreeContextMenu } from "./menus";
+import { createFileTreeContextMenu, getFileTreeFocus } from "./menus";
 import { setActiveDirectory } from "./ipc/directory";
 import { handleDeeplink } from "./deeplink";
 import { windowManager } from "./windowManager";
@@ -297,7 +297,16 @@ const menubarTemplate: Array<MenuItemConstructorOptions> = [
       {
         label: "Force Reload",
         accelerator: isMac ? "Option+Cmd+R" : "Ctrl+Shift+R",
-        role: "forceReload",
+        // Dropped the native role (and kept a manual click handler instead),
+        // same fix as Select All above: this combo is also the file tree's
+        // "Reveal in Finder" shortcut, and role-based items intercept their
+        // accelerator as a native NSMenuItem action on macOS regardless of
+        // registerAccelerator:false, so the keydown never reaches the
+        // before-input-event handler below that decides between the two.
+        registerAccelerator: false,
+        click: (_menuItem, browserWindow) => {
+          browserWindow?.webContents.reloadIgnoringCache();
+        },
       },
       { type: "separator" },
       {
@@ -687,6 +696,33 @@ export async function createWindow(initialBounds?: InitialWindowBounds): Promise
     if (primary && !shift && !alt && key === '-') {
       const level = mainWindow.webContents.getZoomLevel();
       if (level > -1) mainWindow.webContents.setZoomLevel(Math.max(level - 0.5, -1));
+      event.preventDefault();
+      return;
+    }
+
+    // Reveal in Finder / Force Reload — Option+Cmd+R (macOS) or Ctrl+Shift+R
+    // (others). Both names are bound to the same combo on purpose: this
+    // reveals the file tree's focused/selected item when the tree has
+    // keyboard focus, and falls through to the previous Force Reload
+    // behavior otherwise (see the dropped role on that menu item above).
+    //
+    // On macOS, holding Option while pressing R doesn't always resolve to a
+    // plain "r" in input.key — on at least the en-GB layout it reports "Dead"
+    // (an unresolved dead-key compose state), so the primary check falls back
+    // to the physical key code when input.key isn't a usable letter. Karabiner
+    // -style remaps still take priority: they change input.key to something
+    // real, which the first branch catches before the fallback ever runs.
+    const isRKey = key === 'r' || (key === 'dead' && input.code === 'KeyR');
+    const isRevealOrForceReloadCombo = isMac
+      ? (meta && alt && !control && !shift && isRKey)
+      : (control && shift && !alt && isRKey);
+    if (isRevealOrForceReloadCombo) {
+      const focused = getFileTreeFocus(mainWindow.webContents.id);
+      if (focused) {
+        shell.showItemInFolder(focused.path);
+      } else {
+        mainWindow.webContents.reloadIgnoringCache();
+      }
       event.preventDefault();
       return;
     }

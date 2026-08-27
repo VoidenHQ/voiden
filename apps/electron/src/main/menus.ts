@@ -16,6 +16,20 @@ import { setDeleting } from "./fileWatcher";
 
 let contextMenuHandlersRegistered = false;
 
+/**
+ * webContents.id → the file tree's currently focused/selected item in that
+ * window, or null when the tree doesn't have keyboard focus. Kept here (main
+ * process) so the global Option+Cmd+R / Ctrl+Shift+R handler in window.ts can
+ * decide between "Reveal in Finder" and "Force Reload" synchronously, without
+ * a round trip to the renderer on every keypress.
+ */
+const fileTreeFocusByWindow = new Map<number, { path: string; type: "file" | "folder"; name: string } | null>();
+
+/** Read the last-reported file tree focus for a window's webContents. */
+export function getFileTreeFocus(webContentsId: number) {
+  return fileTreeFocusByWindow.get(webContentsId) ?? null;
+}
+
 /** Send to renderer only if the window and its webContents are still alive. */
 function safeSend(win: BrowserWindow | null | undefined, channel: string, data?: any) {
   try {
@@ -280,96 +294,7 @@ export const createFileTreeContextMenu = (mainWindow: BrowserWindow) => {
       {
         label: `Delete ${data.length} items`,
         click: async () => {
-          const { response } = await dialog.showMessageBox({
-            type: "none",
-            buttons: ["Cancel", "Delete"],
-            defaultId: 0,
-            title: "Confirm Delete",
-            message: "Are you sure you want to delete these items?",
-            detail: `${data.length} items will be moved to trash.`,
-          });
-
-          if (response !== 1) return;
-
-          logger.info('filesystem', `Bulk delete: ${data.length} items`, { paths: data.map(i => i.path) });
-          safeSend(bulkSenderWindow, "file:delete-start");
-
-          const appState = getAppState(event);
-          const layout = appState.activeDirectory
-            ? appState.directories[appState.activeDirectory]?.layout
-            : appState.unsaved.layout;
-
-          // Delete items one at a time, yielding between each so the UI stays responsive.
-          for (const item of data) {
-            await yieldToEventLoop();
-
-            if (item.type === "folder") {
-              setDeleting(item.path, true);
-              try {
-                await shell.trashItem(item.path);
-              } finally {
-                // Keep the guard alive briefly so chokidar's async unlink event
-                // (which fires after trashItem resolves) is still suppressed.
-                setTimeout(() => setDeleting(item.path, false), 500);
-              }
-              logger.info('filesystem', `Bulk: folder trashed: ${item.name}`, { path: item.path });
-
-              // Close any open tabs whose source lives inside the deleted directory.
-              if (layout) {
-                const dirPrefix = item.path.endsWith(path.sep) ? item.path : item.path + path.sep;
-                const tabsToRemove: Array<{ panelId: string; tabId: string }> = [];
-                const collectTabs = (el: any) => {
-                  if (el.type === "panel") {
-                    for (const tab of el.tabs) {
-                      if (tab.source && (tab.source === item.path || tab.source.startsWith(dirPrefix))) {
-                        tabsToRemove.push({ panelId: el.id, tabId: tab.id });
-                      }
-                    }
-                  } else if (el.children) {
-                    for (const child of el.children) collectTabs(child);
-                  }
-                };
-                collectTabs(layout);
-                let stateChanged = false;
-                for (const { panelId, tabId } of tabsToRemove) {
-                  if (removeTabFromPanel(layout, panelId, tabId)) stateChanged = true;
-                }
-                if (stateChanged) await saveState(appState);
-              }
-
-              safeSend(bulkSenderWindow, "directory:delete", item);
-            } else {
-              setDeleting(item.path, true);
-              try {
-                await shell.trashItem(item.path);
-              } finally {
-                // Keep the guard alive briefly so chokidar's async unlink event
-                // (which fires after trashItem resolves) is still suppressed.
-                setTimeout(() => setDeleting(item.path, false), 500);
-              }
-              logger.info('filesystem', `Bulk: file trashed: ${item.name}`, { path: item.path });
-
-              if (layout) {
-                const dummyTab: Tab = {
-                  id: "",
-                  type: "document",
-                  title: item.name,
-                  source: item.path,
-                  directory: null,
-                };
-                const tabToRemove = findTabInPanel(layout, "main", dummyTab);
-                if (tabToRemove) {
-                  const removed = removeTabFromPanel(layout, "main", tabToRemove.id);
-                  if (removed) await saveState(appState);
-                }
-              }
-
-              safeSend(bulkSenderWindow, "file:delete", item);
-            }
-          }
-
-          logger.info('filesystem', `Bulk delete complete: ${data.length} items`);
-          safeSend(bulkSenderWindow, "file:bulk-delete-complete", { count: data.length });
+          await deleteItemsWithConfirm(event, bulkSenderWindow, data);
         },
       },
     ];
@@ -377,4 +302,136 @@ export const createFileTreeContextMenu = (mainWindow: BrowserWindow) => {
     const menu = Menu.buildFromTemplate(template);
     menu.popup({ window: bulkSenderWindow || undefined });
   });
+
+  // Direct, non-popup delete path — used by the file tree's keyboard shortcut
+  // (Cmd+Backspace / Delete on the focused/selected item). The context-menu
+  // "Delete" item above only works while that popup is actually open, since
+  // Electron doesn't globally register accelerators declared on a context
+  // menu — so keyboard-triggered delete needs its own invokable entry point
+  // running the exact same confirm/trash/tab-cleanup logic.
+  ipcMain.handle("files:deleteItems", async (event, items: FileTreeItem[]) => {
+    const senderWindow = BrowserWindow.fromWebContents(event.sender);
+    await deleteItemsWithConfirm(event, senderWindow, items);
+  });
+
+  // Same reasoning as files:deleteItems above — the context menu's "Reveal in
+  // Finder" item only fires while that popup is open, so the keyboard
+  // shortcut needs a direct, invokable path to the same shell call.
+  ipcMain.handle("files:revealInFinder", (_event, filePath: string) => {
+    shell.showItemInFolder(filePath);
+  });
+
+  // Renderer reports whenever the file tree's focus/selection changes (or
+  // clears, on blur) so getFileTreeFocus() above can answer synchronously.
+  ipcMain.on("filetree:focus-state", (event, item: { path: string; type: "file" | "folder"; name: string } | null) => {
+    fileTreeFocusByWindow.set(event.sender.id, item);
+  });
 };
+
+/**
+ * Confirm, trash, and clean up open tabs for one or more files/folders.
+ * Shared by the file tree's bulk-delete context menu and its keyboard
+ * shortcut so both paths behave identically.
+ */
+async function deleteItemsWithConfirm(
+  event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent,
+  senderWindow: BrowserWindow | null,
+  data: FileTreeItem[],
+) {
+  if (data.length === 0) return;
+
+  const { response } = await dialog.showMessageBox({
+    type: "none",
+    buttons: ["Cancel", "Delete"],
+    defaultId: 0,
+    title: "Confirm Delete",
+    message: data.length === 1
+      ? `Are you sure you want to delete "${data[0].name}"?`
+      : "Are you sure you want to delete these items?",
+    detail: data.length === 1
+      ? `It will be moved to trash.`
+      : `${data.length} items will be moved to trash.`,
+  });
+
+  if (response !== 1) return;
+
+  logger.info('filesystem', `Bulk delete: ${data.length} items`, { paths: data.map(i => i.path) });
+  safeSend(senderWindow, "file:delete-start");
+
+  const appState = getAppState(event);
+  const layout = appState.activeDirectory
+    ? appState.directories[appState.activeDirectory]?.layout
+    : appState.unsaved.layout;
+
+  // Delete items one at a time, yielding between each so the UI stays responsive.
+  for (const item of data) {
+    await yieldToEventLoop();
+
+    if (item.type === "folder") {
+      setDeleting(item.path, true);
+      try {
+        await shell.trashItem(item.path);
+      } finally {
+        // Keep the guard alive briefly so chokidar's async unlink event
+        // (which fires after trashItem resolves) is still suppressed.
+        setTimeout(() => setDeleting(item.path, false), 500);
+      }
+      logger.info('filesystem', `Bulk: folder trashed: ${item.name}`, { path: item.path });
+
+      // Close any open tabs whose source lives inside the deleted directory.
+      if (layout) {
+        const dirPrefix = item.path.endsWith(path.sep) ? item.path : item.path + path.sep;
+        const tabsToRemove: Array<{ panelId: string; tabId: string }> = [];
+        const collectTabs = (el: any) => {
+          if (el.type === "panel") {
+            for (const tab of el.tabs) {
+              if (tab.source && (tab.source === item.path || tab.source.startsWith(dirPrefix))) {
+                tabsToRemove.push({ panelId: el.id, tabId: tab.id });
+              }
+            }
+          } else if (el.children) {
+            for (const child of el.children) collectTabs(child);
+          }
+        };
+        collectTabs(layout);
+        let stateChanged = false;
+        for (const { panelId, tabId } of tabsToRemove) {
+          if (removeTabFromPanel(layout, panelId, tabId)) stateChanged = true;
+        }
+        if (stateChanged) await saveState(appState);
+      }
+
+      safeSend(senderWindow, "directory:delete", item);
+    } else {
+      setDeleting(item.path, true);
+      try {
+        await shell.trashItem(item.path);
+      } finally {
+        // Keep the guard alive briefly so chokidar's async unlink event
+        // (which fires after trashItem resolves) is still suppressed.
+        setTimeout(() => setDeleting(item.path, false), 500);
+      }
+      logger.info('filesystem', `Bulk: file trashed: ${item.name}`, { path: item.path });
+
+      if (layout) {
+        const dummyTab: Tab = {
+          id: "",
+          type: "document",
+          title: item.name,
+          source: item.path,
+          directory: null,
+        };
+        const tabToRemove = findTabInPanel(layout, "main", dummyTab);
+        if (tabToRemove) {
+          const removed = removeTabFromPanel(layout, "main", tabToRemove.id);
+          if (removed) await saveState(appState);
+        }
+      }
+
+      safeSend(senderWindow, "file:delete", item);
+    }
+  }
+
+  logger.info('filesystem', `Bulk delete complete: ${data.length} items`);
+  safeSend(senderWindow, "file:bulk-delete-complete", { count: data.length });
+}

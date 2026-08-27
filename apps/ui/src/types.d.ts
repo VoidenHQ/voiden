@@ -158,6 +158,9 @@ declare global {
         ) => Promise<{ success: boolean; error?: string }>;
         deleteDirectory: (path: string) => Promise<boolean>;
         bulkDelete: (items: FileTreeItem[]) => Promise<boolean>;
+        deleteItems: (items: FileTreeItem[]) => Promise<void>;
+        revealInFinder: (path: string) => Promise<void>;
+        setTreeFocusState: (item: FileTreeItem | null) => void;
         getFiles: (
           filePaths: string[],
           isExternal?: boolean,
