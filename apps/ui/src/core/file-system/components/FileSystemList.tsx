@@ -60,6 +60,29 @@ export const FileSystemList = () => {
   // highlights existing rows (root-level siblings), so the empty area itself
   // had no visual feedback at all even once dropping there actually worked.
   const [isRootAreaDragOver, setIsRootAreaDragOver] = useState(false);
+  // Safety net for isRootAreaDragOver getting stuck "on" — dragleave/dragend
+  // aren't reliably delivered by every OS's native drag session (most visibly
+  // on Windows: dragging a file in from Explorer and having the drag end
+  // abnormally — dropped outside the window, cancelled, etc. — can leave the
+  // highlight showing forever with nothing actually being dragged). dragover
+  // fires continuously while a drag is genuinely still happening over this
+  // area, so re-arming this timeout on every dragover and clearing state if
+  // it ever goes quiet self-heals regardless of which "the drag ended" event
+  // did or didn't fire. Mirrors the same fix in TreeNode.tsx's own rows.
+  const rootDragOverWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const armRootDragOverWatchdog = () => {
+    if (rootDragOverWatchdogRef.current) clearTimeout(rootDragOverWatchdogRef.current);
+    rootDragOverWatchdogRef.current = setTimeout(() => {
+      rootDragOverWatchdogRef.current = null;
+      setIsRootAreaDragOver(false);
+      setDragOverParentId(null);
+    }, 600);
+  };
+  useEffect(() => {
+    return () => {
+      if (rootDragOverWatchdogRef.current) clearTimeout(rootDragOverWatchdogRef.current);
+    };
+  }, []);
   // Mirrors the root node's real open/closed state (root starts open — see
   // getInitialOpenState below) so the header's chevron rotates in sync with
   // whether its direct children are actually showing.
@@ -893,6 +916,7 @@ export const FileSystemList = () => {
     e.stopPropagation();
 
     setIsRootAreaDragOver(true);
+    armRootDragOverWatchdog();
     // Reuses the same context TreeNode.tsx's rows read for their own
     // "sibling of the drop target" highlight (bg-accent/30 on dragOverParentId
     // matches), so root-level items visibly highlight the same way they
@@ -912,12 +936,20 @@ export const FileSystemList = () => {
     if (e.clientX < rect.left || e.clientX >= rect.right || e.clientY < rect.top || e.clientY >= rect.bottom) {
       setIsRootAreaDragOver(false);
       setDragOverParentId(null);
+      if (rootDragOverWatchdogRef.current) {
+        clearTimeout(rootDragOverWatchdogRef.current);
+        rootDragOverWatchdogRef.current = null;
+      }
     }
   };
 
   const handleContainerDrop = async (e: DragEvent) => {
     setIsRootAreaDragOver(false);
     setDragOverParentId(null);
+    if (rootDragOverWatchdogRef.current) {
+      clearTimeout(rootDragOverWatchdogRef.current);
+      rootDragOverWatchdogRef.current = null;
+    }
     if (!isExternalFileDrag(e)) return;
     e.preventDefault();
     e.stopPropagation();

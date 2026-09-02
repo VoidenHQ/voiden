@@ -95,6 +95,30 @@ export function TreeNode({
   const [, forceRerender] = useState(0);
   const [isDragOver, setIsDragOver] = useState(false);
   const dragOverTimerRef = useRef<NodeJS.Timeout | null>(null);
+  // Safety net for a highlight that gets stuck "on" forever. dragleave/dragend
+  // are supposed to clear isDragOver, but native OS drag sessions don't
+  // reliably deliver them — most visibly on Windows, where dragging a file in
+  // from Explorer and then dropping it outside the window (or the drag
+  // otherwise ending abnormally) can leave the browser never told the drag is
+  // over. dragover fires continuously (well under a second apart) for as long
+  // as a drag is genuinely still happening over this row, so re-arming this
+  // timeout on every dragover and clearing state if it ever goes quiet is a
+  // platform-agnostic way to self-heal regardless of which specific "the drag
+  // ended" event did or didn't fire.
+  const dragOverWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const armDragOverWatchdog = () => {
+    if (dragOverWatchdogRef.current) clearTimeout(dragOverWatchdogRef.current);
+    dragOverWatchdogRef.current = setTimeout(() => {
+      dragOverWatchdogRef.current = null;
+      setIsDragOver(false);
+      setDragOverParentId(null);
+    }, 600);
+  };
+  useEffect(() => {
+    return () => {
+      if (dragOverWatchdogRef.current) clearTimeout(dragOverWatchdogRef.current);
+    };
+  }, []);
   const [isContextMenuOpen, setIsContextMenuOpen] = useState(false);
   const { dragOverParentId, setDragOverParentId } = useContext(DragOverContext);
   const { expandAllRecursive, collapseAllFromFolder } = useContext(TreeActionsContext);
@@ -195,6 +219,10 @@ export function TreeNode({
       clearTimeout(dragOverTimerRef.current);
       dragOverTimerRef.current = null;
     }
+    if (dragOverWatchdogRef.current) {
+      clearTimeout(dragOverWatchdogRef.current);
+      dragOverWatchdogRef.current = null;
+    }
 
     if (!isExternalFileDrag(e)) {
       return;
@@ -277,6 +305,7 @@ export function TreeNode({
 
       setIsDragOver(true);
       setDragOverParentId(null);
+      armDragOverWatchdog();
 
       if (!node.isOpen && !dragOverTimerRef.current) {
         dragOverTimerRef.current = setTimeout(() => {
@@ -291,6 +320,7 @@ export function TreeNode({
     e.stopPropagation();
 
     setIsDragOver(true);
+    armDragOverWatchdog();
 
     let parentId = null;
     if (node.data.type === "folder") {
@@ -341,6 +371,10 @@ export function TreeNode({
       if (dragOverTimerRef.current) {
         clearTimeout(dragOverTimerRef.current);
         dragOverTimerRef.current = null;
+      }
+      if (dragOverWatchdogRef.current) {
+        clearTimeout(dragOverWatchdogRef.current);
+        dragOverWatchdogRef.current = null;
       }
     }
   };
