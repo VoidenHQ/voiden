@@ -1,34 +1,8 @@
 {
   "releases": [
     {
-      "version": "2.3.0-beta.3",
-      "date": "September 2026",
-      "whatsnew": [
-        {
-          "icon": "🗂️",
-          "title": "Drag & Drop Now Works Everywhere in the File Explorer",
-          "description": "Dropping a file into empty space below the tree (moving it to the project root) used to do nothing — you had to hit an existing row. Dragging folders in from Finder/Explorer used to fail silently too. Both now work, with a hover highlight so you can see exactly where something will land."
-        },
-        {
-          "icon": "📌",
-          "title": "The File Tree Stays Where You Left It",
-          "description": "Running a request or deleting a file could randomly scroll the file explorer, collapse folders, or pop open an unrelated one. The tree now only jumps to reveal a file when you actually open it — never as a side effect of something unrelated happening elsewhere in the app."
-        },
-        {
-          "icon": "🔍",
-          "title": "Response Panel Section Icons Now Only Show When They Work",
-          "description": "The search, expand-all, and collapse-all icons on a collapsed response section used to sit there clickable but doing nothing. They now only appear once that section is actually expanded."
-        },
-        {
-          "icon": "🔗",
-          "title": "Linked Block Overview Jumps to the Right Block",
-          "description": "Clicking a linked block in the block overview panel used to scroll you to the top of the document instead of to that block. It now takes you straight there."
-        }
-      ]
-    },
-    {
       "version": "2.3.0-beta.2",
-      "date": "August 2026",
+      "date": "September 2026",
       "whatsnew": [
         {
           "icon": "🔌",
@@ -51,6 +25,11 @@
           "description": "Registering Voiden's MCP server for your project is now a dedicated \"Initialize MCP\" button in the status bar, scoped to whichever project you have open — instead of a side effect of the Settings → AI Skill toggle. Clearer control, and it won't silently overwrite a manually configured .mcp.json anymore."
         },
         {
+          "icon": "📥",
+          "title": "New: Bruno Collection Importer",
+          "description": "Bring your existing Bruno (usebruno.com) requests straight into Voiden — a single .bru file or a whole exported OpenCollection. HTTP, GraphQL, gRPC, and WebSocket requests, all your auth types, environments, and even pre/post-request scripts and assertions come across, with anything Voiden can't safely translate left commented out for you to review instead of silently dropped."
+        },
+        {
           "icon": "🐛",
           "title": "AI Agents Author More Reliable Voiden Blocks",
           "description": "The AI skill Voiden ships to Claude Code and other agents now spells out which request blocks — auth, headers, body, and more, across REST, GraphQL, MCP, and scripting — can only appear once per request, keeps its table examples (headers, query params, path params, form data, and more) in sync with the app's current column layout, and shows where a section's documentation actually belongs in a multi-request file (after its separator, not before — a mistake that silently attached a heading to the wrong request). Agents previously had no way to know any of this and could insert duplicate blocks, malformed tables, or misplaced documentation into your .void files."
@@ -59,6 +38,26 @@
           "icon": "▶️",
           "title": "Run All No Longer Stops Dead on One Bad Placeholder",
           "description": "If a request in the middle of a multi-request file referenced a variable your active environment doesn't define, Run All used to stop entirely — every request after it silently never ran. It also showed the error as a full-panel overlay that covered every other request's already-successful response instead of appearing under the one request that actually failed. Run All now shows each error inline, under the right request, and keeps going through the rest of the file."
+        },
+        {
+          "icon": "🗂️",
+          "title": "Drag & Drop Now Works Everywhere in the File Explorer",
+          "description": "Dropping a file into empty space below the tree (moving it to the project root) used to do nothing — you had to hit an existing row. Dragging folders in from Finder/Explorer used to fail silently too. Both now work, with a hover highlight so you can see exactly where something will land."
+        },
+        {
+          "icon": "📌",
+          "title": "The File Tree Stays Where You Left It",
+          "description": "Running a request or deleting a file could randomly scroll the file explorer, collapse folders, or pop open an unrelated one. The tree now only jumps to reveal a file when you actually open it — never as a side effect of something unrelated happening elsewhere in the app."
+        },
+        {
+          "icon": "🔍",
+          "title": "Response Panel Section Icons Now Only Show When They Work",
+          "description": "The search, expand-all, and collapse-all icons on a collapsed response section used to sit there clickable but doing nothing. They now only appear once that section is actually expanded."
+        },
+        {
+          "icon": "🔗",
+          "title": "Linked Block Overview Jumps to the Right Block",
+          "description": "Clicking a linked block in the block overview panel used to scroll you to the top of the document instead of to that block. It now takes you straight there."
         }
       ]
     },
