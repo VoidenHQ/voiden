@@ -193,6 +193,20 @@ async function fetchLinkedFileBlocks(node: JSONContent, schema?: any, depth: num
       // Whole-file import: drop a leading request-separator (parent provides it).
       : (parsedDoc.content[0]?.type === "request-separator" ? parsedDoc.content.slice(1) : parsedDoc.content);
 
+    // A section-specific import whose target uid no longer matches any
+    // separator in the (freshly re-read) source file — e.g. that section was
+    // renamed/deleted/reordered since the link was created — silently resolves
+    // to zero blocks here. That's indistinguishable downstream from "this really
+    // is an empty section", which is exactly what surfaces to the user as the
+    // generic "Nothing to run" toast instead of a real "link is broken" signal.
+    // Logging it is the only way to tell the two apart when debugging.
+    if (blocks.length === 0 && sectionUid !== null) {
+      console.warn(
+        `[expandLinkedFilesInDoc] Section "${sectionUid}" not found in linked file "${originalFile}" — ` +
+        `the source section may have been renamed, deleted, or reordered since this link was created.`,
+      );
+    }
+
     // Recursively resolve any linkedFile nested inside this file's blocks, so a
     // linkedFile-of-a-linkedFile chain resolves fully instead of leaving an
     // unexpanded reference. Nested blocks are marked with their own immediate
@@ -206,7 +220,14 @@ async function fetchLinkedFileBlocks(node: JSONContent, schema?: any, depth: num
       }
     }
     return expandedBlocks;
-  } catch {
+  } catch (err) {
+    // Previously a bare `catch { return []; }` — any failure (bad path, IPC
+    // rejection, parse error) was indistinguishable from "this file/section is
+    // legitimately empty", which is exactly what silently turns into the
+    // generic "Nothing to run" toast a user sees when running a linked section
+    // that's actually failing to load. Logging the real error is the only way
+    // to tell those two cases apart.
+    console.error(`[expandLinkedFilesInDoc] Failed to load linked file blocks for "${originalFile}":`, err);
     return [];
   }
 }
