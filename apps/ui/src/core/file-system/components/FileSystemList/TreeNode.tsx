@@ -46,8 +46,13 @@ function hasOpenDescendant(node: NodeApi<ExtendedFileTree>): boolean {
   return false;
 }
 
-const isInternalTreeDrag = (e: React.DragEvent) => e.dataTransfer.types.includes("application/x-arborist-node");
-const isExternalFileDrag = (e: React.DragEvent) => e.dataTransfer.types.includes("Files") && !isInternalTreeDrag(e);
+// Exported for FileSystemList's own container-level drop handler — external
+// file drops (from Finder/Explorer) landing in the empty space below the
+// last row never reach any row's onDrop at all (there's no row there to
+// bubble from), so that container needs the same drag-type detection to
+// accept them instead of only ever-item-scoped drops working.
+export const isInternalTreeDrag = (e: React.DragEvent) => e.dataTransfer.types.includes("application/x-arborist-node");
+export const isExternalFileDrag = (e: React.DragEvent) => e.dataTransfer.types.includes("Files") && !isInternalTreeDrag(e);
 const isKnownFileSystemDrag = (e: React.DragEvent) => isInternalTreeDrag(e) || isExternalFileDrag(e);
 
 function getNameClass(data: ExtendedFileTree, activeFile: { source: string } | null): string {
@@ -214,9 +219,18 @@ export function TreeNode({
     for (const item of Array.from(e.dataTransfer.items)) {
       const entry = item.webkitGetAsEntry?.();
       if (entry?.isDirectory) {
-        const file = item.getAsFile() as (File & { path?: string }) | null;
-        if (file?.path) {
-          folderPaths.push(file.path);
+        // A directory item's own File object never carried real content, so
+        // regular files (read via file.arrayBuffer() below) never needed
+        // this — but folders have no content stream, only a path, and
+        // Electron removed direct `.path` access on drag-and-drop File
+        // objects in v30+ (a deliberate Chromium-security-driven change —
+        // see electron/electron#44370, #44600, #47284). This is why
+        // dropping a file worked but dropping a folder silently didn't.
+        // webUtils.getPathForFile is the current replacement.
+        const file = item.getAsFile();
+        const path = file ? window.electron?.utils.getPathForFile(file) : undefined;
+        if (path) {
+          folderPaths.push(path);
         }
       } else {
         const file = item.getAsFile();

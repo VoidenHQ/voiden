@@ -1,5 +1,27 @@
 [
   {
+    "version": "v2.3.0-beta.3",
+    "date": "02/09/2026",
+    "title": "File Explorer Drag & Drop and Scroll Stability Fixes",
+    "description": "A focused bug-fix pass on the file explorer's drag-and-drop and scroll behavior, plus a response panel and block overview fix and an AI skill correction to the multi-request file documentation.",
+    "icon": "FolderTree",
+    "iconColor": "text-blue-400",
+    "bgColor": "bg-gradient-to-br from-blue-900 to-slate-900",
+    "changes": {
+      "Fixed": [
+        "File explorer: dragging an item and dropping it into empty space below the tree (i.e. onto the project root) silently did nothing — only dropping directly onto a visible row worked. react-arborist reports a root-level drop target as parentId: null, which was being treated as an invalid/disabled drop instead of the intentional \"move to root\" signal it actually is. Root-level drops and reorders now work the same as dropping on any other row.",
+        "File explorer: dragging files from outside the app (Finder/Explorer) and dropping them into empty space below the tree did nothing — external drops only worked when dropped directly onto an existing row. The file explorer's empty area now accepts external file drops the same way each row already did, including the same hover highlight.",
+        "File explorer: dropping an item (internal or external) with nothing hovering under the cursor gave no visual feedback at all, making it look like drag-and-drop wasn't working even when it was about to succeed. Rows and the root drop area now highlight while something is dragged over them.",
+        "File explorer: dragging a folder in from Finder/Explorer silently failed to import anything, while dragging in individual files worked fine. Electron 30+ removed the .path property from dropped File objects; the folder-drop handler was still reading it and getting undefined for every folder. Both the per-row and root-level drop handlers now resolve the real filesystem path via the correct current API, and a failed drop now surfaces an error toast instead of failing silently.",
+        "File explorer: running a request or deleting a file could randomly scroll the file tree, collapse/expand folders, or open an unrelated folder, because ANY invalidation of the shared tab list (37 call sites throughout the app, most unrelated to the file tree) was re-running the tree's \"reveal the active file\" logic on every render. Revealing a file in the tree (expanding its ancestors and scrolling to it) now only happens in response to an explicit reveal request — opening a file via Quick Open, creating a new file, or clicking a search result — never as a side effect of unrelated tab-list changes.",
+        "File explorer: the Delete key only removed a selected file when the tree itself had keyboard focus, so it silently did nothing if focus had moved elsewhere in the sidebar. Delete now works regardless of where in the file explorer focus currently is, while still doing nothing while a text input or rename field is focused.",
+        "Response panel: in a multi-request response view, each section's \"find in this response\", \"expand all\", and \"collapse all\" icons stayed visible and clickable even while that section was collapsed, but clicking them did nothing until the section was expanded first. These icons are now only shown once their section is actually expanded.",
+        "Block overview panel: clicking a linked block entry scrolled the editor to the very top of the document instead of to that block. Linked blocks (and other atom-type blocks, e.g. external file embeds) have no addressable position \"inside\" them the way normal text blocks do, so the scroll-to-block logic's generic position math resolved to an invalid location; it now detects atom-type blocks and selects/scrolls to them directly.",
+        "AI skill: the base skill's own \"Multi-Request File\" worked example had content nested inside attrs on its request blocks — an invalid shape that contradicts the correct single-request example earlier in the same document. An agent copying this example would generate malformed .void files. content is now correctly documented as a sibling of attrs, matching the app's actual file format."
+      ]
+    }
+  },
+  {
     "version": "v2.3.0-beta.2",
     "date": "07/08/2026",
     "title": "MCP Tool Serving & MCP Client Blocks",

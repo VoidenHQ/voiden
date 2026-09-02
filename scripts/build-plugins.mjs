@@ -17,6 +17,7 @@ import { readdirSync, existsSync, readFileSync, statSync, mkdirSync, copyFileSyn
 import { resolve, join } from 'path'
 import { fileURLToPath } from 'url'
 import { spawnSync } from 'child_process'
+import { createRequire } from 'module'
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url))
 const pluginsDir = resolve(__dirname, '../plugins')
@@ -212,9 +213,22 @@ if (plugins.length === 0) {
 async function buildPlugin({ repoDir, pluginId, entry, manifestPath }, { silent = false } = {}) {
   const outDir = join(repoDir, 'dist')
 
+  // ohm-js (a transitive dep of @usebruno/lang, used by bruno-importer) is a
+  // dual CJS/ESM package. Vite's default resolution picks its "module" (ESM)
+  // build, which only exports { default: ohm } — but the code that calls it
+  // does require('ohm-js').grammar(...), expecting the CJS shape
+  // (ohm-js/index.js) where .grammar sits directly on module.exports.
+  // Force the CJS entry so that holds. Harmless no-op for every plugin that
+  // doesn't depend on ohm-js at all (the try/catch below just skips them).
+  let ohmAlias
+  try {
+    ohmAlias = createRequire(join(repoDir, 'package.json')).resolve('ohm-js')
+  } catch { /* this plugin doesn't depend on ohm-js */ }
+
   await build({
     configFile: false,
     root: repoDir,
+    resolve: ohmAlias ? { alias: { 'ohm-js': ohmAlias } } : undefined,
     plugins: [
       {
         name: 'inject-bundle-version',

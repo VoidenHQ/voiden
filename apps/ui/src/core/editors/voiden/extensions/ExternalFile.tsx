@@ -11,6 +11,7 @@ import { cn } from "@/core/lib/utils";
 import { getQueryClient } from "@/main";
 import { useGetApyFiles } from "@/core/documents/hooks";
 import { proseClasses, useVoidenExtensionsAndSchema } from "@/core/editors/voiden/VoidenEditor";
+import { sanitizeDoc } from "@/core/editors/voiden/utils/sanitizeDoc";
 import { FindHighlightExtension, findHighlightPluginKey } from "@/core/editors/voiden/search/findHighlight";
 import { useSearchStore } from "@/core/stores/searchParamsStore";
 import { useShallow } from "zustand/react/shallow";
@@ -359,15 +360,22 @@ export function BlockPreviewEditor({ block, pmNodePos: ownPmNodePos, blockUid }:
     () => [...finalExtensions.filter(ext => ext?.name !== 'seamlessNavigation'), FindHighlightExtension],
     [finalExtensions]
   );
+  // Keyed by extension name, not the array reference — finalExtensions gets a
+  // new array on every voidVariableData/envData change (e.g. after any request
+  // runs, since running invalidates those query caches), which would otherwise
+  // tear down and recreate this whole read-only editor on every single run —
+  // visible as the entire imported block flickering. Mirrors the same fix on
+  // the main editor (see extensionsKey in VoidenEditor.tsx).
+  const previewExtensionsKey = useMemo(() => previewExtensions.map((ext) => ext.name).join(","), [previewExtensions]);
 
   const editor = useEditor(
     {
-      content: block ? { type: "doc", content: [block] } : "",
+      content: block ? sanitizeDoc({ type: "doc", content: [block] }) : "",
       extensions: previewExtensions,
       editorProps: { attributes: { class: proseClasses } },
       editable: false,
     },
-    [block, previewExtensions],
+    [block, previewExtensionsKey],
   );
 
   useEffect(() => {

@@ -76,6 +76,12 @@ declare global {
       };
       utils: {
         pathJoin: (...paths: string[]) => Promise<string>;
+        /** Resolves a dragged File's real filesystem path — needed for
+         * directories, since Electron no longer exposes `.path` directly on
+         * a drag-and-drop File object (see the preload implementation for
+         * why). Regular files don't need this — their content is read via
+         * `file.arrayBuffer()` instead, which doesn't depend on a path. */
+        getPathForFile: (file: File) => string;
       };
       dialog: {
         openFile: (options: Electron.OpenDialogOptions) => Promise<string[]>;

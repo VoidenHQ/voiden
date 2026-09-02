@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type DragEvent } from "react";
 import { NodeApi, Tree, TreeApi } from "react-arborist";
 import type { FileTreeItem } from "@/types";
 import { fileTreeDndManager } from "@/core/file-system/components/FileSystemList/dndManager";
@@ -19,6 +19,7 @@ import { useElectronEvent } from "@/core/providers";
 import { useSearchStore } from "@/core/stores/searchStore";
 import { useBlockContentStore } from "@/core/stores/blockContentStore";
 import { usePanelStore } from "@/core/stores/panelStore";
+import { useRevealInExplorerStore } from "@/core/stores/revealInExplorerStore";
 import { emitPluginEvent, getContextMenuItems } from "@/plugins";
 import { useSettings } from "@/core/settings/hooks/useSettings";
 
@@ -33,7 +34,7 @@ import {
   removeNodeFromTreeData,
   updateTreeData,
 } from "./FileSystemList/treeData";
-import { TreeNode } from "./FileSystemList/TreeNode";
+import { TreeNode, isExternalFileDrag } from "./FileSystemList/TreeNode";
 import { useFullTextSearch } from "./FileSystemList/useFullTextSearch";
 import { SearchPanel } from "./FileSystemList/SearchPanel";
 import { SearchResults } from "./FileSystemList/SearchResults";
@@ -54,6 +55,11 @@ export const FileSystemList = () => {
   const [treeData, setTreeData] = useState<ExtendedFileTree[]>([]);
   const [loadingDirs, setLoadingDirs] = useState<Set<string>>(new Set());
   const [dragOverParentId, setDragOverParentId] = useState<string | null>(null);
+  // Drives the empty-space-below-the-last-row highlight while an external
+  // file drag hovers there — separate from dragOverParentId, which only
+  // highlights existing rows (root-level siblings), so the empty area itself
+  // had no visual feedback at all even once dropping there actually worked.
+  const [isRootAreaDragOver, setIsRootAreaDragOver] = useState(false);
   // Mirrors the root node's real open/closed state (root starts open — see
   // getInitialOpenState below) so the header's chevron rotates in sync with
   // whether its direct children are actually showing.
@@ -353,7 +359,7 @@ export const FileSystemList = () => {
   /** Selected/focused tree nodes as deletable FileTreeItems — excludes the
    * project root (Delete is hidden for it in the context menu too) and any
    * in-flight "new file/folder" placeholder node. */
-  const buildDeletableItems = (): FileTreeItem[] => {
+  const buildDeletableItems = useCallback((): FileTreeItem[] => {
     const rootPath = treeData?.[0]?.path;
     const nodes = treeRef.current?.selectedNodes?.length
       ? treeRef.current.selectedNodes
@@ -363,7 +369,48 @@ export const FileSystemList = () => {
     return nodes
       .filter((n) => n && !n.data.isTemporary && n.data.path !== rootPath)
       .map((n) => ({ path: n.data.path, type: n.data.type, name: n.data.name }));
-  };
+  }, [treeData]);
+
+  // Delete — Cmd+Backspace (macOS) or Delete (others), matching the file
+  // context menu's own "Delete" accelerator (see menus.ts). That accelerator
+  // only works while the popup is actually open — Electron doesn't globally
+  // register accelerators declared on a context menu — so a tree node merely
+  // being selected needs its own listener, and it needs to be window-level
+  // (not scoped to the tree's own container) because selecting a file with a
+  // click also opens it as a tab, which typically hands keyboard focus to
+  // that tab's editor — a listener scoped to the tree would then never see
+  // the very next Delete/Cmd+Backspace press at all, which is what made this
+  // shortcut feel like it "sometimes doesn't work".
+  useEffect(() => {
+    const handleGlobalDelete = async (e: KeyboardEvent) => {
+      const isDeleteCombo = isMac
+        ? e.key === "Backspace" && e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey
+        : e.key === "Delete" && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey;
+      if (!isDeleteCombo) return;
+
+      // Skip while the tree's own inline rename input is focused (plain
+      // "Delete" there is normal text editing) and, more generally, while
+      // focus is in any editable context anywhere in the app — an <input>,
+      // <textarea>, or a contentEditable element (covers the code/voiden
+      // editors) — so this global listener never hijacks ordinary text
+      // deletion outside the file tree.
+      if (treeRef.current?.isEditing) return;
+      const active = document.activeElement as HTMLElement | null;
+      if (active) {
+        const tag = active.tagName;
+        if (tag === "INPUT" || tag === "TEXTAREA" || active.isContentEditable) return;
+      }
+
+      const items = buildDeletableItems();
+      if (items.length > 0) {
+        e.preventDefault();
+        await window.electron?.files.deleteItems(items);
+      }
+    };
+
+    window.addEventListener("keydown", handleGlobalDelete);
+    return () => window.removeEventListener("keydown", handleGlobalDelete);
+  }, [buildDeletableItems]);
 
   /** Reports the tree's current focus/selection to the main process so its
    * Option+Cmd+R / Ctrl+Shift+R handler can reveal it instead of force-
@@ -641,6 +688,10 @@ export const FileSystemList = () => {
     }
   }, [treeData, tryStartDuplicateRename]);
 
+  // Row *selection* (highlighting whatever the active tab is) tracks the
+  // active file continuously — this is cheap and non-disruptive (it doesn't
+  // move scroll position or open/close anything), so unlike the expand+
+  // scroll effect below it doesn't need gating behind an explicit signal.
   useEffect(() => {
     const tree = treeRef.current;
     if (!tree) return;
@@ -653,7 +704,24 @@ export const FileSystemList = () => {
 
     const source = activeFile.source;
     tree.setSelection({ ids: [source], anchor: source, mostRecent: source });
+  }, [activeFile?.source]);
 
+  // Expand-ancestors-and-scroll only runs for an explicit "reveal this file"
+  // request (Quick Open, a search result, ...) — see revealInExplorerStore's
+  // doc comment for why this can no longer just key off activeFile?.source.
+  const pendingRevealPath = useRevealInExplorerStore((s) => s.pendingRevealPath);
+  const clearReveal = useRevealInExplorerStore((s) => s.clearReveal);
+
+  useEffect(() => {
+    const tree = treeRef.current;
+    if (!tree || !pendingRevealPath) return;
+    // Only actually reveal once the requested path really is the active
+    // file — avoids expanding/scrolling to somewhere the user isn't
+    // currently looking at if a reveal request and the tab-activation it's
+    // paired with haven't both landed yet.
+    if (activeFile?.source !== pendingRevealPath) return;
+
+    const source = pendingRevealPath;
     let cancelled = false;
 
     const expandAndScroll = async () => {
@@ -695,12 +763,14 @@ export const FileSystemList = () => {
       }, 50);
     };
 
-    expandAndScroll();
+    expandAndScroll().finally(() => {
+      if (!cancelled) clearReveal();
+    });
 
     return () => {
       cancelled = true;
     };
-  }, [activeFile?.source]);
+  }, [pendingRevealPath, activeFile?.source, clearReveal]);
 
   const getInitialOpenState = (root: ExtendedFileTree) => {
     const openState: Record<string, boolean> = {};
@@ -744,12 +814,25 @@ export const FileSystemList = () => {
     parentId: string | null;
     parentNode: NodeApi<ExtendedFileTree> | null;
   }) => {
-    if (!parentId || !parentNode) return;
-    const draggedItems = dragIds.map((id) => parentNode.tree.get(id));
-    const isSameDirectory = draggedItems.some((node) => node?.data.parent === parentId);
+    // react-arborist reports parentId/parentNode as null when a drop lands
+    // in empty space rather than on any row — its own MoveHandler type has
+    // both typed nullable for exactly this reason (confirmed against
+    // node_modules/react-arborist's types/handlers.d.ts). That's "drop at
+    // the tree's root", not "no valid target" — bailing out here silently
+    // ate every drop that didn't land squarely on an existing row, which is
+    // most of the empty area below the last item. Resolve it to the actual
+    // project root instead of discarding it.
+    const rootPath = treeData?.[0]?.path;
+    const resolvedParentId = parentId ?? rootPath ?? null;
+    if (!resolvedParentId) return;
+    const resolvedParentNode = parentNode ?? treeRef.current?.get(resolvedParentId) ?? null;
+    if (!resolvedParentNode) return;
+
+    const draggedItems = dragIds.map((id) => resolvedParentNode.tree.get(id));
+    const isSameDirectory = draggedItems.some((node) => node?.data.parent === resolvedParentId);
     if (isSameDirectory) return;
 
-    const result = await move({ dragIds, parentId });
+    const result = await move({ dragIds, parentId: resolvedParentId });
     if (!result) return;
 
     if (result.error) {
@@ -759,13 +842,13 @@ export const FileSystemList = () => {
 
     const sourceDirs = new Set(
       dragIds
-        .map((id) => parentNode.tree.get(id)?.data.parent)
+        .map((id) => resolvedParentNode.tree.get(id)?.data.parent)
         .filter(Boolean) as string[],
     );
     for (const dir of sourceDirs) {
       await refreshDir(dir);
     }
-    await refreshDir(parentId);
+    await refreshDir(resolvedParentId);
 
     // Invalidate tab content for all open panels so moved files refresh
     // and references resolve with new paths.
@@ -782,7 +865,7 @@ export const FileSystemList = () => {
             const replaceResult = await window.electron?.files.moveForce([conflict]);
             if (replaceResult?.success) {
               for (const dir of sourceDirs) await refreshDir(dir);
-              await refreshDir(parentId);
+              await refreshDir(resolvedParentId);
               invalidateAllPanelTabContent(queryClient);
               queryClient.invalidateQueries({ queryKey: ["voiden-wrapper:blockContent"] });
               queryClient.invalidateQueries({ queryKey: ["file:exists"] });
@@ -792,6 +875,109 @@ export const FileSystemList = () => {
           },
         },
       });
+    }
+  };
+
+  // External-file drops (from Finder/Explorer) landing in the empty space
+  // below the last row never reach a row's own onDrop at all — that handler
+  // only exists on each TreeNode's own DOM element (see TreeNode.tsx), so
+  // there's nothing there to bubble from when the cursor isn't over an
+  // actual row. Rows call stopPropagation() for external drags once they
+  // handle one (TreeNode.tsx's handleDragOver/handleDrop), so this
+  // container-level pair only ever fires for a drag that no row already
+  // claimed — i.e. genuinely empty space — and treats it as "drop into the
+  // project root", the same fallback used for internal reordering above.
+  const handleContainerDragOver = (e: DragEvent) => {
+    if (!isExternalFileDrag(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    setIsRootAreaDragOver(true);
+    // Reuses the same context TreeNode.tsx's rows read for their own
+    // "sibling of the drop target" highlight (bg-accent/30 on dragOverParentId
+    // matches), so root-level items visibly highlight the same way they
+    // already do when a drag hovers directly over one of them — dropping in
+    // the empty space is really "drop into the root", so the root's existing
+    // children should read as the drop's siblings here too.
+    const rootPath = treeData?.[0]?.path;
+    if (rootPath) setDragOverParentId(rootPath);
+  };
+
+  const handleContainerDragLeave = (e: DragEvent) => {
+    if (!isExternalFileDrag(e)) return;
+    // Only clear on actually leaving the container's bounds, not when
+    // moving between its own children — same boundary check TreeNode.tsx's
+    // handleDragLeave uses, for the same reason.
+    const rect = e.currentTarget.getBoundingClientRect();
+    if (e.clientX < rect.left || e.clientX >= rect.right || e.clientY < rect.top || e.clientY >= rect.bottom) {
+      setIsRootAreaDragOver(false);
+      setDragOverParentId(null);
+    }
+  };
+
+  const handleContainerDrop = async (e: DragEvent) => {
+    setIsRootAreaDragOver(false);
+    setDragOverParentId(null);
+    if (!isExternalFileDrag(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    const rootPath = treeData?.[0]?.path;
+    if (!rootPath) return;
+
+    const regularFiles: File[] = [];
+    const folderPaths: string[] = [];
+    const unresolvedFolderNames: string[] = [];
+    for (const item of Array.from(e.dataTransfer.items)) {
+      const entry = item.webkitGetAsEntry?.();
+      if (entry?.isDirectory) {
+        // A directory DataTransferItem's own getAsFile() returns null per
+        // spec (File objects represent files, not directories) — Electron
+        // used to patch a `.path` onto it anyway, but removed that in
+        // v30+ as a deliberate Chromium-security-driven change (see
+        // electron/electron#44370, #44600, #47284). webUtils.getPathForFile
+        // is the current replacement, exposed via the preload since it only
+        // works called from there.
+        const file = item.getAsFile();
+        const path = file ? window.electron?.utils.getPathForFile(file) : undefined;
+        if (path) {
+          folderPaths.push(path);
+        } else {
+          unresolvedFolderNames.push(entry.name);
+        }
+      } else {
+        const file = item.getAsFile();
+        if (file) regularFiles.push(file);
+      }
+    }
+
+    if (unresolvedFolderNames.length > 0) {
+      toast.error("Couldn't read folder path", {
+        description: `"${unresolvedFolderNames.join('", "')}" could not be resolved to a real filesystem path from the drag data.`,
+      });
+    }
+
+    try {
+      for (const file of regularFiles) {
+        const arrayBuffer = await file.arrayBuffer();
+        const uint8Array = new Uint8Array(arrayBuffer);
+        const result = await window.electron?.files.drop(rootPath, file.name, uint8Array);
+        if (!result) throw new Error(`Failed to upload ${file.name}`);
+      }
+      for (const folderPath of folderPaths) {
+        const result = await window.electron?.files.dropFolder(rootPath, folderPath);
+        if (result && !result.success) {
+          throw new Error(result.error ?? `Failed to drop folder "${folderPath}"`);
+        }
+      }
+      if (regularFiles.length > 0 || folderPaths.length > 0) {
+        await refreshDir(rootPath);
+        queryClient.invalidateQueries({ queryKey: ["env"] });
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("Failed to drop items onto project root:", err);
+      toast.error("Drop failed", { description: message });
     }
   };
 
@@ -1107,28 +1293,18 @@ export const FileSystemList = () => {
           <DragOverContext.Provider value={{ dragOverParentId, setDragOverParentId }}>
             <div
               ref={dndRootElement}
+              className={cn(isRootAreaDragOver && "bg-accent/10")}
               onKeyDown={async (e) => {
-                // Delete — Cmd+Backspace (macOS) or Delete (others), matching
-                // the file context menu's own "Delete" accelerator (see
-                // menus.ts). That accelerator only works while the popup is
-                // actually open — Electron doesn't globally register
-                // accelerators declared on a context menu — so a file/folder
-                // merely being focused/selected needs its own listener here.
-                // Skip while the tree's inline rename input is focused: on
-                // non-mac, plain "Delete" is a normal text-editing key there,
-                // and this handler sits on an ancestor of that input, so it
-                // would otherwise also fire on every bubbled keydown from it.
-                const isDeleteCombo = !treeRef.current?.isEditing && (isMac
-                  ? e.key === "Backspace" && e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey
-                  : e.key === "Delete" && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey);
-                if (isDeleteCombo) {
-                  const items = buildDeletableItems();
-                  if (items.length > 0) {
-                    e.preventDefault();
-                    await window.electron?.files.deleteItems(items);
-                  }
-                  return;
-                }
+                // Delete used to be handled here too, but this listener only
+                // ever fires while keyboard focus is literally inside this
+                // tree container — selecting a file with a click also opens
+                // it as a tab, which typically hands focus to that tab's
+                // editor, so the very next Delete/Cmd+Backspace press would
+                // silently do nothing (the keydown never reaches this
+                // element at all). That's the "sometimes doesn't work"
+                // symptom. Delete is now handled by a window-level listener
+                // below instead, which works regardless of where focus is —
+                // see the effect that calls buildDeletableItems().
 
                 // event.key is "Enter" regardless of modifiers, so Cmd/Ctrl+Enter
                 // (send request) was being caught here too whenever keyboard focus
@@ -1151,6 +1327,9 @@ export const FileSystemList = () => {
                   window.electron?.files.setTreeFocusState(null);
                 }
               }}
+              onDragOver={handleContainerDragOver}
+              onDragLeave={handleContainerDragLeave}
+              onDrop={handleContainerDrop}
             >
               {treeData && (
                 <Tree
@@ -1172,7 +1351,20 @@ export const FileSystemList = () => {
                   onFocus={reportTreeFocus}
                   onSelect={(nodes) => reportTreeFocus(nodes?.[0])}
                   disableDrop={({ parentNode, dragNodes }) => {
-                    if (!parentNode) return true;
+                    // A null parentNode is a drop into the empty space below
+                    // the list — react-arborist's own way of representing a
+                    // root-level drop (see handleMove's comment above for the
+                    // confirming source reference), not an invalid target.
+                    // Disabling it unconditionally silently blocked every
+                    // drop that didn't land squarely on a row. Only actually
+                    // disable it when every dragged node is already directly
+                    // in the root — that's the real no-op case; a node
+                    // currently nested in a subfolder should still be
+                    // droppable back up to the root.
+                    if (!parentNode) {
+                      const rootPath = treeData?.[0]?.path;
+                      return dragNodes.every((node) => node.data.parent === rootPath);
+                    }
                     return dragNodes.some((node) => node.data.parent === parentNode.data.path);
                   }}
                 >

@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState, useEffect, useRef, useLayoutEffect, memo } from "react";
 import { AnyExtension, Editor, EditorContent, Extension, JSONContent, getSchema, useEditor } from "@tiptap/react";
-import { TextSelection } from "prosemirror-state";
+import { TextSelection, NodeSelection } from "prosemirror-state";
 import type { Node as ProseMirrorNode } from "prosemirror-model";
 import { useVoidVariableData } from "@/core/runtimeVariables/hook/useVariableCapture.tsx";
 import {
@@ -1742,22 +1742,45 @@ const VoidenEditorInner = ({
       if (typeof pos !== "number") return;
 
       const docSize = editor.state.doc.content.size;
-      const safePos = Math.min(Math.max(1, pos + 1), docSize - 1);
+      const clampedPos = Math.min(Math.max(0, pos), docSize - 1);
+      // Atom nodes (linkedBlock, and other leaf custom blocks) have no
+      // "inside" — their whole nodeSize is 1, so the +1-to-land-inside-the-
+      // content trick every other (non-atom) block relies on below instead
+      // lands one position PAST the atom, on whatever follows it. That's
+      // what made clicking a linkedBlock in the overview panel jump
+      // somewhere unrelated (sometimes the very top of the document) instead
+      // of to that block — domAtPos/getBoundingClientRect were being asked
+      // about the wrong node the whole time, not actually failing.
+      const nodeAtPos = editor.state.doc.nodeAt(clampedPos);
+      const isAtom = !!nodeAtPos?.type.isAtom;
+      const safePos = isAtom ? clampedPos : Math.min(Math.max(1, pos + 1), docSize - 1);
       try {
-        // Move cursor
-        const $pos = editor.state.doc.resolve(safePos);
-        const selection = TextSelection.near($pos);
+        // Move cursor/selection — a NodeSelection is the semantically correct
+        // selection type for a contentless atom (TextSelection.near() would
+        // just snap to before/after it, same wrong-target problem as above).
+        const selection = isAtom
+          ? NodeSelection.create(editor.state.doc, safePos)
+          : TextSelection.near(editor.state.doc.resolve(safePos));
         editor.view.dispatch(editor.state.tr.setSelection(selection));
         editor.view.focus();
 
         // Scroll the real container to the DOM node at this position
         const scrollContainer = document.getElementById("code-editor-container");
         if (scrollContainer) {
-          const { node } = editor.view.domAtPos(safePos);
-          const domNode = node instanceof Element ? node : node.parentElement;
-          if (domNode) {
+          // nodeDOM(pos) returns the exact DOM element ProseMirror renders
+          // for the node AT that position — the right lookup for an atom,
+          // where domAtPos's "which side of this boundary" resolution logic
+          // doesn't apply. Falls back to domAtPos for the non-atom case,
+          // unchanged from before.
+          const domNode = isAtom
+            ? editor.view.nodeDOM(safePos)
+            : (() => {
+                const { node } = editor.view.domAtPos(safePos);
+                return node instanceof Element ? node : node.parentElement;
+              })();
+          if (domNode instanceof Element) {
             const containerRect = scrollContainer.getBoundingClientRect();
-            const nodeRect = (domNode as Element).getBoundingClientRect();
+            const nodeRect = domNode.getBoundingClientRect();
             const targetScrollTop = scrollContainer.scrollTop + nodeRect.top - containerRect.top - 80;
             searchNavScrollRef.current = true;
             scrollContainer.scrollTop = Math.max(0, targetScrollTop);

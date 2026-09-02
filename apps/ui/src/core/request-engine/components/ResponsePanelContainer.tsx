@@ -1040,38 +1040,43 @@ export function ResponsePanelContainer() {
                                   </span>
                                 </Tip>
                               )}
-                              <Tip label="Find in this response" side="bottom">
-                                <button
-                                  className="p-1 text-comment hover:text-text transition-colors rounded flex-shrink-0"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    // Expand the section first if collapsed
-                                    if (isCollapsed) {
-                                      toggleSectionCollapse(tabId, sectionIndex);
-                                    }
-                                    setShowResponseFind(true);
-                                    setTimeout(() => responseFindInputRef.current?.focus(), 50);
-                                  }}
-                                >
-                                  <Search size={12} />
-                                </button>
-                              </Tip>
-                              <Tip label="Expand all nodes" side="bottom">
-                                <button
-                                  className="p-1 text-comment hover:text-text transition-colors rounded flex-shrink-0"
-                                  onClick={(e) => { e.stopPropagation(); viewerRefs.current.get(`${tabId}:${sectionIndex}`)?.expandAll(); }}
-                                >
-                                  <ChevronsUpDown size={12} />
-                                </button>
-                              </Tip>
-                              <Tip label="Collapse all nodes" side="bottom">
-                                <button
-                                  className="p-1 text-comment hover:text-text transition-colors rounded flex-shrink-0"
-                                  onClick={(e) => { e.stopPropagation(); viewerRefs.current.get(`${tabId}:${sectionIndex}`)?.collapseAll(); }}
-                                >
-                                  <ChevronsDownUp size={12} />
-                                </button>
-                              </Tip>
+                              {/* These act on this section's ResponseViewer instance, which
+                                  only exists while the section is expanded (see the
+                                  conditional render below) — visible-but-inert while
+                                  collapsed was the bug: the ref lookup would silently miss,
+                                  so search/expand-all/collapse-all did nothing. */}
+                              {!isCollapsed && (
+                                <>
+                                  <Tip label="Find in this response" side="bottom">
+                                    <button
+                                      className="p-1 text-comment hover:text-text transition-colors rounded flex-shrink-0"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setShowResponseFind(true);
+                                        setTimeout(() => responseFindInputRef.current?.focus(), 50);
+                                      }}
+                                    >
+                                      <Search size={12} />
+                                    </button>
+                                  </Tip>
+                                  <Tip label="Expand all nodes" side="bottom">
+                                    <button
+                                      className="p-1 text-comment hover:text-text transition-colors rounded flex-shrink-0"
+                                      onClick={(e) => { e.stopPropagation(); viewerRefs.current.get(`${tabId}:${sectionIndex}`)?.expandAll(); }}
+                                    >
+                                      <ChevronsUpDown size={12} />
+                                    </button>
+                                  </Tip>
+                                  <Tip label="Collapse all nodes" side="bottom">
+                                    <button
+                                      className="p-1 text-comment hover:text-text transition-colors rounded flex-shrink-0"
+                                      onClick={(e) => { e.stopPropagation(); viewerRefs.current.get(`${tabId}:${sectionIndex}`)?.collapseAll(); }}
+                                    >
+                                      <ChevronsDownUp size={12} />
+                                    </button>
+                                  </Tip>
+                                </>
+                              )}
                             </div>
                             {/* Response content — hidden when collapsed */}
                             {!isCollapsed && (

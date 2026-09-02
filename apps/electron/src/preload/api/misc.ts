@@ -1,4 +1,4 @@
-import { ipcRenderer } from "electron";
+import { ipcRenderer, webUtils } from "electron";
 import { Tab } from "../../shared/types";
 import type { Settings } from "../../main/settings";
 
@@ -340,6 +340,18 @@ export const utilsApi = {
   /** Open a URL in the system default browser. */
   openExternalUrl: (url: string) =>
     ipcRenderer.send("open-external", url),
+  /**
+   * Resolves a dragged File object's real filesystem path. Electron removed
+   * direct `.path` access on File objects from drag-and-drop events around
+   * v30+ (a deliberate Chromium-security-driven change, not a bug — see
+   * electron/electron#44370, #44600, #47284) — webUtils.getPathForFile is
+   * the replacement, and per Electron's own docs it only works called from
+   * here (a preload script), not directly from renderer code even though
+   * contextIsolation is otherwise transparent to it. A File object survives
+   * the contextBridge call (Files/Blobs are structured-cloneable), so this
+   * can be called directly with the File dropped in the renderer.
+   */
+  getPathForFile: (file: File): string => webUtils.getPathForFile(file),
 };
 
 export const userSettingsApi = {

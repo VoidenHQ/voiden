@@ -17,6 +17,7 @@ import {
   type FileSearchFilterOptions,
 } from '@/core/components/fileSearchFilters';
 import { usePluginStore } from '@/plugins';
+import { useRevealInExplorerStore } from '@/core/stores/revealInExplorerStore';
 
 interface CommandPaletteProps {
   isFocused: boolean;
@@ -55,6 +56,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isFocused, mode,
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const { mutate: addPanelTab } = useAddPanelTab();
+  const requestRevealInExplorer = useRevealInExplorerStore((s) => s.requestReveal);
   const queryClient = useQueryClient();
   const { openBottomPanel, bottomPanelRef } = usePanelStore();
   const { data: activeFilePath } = useGetActiveDocument();
@@ -599,6 +601,11 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isFocused, mode,
     try {
       const content = await window.electron?.files?.read(file.path);
 
+      // Deliberate navigation via Quick Open — reveal it in the explorer.
+      // See revealInExplorerStore's doc comment for why this is opt-in
+      // rather than something the tree does for every active-tab change.
+      requestRevealInExplorer(file.path);
+
       addPanelTab({
         panelId: 'main',
         tab: {
@@ -726,7 +733,9 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isFocused, mode,
       await queryClient.invalidateQueries({ queryKey: ['files:tree'] });
 
       if (result?.path) {
-        // Open the newly created file
+        // Open the newly created file — also a deliberate navigation, so
+        // reveal where it landed in the explorer.
+        requestRevealInExplorer(result.path);
         addPanelTab({
           panelId: 'main',
           tab: {

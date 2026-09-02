@@ -12,6 +12,7 @@ import { useShallow } from "zustand/react/shallow";
 import { openFile } from "./ExternalFile";
 import { LinkedFilePmNodePosContext } from "./linkedFileContext";
 import { getBlocksForSection } from "@/core/editors/voiden/utils/expandLinkedBlocks";
+import { sanitizeDoc } from "@/core/editors/voiden/utils/sanitizeDoc";
 import { Tip } from "@/core/components/ui/Tip";
 import { useSendRestRequest } from "@/core/request-engine/hooks";
 
@@ -33,15 +34,22 @@ function FilePreviewEditor({ blocks, pmNodePos }: { blocks: JSONContent[]; pmNod
     () => [...finalExtensions.filter((ext) => ext?.name !== "seamlessNavigation"), FindHighlightExtension],
     [finalExtensions],
   );
+  // Keyed by extension name, not the array reference — finalExtensions gets a
+  // new array on every voidVariableData/envData change (e.g. after any request
+  // runs, since running invalidates those query caches), which would otherwise
+  // tear down and recreate this whole read-only editor on every single run —
+  // visible as the entire imported file/section flickering. Mirrors the same
+  // fix on the main editor (see extensionsKey in VoidenEditor.tsx).
+  const previewExtensionsKey = useMemo(() => previewExtensions.map((ext) => ext.name).join(","), [previewExtensions]);
 
   const editor = useEditor(
     {
-      content: blocks.length > 0 ? { type: "doc", content: blocks } : "",
+      content: blocks.length > 0 ? sanitizeDoc({ type: "doc", content: blocks }) : "",
       extensions: previewExtensions,
       editorProps: { attributes: { class: proseClasses } },
       editable: false,
     },
-    [blocks, previewExtensions],
+    [blocks, previewExtensionsKey],
   );
 
   useEffect(() => {

@@ -81,6 +81,7 @@ content:
 - **Timestamps**: ISO 8601 format (`2025-01-15T10:30:00.000Z`)
 - **Block order inside `request`**: method → url → auth → headers-table → query-table → path-table → body → assertions → scripts
 - **Singleton blocks**: several block types are allowed at most once per section — see "Singleton Blocks — One Per Section" below **before** inserting a block that might already exist in the current section. When in doubt, edit the existing block instead of adding a second one.
+- **Never write a table cell or text value as a literal empty string (`""`)**: the editor's ProseMirror engine rejects empty text nodes outright, and its fallback for that is to silently discard the *whole* block (or file) instead of just the empty field — the request/response still executes fine either way (execution never builds a live editor), but this specific block goes blank the moment someone opens it, or imports it elsewhere via `linkedBlock`/`linkedFile` and previews it there. If a column genuinely has nothing to say, use a short real placeholder (e.g. `"—"` or `"n/a"`) instead of `""`.
 
 ## Workflows
 
@@ -211,17 +212,17 @@ attrs:
 type: request
 attrs:
   uid: "a1b2c3d4-e5f6-4789-ab01-cd23ef456789"
-  content:
-    - type: method
-      attrs:
-        uid: "b2c3d4e5-f6a7-4b8c-9d0e-f1a2b3c4d5e6"
-        method: POST
-        visible: true
-      content: POST
-    - type: url
-      attrs:
-        uid: "d4e5f6a7-b8c9-4d0e-f1a2-b3c4d5e6f7a8"
-      content: "{{BASE_URL}}/users"
+content:
+  - type: method
+    attrs:
+      uid: "b2c3d4e5-f6a7-4b8c-9d0e-f1a2b3c4d5e6"
+      method: POST
+      visible: true
+    content: POST
+  - type: url
+    attrs:
+      uid: "d4e5f6a7-b8c9-4d0e-f1a2-b3c4d5e6f7a8"
+    content: "{{BASE_URL}}/users"
 ---
 ```
 
@@ -252,17 +253,17 @@ Returns every user. Supports `?page=` and `?limit=` query params — omitted her
 type: request
 attrs:
   uid: "a7b8c9d0-e1f2-4a3b-c4d5-e6f7a8b9c0d1"
-  content:
-    - type: method
-      attrs:
-        uid: "b8c9d0e1-f2a3-4b4c-d5e6-f7a8b9c0d1e2"
-        method: GET
-        visible: true
-      content: GET
-    - type: url
-      attrs:
-        uid: "c9d0e1f2-a3b4-4c5d-e6f7-a8b9c0d1e2f3"
-      content: "{{BASE_URL}}/users"
+content:
+  - type: method
+    attrs:
+      uid: "b8c9d0e1-f2a3-4b4c-d5e6-f7a8b9c0d1e2"
+      method: GET
+      visible: true
+    content: GET
+  - type: url
+    attrs:
+      uid: "c9d0e1f2-a3b4-4c5d-e6f7-a8b9c0d1e2f3"
+    content: "{{BASE_URL}}/users"
 ---
 ```
 
@@ -572,7 +573,7 @@ content:
   - type: table
     rows:
       - attrs: { disabled: false }
-        row: [access_token, "{{$res.body.access_token}}", ""]
+        row: [access_token, "{{$res.body.access_token}}", "—"]
       - attrs: { disabled: false }
         row: [user_id, "{{$res.body.user.id}}", "The created user's id"]
       - attrs: { disabled: false }
@@ -586,7 +587,7 @@ content:
 | **Value** | A **capture expression**, not a literal value — evaluated against the response (and the request that was just sent) once the request finishes. See the expression table below. |
 | **Description** | Human-readable note. Not read by the capture logic. |
 
-The table as a whole can be 2 columns (Key, Value) or 3 (Key, Value, Description) — but every row in it must have the **same** number of elements. Whether a Description column renders at all is decided by the *first* row's length alone, so a row with a different length than the others (e.g. one 2-element row mixed into an otherwise 3-element table) produces a broken/mismatched table, not an "optional" per-row field. Pick a column count for the whole block and use it for every row — default to all 3 (empty string `""` for rows with nothing to say) to match what inserting this block via `/runtime-variables` in the app produces today.
+The table as a whole can be 2 columns (Key, Value) or 3 (Key, Value, Description) — but every row in it must have the **same** number of elements. Whether a Description column renders at all is decided by the *first* row's length alone, so a row with a different length than the others (e.g. one 2-element row mixed into an otherwise 3-element table) produces a broken/mismatched table, not an "optional" per-row field. Pick a column count for the whole block and use it for every row — default to all 3, using a placeholder like `"—"` rather than an empty string `""` for rows with nothing to say (see the empty-value rule above; `/runtime-variables` in the app produces an empty string here today, but an agent-authored file should not copy that).
 
 **Capture expressions** (what goes in the Value column):
 
