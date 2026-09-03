@@ -2466,9 +2466,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@electron/node-gyp@git+https://github.com/electron/node-gyp.git#06b29aafb7708acef8b3669835c8a7857ebc92d2":
+"@electron/node-gyp@npm:10.2.0-electron.1":
   version: 10.2.0-electron.1
-  resolution: "@electron/node-gyp@https://github.com/electron/node-gyp.git#commit=06b29aafb7708acef8b3669835c8a7857ebc92d2"
+  resolution: "@electron/node-gyp@npm:10.2.0-electron.1"
   dependencies:
     env-paths: "npm:^2.2.0"
     exponential-backoff: "npm:^3.1.1"
@@ -2481,8 +2481,8 @@ __metadata:
     tar: "npm:^6.2.1"
     which: "npm:^2.0.2"
   bin:
-    node-gyp: ./bin/node-gyp.js
-  checksum: 10c0/e8c97bb5347bf0871312860010b70379069359bf05a6beb9e4d898d0831f9f8447f35b887a86d5241989e804813cf72054327928da38714a6102f791e802c8d9
+    node-gyp: bin/node-gyp.js
+  checksum: 10c0/15ba40a0ba7b3b39850e3042b82e29ed111096e84572090fe9ad5d162c642bb36315ea7e3585cbf7220cd0bf45c4badcc62b103cae34279170271f62dc2a2ee7
   languageName: node
   linkType: hard
 

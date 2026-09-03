@@ -1,19 +1,13 @@
 { pkgs, lib, stdenv, makeWrapper, electron, git, nodejs_22, python3, libtool, fetchurl
 , pluginSources ? {}, pluginRegistrySrc ? null
-# Pre-2.52.0 Git, threaded in from flake.nix's `nixpkgs-old-git` input, used
-# only for the yarn-cache derivation — see yarn-project.nix's cacheDrv comment.
-# Defaults to the ambient `git` so this package still evaluates standalone.
-, oldGit ? git
 }:
 
 let
-  # Force yarnProject to build with Node 22 and the pinned older Git. This
-  # matches the devShell (Node) and avoids both V8 API incompatibilities in
-  # dependencies (like macos-alias) under newer Node 24, and Git 2.52.0
-  # breaking Yarn 4.3.1's git-dependency fetcher.
+  # Force yarnProject to build with Node 22. This matches the devShell
+  # and avoids V8 API incompatibilities in dependencies (like macos-alias)
+  # that occur under newer Node 24 versions.
   yarnProject = pkgs.callPackage ../yarn-project.nix {
     nodejs = nodejs_22;
-    git = oldGit;
   } {
     src = lib.cleanSource ../.;
   };

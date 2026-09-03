@@ -45,54 +45,13 @@ let
 
   cacheDrv = stdenv.mkDerivation {
     name = "yarn-cache";
-    # `git` here is deliberately an older pin (see flake.nix's `nixpkgs-old-git`
-    # input), not whatever `nixpkgs` resolves to. `yarn nixify fetch` clones
-    # git-protocol dependencies (e.g. @electron/node-gyp) itself, and Git >=2.52.0
-    # broke Yarn's git-dependency fetcher ("invalid key: core.autocrlf" / "unable
-    # to write parameters to config file", exit 128) — see
-    # https://github.com/yarnpkg/berry/issues/6982. Fixed upstream in Yarn 4.12.0,
-    # but this project pins Yarn 4.3.1 (see yarnBin above), so until that's
-    # bumped project-wide, pin an older Git for this one derivation instead.
     buildInputs = [ yarn git cacert ];
     buildCommand = ''
       cp --reflink=auto --recursive '${src}' ./src
       cd ./src/
       ${buildVars}
-      # A raw `git clone` of the exact same URL succeeds fine on CI (confirmed:
-      # completes in ~1.5s) — so Yarn's own git fetcher isn't doing a plain
-      # clone, and whatever it *does* do fails silently past yarn's own
-      # (discarded) pack.log. Shim `git` itself to log every invocation Yarn
-      # makes — argv and real exit code — straight into this captured log.
-      mkdir -p "$TMP/git-wrapper"
-      cat > "$TMP/git-wrapper/git" <<'WRAPEOF'
-#!/bin/sh
-echo "=== git-wrapper: git $*" >&2
-${git}/bin/git "$@"
-rc=$?
-echo "=== git-wrapper: git $* exited $rc ===" >&2
-exit $rc
-WRAPEOF
-      chmod +x "$TMP/git-wrapper/git"
-      export PATH="$TMP/git-wrapper:$PATH"
-      # The failure mode itself has been inconsistent across otherwise-identical
-      # CI runs (sometimes reaching git, sometimes failing before it), which
-      # points at a race in Yarn's own fetcher rather than a fixed, reproducible
-      # error — Yarn runs multiple package fetches (git-dependency clones
-      # included) concurrently by default. Force fully serial fetching so any
-      # such race is structurally eliminated regardless of which shared
-      # resource it was actually contending over.
-      #
-      # On failure, "Packing the package failed" points at a pack.log inside
-      # $TMP that Nix's captured build output never shows — dump it before
-      # re-raising so a CI-only failure is actually diagnosable from the run's
-      # visible log instead of just a "logs can be found here: <ephemeral path>".
       HOME="$TMP" yarn_enable_global_cache=false yarn_cache_folder="$out" \
-        yarn_network_concurrency=1 yarn_http_retry=5 \
-        yarn nixify fetch || {
-          echo "=== yarn nixify fetch failed — dumping any pack.log files under \$TMP ===" >&2
-          find "$TMP" -name '*.log' -exec sh -c 'echo "--- {} ---" >&2; cat "{}" >&2' \;
-          exit 1
-        }
+        yarn nixify fetch
       rm $out/.gitignore
     '';
     outputHashMode = "recursive";

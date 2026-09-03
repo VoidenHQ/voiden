@@ -4,13 +4,6 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
-    # Git >=2.52.0 (what `nixpkgs` above resolves to) broke Yarn 4.3.1's
-    # git-dependency fetcher (see yarn-project.nix's cacheDrv comment /
-    # https://github.com/yarnpkg/berry/issues/6982). nixos-24.05 predates that
-    # release by a wide margin, so its `git` is used solely for the yarn-cache
-    # build step — everything else still uses the `nixpkgs` input above.
-    nixpkgs-old-git.url = "github:NixOS/nixpkgs/nixos-24.05";
-
     # Core plugin repos + the registry that lists them (see cleanup.sh / forge.config.ts's
     # generateAssets hook, which do the equivalent via live `git clone` + `npm install` —
     # not reproducible/hermetic, so not usable as-is inside a Nix build). Pinned here as
@@ -44,7 +37,7 @@
     extra-trusted-public-keys = [ "voiden.cachix.org-1:oicDzkVuCUndtPka0//GubVRAQGe6XZ6LzZ11nVfknE=" ];
   };
 
-  outputs = { self, nixpkgs, nixpkgs-old-git, plugin-registry, plugin-md-preview, plugin-openapi-import
+  outputs = { self, nixpkgs, plugin-registry, plugin-md-preview, plugin-openapi-import
             , plugin-postman-import, plugin-simple-assertions, plugin-voiden-advanced-auth
             , plugin-voiden-faker, plugin-voiden-graphql, plugin-voiden-rest-api
             , plugin-voiden-scripting, plugin-voiden-sockets, plugin-voiden-stitch
@@ -102,10 +95,9 @@
       packages = forAllSystems (system:
         let
           pkgs = nixpkgs.legacyPackages.${system};
-          oldGit = nixpkgs-old-git.legacyPackages.${system}.git;
         in
         {
-          voiden = pkgs.callPackage ./nix/package.nix { inherit pluginSources oldGit; pluginRegistrySrc = plugin-registry; };
+          voiden = pkgs.callPackage ./nix/package.nix { inherit pluginSources; pluginRegistrySrc = plugin-registry; };
           default = self.packages.${system}.voiden;
         });
     };
