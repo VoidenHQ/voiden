@@ -58,8 +58,16 @@ let
       cp --reflink=auto --recursive '${src}' ./src
       cd ./src/
       ${buildVars}
+      # On failure, "Packing the package failed" points at a pack.log inside
+      # $TMP that Nix's captured build output never shows — dump it before
+      # re-raising so a CI-only failure is actually diagnosable from the run's
+      # visible log instead of just a "logs can be found here: <ephemeral path>".
       HOME="$TMP" yarn_enable_global_cache=false yarn_cache_folder="$out" \
-        yarn nixify fetch
+        yarn nixify fetch || {
+          echo "=== yarn nixify fetch failed — dumping any pack.log files under \$TMP ===" >&2
+          find "$TMP" -name '*.log' -exec sh -c 'echo "--- {} ---" >&2; cat "{}" >&2' \;
+          exit 1
+        }
       rm $out/.gitignore
     '';
     outputHashMode = "recursive";
