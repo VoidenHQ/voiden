@@ -58,6 +58,18 @@ let
       cp --reflink=auto --recursive '${src}' ./src
       cd ./src/
       ${buildVars}
+      # Yarn's own pack.log for @electron/node-gyp never captures the actual
+      # subprocess error (confirmed: it cuts off right after the `yarn pack`
+      # invocation line, in both passing and failing runs). Probe the exact
+      # same git clone directly first, with tracing on, straight into this
+      # (captured) log instead of an ephemeral one Nix discards.
+      echo "=== diagnostic: raw git clone probe of electron/node-gyp ==="
+      if HOME="$TMP" GIT_TRACE=1 GIT_CURL_VERBOSE=1 git clone \
+        https://github.com/electron/node-gyp.git "$TMP/node-gyp-probe"; then
+        echo "=== diagnostic: raw git clone probe SUCCEEDED ==="
+      else
+        echo "=== diagnostic: raw git clone probe FAILED (exit $?) ==="
+      fi
       # On failure, "Packing the package failed" points at a pack.log inside
       # $TMP that Nix's captured build output never shows — dump it before
       # re-raising so a CI-only failure is actually diagnosable from the run's
