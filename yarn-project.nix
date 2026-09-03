@@ -50,6 +50,16 @@ let
       cp --reflink=auto --recursive '${src}' ./src
       cd ./src/
       ${buildVars}
+      # `yarn nixify fetch` clones git-dependency packages (e.g. @electron/node-gyp)
+      # in parallel. Each clone has git write core.autocrlf into $HOME/.gitconfig;
+      # with no file there yet, concurrent clones race to *create* it, and the
+      # loser sees a partially-written file it can't parse ("invalid key:
+      # core.autocrlf" / "unable to write parameters to config file"), which
+      # fails the whole fetch. Pre-creating a valid config before the parallel
+      # fetches start means every clone is updating an already-well-formed file
+      # instead of racing to create one.
+      export HOME="$TMP"
+      git config --global core.autocrlf false
       HOME="$TMP" yarn_enable_global_cache=false yarn_cache_folder="$out" \
         yarn nixify fetch
       rm $out/.gitignore
