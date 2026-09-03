@@ -48,7 +48,18 @@ const MANIFEST_PATH = `manifests/v/Voiden/${PACKAGE_NAME_PART}/${version}`;
 const UPSTREAM_OWNER = 'microsoft';
 const UPSTREAM_REPO = 'winget-pkgs';
 const MANIFEST_SCHEMA_VERSION = '1.12.0';
-const INSTALLER_URL = `https://voiden.md/api/download/${channel}/win32/x64/setup-latest.exe`;
+// Must be a version-pinned URL, not the "latest" pointer — winget-pkgs keeps
+// every version's manifest forever with InstallerSha256 baked in at publish
+// time, so a URL a future release overwrites breaks that manifest's hash
+// check as soon as the next version ships (this is what was happening:
+// setup-latest.exe is a mutable "latest" pointer, so every previously
+// published manifest's hash went stale the moment a newer version replaced
+// it). The NSIS installer itself is already published under a real,
+// immutable, version-pinned filename by the "Publish to S3 — Windows" step
+// (electron-forge's publisher-s3, from forge.config.ts) — reference that
+// directly instead of a separate "latest" copy.
+const INSTALLER_FILENAME = `${packageJson.productName || 'Voiden'} Setup ${version}.exe`;
+const INSTALLER_URL = `https://voiden.md/api/download/${channel}/win32/x64/${encodeURIComponent(INSTALLER_FILENAME)}`;
 const GITHUB_API = 'https://api.github.com';
 
 console.log(`\n📦 Winget Publisher — Voiden v${version} [${channel}]\n`);
