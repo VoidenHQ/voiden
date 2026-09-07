@@ -70,6 +70,7 @@ import {
   printRequestResult,
   printRunSummary,
   type RunResult,
+  type SelectedEnv,
 } from '@voiden/runner'
 
 function resolveMcpTargets(opts: { claude?: boolean; codex?: boolean }): { claude: boolean; codex: boolean } {
@@ -209,8 +210,9 @@ program
     const projectRoot = resolve(path ?? process.env.VOIDEN_PROJECT_ROOT ?? '.')
     const activePlugins = await loadEnabledPlugins()
     const runtimeVars: Record<string, any> = {}
+    const selectedEnv: SelectedEnv = { vars: {} }
     const server = new McpServer({ name: 'voiden', version: '0.1.0' })
-    registerFixedTools(server, projectRoot, runtimeVars, activePlugins)
+    registerFixedTools(server, projectRoot, runtimeVars, activePlugins, selectedEnv)
     await server.connect(new StdioServerTransport())
   })
 
