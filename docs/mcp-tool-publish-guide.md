@@ -103,13 +103,17 @@ control what that actually means in practice:
 | `--print-config` | Once the server is actually up (after `--tunnel` resolves, if used), prints a ready-to-paste `{"mcpServers": {...}}` entry to the log — the exact shape Claude Desktop/Claude Code/Cursor read from their own config. Pasting it into a Voiden `.void` file also works — the editor recognizes this shape and fills in an mcp-connection block from it directly. stdio prints the `command`/`args` to reproduce this exact invocation; `--http` prints the real listening or tunnel URL, never a guess (a `0.0.0.0` bind prints a placeholder instead of a URL nothing outside this machine could actually use). |
 | `--tunnel` | **Optional** — only needed when the machine running the server has no public IP of its own (an ephemeral CI job, a laptop behind NAT). Wraps the server in a public `cloudflared` quick tunnel and prints the URL, live only as long as the process runs. If you're hosting on something with a real public/static IP already (a VPS, a cloud instance), skip this — `--host 0.0.0.0 --port <n>` alone is reachable directly. Requires `cloudflared` installed on `PATH`; not bundled. |
 | `--oauth` | **Optional**, off by default. Without it, `--http`/`--tunnel` are completely unauthenticated — anyone who can reach the URL has full tool access, same as always. Pass this to require OAuth 2.1 (Dynamic Client Registration, authorization, bearer tokens) in front of the MCP endpoint instead — needed for clients that mandate an OAuth handshake before they'll connect at all (claude.ai's connector UI, some CLI agent tools) rather than just accepting a URL and a static header. See "Connecting OAuth-strict clients" below. |
+| `--api-key [key]` | **Optional**, off by default, independent of `--oauth` (combine both and either credential works). A static Bearer token, no OAuth handshake involved — pass a value to set it explicitly, or pass the flag alone to auto-generate one (persisted under `~/.voiden/mcp-api-keys.json`, printed at startup). See "A static API key" below. |
+| `--sso-authorize-url` / `--sso-token-url` / `--sso-registration-url` / `--sso-revocation-url` | **Optional.** Passing `--sso-authorize-url`+`--sso-token-url` together turns OAuth mode on by itself (no need to also pass `--oauth`) and points its login step at an external IdP you run, instead of auto-approving. See "Delegating login to an external IdP" below. |
 | `--scheduler` | Whether verification keeps re-running after the server is up (withdrawing/re-adding/degrading tools live as their real status changes), instead of verifying once at startup only. On by default. `--scheduler-interval-minutes` (default `1`) controls how often the scheduler *checks* what's due — not how often things actually re-verify, which is each `toolverifies` entry's own declared [`cadence`](./mcp-tool-block-reference.md#verification-table-toolverifies-rows) (`hourly`/`daily`/`weekly`/`monthly`). Works over stdio too now, not just `--http` — a change in served state restarts the process (a clean, logged, planned restart, not a crash) so a reconnecting client picks up the new tool list; needs the auto-restart supervisor active, which is on by default (`--no-restart` disables it, and disables this). |
 | `--no-restart` | Disables the auto-restart supervisor that's on by default for a long-running server — normally a crash gets retried automatically (capped, so a persistent problem doesn't loop forever) and, over stdio, a scheduled verification change triggers a clean restart so the tool list stays current. Pass this to run as a single unsupervised process instead — e.g. when something *else* already supervises it (systemd, pm2, Docker `--restart=always`) and two layers of restart logic would just fight each other. |
 
 Each flag has a matching environment-variable fallback (`VOIDEN_PUBLISH_PORT`,
 `VOIDEN_PUBLISH_HOST`, `VOIDEN_PUBLISH_DYNAMIC_TOOLS`, `VOIDEN_PUBLISH_PRINT_CONFIG`,
-`VOIDEN_PUBLISH_TUNNEL`, `VOIDEN_PUBLISH_OAUTH`, `VOIDEN_PUBLISH_SCHEDULER`,
-`VOIDEN_PUBLISH_SCHEDULER_INTERVAL_MINUTES`)
+`VOIDEN_PUBLISH_TUNNEL`, `VOIDEN_PUBLISH_OAUTH`, `VOIDEN_PUBLISH_API_KEY`,
+`VOIDEN_PUBLISH_SSO_AUTHORIZE_URL`, `VOIDEN_PUBLISH_SSO_TOKEN_URL`,
+`VOIDEN_PUBLISH_SSO_REGISTRATION_URL`, `VOIDEN_PUBLISH_SSO_REVOCATION_URL`,
+`VOIDEN_PUBLISH_SCHEDULER`, `VOIDEN_PUBLISH_SCHEDULER_INTERVAL_MINUTES`)
 — CLI flag wins, then env var, then the default above. Nothing Voiden-specific to configure in the
 repo; a CI/CD platform's own way of setting env vars/secrets is enough. `voiden-mcp --version`
 prints the installed package version; `voiden-mcp --check` is a dry run — discovers, validates,
@@ -146,8 +150,62 @@ bearer-token check in front of the MCP endpoint (`/health` stays open). A few th
 
 If the client you're connecting accepts a raw command/args (not just a fixed "URL + optional
 header" connector field), the existing `mcp-remote` bridge — see "Importing an MCP server config
-into Voiden" below — is still the simpler option when you don't need real OAuth, just a static
-bearer secret in front of an otherwise-unauthenticated URL.
+into Voiden" below — still works with `--api-key` (below) as its `--header`. But if all you need is
+a static secret, not real OAuth, `--api-key` skips the extra tool entirely.
+
+### A static API key
+
+For clients that accept a plain "URL + header" connector, or a raw command/args config (`mcp-remote
+<url> --header "Authorization: Bearer <key>"`), a shared secret is simpler than the full OAuth
+dance above — no browser, no handshake, just a Bearer token you generate once and hand out:
+
+```bash
+voiden-mcp . --http --tunnel --api-key
+# → 🔑 API key required — pass "Authorization: Bearer <generated-key>"
+```
+
+- **Independent of `--oauth`, and combinable with it** — `--api-key` alone needs none of the
+  `.well-known`/`/register`/`/authorize`/`/token` machinery, just a bearer check in front of the MCP
+  endpoint. Pass both `--oauth` and `--api-key` together and *either* a valid API key *or* a
+  completed OAuth handshake lets a request through — useful if you want to hand some people a quick
+  key while others go through full OAuth/SSO.
+- **Auto-generated and persisted** when you pass the flag with no value — stored under
+  `~/.voiden/mcp-api-keys.json` (mode `0600`), keyed by project path, so a restart doesn't silently
+  rotate a key you've already shared. Pass `--api-key <value>` (or set `VOIDEN_PUBLISH_API_KEY`) to
+  set it explicitly instead — prefer the env var over a literal CLI value, which is visible to
+  anything that can read this process's argv (`ps`).
+
+### Delegating login to an external IdP
+
+`--oauth` on its own auto-approves — see "Connecting OAuth-strict clients" above for why that's a
+deliberate choice, not an oversight, given the underlying trust model. If you want an actual login
+in front of it instead, point it at your own identity provider:
+
+```bash
+voiden-mcp . --http --tunnel \
+  --sso-authorize-url https://your-idp.example.com/oauth/authorize \
+  --sso-token-url https://your-idp.example.com/oauth/token \
+  --sso-registration-url https://your-idp.example.com/oauth/register
+```
+
+Passing `--sso-authorize-url`+`--sso-token-url` together is enough to turn OAuth mode on by itself —
+no need to also pass `--oauth`. Once set, the MCP client's browser gets redirected to *your*
+`--sso-authorize-url` for the actual login (your IdP's real login page, your users, your rules) —
+our server only mints its own token afterward, once your IdP confirms who they are. This is the
+same generic `/authorize` + `/token` flow every OAuth-capable MCP client already expects — nothing
+about the client side changes, only what happens inside those two endpoints.
+
+**Requirement**: your IdP must support Dynamic Client Registration (RFC 7591) at
+`--sso-registration-url` — this is what lets any MCP client that connects register itself against
+your IdP automatically, the same way it would against our own built-in `--oauth`. Many
+enterprise IdPs (Okta, Auth0, Keycloak, etc.) support this when configured for it. **Not supported
+yet**: an IdP with only one fixed, manually-created app and no DCR — this is how plain "Sign in with
+Google/GitHub" work, and needs a fundamentally different design (a broker holding one shared app,
+bridging every MCP client's own dynamic registration through it). `--sso-client-id`/
+`--sso-client-secret` exist only so passing them without `--sso-registration-url` fails with an
+explanatory error instead of silently doing nothing.
+
+`--sso-revocation-url` is optional — pass it if your IdP has a revocation endpoint.
 
 ### Running it from CI/CD
 

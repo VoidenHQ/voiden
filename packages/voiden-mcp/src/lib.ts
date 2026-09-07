@@ -26,7 +26,13 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { mcpAuthRouter, getOAuthProtectedResourceMetadataUrl } from '@modelcontextprotocol/sdk/server/auth/router.js'
 import { requireBearerAuth } from '@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js'
+import type { OAuthTokenVerifier, OAuthServerProvider } from '@modelcontextprotocol/sdk/server/auth/provider.js'
+import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js'
+import { InvalidTokenError } from '@modelcontextprotocol/sdk/server/auth/errors.js'
+import { timingSafeEqual, createHash } from 'node:crypto'
 import { VoidenOAuthProvider } from './oauthProvider.js'
+import { VoidenSsoOAuthProvider, type SsoEndpoints } from './oauthSsoProvider.js'
+import { getOrCreateProjectApiKey } from './apiKeyStore.js'
 import {
   loadEnabledPlugins,
   loadEnvFile,
@@ -48,7 +54,14 @@ export function withPublishOptions(cmd: Command): Command {
     .option('--host <host>', 'HTTP bind address — binding beyond 127.0.0.1 is a real exposure risk (env: VOIDEN_PUBLISH_HOST, default 127.0.0.1)')
     .option('--dynamic-tools', 'Expose exactly 2 tools instead of one per /tool block — search_tools (lists what\'s served) + call_tool (dispatches to one by name) — for projects with too many tools to put directly on the listing without blowing up an agent\'s context window. Off by default (every served /tool individually registered by name) (env: VOIDEN_PUBLISH_DYNAMIC_TOOLS)')
     .option('--tunnel', 'Wrap --http in a public cloudflared quick tunnel — only needed when this machine has no public IP of its own (env: VOIDEN_PUBLISH_TUNNEL)')
-    .option('--oauth', 'Require OAuth 2.1 (Dynamic Client Registration + authorization code + bearer tokens) on the --http endpoint — needed for clients that mandate an OAuth handshake before connecting (e.g. claude.ai\'s connector UI, some CLI agent tools). Off by default: --http/--tunnel stay exactly as unauthenticated as they are today unless this is passed (env: VOIDEN_PUBLISH_OAUTH)')
+    .option('--oauth', 'Require OAuth 2.1 (Dynamic Client Registration + authorization code + bearer tokens) on the --http endpoint — needed for clients that mandate an OAuth handshake before connecting (e.g. claude.ai\'s connector UI, some CLI agent tools). Off by default: --http/--tunnel stay exactly as unauthenticated as they are today unless this (or --api-key, or --sso-authorize-url+--sso-token-url) is passed (env: VOIDEN_PUBLISH_OAUTH)')
+    .option('--api-key [key]', 'Require a static API key as a Bearer token on the MCP endpoint — independent of --oauth and needs none of its DCR/authorize/token machinery; can be combined with --oauth so either credential works. Pass a value to set it explicitly (env: VOIDEN_PUBLISH_API_KEY — preferred over a literal CLI value, which is visible to anything that can read this process\'s argv), or pass the flag alone to auto-generate one, persisted under ~/.voiden/mcp-api-keys.json and printed at startup')
+    .option('--sso-authorize-url <url>', 'Delegate --oauth\'s login step to an external IdP\'s real authorization endpoint instead of auto-approving — requires --sso-token-url too. Passing both turns OAuth mode on by itself, no need to also pass --oauth (env: VOIDEN_PUBLISH_SSO_AUTHORIZE_URL)')
+    .option('--sso-token-url <url>', 'The external IdP\'s token endpoint — required alongside --sso-authorize-url (env: VOIDEN_PUBLISH_SSO_TOKEN_URL)')
+    .option('--sso-registration-url <url>', 'The external IdP\'s Dynamic Client Registration (RFC 7591) endpoint — required for --sso-authorize-url/--sso-token-url to work at all right now; an upstream that only supports one fixed, manually-created app (no DCR — this is how "Sign in with Google/GitHub" work) isn\'t supported yet, see the publish guide (env: VOIDEN_PUBLISH_SSO_REGISTRATION_URL)')
+    .option('--sso-revocation-url <url>', 'Optional — the external IdP\'s token revocation endpoint, if it has one (env: VOIDEN_PUBLISH_SSO_REVOCATION_URL)')
+    .option('--sso-client-id <id>', 'Not supported yet — a fixed, single pre-registered app (used when the IdP has no --sso-registration-url) needs a different bridging design. Exists only so passing this without --sso-registration-url fails with an explanatory error instead of silently doing nothing')
+    .option('--sso-client-secret <secret>', 'See --sso-client-id — not supported yet for the same reason')
     .option('--no-scheduler', 'Disable periodic re-verification while the server stays up (on by default; env: VOIDEN_PUBLISH_SCHEDULER)')
     .option('--scheduler-interval-minutes <n>', 'How often the scheduler checks which verify items are due (env: VOIDEN_PUBLISH_SCHEDULER_INTERVAL_MINUTES, default 1). Each item is still only actually re-run when its own declared cadence (hourly/daily/weekly/monthly) says it\'s due — this just controls how often that check happens, not how often any given item is re-verified')
     .option('-e, --env <path>', 'Path to a .env or .voiden/env-*.yaml file to merge on top of process env')
@@ -65,6 +78,13 @@ export interface PublishOpts {
   dynamicTools?: boolean
   tunnel?: boolean
   oauth?: boolean
+  apiKey?: string | boolean
+  ssoAuthorizeUrl?: string
+  ssoTokenUrl?: string
+  ssoRegistrationUrl?: string
+  ssoRevocationUrl?: string
+  ssoClientId?: string
+  ssoClientSecret?: string
   scheduler?: boolean
   schedulerIntervalMinutes?: string
   env?: string
@@ -372,7 +392,40 @@ export async function runPublish(projectRoot: string, rawOpts: PublishOpts): Pro
   const host = resolveString(rawOpts.host, 'VOIDEN_PUBLISH_HOST', '127.0.0.1')
   const mode: 'static' | 'dynamic' = resolveBool(rawOpts.dynamicTools, 'VOIDEN_PUBLISH_DYNAMIC_TOOLS', false) ? 'dynamic' : 'static'
   const tunnel = resolveBool(rawOpts.tunnel, 'VOIDEN_PUBLISH_TUNNEL', false)
-  const oauth = resolveBool(rawOpts.oauth, 'VOIDEN_PUBLISH_OAUTH', false)
+
+  const ssoAuthorizeUrl = resolveString(rawOpts.ssoAuthorizeUrl, 'VOIDEN_PUBLISH_SSO_AUTHORIZE_URL', '') || undefined
+  const ssoTokenUrl = resolveString(rawOpts.ssoTokenUrl, 'VOIDEN_PUBLISH_SSO_TOKEN_URL', '') || undefined
+  const ssoRegistrationUrl = resolveString(rawOpts.ssoRegistrationUrl, 'VOIDEN_PUBLISH_SSO_REGISTRATION_URL', '') || undefined
+  const ssoRevocationUrl = resolveString(rawOpts.ssoRevocationUrl, 'VOIDEN_PUBLISH_SSO_REVOCATION_URL', '') || undefined
+  if (Boolean(ssoAuthorizeUrl) !== Boolean(ssoTokenUrl)) {
+    console.error('  ✗  --sso-authorize-url and --sso-token-url must be given together.')
+    process.exit(2)
+  }
+  if ((rawOpts.ssoClientId || rawOpts.ssoClientSecret) && !ssoRegistrationUrl) {
+    console.error('  ✗  --sso-client-id/--sso-client-secret (a single fixed pre-registered app, no upstream Dynamic Client Registration) isn\'t supported yet — that needs a different bridging design. Pass --sso-registration-url instead if your IdP supports RFC 7591 DCR, see docs/mcp-tool-publish-guide.md.')
+    process.exit(2)
+  }
+  const ssoEnabled = Boolean(ssoAuthorizeUrl && ssoTokenUrl)
+  if (ssoEnabled && !ssoRegistrationUrl) {
+    console.error('  ✗  --sso-authorize-url/--sso-token-url also need --sso-registration-url — without it there\'s no way for an MCP client to register itself, since that upstream Dynamic Client Registration support isn\'t optional in this build. See docs/mcp-tool-publish-guide.md.')
+    process.exit(2)
+  }
+
+  // --sso-* alone (no --oauth) is enough to turn OAuth mode on — passing
+  // both is harmless/redundant, never an error.
+  const oauth = resolveBool(rawOpts.oauth, 'VOIDEN_PUBLISH_OAUTH', false) || ssoEnabled
+
+  // API key: an explicit value (flag or env var) is used as-is; the flag
+  // with no value (`true`) auto-generates + persists one, keyed by project.
+  const apiKeyRaw = rawOpts.apiKey
+  const apiKeyExplicitValue = typeof apiKeyRaw === 'string' ? apiKeyRaw : process.env.VOIDEN_PUBLISH_API_KEY
+  const apiKeyEnabled = Boolean(apiKeyRaw) || Boolean(apiKeyExplicitValue)
+  const apiKey = apiKeyEnabled
+    ? (apiKeyExplicitValue ?? getOrCreateProjectApiKey(resolve(projectRoot)))
+    : undefined
+  if (typeof apiKeyRaw === 'string') {
+    console.error('  ⚠  --api-key was given a literal value on the command line — visible to anything that can read this process\'s argv (e.g. `ps`). VOIDEN_PUBLISH_API_KEY avoids that.')
+  }
   // --no-scheduler bakes opts.scheduler to false when passed; commander has
   // no way to tell "default true" apart from "explicitly passed --scheduler"
   // here, so the env var can only turn scheduling off, never force it back
@@ -495,6 +548,8 @@ export async function runPublish(projectRoot: string, rawOpts: PublishOpts): Pro
   // address it briefly advertises right after startup.
   let onTunnelResolved: ((url: string) => void) | undefined
 
+  const useAuth = oauth || apiKeyEnabled
+
   if (isHttp) {
     if (oauth && host !== '127.0.0.1' && host !== 'localhost' && !tunnel) {
       // The OAuth spec (RFC 8414) requires an HTTPS issuer unless it's
@@ -504,35 +559,72 @@ export async function runPublish(projectRoot: string, rawOpts: PublishOpts): Pro
       process.exit(2)
     }
 
-    if (oauth) {
-      const provider = new VoidenOAuthProvider()
-      const mcpResourceUrl = (issuer: URL) => new URL('/mcp', issuer)
-      const buildAuthRouter = (issuer: URL) =>
-        mcpAuthRouter({ provider, issuerUrl: issuer, resourceServerUrl: mcpResourceUrl(issuer), scopesSupported: ['mcp'] })
+    if (useAuth) {
+      // A fixed-length digest sidesteps timingSafeEqual's requirement that
+      // both buffers be the same length (which would otherwise throw, or
+      // leak the expected key's length via an early bailout, for any
+      // mismatched-length guess).
+      const safeCompare = (a: string, b: string): boolean =>
+        timingSafeEqual(createHash('sha256').update(a).digest(), createHash('sha256').update(b).digest())
 
+      let provider: OAuthServerProvider | undefined
       let issuerUrl = new URL(`http://${host === '0.0.0.0' ? '127.0.0.1' : host}:${port}`)
-      let authRouter = buildAuthRouter(issuerUrl)
-      let bearerAuth = requireBearerAuth({
-        verifier: provider,
-        resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(mcpResourceUrl(issuerUrl)),
-      })
+      const mcpResourceUrl = (issuer: URL) => new URL('/mcp', issuer)
+      let authRouter: ReturnType<typeof mcpAuthRouter> | undefined
 
-      onTunnelResolved = (url: string) => {
-        issuerUrl = new URL(url)
+      if (oauth) {
+        provider = ssoEnabled
+          ? new VoidenSsoOAuthProvider({
+              authorizationUrl: ssoAuthorizeUrl!,
+              tokenUrl: ssoTokenUrl!,
+              registrationUrl: ssoRegistrationUrl!,
+              revocationUrl: ssoRevocationUrl,
+            } satisfies SsoEndpoints)
+          : new VoidenOAuthProvider()
+        const buildAuthRouter = (issuer: URL) =>
+          mcpAuthRouter({ provider: provider!, issuerUrl: issuer, resourceServerUrl: mcpResourceUrl(issuer), scopesSupported: ['mcp'] })
         authRouter = buildAuthRouter(issuerUrl)
-        bearerAuth = requireBearerAuth({
-          verifier: provider,
-          resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(mcpResourceUrl(issuerUrl)),
-        })
+
+        onTunnelResolved = (url: string) => {
+          issuerUrl = new URL(url)
+          authRouter = buildAuthRouter(issuerUrl)
+          bearerAuth = requireBearerAuth({ verifier: combinedVerifier, resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(mcpResourceUrl(issuerUrl)) })
+        }
       }
+
+      // Accepts EITHER a valid static API key OR (when --oauth is also on)
+      // a valid OAuth-issued token — whichever auth mode(s) are enabled.
+      const combinedVerifier: OAuthTokenVerifier = {
+        verifyAccessToken: async (token: string): Promise<AuthInfo> => {
+          if (apiKey && safeCompare(token, apiKey)) {
+            // requireBearerAuth requires a numeric expiresAt (throws "Token
+            // has no expiration time" otherwise) — a static key doesn't
+            // conceptually expire, so this is just a far-future placeholder,
+            // not a real TTL.
+            return { token, clientId: 'api-key', scopes: [], expiresAt: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 365 * 10 }
+          }
+          if (provider) return provider.verifyAccessToken(token)
+          throw new InvalidTokenError('Access token not recognized')
+        },
+      }
+
+      let bearerAuth = requireBearerAuth({
+        verifier: combinedVerifier,
+        resourceMetadataUrl: oauth ? getOAuthProtectedResourceMetadataUrl(mcpResourceUrl(issuerUrl)) : undefined,
+      })
 
       const app = express()
       // Delegates to whatever `authRouter` currently points at — mounted
       // ahead of the health check and the bearer-gated MCP handler so OAuth
       // paths (.well-known/*, /register, /authorize, /token, /revoke)
       // always take priority, with no re-ordering needed when --tunnel
-      // swaps `authRouter` to the real public issuer above.
-      app.use((req, res, next) => { authRouter(req, res, next) })
+      // swaps `authRouter` to the real public issuer above. Skipped
+      // entirely when --oauth is off (--api-key alone needs none of this
+      // machinery — just the bearer check below).
+      if (authRouter) {
+        const router = authRouter
+        app.use((req, res, next) => { router(req, res, next) })
+      }
       app.get('/health', (_req, res) => { res.status(200).json(healthPayload()) })
       app.use((req, res, next) => { bearerAuth(req, res, next) }, handleMcpRequest)
 
@@ -569,9 +661,17 @@ export async function runPublish(projectRoot: string, rawOpts: PublishOpts): Pro
       console.error(`  ⚠  Bound to ${host} — reachable beyond this machine. Make sure that's intended.`)
     }
     if (oauth) {
-      console.error('  🔒 OAuth enabled — clients must complete Dynamic Client Registration + authorization before the MCP endpoint responds. /health stays open.')
-    } else if (tunnel) {
-      console.error('  ⚠  --tunnel with no --oauth — this MCP server is public with zero authentication. Anyone with the URL has full tool access. Add --oauth to require an authenticated connection.')
+      console.error(
+        ssoEnabled
+          ? `  🔒 OAuth enabled, delegated to ${ssoAuthorizeUrl} — clients complete a real login there before the MCP endpoint responds. /health stays open.`
+          : '  🔒 OAuth enabled — clients must complete Dynamic Client Registration + authorization before the MCP endpoint responds. /health stays open.'
+      )
+    }
+    if (apiKeyEnabled) {
+      console.error(`  🔑 API key required — pass "Authorization: Bearer ${apiKey}" (also works alongside OAuth above, if both are on)`)
+    }
+    if (!useAuth && tunnel) {
+      console.error('  ⚠  --tunnel with no --oauth/--api-key — this MCP server is public with zero authentication. Anyone with the URL has full tool access.')
     }
 
     if (printConfig && !tunnel) {

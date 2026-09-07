@@ -2,16 +2,23 @@
 /**
  * Real smoke test for @voiden/mcp — spawns the built dist/index.js and
  * talks to it as an actual MCP client would (via @modelcontextprotocol/sdk's
- * own Client class), not just a build/typecheck. Three modes:
+ * own Client class), not just a build/typecheck. Four modes:
  *
- *   node scripts/smoke-test.mjs <projectPath>                  # stdio (default)
- *   node scripts/smoke-test.mjs <projectPath> --http [port]     # streamable HTTP
- *   node scripts/smoke-test.mjs <projectPath> --http --oauth [port] # HTTP + OAuth
+ *   node scripts/smoke-test.mjs <projectPath>                     # stdio (default)
+ *   node scripts/smoke-test.mjs <projectPath> --http [port]        # streamable HTTP
+ *   node scripts/smoke-test.mjs <projectPath> --http --oauth [port]   # HTTP + OAuth
+ *   node scripts/smoke-test.mjs <projectPath> --http --api-key [port] # HTTP + static key
  *
  * --oauth drives the full DCR → /authorize (auto-approve) → /token →
  * bearer-gated tools/list handshake using the SDK's own client-side OAuth
  * helpers — this is the automated stand-in for what a CLI-based AI agent's
  * loopback OAuth flow (or claude.ai's connector) does when it connects.
+ *
+ * --api-key confirms the much simpler static-key path: right key -> through,
+ * wrong/missing key -> 401. No OAuth dance involved.
+ *
+ * (--sso-authorize-url/--sso-token-url is NOT covered here — it needs a real
+ * external IdP to point at, so it's manual-only, see the publish guide.)
  *
  * Exits non-zero on any failure — safe to wire into CI later, not just
  * manual use. Always rebuilds first (`npm run build`) so a stale dist can
@@ -35,6 +42,7 @@ const args = process.argv.slice(2)
 const projectPath = resolve(args[0] ?? '.')
 const useHttp = args.includes('--http')
 const useOAuth = args.includes('--oauth')
+const useApiKey = args.includes('--api-key')
 const port = Number(args.find((a) => /^\d+$/.test(a)) ?? 3947)
 
 function log(...msg) {
@@ -157,13 +165,53 @@ async function runOAuthChecks(port) {
   log('✓ OAuth flow fully verified: DCR → authorize (auto-approve) → token exchange → bearer-gated request, plus 401 rejection for no token.')
 }
 
+/**
+ * Confirms the much simpler static-key path: the right key gets through,
+ * a wrong or missing key gets 401 — no OAuth machinery involved at all.
+ * `apiKey` is parsed from the server's own startup log (see below) rather
+ * than read from the store file directly, so this also exercises that the
+ * printed value is the one actually enforced.
+ */
+async function runApiKeyChecks(port, apiKey) {
+  const mcpUrl = new URL(`http://127.0.0.1:${port}/mcp`)
+  const call = (headers) => fetch(mcpUrl, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', ...headers },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }),
+  })
+
+  log('Verifying a request with no key is rejected...')
+  const noKeyRes = await call({})
+  if (noKeyRes.status !== 401) fail(`Expected 401 with no API key, got ${noKeyRes.status}.`)
+  log('✓ No key correctly rejected with 401.')
+
+  log('Verifying a request with the wrong key is rejected...')
+  const wrongKeyRes = await call({ Authorization: 'Bearer not-the-right-key' })
+  if (wrongKeyRes.status !== 401) fail(`Expected 401 with a wrong API key, got ${wrongKeyRes.status}.`)
+  log('✓ Wrong key correctly rejected with 401.')
+
+  log('Verifying a request with the correct key succeeds...')
+  const rightKeyRes = await call({ Authorization: `Bearer ${apiKey}` })
+  if (rightKeyRes.status === 401) fail(`The correct API key was rejected with 401 (${await rightKeyRes.text()}).`)
+  if (!rightKeyRes.ok) fail(`Correct-key request failed unexpectedly: HTTP ${rightKeyRes.status}.`)
+  log(`✓ Correct key passed the bearer-auth gate (HTTP ${rightKeyRes.status}).`)
+
+  log('✓ API key flow fully verified.')
+}
+
 if (useHttp) {
-  log(`Starting HTTP server on 127.0.0.1:${port}${useOAuth ? ' (--oauth)' : ''}...`)
+  log(`Starting HTTP server on 127.0.0.1:${port}${useOAuth ? ' (--oauth)' : ''}${useApiKey ? ' (--api-key)' : ''}...`)
   const serverArgs = [distIndex, projectPath, '--http', '--port', String(port)]
   if (useOAuth) serverArgs.push('--oauth')
+  if (useApiKey) serverArgs.push('--api-key')
   const child = spawn('node', serverArgs, { stdio: ['ignore', 'pipe', 'pipe'] })
+  let capturedApiKey
+  const captureApiKey = (chunk) => {
+    const match = /API key required.*Bearer ([^"]+)"/.exec(chunk.toString())
+    if (match) capturedApiKey = match[1]
+  }
   child.stdout.on('data', (d) => process.stderr.write(`  [server stdout] ${d}`))
-  child.stderr.on('data', (d) => process.stderr.write(`  [server] ${d}`))
+  child.stderr.on('data', (d) => { process.stderr.write(`  [server] ${d}`); captureApiKey(d) })
 
   const shutdown = (code) => {
     child.kill('SIGTERM')
@@ -175,6 +223,9 @@ if (useHttp) {
   try {
     if (useOAuth) {
       await runOAuthChecks(port)
+    } else if (useApiKey) {
+      if (!capturedApiKey) fail('Server did not print its auto-generated API key at startup — startup log format changed?')
+      await runApiKeyChecks(port, capturedApiKey)
     } else {
       const client = new Client({ name: 'smoke-test-client', version: '1.0.0' })
       await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`)))

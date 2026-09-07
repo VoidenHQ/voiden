@@ -3,6 +3,25 @@
 All notable changes to `@voiden/mcp` are documented here. This package is
 versioned and released independently of the Voiden desktop app.
 
+## v0.0.11 - 2026-09-07
+
+### Added
+- New `--api-key [key]` flag (`VOIDEN_PUBLISH_API_KEY`) — a static Bearer token in front of the MCP
+  endpoint, independent of `--oauth` and needing none of its DCR/authorize/token machinery.
+  Combinable with `--oauth`: when both are on, either a valid API key or a completed OAuth handshake
+  lets a request through. Pass the flag alone to auto-generate one (persisted to
+  `~/.voiden/mcp-api-keys.json`, mode `0600`, keyed by project path, printed at startup); pass a
+  value (or set the env var) to set it explicitly.
+- New `--sso-authorize-url`/`--sso-token-url`/`--sso-registration-url`/`--sso-revocation-url` flags —
+  delegates `--oauth`'s login step to an external IdP instead of auto-approving. Passing
+  `--sso-authorize-url`+`--sso-token-url` together is enough to turn OAuth mode on by itself (no
+  need to also pass `--oauth`). Requires the upstream IdP to support RFC 7591 Dynamic Client
+  Registration at `--sso-registration-url` — an IdP with only one fixed, manually-created app (no
+  DCR, e.g. plain "Sign in with Google/GitHub") isn't supported yet; `--sso-client-id`/
+  `--sso-client-secret` exist only to fail fast with an explanatory error if that combination is
+  attempted. Built on the MCP SDK's `ProxyOAuthServerProvider`, wrapped to persist registered
+  clients and locally track issued tokens for verification (see `src/oauthSsoProvider.ts`).
+
 ## v0.0.10 - 2026-09-07
 
 ### Added
