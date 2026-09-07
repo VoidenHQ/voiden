@@ -17,12 +17,16 @@
 
 import { resolve, join, basename } from 'path'
 import { existsSync, statSync } from 'fs'
-import { createServer as createHttpServer, type Server as HttpServer } from 'node:http'
+import { createServer as createHttpServer, type Server as HttpServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { spawn, type ChildProcess } from 'node:child_process'
 import type { Command } from 'commander'
+import express from 'express'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
+import { mcpAuthRouter, getOAuthProtectedResourceMetadataUrl } from '@modelcontextprotocol/sdk/server/auth/router.js'
+import { requireBearerAuth } from '@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js'
+import { VoidenOAuthProvider } from './oauthProvider.js'
 import {
   loadEnabledPlugins,
   loadEnvFile,
@@ -44,6 +48,7 @@ export function withPublishOptions(cmd: Command): Command {
     .option('--host <host>', 'HTTP bind address — binding beyond 127.0.0.1 is a real exposure risk (env: VOIDEN_PUBLISH_HOST, default 127.0.0.1)')
     .option('--dynamic-tools', 'Expose exactly 2 tools instead of one per /tool block — search_tools (lists what\'s served) + call_tool (dispatches to one by name) — for projects with too many tools to put directly on the listing without blowing up an agent\'s context window. Off by default (every served /tool individually registered by name) (env: VOIDEN_PUBLISH_DYNAMIC_TOOLS)')
     .option('--tunnel', 'Wrap --http in a public cloudflared quick tunnel — only needed when this machine has no public IP of its own (env: VOIDEN_PUBLISH_TUNNEL)')
+    .option('--oauth', 'Require OAuth 2.1 (Dynamic Client Registration + authorization code + bearer tokens) on the --http endpoint — needed for clients that mandate an OAuth handshake before connecting (e.g. claude.ai\'s connector UI, some CLI agent tools). Off by default: --http/--tunnel stay exactly as unauthenticated as they are today unless this is passed (env: VOIDEN_PUBLISH_OAUTH)')
     .option('--no-scheduler', 'Disable periodic re-verification while the server stays up (on by default; env: VOIDEN_PUBLISH_SCHEDULER)')
     .option('--scheduler-interval-minutes <n>', 'How often the scheduler checks which verify items are due (env: VOIDEN_PUBLISH_SCHEDULER_INTERVAL_MINUTES, default 1). Each item is still only actually re-run when its own declared cadence (hourly/daily/weekly/monthly) says it\'s due — this just controls how often that check happens, not how often any given item is re-verified')
     .option('-e, --env <path>', 'Path to a .env or .voiden/env-*.yaml file to merge on top of process env')
@@ -59,6 +64,7 @@ export interface PublishOpts {
   host?: string
   dynamicTools?: boolean
   tunnel?: boolean
+  oauth?: boolean
   scheduler?: boolean
   schedulerIntervalMinutes?: string
   env?: string
@@ -366,6 +372,7 @@ export async function runPublish(projectRoot: string, rawOpts: PublishOpts): Pro
   const host = resolveString(rawOpts.host, 'VOIDEN_PUBLISH_HOST', '127.0.0.1')
   const mode: 'static' | 'dynamic' = resolveBool(rawOpts.dynamicTools, 'VOIDEN_PUBLISH_DYNAMIC_TOOLS', false) ? 'dynamic' : 'static'
   const tunnel = resolveBool(rawOpts.tunnel, 'VOIDEN_PUBLISH_TUNNEL', false)
+  const oauth = resolveBool(rawOpts.oauth, 'VOIDEN_PUBLISH_OAUTH', false)
   // --no-scheduler bakes opts.scheduler to false when passed; commander has
   // no way to tell "default true" apart from "explicitly passed --scheduler"
   // here, so the env var can only turn scheduling off, never force it back
@@ -445,46 +452,106 @@ export async function runPublish(projectRoot: string, rawOpts: PublishOpts): Pro
     void shutdown(1)
   })
 
-  if (isHttp) {
-    httpServer = createHttpServer(async (req, res) => {
-      if (req.url === '/health') {
-        const served = decisions.filter((d) => d.served).length
-        const withdrawn = decisions.length - served
-        res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({
-          status: 'ok',
-          served,
-          withdrawn,
-          uptimeSeconds: Math.round(process.uptime()),
-          lastVerifiedAt: lastVerifiedAt.toISOString(),
+  // Shared by both the plain (--oauth off) and OAuth-gated HTTP paths below —
+  // identical to the pre-OAuth handler, just factored out so it isn't
+  // duplicated. Typed against the base node:http request/response so it's
+  // equally valid as a raw http.createServer callback or an Express handler
+  // (Express's Request/Response are subclasses of these).
+  const handleMcpRequest = async (req: IncomingMessage, res: ServerResponse) => {
+    try {
+      // Fresh McpServer + transport per request — reusing one transport
+      // across requests returns 500s (matches the SDK's own stateless
+      // example). Cheap: registration reads the current `decisions`
+      // closure value, so a scheduler tick updating it takes effect on
+      // the very next request with no hot-swap machinery needed.
+      const requestServer = new McpServer({ name: 'voiden-mcp', version: '0.1.0' })
+      registerToolsFromDecisions(requestServer, decisions, baseEnv, runtimeVars, activePlugins, commitSha, projectRoot, mode)
+      const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined })
+      await requestServer.connect(transport)
+      res.on('close', () => {
+        transport.close()
+        requestServer.close()
+      })
+      await transport.handleRequest(req, res)
+    } catch (err: any) {
+      console.error(`  ✗  Error handling MCP request: ${err?.message ?? String(err)}`)
+      if (!res.headersSent) {
+        res.writeHead(500, { 'content-type': 'application/json' }).end(JSON.stringify({
+          jsonrpc: '2.0', error: { code: -32603, message: 'Internal server error' }, id: null,
         }))
-        return
       }
-      try {
-        // Fresh McpServer + transport per request — reusing one transport
-        // across requests returns 500s (matches the SDK's own stateless
-        // example). Cheap: registration reads the current `decisions`
-        // closure value, so a scheduler tick updating it takes effect on
-        // the very next request with no hot-swap machinery needed.
-        const requestServer = new McpServer({ name: 'voiden-mcp', version: '0.1.0' })
-        registerToolsFromDecisions(requestServer, decisions, baseEnv, runtimeVars, activePlugins, commitSha, projectRoot, mode)
-        const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined })
-        await requestServer.connect(transport)
-        res.on('close', () => {
-          transport.close()
-          requestServer.close()
-        })
-        await transport.handleRequest(req, res)
-      } catch (err: any) {
-        console.error(`  ✗  Error handling MCP request: ${err?.message ?? String(err)}`)
-        if (!res.headersSent) {
-          res.writeHead(500, { 'content-type': 'application/json' }).end(JSON.stringify({
-            jsonrpc: '2.0', error: { code: -32603, message: 'Internal server error' }, id: null,
-          }))
-        }
-      }
-    })
+    }
+  }
 
-    await new Promise<void>((res) => httpServer!.listen(port, host, res))
+  const healthPayload = () => {
+    const served = decisions.filter((d) => d.served).length
+    const withdrawn = decisions.length - served
+    return { status: 'ok', served, withdrawn, uptimeSeconds: Math.round(process.uptime()), lastVerifiedAt: lastVerifiedAt.toISOString() }
+  }
+
+  // Set once --tunnel resolves its public URL (after listen(), see below) —
+  // only assigned when --oauth is on, so the OAuth issuer/resource metadata
+  // can be re-pointed at the real public HTTPS URL instead of the loopback
+  // address it briefly advertises right after startup.
+  let onTunnelResolved: ((url: string) => void) | undefined
+
+  if (isHttp) {
+    if (oauth && host !== '127.0.0.1' && host !== 'localhost' && !tunnel) {
+      // The OAuth spec (RFC 8414) requires an HTTPS issuer unless it's
+      // loopback — the SDK enforces this itself and would otherwise throw
+      // an unhelpful error the moment a client hit any OAuth endpoint.
+      console.error('  ✗  --oauth needs an HTTPS or loopback issuer URL — re-run with --tunnel for a public HTTPS URL, or drop --host so binding stays on 127.0.0.1.')
+      process.exit(2)
+    }
+
+    if (oauth) {
+      const provider = new VoidenOAuthProvider()
+      const mcpResourceUrl = (issuer: URL) => new URL('/mcp', issuer)
+      const buildAuthRouter = (issuer: URL) =>
+        mcpAuthRouter({ provider, issuerUrl: issuer, resourceServerUrl: mcpResourceUrl(issuer), scopesSupported: ['mcp'] })
+
+      let issuerUrl = new URL(`http://${host === '0.0.0.0' ? '127.0.0.1' : host}:${port}`)
+      let authRouter = buildAuthRouter(issuerUrl)
+      let bearerAuth = requireBearerAuth({
+        verifier: provider,
+        resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(mcpResourceUrl(issuerUrl)),
+      })
+
+      onTunnelResolved = (url: string) => {
+        issuerUrl = new URL(url)
+        authRouter = buildAuthRouter(issuerUrl)
+        bearerAuth = requireBearerAuth({
+          verifier: provider,
+          resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(mcpResourceUrl(issuerUrl)),
+        })
+      }
+
+      const app = express()
+      // Delegates to whatever `authRouter` currently points at — mounted
+      // ahead of the health check and the bearer-gated MCP handler so OAuth
+      // paths (.well-known/*, /register, /authorize, /token, /revoke)
+      // always take priority, with no re-ordering needed when --tunnel
+      // swaps `authRouter` to the real public issuer above.
+      app.use((req, res, next) => { authRouter(req, res, next) })
+      app.get('/health', (_req, res) => { res.status(200).json(healthPayload()) })
+      app.use((req, res, next) => { bearerAuth(req, res, next) }, handleMcpRequest)
+
+      httpServer = app.listen(port, host)
+      await new Promise<void>((res, reject) => {
+        httpServer!.once('listening', () => res())
+        httpServer!.once('error', reject)
+      })
+    } else {
+      httpServer = createHttpServer(async (req, res) => {
+        if (req.url === '/health') {
+          res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(healthPayload()))
+          return
+        }
+        await handleMcpRequest(req, res)
+      })
+      await new Promise<void>((res) => httpServer!.listen(port, host, res))
+    }
+
     const served = decisions.filter((d) => d.served).length
     console.error(`  ✓  voiden-mcp — listening on http://${host}:${port}/mcp`)
     // "served" counts /tool blocks, not the actual MCP tool count exposed —
@@ -500,6 +567,11 @@ export async function runPublish(projectRoot: string, rawOpts: PublishOpts): Pro
     logExcludedTools(decisions)
     if (host !== '127.0.0.1' && host !== 'localhost') {
       console.error(`  ⚠  Bound to ${host} — reachable beyond this machine. Make sure that's intended.`)
+    }
+    if (oauth) {
+      console.error('  🔒 OAuth enabled — clients must complete Dynamic Client Registration + authorization before the MCP endpoint responds. /health stays open.')
+    } else if (tunnel) {
+      console.error('  ⚠  --tunnel with no --oauth — this MCP server is public with zero authentication. Anyone with the URL has full tool access. Add --oauth to require an authenticated connection.')
     }
 
     if (printConfig && !tunnel) {
@@ -518,6 +590,7 @@ export async function runPublish(projectRoot: string, rawOpts: PublishOpts): Pro
       try {
         tunnelProcess = await spawnTunnel(host, port, (url) => {
           console.error(`  ✓  Public URL: ${url}`)
+          onTunnelResolved?.(url)
           if (printConfig) printMcpServerConfig(serverConfigName, { url: `${url}/mcp` })
         })
       } catch (err: any) {

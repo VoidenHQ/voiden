@@ -3,6 +3,22 @@
 All notable changes to `@voiden/mcp` are documented here. This package is
 versioned and released independently of the Voiden desktop app.
 
+## v0.0.10 - 2026-09-07
+
+### Added
+- New `--oauth` flag (`VOIDEN_PUBLISH_OAUTH`) for `--http` — adds a full OAuth 2.1 authorization
+  server in front of the MCP endpoint (Dynamic Client Registration, `.well-known` metadata,
+  `/authorize`, `/token`, `/revoke`, bearer-token verification) for MCP clients that require an
+  OAuth handshake before connecting at all (e.g. claude.ai's connector UI, CLI agents doing an
+  RFC 8252 loopback-redirect flow). Previously `--http`/`--tunnel` had no OAuth support whatsoever,
+  so such clients failed immediately with "Couldn't register with \<name\>'s sign-in service" —
+  there was nothing at `/register` to talk to. Off by default; `--http`/`--tunnel` without
+  `--oauth` are unchanged and stay just as unauthenticated as before. `/authorize` auto-approves
+  (no login/consent page) — this doesn't add a new identity check, since anyone reaching the URL
+  already has full access either way; it exists to satisfy clients that require the protocol shape.
+  Registered clients and issued tokens persist to `~/.voiden/mcp-oauth.json` (mode `0600`) so a
+  crash-recovery restart doesn't force reconnecting clients to re-authenticate.
+
 ## v0.0.9 - 2026-08-17
 
 ### Fixed

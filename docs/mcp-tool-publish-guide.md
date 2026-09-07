@@ -102,17 +102,52 @@ control what that actually means in practice:
 | `--dynamic-tools` | Off by default — every verified tool registers as its own named tool. Pass this to expose just 2 fixed tools instead — `search_tools`/`call_tool` — so a large published surface (hundreds+ of tools) doesn't overwhelm an agent's context window. |
 | `--print-config` | Once the server is actually up (after `--tunnel` resolves, if used), prints a ready-to-paste `{"mcpServers": {...}}` entry to the log — the exact shape Claude Desktop/Claude Code/Cursor read from their own config. Pasting it into a Voiden `.void` file also works — the editor recognizes this shape and fills in an mcp-connection block from it directly. stdio prints the `command`/`args` to reproduce this exact invocation; `--http` prints the real listening or tunnel URL, never a guess (a `0.0.0.0` bind prints a placeholder instead of a URL nothing outside this machine could actually use). |
 | `--tunnel` | **Optional** — only needed when the machine running the server has no public IP of its own (an ephemeral CI job, a laptop behind NAT). Wraps the server in a public `cloudflared` quick tunnel and prints the URL, live only as long as the process runs. If you're hosting on something with a real public/static IP already (a VPS, a cloud instance), skip this — `--host 0.0.0.0 --port <n>` alone is reachable directly. Requires `cloudflared` installed on `PATH`; not bundled. |
+| `--oauth` | **Optional**, off by default. Without it, `--http`/`--tunnel` are completely unauthenticated — anyone who can reach the URL has full tool access, same as always. Pass this to require OAuth 2.1 (Dynamic Client Registration, authorization, bearer tokens) in front of the MCP endpoint instead — needed for clients that mandate an OAuth handshake before they'll connect at all (claude.ai's connector UI, some CLI agent tools) rather than just accepting a URL and a static header. See "Connecting OAuth-strict clients" below. |
 | `--scheduler` | Whether verification keeps re-running after the server is up (withdrawing/re-adding/degrading tools live as their real status changes), instead of verifying once at startup only. On by default. `--scheduler-interval-minutes` (default `1`) controls how often the scheduler *checks* what's due — not how often things actually re-verify, which is each `toolverifies` entry's own declared [`cadence`](./mcp-tool-block-reference.md#verification-table-toolverifies-rows) (`hourly`/`daily`/`weekly`/`monthly`). Works over stdio too now, not just `--http` — a change in served state restarts the process (a clean, logged, planned restart, not a crash) so a reconnecting client picks up the new tool list; needs the auto-restart supervisor active, which is on by default (`--no-restart` disables it, and disables this). |
 | `--no-restart` | Disables the auto-restart supervisor that's on by default for a long-running server — normally a crash gets retried automatically (capped, so a persistent problem doesn't loop forever) and, over stdio, a scheduled verification change triggers a clean restart so the tool list stays current. Pass this to run as a single unsupervised process instead — e.g. when something *else* already supervises it (systemd, pm2, Docker `--restart=always`) and two layers of restart logic would just fight each other. |
 
 Each flag has a matching environment-variable fallback (`VOIDEN_PUBLISH_PORT`,
 `VOIDEN_PUBLISH_HOST`, `VOIDEN_PUBLISH_DYNAMIC_TOOLS`, `VOIDEN_PUBLISH_PRINT_CONFIG`,
-`VOIDEN_PUBLISH_TUNNEL`, `VOIDEN_PUBLISH_SCHEDULER`, `VOIDEN_PUBLISH_SCHEDULER_INTERVAL_MINUTES`)
+`VOIDEN_PUBLISH_TUNNEL`, `VOIDEN_PUBLISH_OAUTH`, `VOIDEN_PUBLISH_SCHEDULER`,
+`VOIDEN_PUBLISH_SCHEDULER_INTERVAL_MINUTES`)
 — CLI flag wins, then env var, then the default above. Nothing Voiden-specific to configure in the
 repo; a CI/CD platform's own way of setting env vars/secrets is enough. `voiden-mcp --version`
 prints the installed package version; `voiden-mcp --check` is a dry run — discovers, validates,
 and verifies without starting a live server, printing exactly what would/wouldn't be served and
 why.
+
+### Connecting OAuth-strict clients (claude.ai, CLI agents)
+
+Some MCP clients refuse to connect to an HTTP server at all until it completes a full OAuth 2.1
+handshake — Dynamic Client Registration, then an authorization + token exchange — even if the
+server itself doesn't otherwise need one. claude.ai's connector UI is one; some CLI-based agent
+tools that open a local browser and wait on a loopback redirect (the same pattern `gh auth login`/
+`gcloud auth login` use) are others. Without `--oauth`, those clients fail immediately with
+something like *"Couldn't register with \<name\>'s sign-in service"* — there's nothing at
+`/register` for them to talk to.
+
+`--oauth` adds that layer: `.well-known/oauth-protected-resource`,
+`.well-known/oauth-authorization-server`, `/register`, `/authorize`, `/token`, `/revoke`, and a
+bearer-token check in front of the MCP endpoint (`/health` stays open). A few things worth knowing:
+
+- **`/authorize` auto-approves — there's no login page to click through.** voiden-mcp is a
+  single-operator, locally-run tool: whoever can reach the URL already has full tool access with
+  `--oauth` off, exactly as without it. OAuth here exists to satisfy clients that require the
+  protocol shape, not to add a new identity check — a click-to-approve step wouldn't change that
+  trust boundary. You'll still see a brief "Voiden MCP — authorizing…" landing page in a
+  browser-driven flow, it just redirects on its own with no interaction needed.
+- **Registered clients and issued tokens persist** to `~/.voiden/mcp-oauth.json` (permissions
+  `0600`) — a crash-recovery restart or a normal stop/start won't force every connected client to
+  re-authenticate.
+- **Combine with `--tunnel` for a public HTTPS URL** — an OAuth issuer must be HTTPS or loopback
+  (RFC 8414), so `--oauth` without `--tunnel` requires staying on the default `127.0.0.1`/
+  `localhost` bind; passing `--host` to something else without `--tunnel` fails fast with a clear
+  error rather than an unhelpful one from deep inside the OAuth library.
+
+If the client you're connecting accepts a raw command/args (not just a fixed "URL + optional
+header" connector field), the existing `mcp-remote` bridge — see "Importing an MCP server config
+into Voiden" below — is still the simpler option when you don't need real OAuth, just a static
+bearer secret in front of an otherwise-unauthenticated URL.
 
 ### Running it from CI/CD
 
