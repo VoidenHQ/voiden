@@ -19,7 +19,6 @@ import {
   createVoidFile,
   dropFiles,
   dropFolder,
-  VOIDEN_DIR_NAME,
 } from "../fileSystem";
 import type { MoveConflict } from "../fileSystem";
 import { createEmptyProject, createSampleProject } from "../projectUtils";
@@ -131,7 +130,7 @@ function startFlatListSession(sessionId: string, rootDir: string, topN: number):
         try { entries = await fs.promises.readdir(dir, { withFileTypes: true }); }
         catch { continue; }
         for (const entry of entries) {
-          if (entry.name.startsWith(".") && !entry.name.startsWith(".env") && entry.name !== VOIDEN_DIR_NAME) continue;
+          // No dotfile filtering — every entry (hidden or not) is searchable.
           const full = path.join(dir, entry.name);
           if (entry.isDirectory()) {
             if (!SKIP.has(entry.name)) queue.push(full);
@@ -684,20 +683,9 @@ export function registerFileIpcHandlers() {
 
       const items = await fs.promises.readdir(dirPath, { withFileTypes: true });
 
-      const filtered = items.filter((item) => {
-        if (!item.name.startsWith(".")) return true;
-        if (
-          item.isFile() &&
-          (item.name === ".gitignore" ||
-            item.name === ".env" ||
-            item.name.startsWith(".env") ||
-            item.name.endsWith(".env"))
-        ) return true;
-        if (item.isDirectory() && item.name === VOIDEN_DIR_NAME) return true;
-        return false;
-      });
+      // No dotfile filtering — every entry (hidden or not) stays in the tree.
 
-      const children = filtered.map((item) => {
+      const children = items.map((item) => {
         const fullPath = path.join(dirPath, item.name);
         if (item.isDirectory()) {
           return { name: item.name, path: fullPath, type: "folder" as const, children: [], lazy: true };
@@ -747,20 +735,10 @@ export function registerFileIpcHandlers() {
 
       const readDir = async (currentPath: string) => {
         const items = await fs.promises.readdir(currentPath, { withFileTypes: true });
-        const filtered = items.filter((item) => {
-          if (!item.name.startsWith(".")) return true;
-          if (
-            item.isFile() &&
-            (item.name === ".gitignore" ||
-              item.name === ".env" ||
-              item.name.startsWith(".env") ||
-              item.name.endsWith(".env"))
-          ) return true;
-          if (item.isDirectory() && item.name === VOIDEN_DIR_NAME) return true;
-          return false;
-        });
 
-        const children = filtered.map((item) => {
+        // No dotfile filtering — every entry (hidden or not) stays in the tree.
+
+        const children = items.map((item) => {
           const fullPath = path.join(currentPath, item.name);
           if (item.isDirectory()) {
             return { name: item.name, path: fullPath, type: "folder" as const, children: [], lazy: true };

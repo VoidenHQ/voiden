@@ -314,7 +314,7 @@ async function scanForNestedCandidateDirs(rootDir: string): Promise<string[]> {
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
       if (entry.name === VOIDEN_DIR) continue; // never recurse into a .voiden dir
-      if (entry.name.startsWith(".")) continue; // matches file-tree visibility rule
+      if (entry.name.startsWith(".")) continue; // skip dotdirs (.git etc.) — this is a nested-project scan, not the file tree, which shows dotfiles
       if (NESTED_SCAN_SKIP_DIRS.has(entry.name)) continue;
       subdirs.push(entry.name);
     }

@@ -43,8 +43,8 @@ class IOSemaphore {
   }
 }
 
-// Kept visible in the file tree even though it's a dotfile — see the
-// filter in buildFileTree/files:expandDir/files:expandDirAll below.
+// Name of the .voiden config dir — still referenced by env.ts's nested-project
+// scan and by files.ts, even though the tree no longer filters dotfiles.
 export const VOIDEN_DIR_NAME = ".voiden";
 
 // Directories whose contents are too large to eagerly walk.
@@ -88,27 +88,12 @@ export const buildFileTree = async (
     sem.release();
   }
 
-  const filtered = items.filter((item) => {
-    if (!item.name.startsWith(".")) return true;
-    if (
-      item.isFile() &&
-      (item.name === ".gitignore" ||
-        item.name === ".env" ||
-        item.name.startsWith(".env") ||
-        item.name.endsWith(".env"))
-    ) {
-      return true;
-    }
-    // .voiden/ holds the environment YAML files, MCP config, etc. — it must
-    // stay browsable so users can find/inspect them, unlike other dotfiles.
-    if (item.isDirectory() && item.name === VOIDEN_DIR_NAME) return true;
-    return false;
-  });
+  // No dotfile filtering — every entry (hidden or not) stays in the tree.
 
   // Process all siblings in parallel, bounded by the shared semaphore.
   // This replaces the previous sequential for...of loop — same OOM safety
   // (semaphore caps concurrency at 16) but much faster for wide trees.
-  const nodes = await Promise.all(filtered.map(async (item) => {
+  const nodes = await Promise.all(items.map(async (item) => {
     const fullPath = path.join(dir, item.name);
     if (item.isDirectory()) {
       // All subdirectories are lazy — never recurse at startup.
