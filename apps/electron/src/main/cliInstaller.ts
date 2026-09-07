@@ -5,6 +5,8 @@ import { exec } from "node:child_process";
 import { promisify } from "node:util";
 // @ts-ignore - sudo-prompt doesn't have types
 import * as sudo from "sudo-prompt";
+import * as semver from "semver";
+import { getSettings, saveSettings } from "./settings";
 
 const execAsync = promisify(exec);
 
@@ -22,6 +24,17 @@ const sudoExec = (command: string, options: any): Promise<{ stdout?: string; std
 };
 
 const platform = process.platform;
+
+/** Symmetric with installCli()'s own settings write — single source of
+ *  truth for "which version last (re)installed this," cleared on removal
+ *  so a later install starts from a clean slate rather than a stale
+ *  version number. */
+function clearInstalledVersion(): void {
+  const settings = getSettings();
+  settings.cli.installed = false;
+  settings.cli.installedVersion = undefined;
+  saveSettings(settings);
+}
 
 /**
  * Get the path to the CLI script in the app bundle
@@ -154,6 +167,15 @@ Or run this in PowerShell (as Administrator):
       try {
         await sudoExec(command, options);
 
+        // Single source of truth for "which version last (re)installed
+        // this" — every caller (the explicit Settings button, and the
+        // silent reconcileCliInstall() repair below) gets this recorded
+        // consistently, without each needing its own write.
+        const settings = getSettings();
+        settings.cli.installed = true;
+        settings.cli.installedVersion = app.getVersion();
+        saveSettings(settings);
+
         return {
           success: true,
           message: `CLI installed successfully! You can now use 'voiden' in your terminal.`,
@@ -179,21 +201,23 @@ Then restart your terminal.`,
 }
 
 /**
- * Silently repair the CLI symlink if it's stale, on every app startup —
- * never installs it fresh for a user who hasn't opted in via the Settings
- * button at least once (no surprise sudo prompt on a first launch from
- * someone who never asked for terminal access).
+ * Silently repair the CLI symlink when a real app update happened since it
+ * was last installed, on every app startup — never installs it fresh for a
+ * user who hasn't opted in via the Settings button at least once (no
+ * surprise sudo prompt on a first launch from someone who never asked for
+ * terminal access).
  *
- * isCliInstalled()'s own check is deliberately loose (accepts anything
- * ending in ".../Voiden.app/Contents/Resources/bin/voiden") — right for
- * its purpose (a quick "is *something* pointing roughly at a Voiden.app
- * plausibly installed" status check for the Settings toggle), but it means
- * a symlink left over from a different Voiden.app location (the app moved,
- * a second copy was installed and this one is now the "real" one, etc.)
- * reads as "installed" there even though it's stale. This does the exact
- * comparison instead — does the existing symlink point at precisely where
- * THIS running instance's own script actually lives — and only touches
- * anything when that's false.
+ * The staleness test is a VERSION comparison (settings.cli.installedVersion
+ * vs. app.getVersion()), not a path comparison. It used to compare
+ * fs.readlinkSync(targetPath) against getCliScriptPath() — built from
+ * process.resourcesPath, the running instance's own on-disk path. On
+ * macOS, an app running under Gatekeeper's App Translocation (whenever
+ * it hasn't been moved to /Applications/fully trusted) executes from a
+ * randomized read-only path that changes on every single launch, so that
+ * comparison was always false even when nothing had actually changed —
+ * installCli() (and its native sudo-prompt password dialog) fired on
+ * every startup. A version only changes on a real update, regardless of
+ * which path the OS happened to run this launch from.
  *
  * Windows isn't covered: installCli() doesn't create anything there yet
  * (manual PATH instructions only), so there's nothing to reconcile.
@@ -202,18 +226,32 @@ export async function reconcileCliInstall(): Promise<void> {
   if (platform === "win32") return;
 
   const targetPath = getTargetPath();
-  const correctScriptPath = getCliScriptPath();
-
-  let linkTarget: string;
   try {
     const stats = fs.lstatSync(targetPath);
     if (!stats.isSymbolicLink()) return; // not ours to manage — leave it alone
-    linkTarget = fs.readlinkSync(targetPath);
   } catch {
     return; // never installed — respect that, don't install on their behalf
   }
 
-  if (linkTarget === correctScriptPath) return; // already correct, nothing to do
+  const settings = getSettings();
+  const installedVersion = settings.cli.installedVersion;
+  const currentVersion = app.getVersion();
+
+  if (!installedVersion) {
+    // Predates version tracking (this symlink was installed by an older
+    // app build, before this field existed). No evidence it's actually
+    // stale — the old path-based check was already prompting these users
+    // on every single launch regardless of real staleness, so backfilling
+    // silently and starting clean from here on is strictly better than one
+    // more transitional prompt.
+    settings.cli.installedVersion = currentVersion;
+    saveSettings(settings);
+    return;
+  }
+
+  if (!semver.valid(installedVersion) || !semver.valid(currentVersion) || !semver.gt(currentVersion, installedVersion)) {
+    return; // already current (or unparseable — don't guess into a surprise prompt)
+  }
 
   try {
     await installCli();
@@ -251,6 +289,7 @@ ${path.dirname(getCliScriptPath())}`,
       // Try to remove without sudo first
       try {
         fs.unlinkSync(targetPath);
+        clearInstalledVersion();
         return {
           success: true,
           message: "CLI uninstalled successfully.",
@@ -265,6 +304,7 @@ ${path.dirname(getCliScriptPath())}`,
 
           try {
             await sudoExec(command, options);
+            clearInstalledVersion();
             return {
               success: true,
               message: "CLI uninstalled successfully.",

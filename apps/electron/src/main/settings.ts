@@ -46,6 +46,7 @@ export type Settings = {
   };
   cli: {
     installed: boolean; // Whether CLI is currently installed in PATH
+    installedVersion?: string; // app.getVersion() as of the last successful (re)install — drives reconcileCliInstall()'s staleness check
   };
   skills: {
     claude: boolean;
