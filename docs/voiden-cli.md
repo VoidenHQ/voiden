@@ -51,12 +51,14 @@ Options:
 ```
 
 Writes `.mcp.json` (and the Codex `config.toml` equivalent) so Claude Code / Codex knows to start a
-small MCP server for this project and picks up 4 fixed tools:
+small MCP server for this project and picks up 6 fixed tools:
 
 - `list_void_files` — see which `.void` files exist in the project
 - `list_requests` — see what requests a file contains, without running anything
 - `run_request` — actually execute a request and return a structured result
 - `write_result` — record a result back into the `.void` file as a `response` block
+- `list_environments` — discover the env profiles/environments this project has (`.voiden/env-*.yaml`, or a plain `.env` fallback), including nested environments as dotted paths (e.g. `staging.eu`)
+- `select_environment` — pick a profile (+ optional environment within it) as the default env for every `run_request` call for the rest of the session — returns variable *keys* only, never values, since `env-*-private.yaml` can hold real secrets
 
 **Examples:**
 ```bash
@@ -93,7 +95,7 @@ from `@voiden/executors` — so toggling it in the app and running `voiden agent
 never disagree about what gets written under the `.mcp.json`'s `voiden-mcp` key.
 
 CI machines with no Voiden app installed use `voiden-runner mcp install` instead — same
-registration, same 4 tools, fully standalone (points at `voiden-runner mcp serve`, not this CLI).
+registration, same 6 tools, fully standalone (points at `voiden-runner mcp serve`, not this CLI).
 
 ---
 
@@ -159,6 +161,11 @@ flag surface does.
 
 ### Environment variables & multiple profiles
 
+This section is about `voiden run`'s own `--env`/`--environment` flags specifically. An agent
+connecting via `voiden agent`/`mcp-stdio` (or `voiden-runner mcp serve`/`mcp install`) has a
+separate, tool-based mechanism instead — `list_environments`/`select_environment`, see above —
+since there's no `--env` flag to pass in a live MCP session; nothing below applies to that path.
+
 Nothing is auto-loaded — `voiden run` never scans `.voiden/` on its own. Pass `--env <path>`
 explicitly, pointing at either format:
 
@@ -202,9 +209,9 @@ voiden mcp-stdio [path]
 ```
 
 Not shown in `--help` — this is what `.mcp.json`'s `command`/`args` actually invoke, not something
-to run by hand. Starts a stdio MCP server exposing the same 4 fixed tools `voiden agent` describes
-above (`list_void_files`/`list_requests`/`run_request`/`write_result`), via `@voiden/runner`'s own
-`registerFixedTools()` — reused, not reimplemented.
+to run by hand. Starts a stdio MCP server exposing the same 6 fixed tools `voiden agent` describes
+above (`list_void_files`/`list_requests`/`run_request`/`write_result`/`list_environments`/
+`select_environment`), via `@voiden/runner`'s own `registerFixedTools()` — reused, not reimplemented.
 
 Deliberately does **not** discover, verify, or serve `/tool` blocks — that's `@voiden/mcp`'s job
 alone, a different concern (publishing a capability API) from letting an editor run requests in a

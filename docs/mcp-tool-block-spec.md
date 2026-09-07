@@ -24,7 +24,7 @@ job:
 | Surface | Purpose |
 |---|---|
 | **`@voiden/mcp`** ([src](../packages/voiden-mcp/src)) | The package that actually runs the `/tool`-block server. No subcommand, no verb — `voiden-mcp [path] [options]` discovers every `/tool` block under `path`, verifies it, and serves everything that passes (stdio by default, `--http` for a real network endpoint), with `/health`, graceful shutdown, `--tunnel`, and a cadence-aware `--scheduler`. This is what you'd deploy standalone (Dockerfile, systemd unit, PaaS build step) for publishing an agent-callable API surface. It is **not** what an everyday agent-editor session talks to — see below. |
-| **`voiden agent` / `voiden run` / `voiden mcp-stdio`** ([src/voiden-cli.ts](../apps/electron/src/voiden-cli.ts)) | Bundled directly into the Voiden Electron app's own `voiden` binary — a normal Forge `VitePlugin` build entry (`vite.cli.config.ts`) alongside `main.ts`/`preload.ts`, landing at `.vite/build/voiden-cli.js` inside `app.asar` (not a separate `extraResource` outside it), launched via `ELECTRON_RUN_AS_NODE=1` — no separate Node install needed. Real npm dependencies (`commander`, `@modelcontextprotocol/sdk`, and everything `@voiden/runner` itself pulls in) stay external, resolved from the packaged app's own `node_modules` at runtime, the same convention `main.js` already uses for its own dependencies — only `@voiden/runner`/`@voiden/executors` get bundled in (workspace-symlinked, ESM-only packages, both fatal to an external `require()`). `voiden agent [path]` registers this project with Claude Code/Codex, pointing `.mcp.json` at `voiden mcp-stdio` (itself) — **not** at `@voiden/mcp`. `voiden run <paths...>` runs `.void` files headlessly (a lightweight subset of `@voiden/runner`'s own `run`). `voiden mcp-stdio [path]` is hidden (not in `--help`) — it's what `.mcp.json` actually invokes: a stdio MCP server exposing just the 4 fixed tools (`list_void_files`/`list_requests`/`run_request`/`write_result`), via `@voiden/runner`'s `registerFixedTools()`. Deliberately does **not** discover/verify/serve `/tool` blocks — that's `@voiden/mcp`'s job alone, for a different purpose (publishing a capability API, not letting an editor run requests in this project). |
+| **`voiden agent` / `voiden run` / `voiden mcp-stdio`** ([src/voiden-cli.ts](../apps/electron/src/voiden-cli.ts)) | Bundled directly into the Voiden Electron app's own `voiden` binary — a normal Forge `VitePlugin` build entry (`vite.cli.config.ts`) alongside `main.ts`/`preload.ts`, landing at `.vite/build/voiden-cli.js` inside `app.asar` (not a separate `extraResource` outside it), launched via `ELECTRON_RUN_AS_NODE=1` — no separate Node install needed. Real npm dependencies (`commander`, `@modelcontextprotocol/sdk`, and everything `@voiden/runner` itself pulls in) stay external, resolved from the packaged app's own `node_modules` at runtime, the same convention `main.js` already uses for its own dependencies — only `@voiden/runner`/`@voiden/executors` get bundled in (workspace-symlinked, ESM-only packages, both fatal to an external `require()`). `voiden agent [path]` registers this project with Claude Code/Codex, pointing `.mcp.json` at `voiden mcp-stdio` (itself) — **not** at `@voiden/mcp`. `voiden run <paths...>` runs `.void` files headlessly (a lightweight subset of `@voiden/runner`'s own `run`). `voiden mcp-stdio [path]` is hidden (not in `--help`) — it's what `.mcp.json` actually invokes: a stdio MCP server exposing just the 6 fixed tools (`list_void_files`/`list_requests`/`run_request`/`write_result`/`list_environments`/`select_environment`), via `@voiden/runner`'s `registerFixedTools()`. Deliberately does **not** discover/verify/serve `/tool` blocks — that's `@voiden/mcp`'s job alone, for a different purpose (publishing a capability API, not letting an editor run requests in this project). |
 | **`@voiden/runner`** ([src](../packages/voiden-runner/src)) | Stays a standalone, independently-installable package for CI servers — untouched by the redesign above. Its own `mcp install/uninstall/status/serve` commands are the CI equivalent of `voiden agent`/`mcp-stdio`: `voiden-runner mcp serve` already implements the same 4-fixed-tools (+ `/tool` blocks) server standalone, no Electron app required, so `voiden-runner mcp install` now registers against `voiden-runner mcp serve` by default instead of `@voiden/mcp` — CI machines never need `@voiden/mcp` installed just to let an agent run requests. |
 
 The old `@voiden/mcp-host` package (registration-only, `init` as its one public command) has been
@@ -53,7 +53,7 @@ are untouched.
 | `/tool` block marks an existing request as a named, typed, agent-callable capability — it does not turn into a self-registering tool inside the request itself | `voiden-mcp-tool` plugin owns `tool`/`toolparams`/`toolverifies`; core has no hardcoded knowledge of the block shape ([mcpToolCapability.ts](../packages/voiden-runner/src/mcpToolCapability.ts)) |
 | One combined server built from every `/tool` block across a project, not per-request | `buildMcpServer()` → `planServedTools()` scans **all** `.void` files under the project root ([mcpServing.ts:195](../packages/voiden-runner/src/mcpServing.ts#L195)) |
 | Publish with a path param, over HTTP with a port | `voiden-mcp [path] --http --port <n>` and `voiden-runner mcp serve [path] --http --port <n>` (same underlying logic) |
-| 4 fixed tools every project gets (list void files, list requests, run request, write result) | `registerFixedTools()` ([mcpServing.ts:87](../packages/voiden-runner/src/mcpServing.ts#L87)) — served by `@voiden/mcp`, `voiden-runner mcp serve`, **and** the bundled `voiden mcp-stdio` |
+| 6 fixed tools every project gets (list void files, list requests, run request, write result, list environments, select environment) | `registerFixedTools()` ([mcpServing.ts:87](../packages/voiden-runner/src/mcpServing.ts#L87)) — served by `voiden-runner mcp serve` **and** the bundled `voiden mcp-stdio`. **Not** `@voiden/mcp` — it never calls `registerFixedTools()` at all (a separate, pre-existing gap, not yet fixed) |
 | Verification withdraws a failing tool by default, or serves it flagged `degraded` | `onFailure: 'withdraw' \| 'advertise-degraded'` on the tool block, surfaced via `ServeDecision.descriptionNote` |
 | Assertions from the request feed verification automatically | Plugin's health check reads `metadata.assertionResults` from the run result (via `simple-assertions`); falls back to status-code-only if the request has no assertions |
 | Multiple tools per `.void` file | `discoverTools()` walks every section of every file independently, one tool block each |
@@ -188,18 +188,18 @@ publishing `/tool` blocks as a real, independently-hostable capability server; c
 redesign was meant to resolve.
 
 Neither surface shells out to a different package's CLI or duplicates the other's logic — the
-actual discover/verify/serve implementation lives once, in `@voiden/mcp/src/lib.ts` (and
-`voiden-runner mcp serve`'s own copy of the same call sequence), calling straight into
-`@voiden/runner`'s library exports (`planServedTools`/`registerFixedTools`/
-`registerToolsFromDecisions`/etc.). The bundled `voiden mcp-stdio` command reuses the exact same
-`registerFixedTools()` — it just never calls `planServedTools`/`registerToolsFromDecisions`, so it
-never touches `/tool` blocks at all.
+actual discover/verify/serve implementation lives once, calling straight into `@voiden/runner`'s
+library exports. `@voiden/mcp/src/lib.ts` calls `planServedTools`/`registerToolsFromDecisions` —
+**not** `registerFixedTools()`; it never registers the 6 fixed tools at all (a separate,
+pre-existing gap, not yet fixed). `voiden-runner mcp serve` calls both. The bundled `voiden
+mcp-stdio` command calls only `registerFixedTools()` — it never calls
+`planServedTools`/`registerToolsFromDecisions`, so it never touches `/tool` blocks at all.
 
 This resolves the "is `publish` an action or a server" ambiguity from spec review, and the
 follow-up "what does `.mcp.json` actually point at" ambiguity: `@voiden/mcp` is a real,
 independent, standalone-deployable package whose only job is running the `/tool`-block server;
 `voiden agent`/`voiden-runner mcp install` are registration-only, and what they register is a
-different, much smaller server whose only job is the 4 fixed tools.
+different, much smaller server whose only job is the 6 fixed tools.
 
 **Explicitly deferred**: `voiden-runner`'s own `tool list/verify` commands were left in place, not
 touched by this pass.
