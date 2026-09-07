@@ -207,6 +207,23 @@ explanatory error instead of silently doing nothing.
 
 `--sso-revocation-url` is optional — pass it if your IdP has a revocation endpoint.
 
+**Testing this locally, without a real IdP yet**: `packages/voiden-mcp/scripts/mock-idp.mjs` is a
+small, real, standalone OAuth 2.1 + DCR server with an actual login form (default credentials
+`testuser`/`testpass123`, overridable via `--user`/`--pass`) — everything in-memory, meant purely
+for testing, never published. Run it, then point `voiden-mcp` at it exactly as you would a real IdP:
+
+```bash
+node packages/voiden-mcp/scripts/mock-idp.mjs --port 4001
+# in another terminal:
+voiden-mcp . --http --tunnel \
+  --sso-authorize-url http://127.0.0.1:4001/authorize \
+  --sso-token-url http://127.0.0.1:4001/token \
+  --sso-registration-url http://127.0.0.1:4001/register
+```
+Connecting a real MCP client will land its browser on the mock IdP's login page — wrong credentials
+are genuinely rejected there, right ones issue a real token. `npm run smoke-test -- <path> --http
+--sso` automates this exact flow (including the wrong-password check) end to end.
+
 ### Running it from CI/CD
 
 GitHub Actions and GitLab CI jobs are ephemeral with no public inbound networking — a port bound

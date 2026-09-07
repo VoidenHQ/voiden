@@ -2,12 +2,13 @@
 /**
  * Real smoke test for @voiden/mcp — spawns the built dist/index.js and
  * talks to it as an actual MCP client would (via @modelcontextprotocol/sdk's
- * own Client class), not just a build/typecheck. Four modes:
+ * own Client class), not just a build/typecheck. Five modes:
  *
  *   node scripts/smoke-test.mjs <projectPath>                     # stdio (default)
  *   node scripts/smoke-test.mjs <projectPath> --http [port]        # streamable HTTP
  *   node scripts/smoke-test.mjs <projectPath> --http --oauth [port]   # HTTP + OAuth
  *   node scripts/smoke-test.mjs <projectPath> --http --api-key [port] # HTTP + static key
+ *   node scripts/smoke-test.mjs <projectPath> --http --sso [port]      # HTTP + delegated OAuth
  *
  * --oauth drives the full DCR → /authorize (auto-approve) → /token →
  * bearer-gated tools/list handshake using the SDK's own client-side OAuth
@@ -17,8 +18,12 @@
  * --api-key confirms the much simpler static-key path: right key -> through,
  * wrong/missing key -> 401. No OAuth dance involved.
  *
- * (--sso-authorize-url/--sso-token-url is NOT covered here — it needs a real
- * external IdP to point at, so it's manual-only, see the publish guide.)
+ * --sso spawns scripts/mock-idp.mjs (a real, standalone OAuth 2.1 + DCR
+ * server with an actual login form) alongside voiden-mcp --sso-authorize-url/
+ * --sso-token-url/--sso-registration-url pointed at it, and drives the full
+ * delegated flow: register -> land on the mock IdP's real login page ->
+ * wrong password rejected -> right password -> code -> token (minted by the
+ * mock IdP, tracked by voiden-mcp) -> bearer-gated request.
  *
  * Exits non-zero on any failure — safe to wire into CI later, not just
  * manual use. Always rebuilds first (`npm run build`) so a stale dist can
@@ -37,13 +42,16 @@ import { discoverOAuthServerInfo, registerClient, startAuthorization, exchangeAu
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const pkgRoot = resolve(__dirname, '..')
 const distIndex = resolve(pkgRoot, 'dist/index.js')
+const mockIdpScript = resolve(__dirname, 'mock-idp.mjs')
 
 const args = process.argv.slice(2)
 const projectPath = resolve(args[0] ?? '.')
 const useHttp = args.includes('--http')
 const useOAuth = args.includes('--oauth')
 const useApiKey = args.includes('--api-key')
+const useSso = args.includes('--sso')
 const port = Number(args.find((a) => /^\d+$/.test(a)) ?? 3947)
+const idpPort = port + 1000
 
 function log(...msg) {
   console.log('[smoke-test]', ...msg)
@@ -199,11 +207,126 @@ async function runApiKeyChecks(port, apiKey) {
   log('✓ API key flow fully verified.')
 }
 
+/**
+ * Drives the full delegated-login flow against scripts/mock-idp.mjs: unlike
+ * runOAuthChecks (voiden-mcp's own auto-approve /authorize), this one's
+ * /authorize is a REAL 302 to the external IdP — the browser never comes
+ * back through voiden-mcp until the token exchange step. Proves both that a
+ * wrong password is actually rejected there, and that a real login is
+ * required before any token comes back.
+ */
+async function runSsoChecks(port, idpPort) {
+  const mcpUrl = new URL(`http://127.0.0.1:${port}/mcp`)
+
+  const { authorizationServerUrl, authorizationServerMetadata } = await discoverOAuthServerInfo(mcpUrl)
+  if (!authorizationServerMetadata) fail('No authorization server metadata discovered from voiden-mcp itself.')
+
+  const redirectUrl = 'http://127.0.0.1:8947/callback'
+  log('Registering an OAuth client (forwarded by voiden-mcp to the mock IdP)...')
+  const clientInformation = await registerClient(authorizationServerUrl, {
+    metadata: authorizationServerMetadata,
+    clientMetadata: {
+      redirect_uris: [redirectUrl],
+      token_endpoint_auth_method: 'none',
+      grant_types: ['authorization_code', 'refresh_token'],
+      response_types: ['code'],
+      client_name: 'smoke-test-sso-client',
+    },
+  })
+  log(`Registered client_id=${clientInformation.client_id} (this is the mock IdP's own client_id — proxied through as-is).`)
+
+  const { authorizationUrl, codeVerifier } = await startAuthorization(authorizationServerUrl, {
+    metadata: authorizationServerMetadata,
+    clientInformation,
+    redirectUrl,
+    scope: 'mcp',
+    state: 'sso-smoke-test-state',
+  })
+
+  log('Hitting voiden-mcp\'s /authorize — expecting a real redirect to the mock IdP, not an auto-approve page...')
+  const proxyRedirect = await fetch(authorizationUrl, { redirect: 'manual' })
+  if (proxyRedirect.status < 300 || proxyRedirect.status >= 400) fail(`Expected a redirect (3xx) from voiden-mcp's /authorize, got ${proxyRedirect.status}.`)
+  const idpAuthorizeUrl = proxyRedirect.headers.get('location')
+  if (!idpAuthorizeUrl || !idpAuthorizeUrl.includes(`:${idpPort}`)) fail(`Expected the redirect to land on the mock IdP (port ${idpPort}), got: ${idpAuthorizeUrl}`)
+  log(`✓ Landed on the mock IdP's real /authorize (${idpAuthorizeUrl.split('?')[0]}) — not auto-approved by voiden-mcp.`)
+
+  const loginPageHtml = await (await fetch(idpAuthorizeUrl)).text()
+  const requestIdMatch = /name="request_id" value="([^"]+)"/.exec(loginPageHtml)
+  if (!requestIdMatch) fail('Could not find the login form\'s request_id on the mock IdP\'s page — did its markup change?')
+  const loginUrl = new URL('/login', idpAuthorizeUrl).toString()
+
+  log('Submitting the WRONG password — must be rejected, no code issued...')
+  const wrongLoginRes = await fetch(loginUrl, {
+    method: 'POST',
+    redirect: 'manual',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ request_id: requestIdMatch[1], username: 'testuser', password: 'definitely-wrong' }),
+  })
+  if (wrongLoginRes.status >= 300 && wrongLoginRes.status < 400) fail('A wrong password still produced a redirect (code issued?) — login is not actually being checked.')
+  log('✓ Wrong password correctly rejected — no redirect, no code.')
+
+  log('Submitting the CORRECT password...')
+  const rightLoginRes = await fetch(loginUrl, {
+    method: 'POST',
+    redirect: 'manual',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ request_id: requestIdMatch[1], username: 'testuser', password: 'testpass123' }),
+  })
+  if (rightLoginRes.status < 300 || rightLoginRes.status >= 400) fail(`Expected a redirect after correct login, got ${rightLoginRes.status}.`)
+  const finalRedirect = new URL(rightLoginRes.headers.get('location'))
+  const code = finalRedirect.searchParams.get('code')
+  if (!code) fail('No authorization code in the post-login redirect.')
+  if (finalRedirect.searchParams.get('state') !== 'sso-smoke-test-state') fail('state was not round-tripped correctly through the mock IdP.')
+  log('✓ Correct password accepted — got an authorization code from the real login.')
+
+  const tokens = await exchangeAuthorization(authorizationServerUrl, {
+    metadata: authorizationServerMetadata,
+    clientInformation,
+    authorizationCode: code,
+    codeVerifier,
+    redirectUri: redirectUrl,
+  })
+  log(`✓ Exchanged code for a token via voiden-mcp's /token (proxied to the mock IdP, expires_in=${tokens.expires_in}s).`)
+
+  const unauthRes = await fetch(mcpUrl, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }),
+  })
+  if (unauthRes.status !== 401) fail(`Expected 401 with no bearer token, got ${unauthRes.status}.`)
+
+  const authedRes = await fetch(mcpUrl, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', Authorization: `Bearer ${tokens.access_token}` },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }),
+  })
+  if (authedRes.status === 401) fail(`The mock-IdP-issued token was rejected with 401 (${await authedRes.text()}).`)
+  log(`✓ Mock-IdP-issued token passed voiden-mcp's bearer-auth gate (HTTP ${authedRes.status}).`)
+
+  log('✓ SSO-delegated flow fully verified: register -> real external login (wrong password rejected, right password accepted) -> token -> bearer-gated request.')
+}
+
 if (useHttp) {
-  log(`Starting HTTP server on 127.0.0.1:${port}${useOAuth ? ' (--oauth)' : ''}${useApiKey ? ' (--api-key)' : ''}...`)
+  let idpChild
+  if (useSso) {
+    log(`Starting mock IdP on 127.0.0.1:${idpPort}...`)
+    idpChild = spawn('node', [mockIdpScript, '--port', String(idpPort)], { stdio: ['ignore', 'pipe', 'pipe'] })
+    idpChild.stdout.on('data', (d) => process.stderr.write(`  [mock-idp] ${d}`))
+    idpChild.stderr.on('data', (d) => process.stderr.write(`  [mock-idp] ${d}`))
+    await new Promise((res) => setTimeout(res, 1000)) // let it bind before voiden-mcp starts registering against it
+  }
+
+  log(`Starting HTTP server on 127.0.0.1:${port}${useOAuth ? ' (--oauth)' : ''}${useApiKey ? ' (--api-key)' : ''}${useSso ? ' (--sso)' : ''}...`)
   const serverArgs = [distIndex, projectPath, '--http', '--port', String(port)]
   if (useOAuth) serverArgs.push('--oauth')
   if (useApiKey) serverArgs.push('--api-key')
+  if (useSso) {
+    serverArgs.push(
+      '--sso-authorize-url', `http://127.0.0.1:${idpPort}/authorize`,
+      '--sso-token-url', `http://127.0.0.1:${idpPort}/token`,
+      '--sso-registration-url', `http://127.0.0.1:${idpPort}/register`,
+    )
+  }
   const child = spawn('node', serverArgs, { stdio: ['ignore', 'pipe', 'pipe'] })
   let capturedApiKey
   const captureApiKey = (chunk) => {
@@ -215,6 +338,7 @@ if (useHttp) {
 
   const shutdown = (code) => {
     child.kill('SIGTERM')
+    if (idpChild) idpChild.kill('SIGTERM')
     setTimeout(() => process.exit(code), 300)
   }
 
@@ -226,6 +350,8 @@ if (useHttp) {
     } else if (useApiKey) {
       if (!capturedApiKey) fail('Server did not print its auto-generated API key at startup — startup log format changed?')
       await runApiKeyChecks(port, capturedApiKey)
+    } else if (useSso) {
+      await runSsoChecks(port, idpPort)
     } else {
       const client = new Client({ name: 'smoke-test-client', version: '1.0.0' })
       await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`)))

@@ -21,6 +21,10 @@ versioned and released independently of the Voiden desktop app.
   `--sso-client-secret` exist only to fail fast with an explanatory error if that combination is
   attempted. Built on the MCP SDK's `ProxyOAuthServerProvider`, wrapped to persist registered
   clients and locally track issued tokens for verification (see `src/oauthSsoProvider.ts`).
+- New `scripts/mock-idp.mjs` — a small, real, standalone OAuth 2.1 + DCR server with an actual login
+  form, for testing `--sso-*` locally without a real external IdP. Dev/test tooling only, not part
+  of the published package. `npm run smoke-test -- <path> --http --sso` drives the full delegated
+  flow against it automatically (including a wrong-password rejection check).
 
 ## v0.0.10 - 2026-09-07
 
