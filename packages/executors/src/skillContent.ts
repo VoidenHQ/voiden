@@ -27,6 +27,8 @@ A request block that merely looks well-formed can still be wrong (bad URL, wrong
 | \`list_requests\` | See what requests a file contains (label, request uid, method, URL) without running anything |
 | \`run_request\` | Actually execute a request (or a whole file) — makes a real network call and returns a structured result: \`success\`, \`status\`, \`statusText\`, \`durationMs\`, \`body\`, \`error\`, headers |
 | \`write_result\` | Record a \`run_request\` result back into the \`.void\` file, as a \`response\` block placed right after the request it belongs to |
+| \`list_environments\` | Discover the env profiles/environments this project actually has — not what's "active" in the app UI, see below |
+| \`select_environment\` | Pick a profile (+ optional environment within it) as the default env for every \`run_request\` call for the rest of this session |
 
 ## Workflow
 
@@ -42,18 +44,16 @@ A request block that merely looks well-formed can still be wrong (bad URL, wrong
 Environments live in \`.voiden/\`, split across **profiles** and, inside each profile, multiple **environments**:
 
 - **Profile files**: the default profile is \`env-public.yaml\` / \`env-private.yaml\`. Additional profiles follow \`env-<profileName>-public.yaml\` / \`env-<profileName>-private.yaml\` (e.g. \`env-work-public.yaml\`, \`env-work-private.yaml\`).
-- **Environments within a profile**: inside a given \`*-public.yaml\`/\`*-private.yaml\` pair, top-level keys are named environments (e.g. \`dev\`, \`staging\`, \`prod\`), each with its own \`variables:\` map.
+- **Environments within a profile**: inside a given \`*-public.yaml\`/\`*-private.yaml\` pair, top-level keys are named environments (e.g. \`dev\`, \`staging\`, \`prod\`), and those can nest further — a child inherits its parent's variables, its own overriding on conflict. \`list_environments\` reports the full hierarchy as dotted paths (e.g. \`staging\`, \`staging.eu\`), not just top-level names.
 
-Which profile *and* which environment inside it is active is UI state inside the Voiden app — none of the MCP tools expose a "get active environment" call, and there's no reliable way to introspect either from disk. Treat both as unknown by default, especially once a project has more than one profile file or more than one environment key.
+Call \`list_environments\` to see what's actually there before assuming anything — don't grep \`.voiden/\` by hand. For each profile it reports either its environment hierarchy (profiles with YAML environments defined) or the plain \`.env*\` file(s) it falls back to (profiles with none).
 
-- If \`run_request\` fails with an \`unresolved ...\` error, don't assume it means "nothing is active" — it can mean the active environment doesn't define that variable, the active profile isn't the one the user meant, or the app's active selection differs from what the MCP server process sees (they're separate processes with separate state). State the actual error rather than guessing the cause.
-- Never silently pick a profile or environment, substitute a guessed value into the request, or edit any \`env-*.yaml\` file to invent a value. Instead:
-  1. List the profile files present in \`.voiden/\` (matching \`env-*-public.yaml\`/\`env-*-private.yaml\`) to get profile names — the default profile has no suffix.
-  2. Ask the user which **profile** to use.
-  3. Once the profile is picked, list the top-level environment keys in its \`*-public.yaml\` and ask which **environment** to use if more than one exists.
-  4. Only then re-run the request.
-- Never print values from any \`*-private.yaml\` file. Only confirm whether a key exists.
-- If the user says a profile/environment is already active in the app and the error persists anyway, that's a real discrepancy worth surfacing plainly (the MCP server process doesn't see the same "active" state as the app UI) — don't retry silently hoping it resolves; say so and ask how they'd like to proceed.
+\`select_environment(profile, environment?)\` sets what \`run_request\` uses as its default env for the rest of *this* session — call it once, and every later \`run_request\` call picks it up automatically, no need to keep asking or re-passing \`envVars\` yourself. This is independent of whatever profile/environment the Voiden app UI shows as active — the MCP server process has no visibility into that (separate process, separate state, see the discrepancy note below), so don't try to match it; pick and set your own instead.
+
+- Never silently call \`select_environment\` with a guessed profile/environment, substitute a guessed value into a request, or edit any \`env-*.yaml\` file to invent one. If \`list_environments\` shows more than one profile or environment, ask the user which to use before calling \`select_environment\` — unless they've already told you.
+- \`select_environment\`'s response never includes actual variable values, only their keys — \`env-*-private.yaml\` can hold real secrets. Don't print values from any \`*-private.yaml\` file yourself either; only confirm whether a key exists.
+- If \`run_request\` still fails with an \`unresolved ...\` error after selecting an environment, don't assume it means "nothing is selected" — the selected environment may genuinely not define that variable, or the profile/environment picked isn't the one the user actually meant. State the actual error rather than guessing the cause.
+- If the user says a profile/environment is already active in the app and the error persists anyway, that's a real discrepancy worth surfacing plainly (this session's selected environment is independent of the app UI's "active" state) — don't retry silently hoping it resolves; say so and ask how they'd like to proceed.
 
 ## Caveats
 
