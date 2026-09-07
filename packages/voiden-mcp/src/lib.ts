@@ -55,7 +55,7 @@ export function withPublishOptions(cmd: Command): Command {
     .option('--dynamic-tools', 'Expose exactly 2 tools instead of one per /tool block — search_tools (lists what\'s served) + call_tool (dispatches to one by name) — for projects with too many tools to put directly on the listing without blowing up an agent\'s context window. Off by default (every served /tool individually registered by name) (env: VOIDEN_PUBLISH_DYNAMIC_TOOLS)')
     .option('--tunnel', 'Wrap --http in a public cloudflared quick tunnel — only needed when this machine has no public IP of its own (env: VOIDEN_PUBLISH_TUNNEL)')
     .option('--oauth', 'Require OAuth 2.1 (Dynamic Client Registration + authorization code + bearer tokens) on the --http endpoint — needed for clients that mandate an OAuth handshake before connecting (e.g. claude.ai\'s connector UI, some CLI agent tools). Off by default: --http/--tunnel stay exactly as unauthenticated as they are today unless this (or --api-key, or --sso-authorize-url+--sso-token-url) is passed (env: VOIDEN_PUBLISH_OAUTH)')
-    .option('--api-key [key]', 'Require a static API key as a Bearer token on the MCP endpoint — independent of --oauth and needs none of its DCR/authorize/token machinery; can be combined with --oauth so either credential works. Pass a value to set it explicitly (env: VOIDEN_PUBLISH_API_KEY — preferred over a literal CLI value, which is visible to anything that can read this process\'s argv), or pass the flag alone to auto-generate one, persisted under ~/.voiden/mcp-api-keys.json and printed at startup')
+    .option('--api-key [key]', 'Require a static API key as a Bearer token on the MCP endpoint — independent of --oauth and needs none of its DCR/authorize/token machinery; can be combined with --oauth so either credential works. This flag is what turns the requirement on at all — VOIDEN_PUBLISH_API_KEY by itself, with no --api-key, does nothing (never silently requires auth just because that env var happens to be set from an earlier session). Pass --api-key with a value to set it explicitly (or set VOIDEN_PUBLISH_API_KEY instead, once --api-key is present, to avoid a literal value on the command line — visible to anything that can read this process\'s argv), or pass the flag alone to auto-generate one, persisted under ~/.voiden/mcp-api-keys.json and printed at startup')
     .option('--sso-authorize-url <url>', 'Delegate --oauth\'s login step to an external IdP\'s real authorization endpoint instead of auto-approving — requires --sso-token-url too. Passing both turns OAuth mode on by itself, no need to also pass --oauth (env: VOIDEN_PUBLISH_SSO_AUTHORIZE_URL)')
     .option('--sso-token-url <url>', 'The external IdP\'s token endpoint — required alongside --sso-authorize-url (env: VOIDEN_PUBLISH_SSO_TOKEN_URL)')
     .option('--sso-registration-url <url>', 'The external IdP\'s Dynamic Client Registration (RFC 7591) endpoint — required for --sso-authorize-url/--sso-token-url to work at all right now; an upstream that only supports one fixed, manually-created app (no DCR — this is how "Sign in with Google/GitHub" work) isn\'t supported yet, see the publish guide (env: VOIDEN_PUBLISH_SSO_REGISTRATION_URL)')
@@ -415,11 +415,16 @@ export async function runPublish(projectRoot: string, rawOpts: PublishOpts): Pro
   // both is harmless/redundant, never an error.
   const oauth = resolveBool(rawOpts.oauth, 'VOIDEN_PUBLISH_OAUTH', false) || ssoEnabled
 
-  // API key: an explicit value (flag or env var) is used as-is; the flag
-  // with no value (`true`) auto-generates + persists one, keyed by project.
+  // API key mode is only ever turned ON by the --api-key flag itself
+  // (bare or with a value) — never by VOIDEN_PUBLISH_API_KEY alone. That
+  // env var only supplies the VALUE once the flag has already enabled the
+  // mode; letting it also enable the mode by itself meant a plain `--http`
+  // run (no flags at all) would silently require auth if the env var
+  // happened to still be exported from an earlier `--api-key` session —
+  // exactly the "server asked for sign-in" surprise this now prevents.
   const apiKeyRaw = rawOpts.apiKey
+  const apiKeyEnabled = apiKeyRaw !== undefined
   const apiKeyExplicitValue = typeof apiKeyRaw === 'string' ? apiKeyRaw : process.env.VOIDEN_PUBLISH_API_KEY
-  const apiKeyEnabled = Boolean(apiKeyRaw) || Boolean(apiKeyExplicitValue)
   const apiKey = apiKeyEnabled
     ? (apiKeyExplicitValue ?? getOrCreateProjectApiKey(resolve(projectRoot)))
     : undefined

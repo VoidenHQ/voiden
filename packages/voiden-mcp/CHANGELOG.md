@@ -3,6 +3,11 @@
 All notable changes to `@voiden/mcp` are documented here. This package is
 versioned and released independently of the Voiden desktop app.
 
+## v0.0.12 - 2026-09-07
+
+### Fixed
+- `--api-key` mode could turn itself on with **no `--api-key` flag present at all** — `VOIDEN_PUBLISH_API_KEY` alone, just being set in the environment, was enough to enable the requirement, since the value-resolution fallback doubled as the enable check. Anyone who'd exported that env var for an earlier `--api-key` session (including by following this package's own docs, which recommend exactly that over a literal CLI value) would then see a completely unrelated, flag-less `voiden-mcp . --http` run silently require a bearer token — surfacing to a connecting client as an unexplained 401/"asked for sign-in" after a hosted MCP server was configured for no auth. `--api-key` (bare or with a value) is now the only thing that turns the requirement on; `VOIDEN_PUBLISH_API_KEY` still supplies the key's *value* once the flag is present, exactly as before, it just no longer enables the mode by itself.
+
 ## v0.0.11 - 2026-09-07
 
 ### Added
