@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { getAppState } from "../state";
 import { updateComposedSkillOnly } from "../skillsInstaller";
-import { registerClaudeMcpServer, upsertCodexMcpSection, getMcpStatus, type ServerCommand } from "@voiden/executors";
+import { registerClaudeMcpServer, unregisterClaudeMcpServer, upsertCodexMcpSection, getMcpStatus, type ServerCommand } from "@voiden/executors";
 
 // Points at the SAME hidden `mcp-stdio` entry `voiden agent` registers (see
 // apps/electron/src/voiden-cli.ts's own doc comment) — the lightweight
@@ -61,6 +61,28 @@ export function registerMcpIpcHandlers() {
       registerClaudeMcpServer(activeDirectory, serverCommand);
       upsertCodexMcpSection(activeDirectory, serverCommand);
       updateComposedSkillOnly(getAppState(event), { claude: true, codex: true });
+      return { success: true };
+    } catch (error: any) {
+      return { success: false, message: error?.message ?? "Unknown error" };
+    }
+  });
+
+  // The inverse of mcp:initialize — deliberately project-scoped only
+  // (unregisterClaudeMcpServer removes just this project's entry from its
+  // own .mcp.json). Does NOT touch removeCodexMcpSection()/
+  // uninstallClaudeSkill()/uninstallCodexSkill() — those write to a single
+  // GLOBAL ~/.codex/config.toml and ~/.claude|codex/skills/<slug> dir
+  // shared by every project, so "disable MCP for this project" must not
+  // silently break Codex/skill access for every other one too. Same
+  // per-project-vs-global reasoning mcp:status's own comment already
+  // applies on the read side.
+  ipcMain.handle("mcp:disable", async (event) => {
+    const activeDirectory = getAppState(event).activeDirectory;
+    if (!activeDirectory) {
+      return { success: false, message: "No active project" };
+    }
+    try {
+      unregisterClaudeMcpServer(activeDirectory);
       return { success: true };
     } catch (error: any) {
       return { success: false, message: error?.message ?? "Unknown error" };

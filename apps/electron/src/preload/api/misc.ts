@@ -429,6 +429,11 @@ export const mcpApi = {
    *  voiden-mcp skill or touching that toggle's own persisted state. */
   initialize: (): Promise<{ success: boolean; message?: string }> =>
     ipcRenderer.invoke("mcp:initialize"),
+  /** Unregisters the active project's .mcp.json entry only — project-scoped,
+   *  does not touch Codex's global config section or either installed
+   *  skill (those aren't specific to this project). */
+  disable: (): Promise<{ success: boolean; message?: string }> =>
+    ipcRenderer.invoke("mcp:disable"),
   /** Whether the active project already has .mcp.json/config.toml registered. */
   status: (): Promise<{ registered: boolean }> =>
     ipcRenderer.invoke("mcp:status"),

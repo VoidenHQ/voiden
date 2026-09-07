@@ -3,6 +3,7 @@ import { useProjectLock } from "@/core/file-system/hooks";
 import { cn, isMac } from "@/core/lib/utils";
 import { GitBranchesList } from "@/core/git/components/GitBranchesList";
 import { BranchComparisonDialog } from "@/core/git/components/BranchComparisonDialog";
+import { DisableMcpDialog } from "@/core/layout/components/DisableMcpDialog";
 import { useSettings } from "@/core/settings/hooks/useSettings";
 import { usePanelStore } from "@/core/stores/panelStore";
 import { useResponsePanelPosition } from "@/core/stores/responsePanelPosition";
@@ -268,6 +269,8 @@ export const StatusBar = ({
   const [isInitializingMcp, setIsInitializingMcp] = useState(false);
   const [mcpRegistered, setMcpRegistered] = useState(false);
   const [mcpInitError, setMcpInitError] = useState(false);
+  const [isDisablingMcp, setIsDisablingMcp] = useState(false);
+  const [showDisableMcpConfirm, setShowDisableMcpConfirm] = useState(false);
   const [isCompareDialogOpen, setIsCompareDialogOpen] = useState(false);
   const [memStats, setMemStats] = useState<{ heap: number; processes: { type: string; mb: number; cpu: number }[] } | null>(null);
   const [updateProgress, setUpdateProgress] = useState<{ percent?: number; bytesPerSecond?: number; transferred?: number; total?: number; status: string } | null>(null);
@@ -322,6 +325,29 @@ export const StatusBar = ({
       setMcpInitError(true);
     } finally {
       setIsInitializingMcp(false);
+      setTimeout(() => setMcpInitError(false), 2000);
+    }
+  };
+
+  const handleDisableMcp = async () => {
+    if (isDisablingMcp) return;
+
+    setIsDisablingMcp(true);
+    setMcpInitError(false);
+    try {
+      const result = await window.electron?.mcp?.disable();
+      if (result?.success) {
+        setMcpRegistered(false);
+        setShowDisableMcpConfirm(false);
+      } else {
+        setMcpInitError(true);
+        console.error("Failed to disable MCP:", result?.message);
+      }
+    } catch (error) {
+      console.error("Failed to disable MCP:", error);
+      setMcpInitError(true);
+    } finally {
+      setIsDisablingMcp(false);
       setTimeout(() => setMcpInitError(false), 2000);
     }
   };
@@ -468,34 +494,46 @@ export const StatusBar = ({
             </Tip>
           )}
 
-          {/* Initialize MCP — registers .mcp.json/config.toml for this project so
-              Claude Code/Codex can launch @voiden/mcp, without hunting
-              through Settings' "AI Skills" toggle. */}
+          {/* Initialize/Disable MCP — registers or unregisters this project's
+              .mcp.json entry so Claude Code/Codex can launch @voiden/mcp,
+              without hunting through Settings' "AI Skills" toggle. */}
           {projectRoot && (
             <Tip
               label={
                 mcpRegistered
-                  ? "This project is registered as an MCP server for Claude Code / Codex. Click to re-sync."
+                  ? "This project is registered as an MCP server for Claude Code. Click to disable."
                   : "Register this project with Claude Code / Codex as an MCP server."
               }
               align="end"
             >
               <button
-                onClick={() => { void handleInitializeMcp(); }}
-                disabled={isInitializingMcp}
+                onClick={() => {
+                  if (mcpRegistered) {
+                    setShowDisableMcpConfirm(true);
+                  } else {
+                    void handleInitializeMcp();
+                  }
+                }}
+                disabled={isInitializingMcp || isDisablingMcp}
                 className={cn(
                   "h-full px-2 flex items-center gap-1.5 hover:bg-active transition-colors",
                   mcpInitError ? "text-red-500" : mcpRegistered ? "text-green-500" : "text-comment",
-                  isInitializingMcp && "opacity-60 cursor-wait",
+                  (isInitializingMcp || isDisablingMcp) && "opacity-60 cursor-wait",
                 )}
               >
                 <Plug size={13} />
                 <span className="text-xs">
-                  {isInitializingMcp ? "Initializing…" : mcpInitError ? "MCP failed" : mcpRegistered ? "MCP ready" : "Initialize MCP"}
+                  {isInitializingMcp ? "Initializing…" : isDisablingMcp ? "Disabling…" : mcpInitError ? "MCP failed" : mcpRegistered ? "MCP ready" : "Initialize MCP"}
                 </span>
               </button>
             </Tip>
           )}
+
+          <DisableMcpDialog
+            open={showDisableMcpConfirm}
+            onConfirm={() => { void handleDisableMcp(); }}
+            onCancel={() => setShowDisableMcpConfirm(false)}
+          />
 
           {/* Memory / CPU */}
           {memStats && (() => {
