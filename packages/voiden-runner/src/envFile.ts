@@ -8,6 +8,37 @@ interface YamlEnvNode {
 }
 
 /**
+ * Structurally merges two parsed YAML env trees (e.g. a profile's public +
+ * private content) — `b`'s `variables:` win over `a`'s per node on key
+ * conflict (matches the app's own public/private precedence, see env.ts's
+ * loadYamlEnvironments), `children:` are merged recursively rather than one
+ * replacing the other wholesale, so a child defined only in `a` still shows
+ * up even if `b` also defines siblings under the same parent.
+ */
+export function mergeYamlEnvTrees(a: unknown, b: unknown): Record<string, unknown> {
+  const treeA = a && typeof a === 'object' && !Array.isArray(a) ? (a as Record<string, unknown>) : {}
+  const treeB = b && typeof b === 'object' && !Array.isArray(b) ? (b as Record<string, unknown>) : {}
+  const keys = new Set([...Object.keys(treeA), ...Object.keys(treeB)])
+  const result: Record<string, unknown> = {}
+  for (const key of keys) {
+    const nodeA = treeA[key]
+    const nodeB = treeB[key]
+    const isNodeA = nodeA != null && typeof nodeA === 'object' && !Array.isArray(nodeA)
+    const isNodeB = nodeB != null && typeof nodeB === 'object' && !Array.isArray(nodeB)
+    if (!isNodeA && !isNodeB) { result[key] = nodeB ?? nodeA; continue }
+    const a2 = (isNodeA ? nodeA : {}) as YamlEnvNode
+    const b2 = (isNodeB ? nodeB : {}) as YamlEnvNode
+    result[key] = {
+      variables: { ...(a2.variables ?? {}), ...(b2.variables ?? {}) },
+      ...(a2.children || b2.children
+        ? { children: mergeYamlEnvTrees(a2.children ?? {}, b2.children ?? {}) }
+        : {}),
+    }
+  }
+  return result
+}
+
+/**
  * `environmentName`, when given, scopes YAML loading to exactly one named
  * environment (e.g. "dev") instead of the default "flatten every
  * environment in the file together" behavior — the latter merges every
@@ -88,7 +119,53 @@ function topLevelEnvironmentNames(tree: Record<string, unknown>): string[] {
     .map(([key]) => key)
 }
 
-function parseYamlEnv(content: string, environmentName?: string): Record<string, string> {
+/**
+ * Navigates a tree by an exact dotted path (as produced by
+ * listYamlEnvironmentNames, e.g. "staging.eu") rather than searching for a
+ * bare key anywhere — unlike findEnvironment above (kept as-is for the
+ * CLI's existing --environment <name> flag, which intentionally matches by
+ * bare name wherever it occurs), a dotted path must resolve deterministically:
+ * two different parents can each have a child literally named "eu", and
+ * only a full-path walk tells them apart. Same inheritance order (each
+ * segment's own variables merge on top of everything above it).
+ */
+export function findEnvironmentByPath(tree: Record<string, unknown>, dottedPath: string): Record<string, string> | null {
+  let current = tree
+  let resolved: Record<string, string> = {}
+  for (const segment of dottedPath.split('.')) {
+    const value = current[segment]
+    if (value === null || value === undefined || Array.isArray(value) || typeof value !== 'object') return null
+    const node = value as YamlEnvNode
+    resolved = { ...resolved, ...ownVariables(node) }
+    current = (node.children ?? {}) as Record<string, unknown>
+  }
+  return resolved
+}
+
+/** Every named environment in the tree, at any depth, as dotted paths
+ *  (e.g. "staging", "staging.eu") — unlike topLevelEnvironmentNames, this
+ *  IS meant to show the full nested shape (used by list_environments to
+ *  show a profile's environment hierarchy, not just an error hint). */
+export function listYamlEnvironmentNames(content: string): string[] {
+  const parsed = YAML.parse(content)
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return []
+  const names: string[] = []
+  const walk = (tree: Record<string, unknown>, prefix: string): void => {
+    for (const [key, value] of Object.entries(tree)) {
+      if (value === null || value === undefined || Array.isArray(value) || typeof value !== 'object') continue
+      const path = prefix ? `${prefix}.${key}` : key
+      names.push(path)
+      const node = value as YamlEnvNode
+      if (node.children != null && typeof node.children === 'object') {
+        walk(node.children as Record<string, unknown>, path)
+      }
+    }
+  }
+  walk(parsed as Record<string, unknown>, '')
+  return names
+}
+
+export function parseYamlEnv(content: string, environmentName?: string): Record<string, string> {
   const parsed = YAML.parse(content)
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
   const tree = parsed as Record<string, unknown>

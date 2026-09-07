@@ -8,7 +8,7 @@ import { runVoidFile } from './runner.js'
 import { resolveFiles } from './discovery.js'
 import { discoverTools, verifyTools, validateTools, upsertToolStatus, registerToolsFromDecisions, planServedTools, getCommitSha } from './mcpToolCapability.js'
 import type { ToolDef } from './toolRegistry.js'
-import { registerFixedTools } from './mcpServing.js'
+import { registerFixedTools, type SelectedEnv } from './mcpServing.js'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
@@ -1624,6 +1624,9 @@ mcpCmd
     // Shared across calls so {{process.xxx}} runtime variables chain the
     // same way they do for the stdio path and for @voiden/mcp.
     const runtimeVars: Record<string, any> = {}
+    // Set by select_environment, read by run_request as its base env layer
+    // — shared by reference across calls the same way runtimeVars is.
+    const selectedEnv: SelectedEnv = { vars: {} }
 
     if (opts.http) {
       const port = Number(opts.port)
@@ -1637,7 +1640,7 @@ mcpCmd
       const httpServer = createHttpServer(async (req, res) => {
         try {
           const requestServer = new McpServer({ name: 'voiden-runner', version: '1.0.0' })
-          registerFixedTools(requestServer, projectRoot, runtimeVars, activePlugins)
+          registerFixedTools(requestServer, projectRoot, runtimeVars, activePlugins, selectedEnv)
           registerToolsFromDecisions(requestServer, decisions, env, runtimeVars, activePlugins, commitSha, projectRoot)
           const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined })
           await requestServer.connect(transport)
@@ -1657,7 +1660,7 @@ mcpCmd
       })
       httpServer.listen(port, host, () => {
         console.error(chalk.green(`  ✓  voiden-runner mcp serve — listening on http://${host}:${port}/mcp`))
-        console.error(chalk.gray(`     ${servedCount} tool(s) served (plus list_void_files, list_requests, run_request, write_result)`))
+        console.error(chalk.gray(`     ${servedCount} tool(s) served (plus list_void_files, list_requests, run_request, write_result, list_environments, select_environment)`))
         if (host !== '127.0.0.1' && host !== 'localhost') {
           console.error(chalk.red(`  ⚠  Bound to ${host} — reachable beyond this machine. Make sure that's intended.`))
         }
@@ -1669,7 +1672,7 @@ mcpCmd
       // Startup info goes to stderr only, same discipline @voiden/mcp's
       // own entrypoint already follows (it prints nothing).
       const server = new McpServer({ name: 'voiden-runner', version: '1.0.0' })
-      registerFixedTools(server, projectRoot, runtimeVars, activePlugins)
+      registerFixedTools(server, projectRoot, runtimeVars, activePlugins, selectedEnv)
       registerToolsFromDecisions(server, decisions, env, runtimeVars, activePlugins, commitSha, projectRoot)
       await server.connect(new StdioServerTransport())
     }

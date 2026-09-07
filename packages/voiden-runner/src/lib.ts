@@ -24,7 +24,7 @@ export type { ToolState, ToolVerifyResult, ToolStatus, ToolValidationIssue, Disc
 export type { ToolDef, ToolExtraction, ToolParamDef, ToolVerifyEntry, ToolVerifyRole, ToolVerifyMode, ToolOnFailure, ToolAnnotations, ToolExtractFn } from './toolRegistry.js'
 
 export { buildMcpServer, registerFixedTools } from './mcpServing.js'
-export type { BuildMcpServerOptions } from './mcpServing.js'
+export type { BuildMcpServerOptions, SelectedEnv } from './mcpServing.js'
 
 // Shared CLI pretty-printing for a RunResult — same --show-req/--show-res
 // detail and per-request formatting `voiden-runner run` itself uses,

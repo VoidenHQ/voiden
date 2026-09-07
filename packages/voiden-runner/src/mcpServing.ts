@@ -7,9 +7,10 @@
  * transport to connect.
  *
  * Two things get registered on every server:
- *   1. registerFixedTools (below) — the 4 generic tools (list/run/write)
- *      every project gets, regardless of what it declares. Genuinely
- *      generic — references no /tool-block shape at all.
+ *   1. registerFixedTools (below) — the 6 generic tools (list/run/write,
+ *      plus list_environments/select_environment) every project gets,
+ *      regardless of what it declares. Genuinely generic — references no
+ *      /tool-block shape at all.
  *   2. Whatever the /tool-block-owning plugin (voiden-mcp-tool) registered
  *      via context.registerMcpToolCapabilityProvider() — discovery,
  *      structural validation (voiden-mcp-blocks-spec.md §1.6), verification
@@ -27,7 +28,20 @@ import { loadEnabledPlugins } from './plugins/loader.js'
 import { planServedTools, registerToolsFromDecisions, getCommitSha, type ServeDecision } from './mcpToolCapability.js'
 import { parseVoidFile, groupBlocksIntoSections, resolveLinkedFiles, resolveLinkedBlocks } from '@voiden/executors'
 import type { RunResult } from './types.js'
+import { discoverEnvProfiles, resolveEnvProfile } from './envProfiles.js'
 import { z } from 'zod'
+
+/**
+ * What select_environment last resolved, shared by reference with
+ * run_request (same pattern as runtimeVars below) so a selection persists
+ * as the base env layer for later calls in the same server session,
+ * without needing every run_request call to re-pass it explicitly.
+ */
+export interface SelectedEnv {
+  profile?: string
+  environment?: string
+  vars: Record<string, string>
+}
 
 // ─── Fixed tools (list_void_files, list_requests, run_request, write_result) ──
 
@@ -83,12 +97,13 @@ function registerTool(server: McpServer, name: string, config: any, handler: any
   server.registerTool(name, config, handler)
 }
 
-/** Registers the 4 fixed tools every project gets, regardless of what it declares. */
+/** Registers the 6 fixed tools every project gets, regardless of what it declares. */
 export function registerFixedTools(
   server: McpServer,
   projectRoot: string,
   runtimeVars: Record<string, any>,
   activePlugins: string[],
+  selectedEnv: SelectedEnv,
 ): void {
   registerTool(
     server,
@@ -149,7 +164,13 @@ export function registerFixedTools(
     },
     async ({ filePath, sectionLabel, envFile, envVars }: { filePath: string; sectionLabel?: string; envFile?: string; envVars?: Record<string, string> }) => {
       const resolved = resolveInProject(projectRoot, filePath)
+      // Layered: whatever select_environment last chose is the base, an
+      // explicit per-call envFile layers over that, and explicit per-call
+      // envVars wins over everything — matches how the two existing
+      // per-call overrides already behave relative to each other, a
+      // session-wide selection just adds a new bottom layer underneath.
       const env = {
+        ...selectedEnv.vars,
         ...(envFile ? loadEnvFile(resolveInProject(projectRoot, envFile)) : {}),
         ...(envVars ?? {}),
       }
@@ -179,6 +200,46 @@ export function registerFixedTools(
       return textResult({ written: true, filePath, requestUid })
     },
   )
+
+  registerTool(
+    server,
+    'list_environments',
+    {
+      title: 'List env profiles and environments',
+      description:
+        'List every env profile in this project (.voiden/env-{profile}-public.yaml + -private.yaml, or the "default" profile\'s env-public.yaml/env-private.yaml), and for each one, either the environments defined in its YAML (as dotted paths reflecting any nested child environments, e.g. "staging", "staging.eu") or — if that profile has no YAML environments at all — the plain .env* file(s) it falls back to. Call this before select_environment to see what\'s available.',
+      inputSchema: {},
+    },
+    async () => {
+      return textResult(discoverEnvProfiles(projectRoot))
+    },
+  )
+
+  registerTool(
+    server,
+    'select_environment',
+    {
+      title: 'Select an env profile/environment',
+      description:
+        'Resolve a profile (and optional named environment within it, from list_environments\' output) and make its variables the default for every run_request call for the rest of this session — an explicit envFile/envVars on a given run_request call still overrides it for that call only. Does not return the actual variable VALUES (env-*-private.yaml can hold real secrets) — only their keys, to confirm what got selected.',
+      inputSchema: {
+        profile: z.string().describe('A profile name from list_environments\' output (e.g. "default", "staging").'),
+        environment: z.string().optional().describe('A dotted environment path from that profile\'s "environments" list (e.g. "staging.eu"). Omit if the profile has none, or to use its whole flattened tree.'),
+      },
+    },
+    async ({ profile, environment }: { profile: string; environment?: string }) => {
+      const vars = resolveEnvProfile(projectRoot, profile, environment)
+      selectedEnv.profile = profile
+      selectedEnv.environment = environment
+      selectedEnv.vars = vars
+      return textResult({
+        profile,
+        environment,
+        variableKeys: Object.keys(vars),
+        variableCount: Object.keys(vars).length,
+      })
+    },
+  )
 }
 
 // ─── Combined entry point ───────────────────────────────────────────────────
@@ -199,9 +260,10 @@ export interface BuildMcpServerOptions {
 export async function buildMcpServer(opts: BuildMcpServerOptions): Promise<{ server: McpServer; decisions: ServeDecision[] }> {
   const activePlugins = await loadEnabledPlugins()
   const runtimeVars: Record<string, any> = {}
+  const selectedEnv: SelectedEnv = { vars: {} }
   const server = new McpServer({ name: opts.serverName ?? 'voiden-mcp', version: opts.serverVersion ?? '0.1.0' })
 
-  registerFixedTools(server, opts.projectRoot, runtimeVars, activePlugins)
+  registerFixedTools(server, opts.projectRoot, runtimeVars, activePlugins, selectedEnv)
   const decisions = await planServedTools(opts.projectRoot, opts.env, activePlugins)
   registerToolsFromDecisions(server, decisions, opts.env, runtimeVars, activePlugins, getCommitSha(opts.projectRoot), opts.projectRoot)
 

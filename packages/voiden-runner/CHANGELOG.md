@@ -3,6 +3,33 @@
 All notable changes to `@voiden/runner` are documented here. This package is
 versioned and released independently of the Voiden desktop app.
 
+## v2.3.0-beta.15 - 2026-09-07
+
+### Added
+- Two new fixed MCP tools, alongside the existing `list_void_files`/`list_requests`/`run_request`/
+  `write_result` — `list_environments` and `select_environment` (`mcpServing.ts`, exposed by
+  `voiden-runner mcp serve`/`mcp install`; `@voiden/mcp` is unaffected, see below). `list_environments`
+  discovers every env profile in the project (`.voiden/env-{profile}-public/private.yaml`, or the
+  `default` profile's unsuffixed files) and, for each, either its YAML environment hierarchy as
+  dotted paths (e.g. `"staging"`, `"staging.eu"` for a nested child) or — if that profile has no YAML
+  environments — the plain `.env*` file(s) it falls back to. `select_environment` resolves a chosen
+  profile (+ optional dotted environment path within it) and makes its variables the default base
+  layer for every `run_request` call for the rest of the session; an explicit `envFile`/`envVars` on
+  a given `run_request` call still overrides it for that call only. Returns variable *keys* only, not
+  values — `env-*-private.yaml` can hold real secrets, and echoing them into a tool-call response
+  that likely ends up in the calling agent's own transcript is an avoidable exposure `run_request`'s
+  existing `envVars` param doesn't already create.
+- `envFile.ts`: exported `parseYamlEnv`, added and exported `listYamlEnvironmentNames` (full nested
+  environment tree as dotted paths) and `findEnvironmentByPath` (resolves a tree by exact dotted
+  path rather than searching for a bare key anywhere — needed because two different parents can each
+  have a same-named child, e.g. `staging.eu` vs `prod.eu`; only a full-path walk tells them apart).
+- New `envProfiles.ts` — headless profile discovery/resolution (no Electron dependency), a
+  deliberately simplified port of `apps/electron/src/main/env.ts`'s profile logic, same precedent as
+  `plugins/voiden-mcp-tool/src/lib/toolCapability.ts`'s `loadProjectEnvironmentVars`.
+- Note: `@voiden/mcp` does not call `registerFixedTools` at all today (a pre-existing gap, not
+  changed by this release) — none of the 6 fixed tools, old or new, currently reach connections made
+  through that package, only `voiden-runner mcp serve`/`mcp install`.
+
 ## v2.3.0-beta.14 - 2026-08-26
 
 ### Fixed
