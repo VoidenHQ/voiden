@@ -629,6 +629,13 @@ export async function runPublish(projectRoot: string, rawOpts: PublishOpts): Pro
       if (authRouter) {
         const router = authRouter
         app.use((req, res, next) => { router(req, res, next) })
+      } else {
+        // --api-key alone, no --oauth: no OAuth endpoints exist at all, so
+        // an OAuth-aware client checking "does this server publish OAuth
+        // metadata?" should get a clean 404 here — not a 401 from the
+        // bearer gate below, which would misleadingly suggest OAuth is
+        // the way in when the actual mechanism is a plain static key.
+        app.use('/.well-known', (_req, res) => { res.status(404).json({ error: 'not_found' }) })
       }
       app.get('/health', (_req, res) => { res.status(200).json(healthPayload()) })
       app.use((req, res, next) => { bearerAuth(req, res, next) }, handleMcpRequest)
@@ -642,6 +649,21 @@ export async function runPublish(projectRoot: string, rawOpts: PublishOpts): Pro
       httpServer = createHttpServer(async (req, res) => {
         if (req.url === '/health') {
           res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(healthPayload()))
+          return
+        }
+        // Without --oauth/--api-key, this server publishes no OAuth
+        // metadata at all — but with no routing here beyond /health,
+        // every other path (including these) fell straight into the raw
+        // MCP JSON-RPC handler below, which rejects anything lacking the
+        // right Accept header with a confusing 406, not a clean 404. An
+        // OAuth-aware client checking "does this server require auth?"
+        // before even looking at how it's configured sees that ambiguous
+        // non-404 and can reasonably conclude "might need auth after
+        // all" — a real false positive, not just an unhelpful response.
+        // A plain 404 here is the unambiguous "no such thing, don't
+        // expect OAuth from me" signal that check is actually looking for.
+        if (req.url?.startsWith('/.well-known/')) {
+          res.writeHead(404, { 'content-type': 'application/json' }).end(JSON.stringify({ error: 'not_found' }))
           return
         }
         await handleMcpRequest(req, res)

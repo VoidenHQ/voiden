@@ -188,6 +188,13 @@ async function runApiKeyChecks(port, apiKey) {
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }),
   })
 
+  // --api-key alone has no OAuth endpoints at all — an OAuth-aware client
+  // probing for them should get a clean 404, not a 401 from the bearer
+  // gate (which would misleadingly suggest OAuth is the way in).
+  const wellKnownRes = await fetch(new URL('/.well-known/oauth-protected-resource', mcpUrl))
+  if (wellKnownRes.status !== 404) fail(`Expected 404 from .well-known/oauth-protected-resource on an --api-key-only server, got ${wellKnownRes.status}.`)
+  log('✓ .well-known/oauth-protected-resource correctly 404s on an --api-key-only server.')
+
   log('Verifying a request with no key is rejected...')
   const noKeyRes = await call({})
   if (noKeyRes.status !== 401) fail(`Expected 401 with no API key, got ${noKeyRes.status}.`)
@@ -353,6 +360,16 @@ if (useHttp) {
     } else if (useSso) {
       await runSsoChecks(port, idpPort)
     } else {
+      // No --oauth/--api-key: an OAuth-aware client checking "does this
+      // server require auth?" before even looking at how it's configured
+      // must see a clean 404 here, not the confusing 406 the raw MCP
+      // JSON-RPC handler used to return for any path lacking the right
+      // Accept header (a real bug — an ambiguous non-404 response reads
+      // as "might need auth after all" to a careful client).
+      const wellKnownRes = await fetch(`http://127.0.0.1:${port}/.well-known/oauth-protected-resource`)
+      if (wellKnownRes.status !== 404) fail(`Expected 404 from .well-known/oauth-protected-resource on a no-auth server, got ${wellKnownRes.status} — this server would look like it might require sign-in to an OAuth-aware client.`)
+      log('✓ .well-known/oauth-protected-resource correctly 404s on a no-auth server (not an ambiguous error).')
+
       const client = new Client({ name: 'smoke-test-client', version: '1.0.0' })
       await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`)))
       log(`Connected to http://127.0.0.1:${port}/mcp`)

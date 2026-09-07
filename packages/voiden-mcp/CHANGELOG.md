@@ -3,6 +3,23 @@
 All notable changes to `@voiden/mcp` are documented here. This package is
 versioned and released independently of the Voiden desktop app.
 
+## v0.0.13 - 2026-09-07
+
+### Fixed
+- `--http` with no `--oauth`/`--api-key` (i.e. genuinely no auth) returned a confusing `406 Not
+  Acceptable` for `.well-known/oauth-protected-resource`/`.well-known/oauth-authorization-server`
+  instead of a clean `404` — every path except `/health` fell straight into the raw MCP JSON-RPC
+  handler, which rejects anything lacking the right `Accept` header regardless of path. An
+  OAuth-aware client checking "does this server require auth?" *before* even looking at how its own
+  connector is configured sees that ambiguous non-404 response and can reasonably conclude "might
+  need sign-in after all" — surfacing as a client-side warning like "this server requires sign-in,
+  but authentication is set to None" even against a server that never asked for auth at all. Also
+  fixed the equivalent case for `--api-key` alone (no `--oauth`): those requests were reaching the
+  bearer-auth gate and getting a `401` instead of `404`, which is arguably worse — it looks like
+  OAuth *is* available when the actual mechanism is a plain static key. Both cases now return a
+  plain `404` for `.well-known/*`, the unambiguous "no such thing, don't expect OAuth from me"
+  signal. New smoke-test coverage for both.
+
 ## v0.0.12 - 2026-09-07
 
 ### Fixed
