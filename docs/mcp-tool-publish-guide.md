@@ -405,8 +405,11 @@ entries under the same `claude_desktop_config.json`'s `mcpServers` as a concrete
 | Where it shows up once connected | Settings → Connectors page | The in-chat tool/attachment picker |
 | Requires a restart to pick up | No — the picker connects live | Yes — full Cmd+Q + reopen, config is only read at startup |
 
-Note that `--print-config` currently prints only `{"url": "..."}`, not the header — add it yourself
-using whichever shape above matches your client.
+`--print-config` includes the `headers` field automatically when `--api-key` is on — copy-pasteable
+as-is into any client shape above that supports `headers` natively (Claude Code/VS Code, Cursor). For
+`mcp-remote`-bridged configs (Claude Desktop's JSON file, Zed), you still need to translate it into
+the `--header "Authorization: Bearer <key>"` form by hand — the printed shape can't know which bridge
+syntax your client expects.
 
 ### Delegating login to an external IdP
 

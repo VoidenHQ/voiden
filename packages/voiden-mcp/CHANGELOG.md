@@ -3,6 +3,17 @@
 All notable changes to `@voiden/mcp` are documented here. This package is
 versioned and released independently of the Voiden desktop app.
 
+## v0.0.16 - 2026-09-08
+
+### Fixed
+- `--print-config` (with `--api-key` on) printed only `{"url": "..."}`, silently omitting the
+  `Authorization` header — the resulting config connected to a server requiring auth with no way to
+  actually supply it. Now prints `{"url": "...", "headers": {"Authorization": "Bearer <key>"}}`,
+  copy-pasteable as-is into any client that reads the `headers` field natively (Claude Code/VS
+  Code's `.mcp.json`, Cursor). `mcp-remote`-bridged configs (Claude Desktop's JSON file, Zed) still
+  need manual translation into that bridge's own `--header` flag — the printed shape can't know
+  which bridge syntax a given client expects.
+
 ## v0.0.15 - 2026-09-08
 
 ### Fixed

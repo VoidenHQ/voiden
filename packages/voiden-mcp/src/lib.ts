@@ -740,9 +740,16 @@ export async function runPublish(projectRoot: string, rawOpts: PublishOpts): Pro
       console.error('  ⚠  --tunnel with no --oauth/--api-key — this MCP server is public with zero authentication. Anyone with the URL has full tool access.')
     }
 
+    // --api-key needs a header, not just a URL, to actually be usable
+    // as-is — printing bare {"url": ...} here for an api-key-gated server
+    // produced a config that connects to something requiring auth with no
+    // way to supply it, silently missing the one thing that makes it work.
+    const buildHttpConfigEntry = (mcpUrl: string): Record<string, unknown> =>
+      apiKeyEnabled ? { url: mcpUrl, headers: { Authorization: `Bearer ${apiKey}` } } : { url: mcpUrl }
+
     if (printConfig && !tunnel) {
       if (publicUrl) {
-        printMcpServerConfig(serverConfigName, { url: new URL('/mcp', publicUrl).toString() })
+        printMcpServerConfig(serverConfigName, buildHttpConfigEntry(new URL('/mcp', publicUrl).toString()))
       } else {
         // 0.0.0.0 means "every interface on this machine," not an address a
         // remote client could actually connect to — there's no way to know
@@ -752,7 +759,7 @@ export async function runPublish(projectRoot: string, rawOpts: PublishOpts): Pro
         if (host === '0.0.0.0') {
           console.error("  ⚠  Bound to 0.0.0.0 — replace the placeholder below with this machine's actual reachable address.")
         }
-        printMcpServerConfig(serverConfigName, { url: `http://${connectHost}:${port}/mcp` })
+        printMcpServerConfig(serverConfigName, buildHttpConfigEntry(`http://${connectHost}:${port}/mcp`))
       }
     }
 
@@ -761,7 +768,7 @@ export async function runPublish(projectRoot: string, rawOpts: PublishOpts): Pro
         tunnelProcess = await spawnTunnel(host, port, (url) => {
           console.error(`  ✓  Public URL: ${url}`)
           onTunnelResolved?.(url)
-          if (printConfig) printMcpServerConfig(serverConfigName, { url: `${url}/mcp` })
+          if (printConfig) printMcpServerConfig(serverConfigName, buildHttpConfigEntry(`${url}/mcp`))
         })
       } catch (err: any) {
         console.error(`  ✗  --tunnel failed: ${err.message}`)
