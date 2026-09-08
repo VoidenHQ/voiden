@@ -123,6 +123,16 @@ why.
 
 ### Connecting OAuth-strict clients (claude.ai, CLI agents)
 
+**Requires `@voiden/mcp` ≥ 0.0.15** for `--oauth`/`--sso-*` to work through `--tunnel` (or any
+reverse proxy) at all — versions before that advertised a stale `127.0.0.1` resource/issuer forever
+even after the tunnel resolved, and separately crashed `/register`/`/authorize`/`/token`/`/revoke`
+outright for any request arriving through a proxy. Both only ever affected traffic through an actual
+tunnel/proxy — testing directly against `127.0.0.1` worked fine even on older versions, which is why
+this was easy to miss. Run `voiden-mcp --version` to check, or use `npx @voiden/mcp@latest` to
+always get the current one; if something's globally installed (`npm ls -g @voiden/mcp`), `npx` may
+resolve to that stale version instead of the one you actually want — `npm uninstall -g @voiden/mcp`
+if so.
+
 Some MCP clients refuse to connect to an HTTP server at all until it completes a full OAuth 2.1
 handshake — Dynamic Client Registration, then an authorization + token exchange — even if the
 server itself doesn't otherwise need one. claude.ai's connector UI is one; some CLI-based agent
@@ -262,11 +272,6 @@ registration and token exchange server-side and redirects the browser to the rea
 which is also why the real IdP's URL never needs to be (and shouldn't be) publicly reachable itself
 unless the connecting client's browser is on a different machine than the IdP.
 
-If the client you're connecting accepts a raw command/args (not just a fixed "URL + optional
-header" connector field), the existing `mcp-remote` bridge — see "Importing an MCP server config
-into Voiden" below — still works with `--api-key` (below) as its `--header`. But if all you need is
-a static secret, not real OAuth, `--api-key` skips the extra tool entirely.
-
 ### Setting up and testing `--oauth` against every MCP client
 
 **1. Host it.** `--tunnel` gives the public HTTPS URL `--oauth` needs (a loopback bind also works,
@@ -313,8 +318,10 @@ rm ~/.voiden/mcp-oauth.json
 ### A static API key
 
 For clients that accept a plain "URL + header" connector, or a raw command/args config (`mcp-remote
-<url> --header "Authorization: Bearer <key>"`), a shared secret is simpler than the full OAuth
-dance above — no browser, no handshake, just a Bearer token you generate once and hand out:
+<url> --header "Authorization: Bearer <key>"` — see "Importing an MCP server config into Voiden"
+below for how a config using this bridge gets recognized when pasted into a `.void` file), a shared
+secret is simpler than the full OAuth dance above — no browser, no handshake, just a Bearer token
+you generate once and hand out:
 
 ```bash
 voiden-mcp . --http --tunnel --api-key
@@ -372,15 +379,6 @@ itself:
   `~/Library/Logs/Claude/mcp-server-<name>.log` on macOS — a `tools/list` request that gets a real
   response there confirms the connection itself is fine even if the UI hasn't shown it yet.
 
-**Summary — which entry point you get depends entirely on the auth mode**, using two side-by-side
-entries under the same `claude_desktop_config.json`'s `mcpServers` as a concrete example:
-
-| | `--oauth` / `--sso-*` | `--api-key` |
-|---|---|---|
-| Where you add it | Settings → Connectors → Add custom connector (paste the bare URL) | `claude_desktop_config.json`, a `command`/`args` entry bridged through `mcp-remote` |
-| Example | Just `https://<url>/mcp` pasted into the picker — no config file, no `mcp-remote`, that's the entire point of `--oauth` support | `{"voiden-mcp": {"command": "npx", "args": ["-y", "mcp-remote", "https://<url>/mcp", "--header", "Authorization: Bearer <key>"]}}` |
-| Where it shows up once connected | Settings → Connectors page | The in-chat tool/attachment picker |
-| Requires a restart to pick up | No — the picker connects live | Yes — full Cmd+Q + reopen, config is only read at startup |
 - **Claude Code's `.mcp.json` and VS Code's `.vscode/mcp.json`** support a native remote HTTP entry
   with a `headers` object, so no bridge is needed:
   ```json
@@ -396,6 +394,16 @@ entries under the same `claude_desktop_config.json`'s `mcpServers` as a concrete
   ```
 - **Any other client with a plain "URL + header" connector field** — same header name/value pair as
   above: `Authorization: Bearer <your-key>`.
+
+**Summary — which entry point you get depends entirely on the auth mode**, using two side-by-side
+entries under the same `claude_desktop_config.json`'s `mcpServers` as a concrete example:
+
+| | `--oauth` / `--sso-*` | `--api-key` |
+|---|---|---|
+| Where you add it | Settings → Connectors → Add custom connector (paste the bare URL) | `claude_desktop_config.json`, a `command`/`args` entry bridged through `mcp-remote` |
+| Example | Just `https://<url>/mcp` pasted into the picker — no config file, no `mcp-remote`, that's the entire point of `--oauth` support | `{"voiden-mcp": {"command": "npx", "args": ["-y", "mcp-remote", "https://<url>/mcp", "--header", "Authorization: Bearer <key>"]}}` |
+| Where it shows up once connected | Settings → Connectors page | The in-chat tool/attachment picker |
+| Requires a restart to pick up | No — the picker connects live | Yes — full Cmd+Q + reopen, config is only read at startup |
 
 Note that `--print-config` currently prints only `{"url": "..."}`, not the header — add it yourself
 using whichever shape above matches your client.
