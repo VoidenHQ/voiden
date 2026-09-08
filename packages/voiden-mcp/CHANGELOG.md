@@ -3,6 +3,32 @@
 All notable changes to `@voiden/mcp` are documented here. This package is
 versioned and released independently of the Voiden desktop app.
 
+## v0.0.15 - 2026-09-08
+
+### Fixed
+- `--oauth`/`--sso-*`'s OAuth metadata (`.well-known/oauth-protected-resource`,
+  `.well-known/oauth-authorization-server`, `/register`, `/authorize`, `/token`) never actually
+  picked up `--tunnel`'s real public URL once it resolved — the Express middleware serving those
+  endpoints held a one-time copy of the router built with the pre-tunnel loopback issuer, so it kept
+  advertising `http://127.0.0.1:<port>/mcp` as the protected resource indefinitely, even after a real
+  tunnel URL existed. OAuth-strict clients that verify the advertised resource matches what they
+  actually connected to (confirmed against Cursor: *"Protected resource http://127.0.0.1:3000/mcp
+  does not match expected https://\<tunnel\>/mcp"*) correctly refused the connection. Now reads the
+  current router on every request instead of a stale copy.
+- `/register`, `/authorize`, `/token`, and `/revoke` crashed with
+  `ERR_ERL_UNEXPECTED_X_FORWARDED_FOR` for any request arriving through `--tunnel` or a reverse
+  proxy — the SDK's own per-endpoint rate-limiting middleware refuses to trust `X-Forwarded-For`
+  unless Express's `trust proxy` setting says a proxy is expected, which was never set. This broke
+  Dynamic Client Registration for every real remote client connecting through a tunnel (testing
+  directly against `127.0.0.1` never exercised this path, since no proxy header is added there). Now
+  trusts exactly one proxy hop, matching `--tunnel`'s (and a typical `--public-url` reverse proxy's)
+  single-hop topology.
+- `scripts/smoke-test.mjs`: a failed check called `process.exit()` directly, skipping cleanup of the
+  spawned test server(s) entirely — a single failed run left an orphaned `voiden-mcp` process (and
+  its restart-supervisor) running indefinitely, fighting later runs for the same port. Failures now
+  throw and unwind through one cleanup path that kills every spawned child (server, mock IdP) on
+  every exit — success, failure, or an unexpected exception.
+
 ## v0.0.14 - 2026-09-08
 
 ### Added

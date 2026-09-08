@@ -135,6 +135,37 @@ something like *"Couldn't register with \<name\>'s sign-in service"* — there's
 `.well-known/oauth-authorization-server`, `/register`, `/authorize`, `/token`, `/revoke`, and a
 bearer-token check in front of the MCP endpoint (`/health` stays open). A few things worth knowing:
 
+**Why is there only bearer and OAuth, and why does OAuth auto-approve?** MCP's own [authorization
+spec](https://modelcontextprotocol.io/specification/draft/basic/authorization) defines exactly one
+authorization mechanism — OAuth 2.1 (PKCE, Dynamic Client Registration/RFC 7591, Protected Resource
+Metadata/RFC 9728, Authorization Server Metadata/RFC 8414). A static bearer token isn't part of the
+spec at all — every MCP client that supports one (Claude Code, Cursor, Windsurf, VS Code, Codex CLI,
+Zed) added it independently, as a raw `Authorization: Bearer <token>` header, because requiring a
+full OAuth-capable authorization server to protect a personal/internal tool is overkill. At the wire
+level both are the exact same header — the only difference is whether a human pasted the token in
+once (static) or a client-driven handshake obtained it dynamically with real expiry/refresh/
+revocation (OAuth). "SSO" isn't a third mechanism either — see "Delegating login to an external IdP"
+below, it's the same OAuth 2.1 handshake, just pointed at a real identity provider instead of
+auto-approving.
+
+Given that, `--oauth`'s auto-approve is a deliberate choice among three real options, not an
+oversight:
+1. **Don't implement `--oauth` at all** — then any client that mandates the handshake (claude.ai's
+   connector UI, notably) can never connect, full stop, regardless of whether auth was wanted.
+2. **Build a real credential check into `--oauth` itself** — a password baked into voiden-mcp. This
+   means reinventing an identity provider (storage, hashing, rate-limiting) inside a tool whose job
+   is serving `/tool` blocks, badly and from scratch — that facility already exists, done properly,
+   as `--sso-*` below.
+3. **Auto-approve, and say so plainly (what's implemented).** This is a single-operator, self-hosted
+   tool — the trust boundary was already "whoever can reach the URL" the moment `--http` ran with no
+   auth flags at all. A click-to-consent screen wouldn't change who can get in, it would just look
+   like a lock that isn't one — which is worse than being honest that it's protocol compatibility,
+   not access control.
+
+That split is also why `--oauth`/`--sso-*` and `--api-key` are separate, composable flags rather than
+one setting: "will this client even talk to my server" (protocol compatibility) and "who's allowed
+in" (actual access control) are different problems on purpose.
+
 - **`/authorize` auto-approves — there's no login page to click through.** voiden-mcp is a
   single-operator, locally-run tool: whoever can reach the URL already has full tool access with
   `--oauth` off, exactly as without it. OAuth here exists to satisfy clients that require the
@@ -157,10 +188,127 @@ bearer-token check in front of the MCP endpoint (`/health` stays open). A few th
   working correctly (confirm with `curl <forwarded-url>/.well-known/oauth-authorization-server` —
   if `registration_endpoint` says `127.0.0.1`, that's the bug, and `--public-url` is the fix).
 
+### What actually gets called, endpoint by endpoint
+
+This is the exact sequence a client like claude.ai's connector UI runs through, and what each
+endpoint actually returns — useful for comparing against `curl` output when something's not
+working, or against a real IdP's own trace if you're debugging `--sso-*` against it.
+
+**1. `.well-known/oauth-protected-resource`** (RFC 9728) — the client's first, unauthenticated call
+to `/mcp` gets a `401` whose `WWW-Authenticate` header points here. It tells the client which
+authorization server protects this resource:
+```json
+GET <url>/.well-known/oauth-protected-resource/mcp
+
+{ "resource": "<url>/mcp", "authorization_servers": ["<url>/"] }
+```
+Notice `authorization_servers` points back at **voiden-mcp itself**, even under `--sso-*` — see the
+façade note below for why.
+
+**2. `.well-known/oauth-authorization-server`** (RFC 8414) — the actual endpoint URLs:
+```json
+GET <url>/.well-known/oauth-authorization-server
+
+{
+  "issuer": "<url>/",
+  "authorization_endpoint": "<url>/authorize",
+  "token_endpoint": "<url>/token",
+  "registration_endpoint": "<url>/register",
+  "revocation_endpoint": "<url>/revoke"
+}
+```
+If any of these show `127.0.0.1` instead of your real URL, that's the `--public-url` bug described
+above, not a client-side problem.
+
+**3. `POST /register`** (RFC 7591 DCR) — the client registers itself and gets back a fresh
+`client_id` per connection (not something anyone typed in):
+```json
+POST <url>/register
+{ "redirect_uris": ["https://claude.ai/api/mcp/auth_callback"], "token_endpoint_auth_method": "none",
+  "grant_types": ["authorization_code", "refresh_token"], "response_types": ["code"],
+  "client_name": "claude-ai" }
+
+→ 201
+{ "client_id": "0f50c68e-5c7f-4283-bf42-e89d5817d7fb", "client_id_issued_at": 1234567890, ...(echoed back)... }
+```
+
+**4. `GET /authorize?...`** — the browser lands here with `client_id`, PKCE `code_challenge`,
+`redirect_uri`, `state`. What happens next is the one place `--oauth` and `--sso-*` actually diverge:
+- **`--oauth`**: responds `200` with the "Voiden MCP — authorizing…" auto-approve page, which
+  immediately redirects to `<redirect_uri>?code=...&state=...` — no login, no interaction.
+- **`--sso-*`**: responds with a real `3xx` redirect whose `Location` is your **actual**
+  `--sso-authorize-url` (e.g. the mock IdP's own `/authorize`) — this is the moment the browser
+  visibly leaves `voiden-mcp` and lands on a real login form. Once that IdP issues its own code and
+  redirects back, `voiden-mcp` is the one that ultimately redirects the browser onward to the
+  client's `redirect_uri` with a code.
+
+**5. `POST /token`** — the client exchanges the code (PKCE `code_verifier` checked against the
+original `code_challenge`) for a bearer token:
+```json
+POST <url>/token
+grant_type=authorization_code&code=...&redirect_uri=...&client_id=...&code_verifier=...
+
+→ 200
+{ "access_token": "...", "token_type": "Bearer", "expires_in": 3600, "refresh_token": "..." }
+```
+Under `--sso-*`, this call is itself proxied to the real `--sso-token-url` — the `access_token` the
+client receives back is the upstream IdP's real token, not a separately-minted one; `voiden-mcp`
+just also records its metadata (clientId/scopes/expiresAt) locally so it can verify that exact token
+on later `/mcp` requests without re-contacting the IdP every time.
+
+**The `--sso-*` façade, in one sentence**: the client only ever talks to and discovers `voiden-mcp`'s
+own endpoints (step 1–2 above never mention the real IdP at all) — `voiden-mcp` is what forwards
+registration and token exchange server-side and redirects the browser to the real IdP only at step 4,
+which is also why the real IdP's URL never needs to be (and shouldn't be) publicly reachable itself
+unless the connecting client's browser is on a different machine than the IdP.
+
 If the client you're connecting accepts a raw command/args (not just a fixed "URL + optional
 header" connector field), the existing `mcp-remote` bridge — see "Importing an MCP server config
 into Voiden" below — still works with `--api-key` (below) as its `--header`. But if all you need is
 a static secret, not real OAuth, `--api-key` skips the extra tool entirely.
+
+### Setting up and testing `--oauth` against every MCP client
+
+**1. Host it.** `--tunnel` gives the public HTTPS URL `--oauth` needs (a loopback bind also works,
+but only for a client running on the same machine):
+```bash
+voiden-mcp . --http --tunnel --oauth --print-config
+```
+Note the printed `https://xxxx.trycloudflare.com` URL — call it `<url>` below.
+
+**2. Sanity-check the metadata before touching any client.** This catches the most common failure
+mode (a client rejecting the connection because the advertised resource doesn't match what it
+actually connected to) before you waste time in five different apps:
+```bash
+curl -s <url>/.well-known/oauth-authorization-server | python3 -m json.tool   # issuer/*_endpoint should all show <url>, never 127.0.0.1
+curl -s -D - -o /dev/null <url>/mcp | grep -i www-authenticate                # resource_metadata= should also show <url>
+```
+
+**3. Fastest generic check — MCP Inspector**, no app install needed:
+```bash
+npx @modelcontextprotocol/inspector
+```
+Open the URL it prints, paste `<url>/mcp` as the server URL, connect. It drives the full DCR →
+authorize → token exchange for you and lists the tools once authenticated — confirms the whole
+handshake works before you touch any specific client.
+
+**4. Per-client setup**, once the above passes:
+
+| Client | Where to add it | What you should see |
+|---|---|---|
+| **Claude Desktop / claude.ai** | Settings → Connectors → Add custom connector → paste `<url>/mcp` | The "Voiden MCP — authorizing…" page flashes and redirects with **no login prompt** — that's the auto-approve behavior working as designed |
+| **Claude Code / VS Code** | `.mcp.json` / `.vscode/mcp.json`: `{"type": "http", "url": "<url>/mcp"}` (no `headers` needed) | A browser opens automatically on first connection, redirects straight back |
+| **Cursor** | `mcp.json`: `{"url": "<url>/mcp"}` | Same auto-redirect. If it instead rejects with a resource-mismatch error, re-run step 2 — Cursor verifies the resource metadata strictly and will (correctly) refuse a stale/mismatched one |
+| **Codex CLI** | `config.toml`: `[mcp_servers.voiden]` with `url = "<url>/mcp"`, then run `codex mcp login voiden` explicitly | OAuth isn't automatic here — you must run the login command yourself after adding the server |
+| **Windsurf** | Its MCP server settings UI, same `<url>/mcp` | Auto-redirect, same as Cursor/Claude Code |
+| **Zed** | Needs the `mcp-remote` bridge (no native OAuth support yet) — see "Importing an MCP server config into Voiden" below for the bridge shape | Browser opens via the bridge's own loopback redirect |
+
+**5. Clean up between attempts.** State persists across restarts by design (that's a feature, not a
+bug — see "Registered clients and issued tokens persist" above), which means a stale registration
+from an earlier test can otherwise mask whether a fix actually worked:
+```bash
+rm ~/.voiden/mcp-oauth.json
+```
 
 ### A static API key
 
@@ -183,6 +331,74 @@ voiden-mcp . --http --tunnel --api-key
   rotate a key you've already shared. Pass `--api-key <value>` (or set `VOIDEN_PUBLISH_API_KEY`) to
   set it explicitly instead — prefer the env var over a literal CLI value, which is visible to
   anything that can read this process's argv (`ps`).
+- **It's one shared secret, not per-user auth.** Everyone holding the key gets identical, full tool
+  access — there's no concept of separate accounts, scopes, or revoking one person without
+  revoking everyone. If you need to actually distinguish *who* is connecting, that's what
+  "Delegating login to an external IdP" below is for.
+
+**Where the header actually goes is client-specific** — this trips people up more than the flag
+itself:
+
+- **Claude Desktop's native connector picker** (Settings → Connectors → Add custom connector) only
+  takes a URL — there's no field for a custom header. It expects either no auth or a real OAuth
+  handshake, so `--api-key` alone can't be used through that UI at all. **The symptom**: pasting an
+  `--api-key`-only URL there shows "Authentication required" and then errors on Connect — that's not
+  a bug, it's this UI having no way to ever supply the key. Use `--oauth` (or `--sso-*`) if you want
+  this specific entry point to work, or use the JSON config below instead.
+- **Claude Desktop's JSON config** (Settings → Developer → Edit Config, i.e.
+  `~/Library/Application Support/Claude/claude_desktop_config.json` on macOS) only supports local
+  `command`/`args` stdio entries, not a native `url`+`headers` shape. This is where the key actually
+  goes — bridge it through `mcp-remote`:
+  ```json
+  {
+    "mcpServers": {
+      "my-tool": {
+        "command": "npx",
+        "args": ["-y", "mcp-remote", "https://<your-url>/mcp", "--header", "Authorization: Bearer <your-key>"]
+      }
+    }
+  }
+  ```
+  Merge this into the file's existing `mcpServers` object rather than replacing the whole file if
+  other servers are already configured. **Fully quit Claude Desktop (Cmd+Q, not just closing the
+  window) and reopen it** — it only reads this file on startup, so a running instance won't pick up
+  the change. If you'd already added a broken connector through the native picker above, remove it
+  first (Settings → Connectors) to avoid a duplicate, non-working entry alongside the working one.
+- **A `command`/`args` entry shows up in a different place than a native connector, too** — don't go
+  looking for it on the Settings → Connectors page, that page only lists native URL+OAuth
+  connectors. This one appears in the **tool/attachment picker inside an actual chat** (the
+  plug/puzzle-piece icon near the message box) once Claude Desktop has restarted and successfully
+  launched it. Check Claude Desktop's own per-server log if it's not appearing —
+  `~/Library/Logs/Claude/mcp-server-<name>.log` on macOS — a `tools/list` request that gets a real
+  response there confirms the connection itself is fine even if the UI hasn't shown it yet.
+
+**Summary — which entry point you get depends entirely on the auth mode**, using two side-by-side
+entries under the same `claude_desktop_config.json`'s `mcpServers` as a concrete example:
+
+| | `--oauth` / `--sso-*` | `--api-key` |
+|---|---|---|
+| Where you add it | Settings → Connectors → Add custom connector (paste the bare URL) | `claude_desktop_config.json`, a `command`/`args` entry bridged through `mcp-remote` |
+| Example | Just `https://<url>/mcp` pasted into the picker — no config file, no `mcp-remote`, that's the entire point of `--oauth` support | `{"voiden-mcp": {"command": "npx", "args": ["-y", "mcp-remote", "https://<url>/mcp", "--header", "Authorization: Bearer <key>"]}}` |
+| Where it shows up once connected | Settings → Connectors page | The in-chat tool/attachment picker |
+| Requires a restart to pick up | No — the picker connects live | Yes — full Cmd+Q + reopen, config is only read at startup |
+- **Claude Code's `.mcp.json` and VS Code's `.vscode/mcp.json`** support a native remote HTTP entry
+  with a `headers` object, so no bridge is needed:
+  ```json
+  {
+    "mcpServers": {
+      "my-tool": {
+        "type": "http",
+        "url": "https://<your-url>/mcp",
+        "headers": { "Authorization": "Bearer <your-key>" }
+      }
+    }
+  }
+  ```
+- **Any other client with a plain "URL + header" connector field** — same header name/value pair as
+  above: `Authorization: Bearer <your-key>`.
+
+Note that `--print-config` currently prints only `{"url": "..."}`, not the header — add it yourself
+using whichever shape above matches your client.
 
 ### Delegating login to an external IdP
 
@@ -256,6 +472,29 @@ every CI provider. Two real options:
     STRIPE_API_KEY: ${{ secrets.STRIPE_API_KEY }}
   run: npx @voiden/mcp ./api --http --tunnel
 ```
+
+**If you're also gating this with `--api-key`, set a fixed value — don't rely on auto-generate.**
+Bare `--api-key` (no value) normally auto-generates a key and persists it to
+`~/.voiden/mcp-api-keys.json` so it survives restarts — but a CI job's home directory doesn't
+survive between runs. In an ephemeral job (or any container that gets rebuilt on deploy), that
+means a brand-new random key every run, silently invalidating whatever key you already handed to an
+MCP client. Instead:
+
+1. Generate the key once, yourself: `openssl rand -base64 32`.
+2. Store that exact string as a secret on whatever's running the server — a GitHub Actions
+   repo/environment secret, a GitLab CI variable, or the Environment Variables dashboard on
+   Render/Railway/Fly.io for an always-on target — named `VOIDEN_PUBLISH_API_KEY`.
+3. Pass the bare `--api-key` flag on the command line to turn the check on, and let it read the
+   value from that env var (never as a literal `--api-key <value>` argument — visible to anything
+   that can read the process's argv):
+   ```yaml
+   env:
+     VOIDEN_PUBLISH_API_KEY: ${{ secrets.VOIDEN_PUBLISH_API_KEY }}
+   run: npx @voiden/mcp ./api --http --tunnel --api-key
+   ```
+4. Hand the resulting URL (from `--tunnel`'s printed URL, or the platform's stable URL for an
+   always-on host) plus that same fixed key to whichever MCP client needs to connect — see "Where
+   the header actually goes is client-specific" above for the exact config shape per client.
 
 `@voiden/mcp` is the only supported way to do this — it's reserved for publishing `/tool` blocks
 specifically. Registering a project so an agent editor can just *run* requests in it (no `/tool`

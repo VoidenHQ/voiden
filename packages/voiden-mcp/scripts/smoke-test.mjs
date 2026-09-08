@@ -28,6 +28,17 @@
  * Exits non-zero on any failure — safe to wire into CI later, not just
  * manual use. Always rebuilds first (`npm run build`) so a stale dist can
  * never produce a false pass.
+ *
+ * Every spawned child (the server under test, and the mock IdP for --sso) is
+ * tracked in `activeChildren` and killed on EVERY exit path — success,
+ * fail(), or an unexpected exception — via the single main().then/catch
+ * below plus a synchronous process.on('exit') safety net. This isn't
+ * decorative: fail() throwing (instead of calling process.exit() directly,
+ * as it used to) is load-bearing — a raw process.exit() from deep inside
+ * runOAuthChecks/runApiKeyChecks/runSsoChecks would skip cleanup entirely,
+ * leaking the whole spawned server process. Leaked instances then fight
+ * whatever the next run spawns for the same port and crash-loop at ~100%
+ * CPU indefinitely — this is exactly what used to happen.
  */
 
 import { spawn, spawnSync } from 'node:child_process'
@@ -57,28 +68,64 @@ function log(...msg) {
   console.log('[smoke-test]', ...msg)
 }
 
+// fail() THROWS rather than exiting directly — see the header comment for
+// why that's load-bearing. Every call site below can keep its existing
+// "fail(msg)" shape and rely on it halting execution immediately, exactly
+// like process.exit() used to, but now unwinding through main()'s own catch
+// where cleanup actually happens.
+class SmokeTestFailure extends Error {}
 function fail(msg) {
-  console.error('[smoke-test] ✗', msg)
-  process.exit(1)
+  throw new SmokeTestFailure(msg)
 }
 
-log(`Rebuilding @voiden/mcp (npm run build)...`)
-const build = spawnSync('npm', ['run', 'build'], { cwd: pkgRoot, stdio: 'inherit' })
-if (build.status !== 0) fail('Build failed — see output above.')
-if (!existsSync(distIndex)) fail(`Build reported success but ${distIndex} still doesn't exist.`)
-log('Build OK, dist/index.js confirmed present.')
+// ─── Child-process tracking, so nothing spawned here can ever outlive this
+// script ──────────────────────────────────────────────────────────────────
+const activeChildren = new Set()
+function trackChild(child) {
+  activeChildren.add(child)
+  child.on('exit', () => activeChildren.delete(child))
+  return child
+}
+function killTrackedChildren(signal) {
+  for (const child of activeChildren) {
+    try {
+      if (!child.killed) child.kill(signal)
+    } catch {
+      /* already gone */
+    }
+  }
+}
+// Synchronous last-resort net — covers Ctrl+C and anything that reaches
+// process exit without going through main()'s own then/catch below. Must be
+// synchronous: nothing async (setTimeout, await) survives past 'exit'.
+process.on('exit', () => killTrackedChildren('SIGKILL'))
+process.on('SIGINT', () => {
+  killTrackedChildren('SIGTERM')
+  process.exit(130)
+})
 
+// @voiden/mcp serves whatever /tool blocks it finds under `projectPath` — it
+// has no fixed tool set of its own (that's voiden-runner's separate agent
+// server, e.g. list_void_files/list_requests/etc. — a different package
+// entirely). So this can't assert on a specific tool name; the real
+// assertion is "at least one /tool block was actually discovered and
+// served". A best-effort tools/call round-trip follows, but a project's
+// tools can require arbitrary arguments this generic script can't know
+// about, so a failure there is logged, not fatal.
 async function runToolChecks(client) {
   const { tools } = await client.listTools()
   log(`tools/list — ${tools.length} tool(s):`, tools.map((t) => t.name).join(', '))
-  if (!tools.some((t) => t.name === 'list_void_files')) {
-    fail('Expected fixed tool "list_void_files" missing from tools/list.')
+  if (tools.length === 0) {
+    fail('No tools served — expected at least one /tool block from the target project.')
   }
-  const result = await client.callTool({ name: 'list_void_files', arguments: {} })
-  const text = result?.content?.[0]?.text
-  let files
-  try { files = JSON.parse(text) } catch { fail(`tools/call list_void_files returned unparseable content: ${text}`) }
-  log(`tools/call list_void_files — ${Array.isArray(files) ? files.length : '?'} .void file(s) found.`)
+  const [first] = tools
+  try {
+    const result = await client.callTool({ name: first.name, arguments: {} })
+    const text = result?.content?.[0]?.text
+    log(`tools/call ${first.name} — ${result?.isError ? 'tool reported an error (likely needs arguments this generic call didn\'t supply)' : 'succeeded'}${text ? `: ${String(text).slice(0, 200)}` : ''}`)
+  } catch (err) {
+    log(`tools/call ${first.name} with no arguments didn't complete cleanly (${err?.message ?? err}) — probably just needs arguments this generic smoke test doesn't know about; tools/list succeeding is the real assertion here.`)
+  }
   log('✓ All checks passed.')
 }
 
@@ -313,11 +360,27 @@ async function runSsoChecks(port, idpPort) {
   log('✓ SSO-delegated flow fully verified: register -> real external login (wrong password rejected, right password accepted) -> token -> bearer-gated request.')
 }
 
-if (useHttp) {
-  let idpChild
+async function main() {
+  log(`Rebuilding @voiden/mcp (npm run build)...`)
+  const build = spawnSync('npm', ['run', 'build'], { cwd: pkgRoot, stdio: 'inherit' })
+  if (build.status !== 0) fail('Build failed — see output above.')
+  if (!existsSync(distIndex)) fail(`Build reported success but ${distIndex} still doesn't exist.`)
+  log('Build OK, dist/index.js confirmed present.')
+
+  if (!useHttp) {
+    log(`Starting stdio server for ${projectPath}...`)
+    const client = new Client({ name: 'smoke-test-client', version: '1.0.0' })
+    const transport = new StdioClientTransport({ command: 'node', args: [distIndex, projectPath] })
+    await client.connect(transport)
+    log('Connected over stdio.')
+    await runToolChecks(client)
+    await client.close()
+    return
+  }
+
   if (useSso) {
     log(`Starting mock IdP on 127.0.0.1:${idpPort}...`)
-    idpChild = spawn('node', [mockIdpScript, '--port', String(idpPort)], { stdio: ['ignore', 'pipe', 'pipe'] })
+    const idpChild = trackChild(spawn('node', [mockIdpScript, '--port', String(idpPort)], { stdio: ['ignore', 'pipe', 'pipe'] }))
     idpChild.stdout.on('data', (d) => process.stderr.write(`  [mock-idp] ${d}`))
     idpChild.stderr.on('data', (d) => process.stderr.write(`  [mock-idp] ${d}`))
     await new Promise((res) => setTimeout(res, 1000)) // let it bind before voiden-mcp starts registering against it
@@ -334,7 +397,7 @@ if (useHttp) {
       '--sso-registration-url', `http://127.0.0.1:${idpPort}/register`,
     )
   }
-  const child = spawn('node', serverArgs, { stdio: ['ignore', 'pipe', 'pipe'] })
+  const child = trackChild(spawn('node', serverArgs, { stdio: ['ignore', 'pipe', 'pipe'] }))
   let capturedApiKey
   const captureApiKey = (chunk) => {
     const match = /API key required.*Bearer ([^"]+)"/.exec(chunk.toString())
@@ -343,56 +406,45 @@ if (useHttp) {
   child.stdout.on('data', (d) => process.stderr.write(`  [server stdout] ${d}`))
   child.stderr.on('data', (d) => { process.stderr.write(`  [server] ${d}`); captureApiKey(d) })
 
-  const shutdown = (code) => {
-    child.kill('SIGTERM')
-    if (idpChild) idpChild.kill('SIGTERM')
-    setTimeout(() => process.exit(code), 300)
-  }
-
   await new Promise((res) => setTimeout(res, 1500)) // let it bind
 
-  try {
-    if (useOAuth) {
-      await runOAuthChecks(port)
-    } else if (useApiKey) {
-      if (!capturedApiKey) fail('Server did not print its auto-generated API key at startup — startup log format changed?')
-      await runApiKeyChecks(port, capturedApiKey)
-    } else if (useSso) {
-      await runSsoChecks(port, idpPort)
-    } else {
-      // No --oauth/--api-key: an OAuth-aware client checking "does this
-      // server require auth?" before even looking at how it's configured
-      // must see a clean 404 here, not the confusing 406 the raw MCP
-      // JSON-RPC handler used to return for any path lacking the right
-      // Accept header (a real bug — an ambiguous non-404 response reads
-      // as "might need auth after all" to a careful client).
-      const wellKnownRes = await fetch(`http://127.0.0.1:${port}/.well-known/oauth-protected-resource`)
-      if (wellKnownRes.status !== 404) fail(`Expected 404 from .well-known/oauth-protected-resource on a no-auth server, got ${wellKnownRes.status} — this server would look like it might require sign-in to an OAuth-aware client.`)
-      log('✓ .well-known/oauth-protected-resource correctly 404s on a no-auth server (not an ambiguous error).')
+  if (useOAuth) {
+    await runOAuthChecks(port)
+  } else if (useApiKey) {
+    if (!capturedApiKey) fail('Server did not print its auto-generated API key at startup — startup log format changed?')
+    await runApiKeyChecks(port, capturedApiKey)
+  } else if (useSso) {
+    await runSsoChecks(port, idpPort)
+  } else {
+    // No --oauth/--api-key: an OAuth-aware client checking "does this
+    // server require auth?" before even looking at how it's configured
+    // must see a clean 404 here, not the confusing 406 the raw MCP
+    // JSON-RPC handler used to return for any path lacking the right
+    // Accept header (a real bug — an ambiguous non-404 response reads
+    // as "might need auth after all" to a careful client).
+    const wellKnownRes = await fetch(`http://127.0.0.1:${port}/.well-known/oauth-protected-resource`)
+    if (wellKnownRes.status !== 404) fail(`Expected 404 from .well-known/oauth-protected-resource on a no-auth server, got ${wellKnownRes.status} — this server would look like it might require sign-in to an OAuth-aware client.`)
+    log('✓ .well-known/oauth-protected-resource correctly 404s on a no-auth server (not an ambiguous error).')
 
-      const client = new Client({ name: 'smoke-test-client', version: '1.0.0' })
-      await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`)))
-      log(`Connected to http://127.0.0.1:${port}/mcp`)
-      await runToolChecks(client)
-      await client.close()
-    }
-    shutdown(0)
-  } catch (err) {
-    console.error(err)
-    shutdown(1)
-  }
-} else {
-  log(`Starting stdio server for ${projectPath}...`)
-  const client = new Client({ name: 'smoke-test-client', version: '1.0.0' })
-  const transport = new StdioClientTransport({ command: 'node', args: [distIndex, projectPath] })
-  try {
-    await client.connect(transport)
-    log('Connected over stdio.')
+    const client = new Client({ name: 'smoke-test-client', version: '1.0.0' })
+    await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`)))
+    log(`Connected to http://127.0.0.1:${port}/mcp`)
     await runToolChecks(client)
     await client.close()
-    process.exit(0)
-  } catch (err) {
-    console.error(err)
-    process.exit(1)
   }
 }
+
+// Single point of truth for "the run is over, one way or another" — success
+// or failure, every spawned child gets a SIGTERM here before this process
+// exits. See the file header comment for why this matters.
+main()
+  .then(() => {
+    killTrackedChildren('SIGTERM')
+    setTimeout(() => process.exit(0), 300)
+  })
+  .catch((err) => {
+    if (err instanceof SmokeTestFailure) console.error('[smoke-test] ✗', err.message)
+    else console.error(err)
+    killTrackedChildren('SIGTERM')
+    setTimeout(() => process.exit(1), 300)
+  })

@@ -633,6 +633,21 @@ export async function runPublish(projectRoot: string, rawOpts: PublishOpts): Pro
       })
 
       const app = express()
+      // The SDK's own /register, /authorize, /token, /revoke handlers each
+      // mount express-rate-limit by default. express-rate-limit refuses to
+      // key its per-IP limit off X-Forwarded-For unless Express's own
+      // 'trust proxy' setting says a proxy is expected — otherwise it
+      // throws ERR_ERL_UNEXPECTED_X_FORWARDED_FOR rather than risk a client
+      // spoofing that header to bypass its own limit. --tunnel's cloudflared
+      // (and any reverse proxy behind --public-url) adds exactly that
+      // header, so without this, every DCR/authorize/token/revoke request
+      // that arrives through the tunnel — i.e. from any real remote client,
+      // as opposed to this file's own direct-to-127.0.0.1 tests — crashed
+      // outright. `1` trusts exactly one hop, matching that single-proxy
+      // topology; the tool's own trust model (whoever reaches the URL
+      // already has full access) makes the alternative risk here — a client
+      // forging its own rate-limit key — a non-issue by comparison.
+      app.set('trust proxy', 1)
       // Delegates to whatever `authRouter` currently points at — mounted
       // ahead of the health check and the bearer-gated MCP handler so OAuth
       // paths (.well-known/*, /register, /authorize, /token, /revoke)
@@ -641,8 +656,18 @@ export async function runPublish(projectRoot: string, rawOpts: PublishOpts): Pro
       // entirely when --oauth is off (--api-key alone needs none of this
       // machinery — just the bearer check below).
       if (authRouter) {
-        const router = authRouter
-        app.use((req, res, next) => { router(req, res, next) })
+        // Reads the mutable `authRouter` binding itself on every request,
+        // not a copy of it — `const router = authRouter` here looked
+        // equivalent but wasn't: it freezes in whatever `authRouter` pointed
+        // to at mount time (the loopback-issuer router, built before
+        // --tunnel has resolved) and never sees onTunnelResolved's later
+        // reassignment. That left .well-known/oauth-protected-resource
+        // (and the other OAuth endpoints) permanently advertising
+        // http://127.0.0.1:<port>/mcp even once a real public URL existed —
+        // which OAuth-strict clients that verify the resource matches what
+        // they actually connected to (Cursor, at least) then correctly
+        // refuse to trust.
+        app.use((req, res, next) => { authRouter!(req, res, next) })
       } else {
         // --api-key alone, no --oauth: no OAuth endpoints exist at all, so
         // an OAuth-aware client checking "does this server publish OAuth
