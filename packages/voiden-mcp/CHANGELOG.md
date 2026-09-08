@@ -3,6 +3,21 @@
 All notable changes to `@voiden/mcp` are documented here. This package is
 versioned and released independently of the Voiden desktop app.
 
+## v0.0.14 - 2026-09-08
+
+### Added
+- New `--public-url <url>` flag (`VOIDEN_PUBLISH_PUBLIC_URL`) — tells `--oauth` the
+  externally-reachable URL clients actually use to reach this server, for anything exposing it
+  *other* than `--tunnel` (a manual port forward — VS Code's Ports panel, ngrok — or a reverse
+  proxy in front of a `127.0.0.1` bind). Without it, `--oauth`'s advertised issuer/register/
+  authorize/token URLs always defaulted to `http://<host>:<port>` — unreachable from wherever the
+  connecting client actually is, and the root cause of a generic "couldn't register with sign-in
+  service" error that persisted even with `--oauth` genuinely working correctly and reachable
+  end-to-end (confirmed via direct probing: `.well-known/oauth-authorization-server`'s
+  `registration_endpoint` was advertising `127.0.0.1`, not the real forwarded URL a remote client
+  like claude.ai was actually calling through). Also used by `--print-config`'s printed URL when
+  set. `--tunnel` is unaffected — it already resolves and advertises its own public URL.
+
 ## v0.0.13 - 2026-09-07
 
 ### Fixed

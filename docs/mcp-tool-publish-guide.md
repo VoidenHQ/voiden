@@ -102,6 +102,7 @@ control what that actually means in practice:
 | `--dynamic-tools` | Off by default — every verified tool registers as its own named tool. Pass this to expose just 2 fixed tools instead — `search_tools`/`call_tool` — so a large published surface (hundreds+ of tools) doesn't overwhelm an agent's context window. |
 | `--print-config` | Once the server is actually up (after `--tunnel` resolves, if used), prints a ready-to-paste `{"mcpServers": {...}}` entry to the log — the exact shape Claude Desktop/Claude Code/Cursor read from their own config. Pasting it into a Voiden `.void` file also works — the editor recognizes this shape and fills in an mcp-connection block from it directly. stdio prints the `command`/`args` to reproduce this exact invocation; `--http` prints the real listening or tunnel URL, never a guess (a `0.0.0.0` bind prints a placeholder instead of a URL nothing outside this machine could actually use). |
 | `--tunnel` | **Optional** — only needed when the machine running the server has no public IP of its own (an ephemeral CI job, a laptop behind NAT). Wraps the server in a public `cloudflared` quick tunnel and prints the URL, live only as long as the process runs. If you're hosting on something with a real public/static IP already (a VPS, a cloud instance), skip this — `--host 0.0.0.0 --port <n>` alone is reachable directly. Requires `cloudflared` installed on `PATH`; not bundled. |
+| `--public-url <url>` | **Optional** — tells `--oauth` the externally-reachable URL clients actually use to reach this server, when something *other* than `--tunnel` is exposing it (a manual port forward — VS Code's Ports panel, ngrok — or a reverse proxy in front of a `127.0.0.1` bind). Without it, `--oauth`'s advertised issuer/register/authorize/token URLs default to `http://<host>:<port>`, unreachable from outside this machine — the exact cause of a generic "couldn't register with sign-in service" error for a client connecting through such a forward. Not needed with `--tunnel`, which already knows its own public URL. |
 | `--oauth` | **Optional**, off by default. Without it, `--http`/`--tunnel` are completely unauthenticated — anyone who can reach the URL has full tool access, same as always. Pass this to require OAuth 2.1 (Dynamic Client Registration, authorization, bearer tokens) in front of the MCP endpoint instead — needed for clients that mandate an OAuth handshake before they'll connect at all (claude.ai's connector UI, some CLI agent tools) rather than just accepting a URL and a static header. See "Connecting OAuth-strict clients" below. |
 | `--api-key [key]` | **Optional**, off by default, independent of `--oauth` (combine both and either credential works). A static Bearer token, no OAuth handshake involved — pass a value to set it explicitly, or pass the flag alone to auto-generate one (persisted under `~/.voiden/mcp-api-keys.json`, printed at startup). See "A static API key" below. |
 | `--sso-authorize-url` / `--sso-token-url` / `--sso-registration-url` / `--sso-revocation-url` | **Optional.** Passing `--sso-authorize-url`+`--sso-token-url` together turns OAuth mode on by itself (no need to also pass `--oauth`) and points its login step at an external IdP you run, instead of auto-approving. See "Delegating login to an external IdP" below. |
@@ -110,8 +111,8 @@ control what that actually means in practice:
 
 Each flag has a matching environment-variable fallback (`VOIDEN_PUBLISH_PORT`,
 `VOIDEN_PUBLISH_HOST`, `VOIDEN_PUBLISH_DYNAMIC_TOOLS`, `VOIDEN_PUBLISH_PRINT_CONFIG`,
-`VOIDEN_PUBLISH_TUNNEL`, `VOIDEN_PUBLISH_OAUTH`, `VOIDEN_PUBLISH_API_KEY`,
-`VOIDEN_PUBLISH_SSO_AUTHORIZE_URL`, `VOIDEN_PUBLISH_SSO_TOKEN_URL`,
+`VOIDEN_PUBLISH_TUNNEL`, `VOIDEN_PUBLISH_PUBLIC_URL`, `VOIDEN_PUBLISH_OAUTH`,
+`VOIDEN_PUBLISH_API_KEY`, `VOIDEN_PUBLISH_SSO_AUTHORIZE_URL`, `VOIDEN_PUBLISH_SSO_TOKEN_URL`,
 `VOIDEN_PUBLISH_SSO_REGISTRATION_URL`, `VOIDEN_PUBLISH_SSO_REVOCATION_URL`,
 `VOIDEN_PUBLISH_SCHEDULER`, `VOIDEN_PUBLISH_SCHEDULER_INTERVAL_MINUTES`)
 — CLI flag wins, then env var, then the default above. Nothing Voiden-specific to configure in the
@@ -143,10 +144,18 @@ bearer-token check in front of the MCP endpoint (`/health` stays open). A few th
 - **Registered clients and issued tokens persist** to `~/.voiden/mcp-oauth.json` (permissions
   `0600`) — a crash-recovery restart or a normal stop/start won't force every connected client to
   re-authenticate.
-- **Combine with `--tunnel` for a public HTTPS URL** — an OAuth issuer must be HTTPS or loopback
-  (RFC 8414), so `--oauth` without `--tunnel` requires staying on the default `127.0.0.1`/
-  `localhost` bind; passing `--host` to something else without `--tunnel` fails fast with a clear
-  error rather than an unhelpful one from deep inside the OAuth library.
+- **Needs a real, externally-reachable URL — `--tunnel`, or `--public-url` for anything else.** An
+  OAuth issuer must be HTTPS or loopback (RFC 8414), so `--oauth` on its own (no `--tunnel`, no
+  `--public-url`) requires staying on the default `127.0.0.1`/`localhost` bind, and only advertises
+  that loopback address as the issuer/register/authorize/token URLs. `--tunnel` fixes this
+  automatically (it knows its own `cloudflared` URL). **If you're exposing the server some other
+  way — a manual port forward (VS Code's Ports panel, ngrok), a reverse proxy, anything
+  `--tunnel` didn't set up itself — pass `--public-url <the-url-clients-actually-use>` explicitly.**
+  Without it, the server keeps advertising `http://127.0.0.1:<port>/register` etc., which is not
+  reachable from wherever the connecting client actually is — this is *the* cause of a generic
+  "couldn't register with sign-in service" error that persists even though `--oauth` itself is
+  working correctly (confirm with `curl <forwarded-url>/.well-known/oauth-authorization-server` —
+  if `registration_endpoint` says `127.0.0.1`, that's the bug, and `--public-url` is the fix).
 
 If the client you're connecting accepts a raw command/args (not just a fixed "URL + optional
 header" connector field), the existing `mcp-remote` bridge — see "Importing an MCP server config

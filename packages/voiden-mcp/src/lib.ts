@@ -54,6 +54,7 @@ export function withPublishOptions(cmd: Command): Command {
     .option('--host <host>', 'HTTP bind address — binding beyond 127.0.0.1 is a real exposure risk (env: VOIDEN_PUBLISH_HOST, default 127.0.0.1)')
     .option('--dynamic-tools', 'Expose exactly 2 tools instead of one per /tool block — search_tools (lists what\'s served) + call_tool (dispatches to one by name) — for projects with too many tools to put directly on the listing without blowing up an agent\'s context window. Off by default (every served /tool individually registered by name) (env: VOIDEN_PUBLISH_DYNAMIC_TOOLS)')
     .option('--tunnel', 'Wrap --http in a public cloudflared quick tunnel — only needed when this machine has no public IP of its own (env: VOIDEN_PUBLISH_TUNNEL)')
+    .option('--public-url <url>', 'The externally-reachable base URL clients actually use to reach this server — e.g. a manually-configured port forward (VS Code\'s Ports panel, ngrok) or reverse proxy sitting in front of a --host 127.0.0.1 bind. With --oauth, this is required for anything other than --tunnel or genuine localhost use: without it, the advertised issuer/register/authorize/token URLs default to http://<host>:<port> — unreachable from outside this machine, which is exactly what makes DCR fail with a generic "couldn\'t register" error for a client connecting through an external forward. Also used by --print-config\'s printed URL. Not needed with --tunnel, which already knows its own public URL (env: VOIDEN_PUBLISH_PUBLIC_URL)')
     .option('--oauth', 'Require OAuth 2.1 (Dynamic Client Registration + authorization code + bearer tokens) on the --http endpoint — needed for clients that mandate an OAuth handshake before connecting (e.g. claude.ai\'s connector UI, some CLI agent tools). Off by default: --http/--tunnel stay exactly as unauthenticated as they are today unless this (or --api-key, or --sso-authorize-url+--sso-token-url) is passed (env: VOIDEN_PUBLISH_OAUTH)')
     .option('--api-key [key]', 'Require a static API key as a Bearer token on the MCP endpoint — independent of --oauth and needs none of its DCR/authorize/token machinery; can be combined with --oauth so either credential works. This flag is what turns the requirement on at all — VOIDEN_PUBLISH_API_KEY by itself, with no --api-key, does nothing (never silently requires auth just because that env var happens to be set from an earlier session). Pass --api-key with a value to set it explicitly (or set VOIDEN_PUBLISH_API_KEY instead, once --api-key is present, to avoid a literal value on the command line — visible to anything that can read this process\'s argv), or pass the flag alone to auto-generate one, persisted under ~/.voiden/mcp-api-keys.json and printed at startup')
     .option('--sso-authorize-url <url>', 'Delegate --oauth\'s login step to an external IdP\'s real authorization endpoint instead of auto-approving — requires --sso-token-url too. Passing both turns OAuth mode on by itself, no need to also pass --oauth (env: VOIDEN_PUBLISH_SSO_AUTHORIZE_URL)')
@@ -77,6 +78,7 @@ export interface PublishOpts {
   host?: string
   dynamicTools?: boolean
   tunnel?: boolean
+  publicUrl?: string
   oauth?: boolean
   apiKey?: string | boolean
   ssoAuthorizeUrl?: string
@@ -392,6 +394,7 @@ export async function runPublish(projectRoot: string, rawOpts: PublishOpts): Pro
   const host = resolveString(rawOpts.host, 'VOIDEN_PUBLISH_HOST', '127.0.0.1')
   const mode: 'static' | 'dynamic' = resolveBool(rawOpts.dynamicTools, 'VOIDEN_PUBLISH_DYNAMIC_TOOLS', false) ? 'dynamic' : 'static'
   const tunnel = resolveBool(rawOpts.tunnel, 'VOIDEN_PUBLISH_TUNNEL', false)
+  const publicUrl = resolveString(rawOpts.publicUrl, 'VOIDEN_PUBLISH_PUBLIC_URL', '') || undefined
 
   const ssoAuthorizeUrl = resolveString(rawOpts.ssoAuthorizeUrl, 'VOIDEN_PUBLISH_SSO_AUTHORIZE_URL', '') || undefined
   const ssoTokenUrl = resolveString(rawOpts.ssoTokenUrl, 'VOIDEN_PUBLISH_SSO_TOKEN_URL', '') || undefined
@@ -556,11 +559,11 @@ export async function runPublish(projectRoot: string, rawOpts: PublishOpts): Pro
   const useAuth = oauth || apiKeyEnabled
 
   if (isHttp) {
-    if (oauth && host !== '127.0.0.1' && host !== 'localhost' && !tunnel) {
+    if (oauth && !publicUrl && !tunnel && host !== '127.0.0.1' && host !== 'localhost') {
       // The OAuth spec (RFC 8414) requires an HTTPS issuer unless it's
       // loopback — the SDK enforces this itself and would otherwise throw
       // an unhelpful error the moment a client hit any OAuth endpoint.
-      console.error('  ✗  --oauth needs an HTTPS or loopback issuer URL — re-run with --tunnel for a public HTTPS URL, or drop --host so binding stays on 127.0.0.1.')
+      console.error('  ✗  --oauth needs an HTTPS or loopback issuer URL — re-run with --tunnel for a public HTTPS URL, pass --public-url if something else (a manual port forward, a reverse proxy) already gives you one, or drop --host so binding stays on 127.0.0.1.')
       process.exit(2)
     }
 
@@ -573,7 +576,12 @@ export async function runPublish(projectRoot: string, rawOpts: PublishOpts): Pro
         timingSafeEqual(createHash('sha256').update(a).digest(), createHash('sha256').update(b).digest())
 
       let provider: OAuthServerProvider | undefined
-      let issuerUrl = new URL(`http://${host === '0.0.0.0' ? '127.0.0.1' : host}:${port}`)
+      // --public-url wins when given — it's the whole point of the flag
+      // (an externally-reachable URL this process has no other way to
+      // know about, e.g. a manual port forward). Falls back to the
+      // loopback-derived guess otherwise, same as before --public-url
+      // existed; --tunnel overrides this again once it resolves, below.
+      let issuerUrl = publicUrl ? new URL(publicUrl) : new URL(`http://${host === '0.0.0.0' ? '127.0.0.1' : host}:${port}`)
       const mcpResourceUrl = (issuer: URL) => new URL('/mcp', issuer)
       let authRouter: ReturnType<typeof mcpAuthRouter> | undefined
 
@@ -588,7 +596,13 @@ export async function runPublish(projectRoot: string, rawOpts: PublishOpts): Pro
           : new VoidenOAuthProvider()
         const buildAuthRouter = (issuer: URL) =>
           mcpAuthRouter({ provider: provider!, issuerUrl: issuer, resourceServerUrl: mcpResourceUrl(issuer), scopesSupported: ['mcp'] })
-        authRouter = buildAuthRouter(issuerUrl)
+        try {
+          authRouter = buildAuthRouter(issuerUrl)
+        } catch (err: any) {
+          console.error(`  ✗  --public-url "${publicUrl}" isn't usable as an OAuth issuer: ${err?.message ?? String(err)}`)
+          console.error('     It needs to be the real, externally-reachable HTTPS URL clients use to reach this server (or exactly http://127.0.0.1:<port>/http://localhost:<port>).')
+          process.exit(2)
+        }
 
         onTunnelResolved = (url: string) => {
           issuerUrl = new URL(url)
@@ -702,15 +716,19 @@ export async function runPublish(projectRoot: string, rawOpts: PublishOpts): Pro
     }
 
     if (printConfig && !tunnel) {
-      // 0.0.0.0 means "every interface on this machine," not an address a
-      // remote client could actually connect to — there's no way to know
-      // this process's real public host/IP from in here, so say so plainly
-      // instead of printing something that looks valid but silently isn't.
-      const connectHost = host === '0.0.0.0' ? '<this-machine-s-public-host-or-ip>' : host
-      if (host === '0.0.0.0') {
-        console.error("  ⚠  Bound to 0.0.0.0 — replace the placeholder below with this machine's actual reachable address.")
+      if (publicUrl) {
+        printMcpServerConfig(serverConfigName, { url: new URL('/mcp', publicUrl).toString() })
+      } else {
+        // 0.0.0.0 means "every interface on this machine," not an address a
+        // remote client could actually connect to — there's no way to know
+        // this process's real public host/IP from in here, so say so plainly
+        // instead of printing something that looks valid but silently isn't.
+        const connectHost = host === '0.0.0.0' ? '<this-machine-s-public-host-or-ip>' : host
+        if (host === '0.0.0.0') {
+          console.error("  ⚠  Bound to 0.0.0.0 — replace the placeholder below with this machine's actual reachable address.")
+        }
+        printMcpServerConfig(serverConfigName, { url: `http://${connectHost}:${port}/mcp` })
       }
-      printMcpServerConfig(serverConfigName, { url: `http://${connectHost}:${port}/mcp` })
     }
 
     if (tunnel) {
