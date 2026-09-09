@@ -3,6 +3,26 @@
 All notable changes to `@voiden/runner` are documented here. This package is
 versioned and released independently of the Voiden desktop app.
 
+## v2.3.0-beta.17 - 2026-09-09
+
+### Fixed
+- `headers-table`/`query-table`/`path-table` silently sent zero fields when run headlessly (`run`/
+  `run_request`/`tool verify`) — no error, just a request missing headers/params that were clearly
+  present in the `.void` file. A regression from beta.16's own multipart-table fix: that fix made
+  `parseVoidFile` always expand a table block's compact saved shorthand into the full node tree, but
+  `voiden-rest-api`'s headless `extractRows()` was hardcoded to read the old compact shorthand
+  directly and had no idea what to do with the now-always-expanded form, silently returning nothing.
+  Fixed in the `voiden-rest-api` plugin itself (`extractRows()` now reads the expanded form, matching
+  how the shared `buildBodyParams()` already reads `multipart-table`) — requires the plugin cache at
+  `~/.voiden/extensions/voiden-rest-api/runner.js` to refresh (delete it, or `voiden-runner plugin
+  update voiden-rest-api`, if it doesn't pick up automatically) since a cached copy takes priority
+  over the version bundled in this release.
+- A 401/404/500 response showed the exact same green checkmark as a real 200 — `success` only ever
+  checked "did we get a status code back with no transport-level error," never what that status
+  actually meant. Now requires 2xx/3xx specifically for plain HTTP-like protocols; WebSocket/gRPC/
+  GraphQL-subscription handoffs (which legitimately report `statusCode: 0` on a successful
+  connection) are unaffected.
+
 ## v2.3.0-beta.16 - 2026-09-09
 
 ### Fixed
