@@ -3,6 +3,44 @@
 All notable changes to `@voiden/runner` are documented here. This package is
 versioned and released independently of the Voiden desktop app.
 
+## v2.3.0-beta.16 - 2026-09-09
+
+### Fixed
+- A `.void` file's `multipart-table` block (including a multipart file field, e.g. the Multipart
+  Form with Files example) silently sent an empty body when run via `run`/`run_request`/`tool
+  verify` — no error, just zero fields ever attached. Table-shaped blocks are saved to disk in a
+  compact shorthand (`{type: "table", rows: [...]}`); the Voiden app expands this back into the
+  full node tree it needs on load, but the shared standalone parser (`@voiden/executors`'
+  `parseVoidFile`, adapted from the app's own converter) never got that expansion step, so
+  `voiden-rest-api`'s field-extraction logic found nothing to read. A pure single-file `restFile`
+  binary upload (not table-based) was unaffected and continued working correctly. Fixed by porting
+  the missing expansion step over — scoped specifically to table structure, since an earlier,
+  broader attempt at this also corrupted plain-string block content (e.g. a `method` block's value)
+  that was never meant to be touched.
+- Once the above was fixed, a binary/multipart file field's stored path still failed with `ENOENT`
+  if it used the app's own legacy `/subfolder/file.png` project-relative convention (a leading slash
+  that isn't actually filesystem-root) — the Electron app's own file adapter already resolves this
+  correctly (with a fallback for exactly this legacy shape), but this CLI's adapter just passed the
+  raw path straight to `fs.readFile` with no project-relative resolution at all. Ported the same
+  resolution logic over.
+
+### Added
+- `--profile [name]` on `run`, `mcp serve`, and `tool verify` — reuses the same env-profile system
+  `list_environments`/`select_environment` already expose to an MCP agent
+  (`.voiden/env-<profile>-{public,private}.yaml`, both files merged together, or that profile's
+  legacy `.env*` fallback), now also reachable from the command line instead of only knowing the
+  raw file path. Bare `--profile` (no name) means `"default"`. Combine with `--environment <name>`
+  to scope to one named environment within that profile's tree (dotted path for a nested child,
+  e.g. `"staging.eu"`).
+
+### Changed
+- `--env <path>` now only accepts a plain `.env` file, and errors clearly (pointing at `--profile`)
+  if given a `.yaml`/`.yml` path or combined with `--environment`. A single `--env` path pointing at
+  one YAML file could never correctly represent a profile anyway — a profile is always a *pair* of
+  files (`-public.yaml` + `-private.yaml`, merged), and `--env` only ever loaded whichever one you
+  happened to point it at. `--profile` already merges both correctly; there's no reason to keep a
+  half-working path to YAML alongside it. `--env` pointing at a plain `.env` file is unchanged.
+
 ## v2.3.0-beta.15 - 2026-09-07
 
 ### Added
