@@ -11,7 +11,7 @@
  */
 
 import { existsSync, readdirSync, readFileSync } from 'fs'
-import { join, resolve } from 'path'
+import { join, resolve, extname } from 'path'
 import { parseYamlEnv, listYamlEnvironmentNames, mergeYamlEnvTrees, findEnvironmentByPath, loadEnvFile } from './envFile.js'
 import YAML from 'yaml'
 
@@ -162,9 +162,12 @@ export function resolveEnvProfile(
 }
 
 export interface EnvCliOpts {
-  /** Path to one specific .env/.yaml file — the existing, un-abstracted
-   *  escape hatch for a file that isn't part of the project's profile
-   *  convention at all (e.g. a CI-provided secrets file at a one-off path). */
+  /** Path to one plain .env (dotenv) file — for a file outside the
+   *  project's profile convention entirely (e.g. a CI-provided secrets
+   *  path). Deliberately NOT for YAML: a real profile is always a *pair*
+   *  of files (env-<profile>-public.yaml + -private.yaml, merged), which a
+   *  single --env path could never represent correctly anyway — that's
+   *  what --profile is for. */
   env?: string
   /** Which profile to use — same profile system list_environments/
    *  select_environment already expose to an MCP agent, now also reachable
@@ -224,8 +227,19 @@ export function resolveCliEnv(
     if (!existsSync(envPath)) {
       throw new EnvCliOptsError(`Env file not found: ${envPath}`)
     }
+    const ext = extname(envPath).toLowerCase()
+    if (ext === '.yaml' || ext === '.yml') {
+      throw new EnvCliOptsError(
+        '--env only accepts a plain .env file now. A YAML profile is always a pair of files ' +
+        '(env-<profile>-public.yaml + -private.yaml, merged) — a single --env path can\'t represent ' +
+        'that correctly. Use --profile <name> instead (bare --profile means "default").'
+      )
+    }
+    if (opts.environment) {
+      throw new EnvCliOptsError('--environment only applies with --profile — a plain .env file has no named-environment concept to scope to.')
+    }
     try {
-      Object.assign(env, loadEnvFile(envPath, opts.environment))
+      Object.assign(env, loadEnvFile(envPath))
     } catch (err: any) {
       throw new EnvCliOptsError(err?.message ?? String(err))
     }

@@ -550,10 +550,9 @@ program
     '    voiden-runner run ./requests/\n' +
     '    voiden-runner run auth.void users.void ./smoke/\n' +
     '    voiden-runner run ./ --env .env.staging --bail\n' +
-    '    voiden-runner run ./ --profile staging --environment eu\n' +
-    '    voiden-runner run ./ --env .voiden/env-public.yaml --environment staging\n'
+    '    voiden-runner run ./ --profile staging --environment staging.eu\n'
   )
-  .option('-e, --env <path>', 'Path to one specific .env or .yaml file for variable substitution — for a file outside the project\'s profile convention (e.g. a CI-provided secrets path). Mutually exclusive with --profile.')
+  .option('-e, --env <path>', 'Path to one plain .env file for variable substitution — for a file outside the project\'s profile convention (e.g. a CI-provided secrets path). Mutually exclusive with --profile.')
   .option('--profile [name]', 'Use a project env profile (.voiden/env-<profile>-{public,private}.yaml, or that profile\'s legacy .env* fallback) — the same profile system the MCP select_environment tool exposes to an agent, now reachable from the command line too. Bare --profile (no name) means "default". Mutually exclusive with --env.')
   .option('--environment <name>', 'Scope --env or --profile to one named environment within it (e.g. "dev", or a dotted child like "staging.eu") instead of merging every environment together')
   .option('--env-var <key=value>', 'Individual environment variable override (can be used multiple times)', (val, memo: string[]) => {
@@ -1566,7 +1565,7 @@ mcpCmd
   .option('--http', 'Serve over streamable HTTP instead of stdio')
   .option('-p, --port <port>', 'HTTP port (only with --http)', '3000')
   .option('--host <host>', 'HTTP bind address (only with --http) — binding beyond 127.0.0.1 is a real exposure risk', '127.0.0.1')
-  .option('-e, --env <path>', 'Path to one specific .env or .yaml file for variable substitution — for a file outside the project\'s profile convention. Mutually exclusive with --profile.')
+  .option('-e, --env <path>', 'Path to one plain .env file for variable substitution — for a file outside the project\'s profile convention. Mutually exclusive with --profile.')
   .option('--profile [name]', 'Use a project env profile (.voiden/env-<profile>-{public,private}.yaml, or its legacy .env* fallback) — same profile system the select_environment tool exposes to an agent, as the server\'s initial env before any select_environment call. Bare --profile means "default". Mutually exclusive with --env.')
   .option('--environment <name>', 'Scope --env or --profile to one named environment within it (e.g. "dev", or a dotted child like "staging.eu")')
   .option('--check', 'Print what would be served and exit, without starting a live server')
@@ -1728,7 +1727,7 @@ toolCmd
   .option('--cadence <tag>', 'Only run verification requests tagged with this cadence — omit to run every entry regardless of tag')
   .option('--json', 'Output as JSON (suppresses normal output — useful for CI)')
   .option('--write', 'Write the computed status back into each /tool block. Off by default — verification always recomputes fresh and never trusts a stale write-back')
-  .option('-e, --env <path>', 'Path to one specific .env or .yaml file for variable substitution — for a file outside the project\'s profile convention. Mutually exclusive with --profile.')
+  .option('-e, --env <path>', 'Path to one plain .env file for variable substitution — for a file outside the project\'s profile convention. Mutually exclusive with --profile.')
   .option('--profile [name]', 'Use a project env profile (.voiden/env-<profile>-{public,private}.yaml, or its legacy .env* fallback). Bare --profile means "default". Mutually exclusive with --env.')
   .option('--environment <name>', 'Scope --env or --profile to one named environment within it (e.g. "dev", or a dotted child like "staging.eu")')
   .action(async (paths: string[], opts) => {
