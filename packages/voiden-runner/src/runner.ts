@@ -222,11 +222,27 @@ function toRunResult(response: PipelineResponse, url: string, startMs: number): 
       ? Object.fromEntries(response.headers.map(h => [h.key, h.value]))
       : undefined
 
+  // A completed HTTP exchange (any status code, including 4xx/5xx) used to
+  // count as "success" here — a 401/404/500 showed the same green checkmark
+  // as a real 200, since this only ever checked "did we get a status code
+  // back with no transport-level error", never what that status actually
+  // meant. Only tightened for plain HTTP-like protocols (same 3-value check
+  // plugin.ts's onProcessResponse already uses to distinguish these from
+  // WebSocket/gRPC/GraphQL-subscription) — those report a legitimate
+  // success as statusCode: 0 on a completed handoff (see cliElectron.ts's
+  // handoff branch), so the original "> 0" check must stay for them.
+  const protocol = response.protocol ?? 'rest'
+  const isHttpLike = protocol === 'rest' || protocol === 'http' || protocol === 'https'
+  const statusCode = response.statusCode ?? 0
+  const success = !response.error && (
+    isHttpLike ? (statusCode >= 200 && statusCode < 400) : statusCode > 0
+  )
+
   const result: RunResult = {
     protocol:       response.protocol  ?? 'rest',
     method:         response.requestMeta?.method,
     url:            response.requestMeta?.url ?? response.url ?? url,
-    success:        !response.error && response.statusCode > 0,
+    success,
     status:         response.statusCode || undefined,
     statusText:     response.statusMessage || undefined,
     durationMs,
