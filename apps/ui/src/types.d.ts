@@ -518,7 +518,7 @@ declare global {
       mcp: {
         initialize: () => Promise<{ success: boolean; message?: string }>;
         disable: () => Promise<{ success: boolean; message?: string }>;
-        status: () => Promise<{ registered: boolean }>;
+        status: () => Promise<{ registered: boolean; cliInstalled: boolean }>;
       };
     };
     platform: NodeJS.Platform;

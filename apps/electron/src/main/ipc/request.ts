@@ -1,16 +1,16 @@
-import { ipcMain, BrowserWindow, protocol } from "electron";
+import { ipcMain, BrowserWindow, protocol, shell } from "electron";
 import { Blob } from "node:buffer";
 import { Agent, ProxyAgent, request as undiciRequest, WebSocket, fetch, FormData } from "undici";
 import { getSettings } from "../settings";
 import { replaceVariablesSecure } from "../env";
-import { getActiveProject } from "../state";
+import { getActiveProject, forceRefocusWindow } from "../state";
 import fs from "fs/promises";
 import path from "path";
 import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
 import { createClient, Client } from "graphql-ws";
 import { isAbsolute } from "node:path";
-import { executeSecureRequest, type SecureRequestAdapter } from "@voiden/executors";
+import { executeSecureRequest, authorizeMcpServer, type SecureRequestAdapter } from "@voiden/executors";
 
 
 const lastByWcAndKey = new Map<string, number>();
@@ -638,6 +638,43 @@ export function registerRequestIpcHandler() {
    *
    * @security Environment values never exposed to UI
    */
+  /**
+   * Drives a full OAuth 2.1 handshake against a remote MCP server on behalf
+   * of an mcp-connection block's "Authorize" button — the fix for that
+   * button's earlier "opens a login page, then you're on your own" limit.
+   * All the actual protocol work (discovery, DCR, PKCE, token exchange, the
+   * loopback listener) lives in @voiden/executors' authorizeMcpServer(),
+   * host-agnostic on purpose; this handler supplies the two genuinely
+   * Electron-specific pieces it needs:
+   *   - opening the login page in the user's real system browser, not an
+   *     in-app window (an in-app webview can't complete SSO redirects
+   *     through a third-party IdP the way a real browser with existing
+   *     sessions/cookies/passkeys can)
+   *   - bringing Voiden itself back to the foreground the instant the
+   *     browser hands control back, so the user isn't left staring at a
+   *     "you can close this tab" page with the app still in the background
+   *
+   * BrowserWindow.fromWebContents(event.sender), not some single global
+   * "the main window" — same reasoning as getAppState's own event-scoping
+   * (see state.ts): with multiple windows open, this needs to refocus
+   * specifically the window whose block the user actually clicked Authorize
+   * on, not whichever window happened to be active/focused by the time the
+   * browser redirect lands (which could be a while later).
+   */
+  ipcMain.handle("mcp:authorize-server", async (event, { serverUrl }: { serverUrl: string }) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    return authorizeMcpServer(
+      serverUrl,
+      (url) => shell.openExternal(url),
+      () => {
+        if (!win || win.isDestroyed()) return;
+        if (win.isMinimized()) win.restore();
+        win.show();
+        forceRefocusWindow(win);
+      },
+    );
+  });
+
   ipcMain.handle("send-secure-request", async (_event, { requestState, signalState }) => {
     const settings = getSettings();
     const activeProject = await getActiveProject();

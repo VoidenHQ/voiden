@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "voiden-mcp": {
+      "command": "voiden",
+      "args": [
+        "mcp-stdio",
+        "/Users/phurpatsering/Desktop/Voiden/voiden/apps/electron"
+      ]
+    }
+  }
+}

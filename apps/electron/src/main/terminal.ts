@@ -16,7 +16,19 @@ const batchTimeouts = new Map<string, NodeJS.Timeout>();
 const BATCH_INTERVAL = 8; // Batch output every 8ms for faster response
 
 ipcMain.handle("terminal:attachOrCreate", async (event, { tabId, cwd, cols, rows }) => {
-  const activeDirectory = await getActiveProject();
+  // Prefer the caller's own `cwd` — it comes from that window's own React
+  // tree (Terminal.tsx's `cwd` prop), so it's already correctly scoped to
+  // whichever window actually made this call, no window-timing race
+  // possible. getActiveProject() used to be called bare (no `event`), which
+  // falls back to windowManager's single global "currently focused window"
+  // (see getAppState's own event?.sender-vs-fallback logic) — with multiple
+  // windows open, that's whichever window last had focus, not necessarily
+  // the one that actually issued THIS call, so switching focus right around
+  // when a terminal opens could spawn it in the wrong window's directory.
+  // getActiveProject(event) below is only a fallback for the (currently
+  // nonexistent) case of an empty cwd, and is itself event-scoped so it
+  // doesn't reintroduce the same bug.
+  const activeDirectory = cwd || (await getActiveProject(event));
   if (terminals.has(tabId)) {
     const existingPty = terminals.get(tabId);
     if (existingPty) {

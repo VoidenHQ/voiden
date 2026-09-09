@@ -43,6 +43,85 @@ function restoreEmptyLineMarkers(value: unknown): unknown {
 }
 
 /**
+ * Inflate a compact-saved table node — `{ type: "table", rows: [{ attrs,
+ * row: [key, value] }] }` — back into the full ProseMirror node tree
+ * (tableRow → tableCell → paragraph) that every consumer downstream of a
+ * parsed block actually expects. Ported from
+ * apps/ui/src/core/editors/voiden/markdownConverter.ts's inflateTableNode —
+ * this file's own header comment already says it's an adaptation of that
+ * one, but this one specific step went missing in the adaptation, which
+ * silently broke every table-shaped block (multipart-table, headers-table,
+ * a plain table, and any multipart file field inside one) for every
+ * standalone consumer of parseVoidFile (voiden-runner, @voiden/mcp,
+ * run_request) — they never crashed, they just silently extracted zero
+ * rows, since e.g. voiden-rest-api's buildBodyParams only knows how to read
+ * the inflated tableRow/tableCell shape, never the compact one.
+ */
+function inflateTableNode(simplified: any): Block {
+  const tableNode: Block = { type: 'table', content: [] }
+  if (!simplified.rows || !Array.isArray(simplified.rows)) return tableNode
+
+  const rows: Block[] = []
+  for (const rowObj of simplified.rows) {
+    const cells: Block[] = []
+    for (const cellValue of rowObj.row ?? []) {
+      const paragraphContent: any[] = []
+      if (cellValue === null || cellValue === undefined) {
+        // leave empty — matches the source's explicit no-op branch
+      } else if (typeof cellValue === 'string') {
+        paragraphContent.push({ type: 'text', text: cellValue })
+      } else if (Array.isArray(cellValue)) {
+        for (const item of cellValue) {
+          if (typeof item === 'string') paragraphContent.push({ type: 'text', text: item })
+          else if (item && typeof item === 'object') paragraphContent.push(item) // already a node, e.g. fileLink
+        }
+      } else if (typeof cellValue === 'object') {
+        paragraphContent.push(cellValue)
+      }
+      cells.push({
+        type: 'tableCell',
+        attrs: { colspan: 1, rowspan: 1, colwidth: null },
+        content: [{ type: 'paragraph', content: paragraphContent } as any],
+      })
+    }
+    rows.push({ type: 'tableRow', attrs: rowObj.attrs || {}, content: cells })
+  }
+  tableNode.content = rows
+  return tableNode
+}
+
+/**
+ * Recursively inflates any compact-saved table found anywhere in a parsed
+ * block's content tree — a table can be nested inside a section, an
+ * imported block, etc., not just at the top level. See inflateTableNode's
+ * own comment for why this exists at all.
+ *
+ * Deliberately does NOT also wrap a plain-string `content` into a text-node
+ * array, unlike the app-side original this was ported from — plenty of leaf
+ * block types (method, url, ...) store their value as a bare string by
+ * design and are read that way downstream; blindly wrapping every string
+ * content field broke them (e.g. a `method` block's content going from the
+ * plain string "POST" to `[{type: "text", text: "POST"}]`, which the REST
+ * plugin's own buildHandler doesn't recognize as a method at all). Only
+ * table cells actually need array-of-nodes content, and inflateTableNode
+ * above already produces that shape directly — nothing here needs to layer
+ * a second, more aggressive transform on top of it.
+ */
+function inflateSimplifiedNode(node: any): any {
+  if (!node || typeof node !== 'object') return node
+
+  if (node.type === 'table' && node.rows) {
+    node = inflateTableNode(node)
+  }
+
+  if (Array.isArray(node.content)) {
+    node.content = node.content.map((child: any) => inflateSimplifiedNode(child))
+  }
+
+  return node
+}
+
+/**
  * Parse a single void code block text (the YAML inside the fenced block).
  * Returns null if the block is malformed.
  */
@@ -58,6 +137,7 @@ function parseVoidBlockText(text: string): Block | null {
   try {
     let node = YAML.parse(yamlText)
     node = restoreEmptyLineMarkers(node)
+    node = inflateSimplifiedNode(node)
     return node as Block
   } catch {
     return null

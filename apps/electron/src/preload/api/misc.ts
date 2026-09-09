@@ -289,6 +289,12 @@ export const requestApi = {
    */
   sendSecure: (requestState: any, signalState?: any) =>
     ipcRenderer.invoke("send-secure-request", { requestState, signalState }),
+  /** Drives a full OAuth handshake against an MCP server — opens the login
+   *  page in the system browser, waits for it to complete, and stores the
+   *  resulting token for that server's origin. See ipc/request.ts's own
+   *  doc comment on the "mcp:authorize-server" handler. */
+  authorizeMcpServer: (serverUrl: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke("mcp:authorize-server", { serverUrl }),
   connectWss: (wsId: string) => ipcRenderer.invoke("ws-connect", wsId),
   sendMessage: (wsId: any, msg?: any) =>
     ipcRenderer.send("ws-send", { wsId, data: msg }),

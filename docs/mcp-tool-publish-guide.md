@@ -117,9 +117,42 @@ Each flag has a matching environment-variable fallback (`VOIDEN_PUBLISH_PORT`,
 `VOIDEN_PUBLISH_SCHEDULER`, `VOIDEN_PUBLISH_SCHEDULER_INTERVAL_MINUTES`)
 — CLI flag wins, then env var, then the default above. Nothing Voiden-specific to configure in the
 repo; a CI/CD platform's own way of setting env vars/secrets is enough. `voiden-mcp --version`
-prints the installed package version; `voiden-mcp --check` is a dry run — discovers, validates,
-and verifies without starting a live server, printing exactly what would/wouldn't be served and
-why.
+prints the installed package version.
+
+### Verifying without starting a server (`--check`)
+
+```bash
+voiden-mcp <path> --check
+```
+
+A dry run — discovers every `/tool` block under `<path>`, validates it, and runs its declared
+verification, all without binding a port or starting a live server at all. This is the fastest way
+to answer "would this actually get served, and why/why not" — including detail a normal `--http`
+startup deliberately doesn't print (exclusion reasons are only shown by `--check`'s own report).
+Real output, run against a small two-tool test project:
+
+```
+  ✓  verify "echo_two" [happy-path, cadence: hourly] — passed
+
+2 /tool block(s) found in /path/to/project
+
+  [SERVED (unverified)] echo_voiden — unverified: No verification requests attached.
+  [SERVED] echo_two — verified
+```
+
+Each line is one `/tool` block's final status:
+- **`[SERVED]`** — passed its declared verification and would be exposed to a client.
+- **`[SERVED (unverified)]`** — no verification requests attached to this tool at all, so nothing
+  could be checked; it's still served (an unverified tool isn't withdrawn by default), just flagged
+  so you know the "it works" claim is unconfirmed, not verified-and-passing.
+- A tool that fails its verification and has an on-failure policy of "withdraw" would show as
+  excluded here, with the exact reason named — this is the detail worth reaching for `--check`
+  specifically to see, since a normal `--http`/`--tunnel` startup log only prints a bare count
+  (`N tool(s) served`), never *why* something short of the total didn't make it.
+
+Reach for this whenever a startup log's `N tool(s) served` doesn't match what you expected — see
+the [worked Render example](#worked-example-deploying-to-render) below for the two most common
+concrete causes of a lower-than-expected count, both of which `--check` names directly.
 
 ### Connecting OAuth-strict clients (claude.ai, CLI agents)
 

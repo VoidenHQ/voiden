@@ -293,7 +293,7 @@ export async function executeSecureRequest(
 
     const responseBody = result.success
       ? { operation: mcp.operation, ...result.result }
-      : { operation: mcp.operation, error: result.error }
+      : { operation: mcp.operation, error: result.error, authRequired: result.authRequired, authorizeUrl: result.authorizeUrl }
     const metaHeaders = Object.entries(headers).map(([key, value]) => ({ key, value }))
 
     return {

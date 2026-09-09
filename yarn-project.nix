@@ -55,18 +55,7 @@ let
       rm $out/.gitignore
     '';
     outputHashMode = "recursive";
-    # Content differs per system — this project's dependency tree resolves
-    # different optional/native packages per platform, so a single shared
-    # hash (the previous form of this line) only ever matched one of them.
-    # That went unnoticed until now because the fetch itself was failing
-    # before ever reaching this check (see the @electron/node-gyp fix this
-    # commit lands alongside). To add a new system: build once with any
-    # placeholder value here, take the "got:" hash from the resulting
-    # "hash mismatch in fixed-output derivation" error, and add it below.
-    outputHash = {
-      "aarch64-darwin" = "sha512-WuxWOO6kREcRXnF6CN9T1NIOVLzZDwiGrWcL3jYdpdWJ7Rmmy1xdYEDGJEAWHMXodFinDByurxppBWm7k9Iqgg==";
-      "x86_64-linux" = "sha512-wozuypqbWZT1aqZjZQcFA2wbPU81Y1uPpb3LXCo5KapT0erjJVtemIyrXJaHMGd+UaOBk78Li5nmlpmfJF/wsQ==";
-    }.${stdenv.system} or (throw "yarn-project.nix: no pinned yarn-cache outputHash for system '${stdenv.system}' — see the comment above for how to add one");
+    outputHash = "sha512-VW3zdowr4W8+mLCdZFSKKCXYI0LWG3caiNOR/nPvAtGXFZm70WmUgzHdNa0jldAQuWq9oG6mWy2J+UKXI1+9RQ==";
   };
 
   # Main project derivation.

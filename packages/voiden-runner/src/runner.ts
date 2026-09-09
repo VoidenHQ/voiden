@@ -341,8 +341,11 @@ export async function runVoidFile(
     }
   }
 
-  // CLI IPC adapter — pass runtimeVars so preSendProcess can substitute {{process.xxx}}
-  const ipcAdapter = createCliElectron(env, runtimeVars)
+  // CLI IPC adapter — pass runtimeVars so preSendProcess can substitute
+  // {{process.xxx}}, and projectRoot so a binary/multipart file field's
+  // stored path (which can use the app's own legacy leading-slash
+  // project-relative convention) resolves the same way the app itself does.
+  const ipcAdapter = createCliElectron(env, runtimeVars, options.projectRoot)
 
   const results: SectionResult[] = []
 

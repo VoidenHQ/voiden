@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { getAppState } from "../state";
 import { updateComposedSkillOnly } from "../skillsInstaller";
+import { isCliInstalled } from "../cliInstaller";
 import { registerClaudeMcpServer, unregisterClaudeMcpServer, upsertCodexMcpSection, getMcpStatus, type ServerCommand } from "@voiden/executors";
 
 // Points at the SAME hidden `mcp-stdio` entry `voiden agent` registers (see
@@ -56,6 +57,20 @@ export function registerMcpIpcHandlers() {
     if (!activeDirectory) {
       return { success: false, message: "No active project" };
     }
+    // Packaged builds register a bare `voiden` command, assuming it resolves
+    // on PATH later when Claude/Codex actually spawns it — resolveMcpStdioServerCommand()
+    // itself has no way to check that, since it's synchronous and doesn't
+    // touch the filesystem. Without this check, a missing CLI produced no
+    // error here at all: registration "succeeded" (the .mcp.json write
+    // itself never fails), and the real failure only surfaced later,
+    // invisibly, as a "command not found" inside Claude/Codex with no link
+    // back to this button.
+    if (app.isPackaged && !(await isCliInstalled())) {
+      return {
+        success: false,
+        message: "The Voiden CLI isn't installed yet — install it from Settings before initializing MCP.",
+      };
+    }
     try {
       const serverCommand = resolveMcpStdioServerCommand(activeDirectory);
       registerClaudeMcpServer(activeDirectory, serverCommand);
@@ -99,10 +114,20 @@ export function registerMcpIpcHandlers() {
   // section — it isn't, and can't easily be, scoped to "is THIS project
   // registered". ORing it in meant every project showed "ready" forever
   // after Codex was registered for any one of them, .mcp.json or not.
+  //
+  // Also reports cliInstalled — a project can be registered from before the
+  // CLI was ever removed (or on a machine that never had it installed at
+  // all), in which case `registered: true` alone is misleading: the
+  // .mcp.json entry is real, but the `voiden` command it points at won't
+  // resolve, so Claude/Codex will fail to actually launch it. The renderer
+  // uses this to show "needs the CLI" instead of a plain "ready" for that
+  // case — see mcp:initialize's own isCliInstalled() check above for the
+  // same reasoning on the write side.
   ipcMain.handle("mcp:status", async (event) => {
     const activeDirectory = getAppState(event).activeDirectory;
-    if (!activeDirectory) return { registered: false };
+    if (!activeDirectory) return { registered: false, cliInstalled: true };
     const status = getMcpStatus(activeDirectory);
-    return { registered: status.claude.serverRegistered };
+    const cliInstalled = app.isPackaged ? await isCliInstalled() : true;
+    return { registered: status.claude.serverRegistered, cliInstalled };
   });
 }
