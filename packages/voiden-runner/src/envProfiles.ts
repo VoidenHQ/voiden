@@ -11,8 +11,8 @@
  */
 
 import { existsSync, readdirSync, readFileSync } from 'fs'
-import { join } from 'path'
-import { parseYamlEnv, listYamlEnvironmentNames, mergeYamlEnvTrees, findEnvironmentByPath } from './envFile.js'
+import { join, resolve } from 'path'
+import { parseYamlEnv, listYamlEnvironmentNames, mergeYamlEnvTrees, findEnvironmentByPath, loadEnvFile } from './envFile.js'
 import YAML from 'yaml'
 
 const VOIDEN_DIR = '.voiden'
@@ -159,6 +159,79 @@ export function resolveEnvProfile(
   }
 
   return parseYamlEnv(YAML.stringify(merged))
+}
+
+export interface EnvCliOpts {
+  /** Path to one specific .env/.yaml file — the existing, un-abstracted
+   *  escape hatch for a file that isn't part of the project's profile
+   *  convention at all (e.g. a CI-provided secrets file at a one-off path). */
+  env?: string
+  /** Which profile to use — same profile system list_environments/
+   *  select_environment already expose to an MCP agent, now also reachable
+   *  from the command line instead of only knowing a raw file path. `true`
+   *  (commander's value for a bare flag with no argument) means "default",
+   *  the same profile discoverEnvProfiles/resolveEnvProfile already treat
+   *  as the unnamed one. */
+  profile?: string | true
+  /** Scopes either of the above down to one named environment inside
+   *  whichever file/profile was actually loaded. */
+  environment?: string
+}
+
+/** Thrown by resolveCliEnv for a usage mistake (not found, ambiguous
+ *  flags) — callers already wrap their existing --env loading in a
+ *  try/catch that prints the message and exits with EXIT_USAGE_ERROR; this
+ *  just gives that same catch something to catch for the --profile path
+ *  too, instead of duplicating that error-reporting shape here. */
+export class EnvCliOptsError extends Error {}
+
+/**
+ * Resolves the env-selection flags shared across voiden-runner's
+ * run/mcp serve/tool verify commands into a merged variable map, layered on
+ * top of whatever base env the caller already has (typically process.env).
+ *
+ * Two independent ways to point at variables — --profile and --env — are
+ * deliberately mutually exclusive: mixing "use the profile system" and
+ * "use this one specific file instead" has no obvious shared meaning, so
+ * this throws rather than silently picking one. Passing neither is
+ * unchanged from before this existed: nothing gets loaded, only baseEnv
+ * comes back — an existing invocation with no env flags at all keeps
+ * working exactly as it did.
+ */
+export function resolveCliEnv(
+  opts: EnvCliOpts,
+  projectRoot: string,
+  baseEnv: Record<string, string>,
+): Record<string, string> {
+  if (opts.env && opts.profile) {
+    throw new EnvCliOptsError('--env and --profile are mutually exclusive — pick one way to point at variables.')
+  }
+
+  const env = { ...baseEnv }
+
+  if (opts.profile !== undefined) {
+    const profileName = opts.profile === true ? 'default' : opts.profile
+    try {
+      Object.assign(env, resolveEnvProfile(projectRoot, profileName, opts.environment))
+    } catch (err: any) {
+      throw new EnvCliOptsError(err?.message ?? String(err))
+    }
+    return env
+  }
+
+  if (opts.env) {
+    const envPath = resolve(opts.env)
+    if (!existsSync(envPath)) {
+      throw new EnvCliOptsError(`Env file not found: ${envPath}`)
+    }
+    try {
+      Object.assign(env, loadEnvFile(envPath, opts.environment))
+    } catch (err: any) {
+      throw new EnvCliOptsError(err?.message ?? String(err))
+    }
+  }
+
+  return env
 }
 
 /** Same shape as envFile.ts's private parseDotEnv, duplicated rather than

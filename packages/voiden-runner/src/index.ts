@@ -44,6 +44,7 @@ import {
   MCP_SKILL_MARKDOWN,
 } from '@voiden/executors'
 import { loadEnvFile } from './envFile.js'
+import { resolveCliEnv } from './envProfiles.js'
 import {
   appendSessionResults,
   loadSessionResults,
@@ -549,10 +550,12 @@ program
     '    voiden-runner run ./requests/\n' +
     '    voiden-runner run auth.void users.void ./smoke/\n' +
     '    voiden-runner run ./ --env .env.staging --bail\n' +
+    '    voiden-runner run ./ --profile staging --environment eu\n' +
     '    voiden-runner run ./ --env .voiden/env-public.yaml --environment staging\n'
   )
-  .option('-e, --env <path>', 'Path to .env or .yaml file for variable substitution')
-  .option('--environment <name>', 'Scope --env to one named environment in a multi-environment YAML file (e.g. "dev") instead of merging every environment in it together')
+  .option('-e, --env <path>', 'Path to one specific .env or .yaml file for variable substitution — for a file outside the project\'s profile convention (e.g. a CI-provided secrets path). Mutually exclusive with --profile.')
+  .option('--profile [name]', 'Use a project env profile (.voiden/env-<profile>-{public,private}.yaml, or that profile\'s legacy .env* fallback) — the same profile system the MCP select_environment tool exposes to an agent, now reachable from the command line too. Bare --profile (no name) means "default". Mutually exclusive with --env.')
+  .option('--environment <name>', 'Scope --env or --profile to one named environment within it (e.g. "dev", or a dotted child like "staging.eu") instead of merging every environment together')
   .option('--env-var <key=value>', 'Individual environment variable override (can be used multiple times)', (val, memo: string[]) => {
     memo.push(val)
     return memo
@@ -587,19 +590,12 @@ program
       Object.entries(process.env).filter(([, v]) => v !== undefined) as [string, string][]
     )
 
-    // 1. Load --env file (overrides system)
-    if (opts.env) {
-      const envPath = resolve(opts.env)
-      if (!existsSync(envPath)) {
-        console.error(chalk.red(`Env file not found: ${envPath}`))
-        process.exit(EXIT_USAGE_ERROR)
-      }
-      try {
-        Object.assign(env, loadEnvFile(envPath, opts.environment))
-      } catch (err: any) {
-        console.error(chalk.red(`  ✗  ${err.message}`))
-        process.exit(EXIT_USAGE_ERROR)
-      }
+    // 1. Load --env file or --profile (overrides system)
+    try {
+      Object.assign(env, resolveCliEnv(opts, process.cwd(), env))
+    } catch (err: any) {
+      console.error(chalk.red(`  ✗  ${err.message}`))
+      process.exit(EXIT_USAGE_ERROR)
     }
 
     // 2. Individual --env-var overrides
@@ -1570,8 +1566,9 @@ mcpCmd
   .option('--http', 'Serve over streamable HTTP instead of stdio')
   .option('-p, --port <port>', 'HTTP port (only with --http)', '3000')
   .option('--host <host>', 'HTTP bind address (only with --http) — binding beyond 127.0.0.1 is a real exposure risk', '127.0.0.1')
-  .option('-e, --env <path>', 'Path to .env or .yaml file for variable substitution')
-  .option('--environment <name>', 'Scope --env to one named environment in a multi-environment YAML file (e.g. "dev") instead of merging every environment in it together')
+  .option('-e, --env <path>', 'Path to one specific .env or .yaml file for variable substitution — for a file outside the project\'s profile convention. Mutually exclusive with --profile.')
+  .option('--profile [name]', 'Use a project env profile (.voiden/env-<profile>-{public,private}.yaml, or its legacy .env* fallback) — same profile system the select_environment tool exposes to an agent, as the server\'s initial env before any select_environment call. Bare --profile means "default". Mutually exclusive with --env.')
+  .option('--environment <name>', 'Scope --env or --profile to one named environment within it (e.g. "dev", or a dotted child like "staging.eu")')
   .option('--check', 'Print what would be served and exit, without starting a live server')
   .action(async (path: string | undefined, opts) => {
     const projectRoot = resolve(path ?? '.')
@@ -1579,18 +1576,11 @@ mcpCmd
     const env: Record<string, string> = Object.fromEntries(
       Object.entries(process.env).filter(([, v]) => v !== undefined) as [string, string][]
     )
-    if (opts.env) {
-      const envPath = resolve(opts.env)
-      if (!existsSync(envPath)) {
-        console.error(chalk.red(`Env file not found: ${envPath}`))
-        process.exit(EXIT_USAGE_ERROR)
-      }
-      try {
-        Object.assign(env, loadEnvFile(envPath, opts.environment))
-      } catch (err: any) {
-        console.error(chalk.red(`  ✗  ${err.message}`))
-        process.exit(EXIT_USAGE_ERROR)
-      }
+    try {
+      Object.assign(env, resolveCliEnv(opts, projectRoot, env))
+    } catch (err: any) {
+      console.error(chalk.red(`  ✗  ${err.message}`))
+      process.exit(EXIT_USAGE_ERROR)
     }
 
     if (opts.check) {
@@ -1738,26 +1728,20 @@ toolCmd
   .option('--cadence <tag>', 'Only run verification requests tagged with this cadence — omit to run every entry regardless of tag')
   .option('--json', 'Output as JSON (suppresses normal output — useful for CI)')
   .option('--write', 'Write the computed status back into each /tool block. Off by default — verification always recomputes fresh and never trusts a stale write-back')
-  .option('-e, --env <path>', 'Path to .env or .yaml file for variable substitution')
-  .option('--environment <name>', 'Scope --env to one named environment in a multi-environment YAML file (e.g. "dev") instead of merging every environment in it together')
+  .option('-e, --env <path>', 'Path to one specific .env or .yaml file for variable substitution — for a file outside the project\'s profile convention. Mutually exclusive with --profile.')
+  .option('--profile [name]', 'Use a project env profile (.voiden/env-<profile>-{public,private}.yaml, or its legacy .env* fallback). Bare --profile means "default". Mutually exclusive with --env.')
+  .option('--environment <name>', 'Scope --env or --profile to one named environment within it (e.g. "dev", or a dotted child like "staging.eu")')
   .action(async (paths: string[], opts) => {
     const targets = paths.length > 0 ? paths : ['.']
 
     const env: Record<string, string> = Object.fromEntries(
       Object.entries(process.env).filter(([, v]) => v !== undefined) as [string, string][]
     )
-    if (opts.env) {
-      const envPath = resolve(opts.env)
-      if (!existsSync(envPath)) {
-        console.error(chalk.red(`Env file not found: ${envPath}`))
-        process.exit(EXIT_USAGE_ERROR)
-      }
-      try {
-        Object.assign(env, loadEnvFile(envPath, opts.environment))
-      } catch (err: any) {
-        console.error(chalk.red(`  ✗  ${err.message}`))
-        process.exit(EXIT_USAGE_ERROR)
-      }
+    try {
+      Object.assign(env, resolveCliEnv(opts, process.cwd(), env))
+    } catch (err: any) {
+      console.error(chalk.red(`  ✗  ${err.message}`))
+      process.exit(EXIT_USAGE_ERROR)
     }
 
     const activePlugins = await loadEnabledPlugins()
