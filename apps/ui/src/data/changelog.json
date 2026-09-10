@@ -1,5 +1,29 @@
 [
   {
+    "version": "v2.3.0-beta.3",
+    "date": "10/09/2026",
+    "title": "Agent Self-Service: Plugins & Environments",
+    "description": "Continues beta.2's MCP work: an agent connected via MCP can now install or update a missing plugin itself, discover and select a project's environment profiles, and \"Initialize MCP\" has a matching \"Disable MCP\". Also fixes a sudo prompt firing on every launch, hidden dotfiles in the file explorer, Windows/Nix installer issues, and two bugs affecting requests run by an agent or the CLI.",
+    "icon": "Plug",
+    "iconColor": "text-blue-400",
+    "bgColor": "bg-gradient-to-br from-blue-900 to-slate-900",
+    "changes": {
+      "Added": [
+        "AI agents connected via MCP can now install a missing plugin or update one to the latest registry version themselves — three new tools, list_plugins, install_plugin, and update_plugin, registered on the same mcp-stdio server \"Initialize MCP\" sets up for Claude Code/Codex. Installing or updating reloads the active plugin set immediately in the same session, no restart needed, instead of an agent failing on a missing request builder and leaving a human to fix it out of band.",
+        "list_environments and select_environment — two new MCP tools alongside the existing four, so an agent can discover every env profile in a project (including nested named environments, e.g. \"staging.eu\") and select one as the session default for every later run_request call, instead of having to guess or ask at every step. The bundled agent skill (installed by Initialize MCP) now documents both.",
+        "\"Disable MCP\" — a new confirm-gated action next to \"Initialize MCP\" in the status bar, so registering Claude Code/Codex access for a project can be undone from the same place it was set up, scoped to just that project (doesn't touch Codex's shared global config or the installed skill)."
+      ],
+      "Fixed": [
+        "The CLI installer's sudo password prompt no longer fires on every single app launch. It compared the running instance's own on-disk path — which macOS's Gatekeeper App Translocation randomizes on every launch until the app is moved to /Applications — instead of comparing versions, so it looked \"different\" and silently reinstalled (prompting for a password) even when nothing had actually changed.",
+        "File explorer and Quick Open search no longer hide dotfiles. Everything except .gitignore, .env*, and .voiden/ was previously filtered out of both the tree and search results by an overly broad allowlist.",
+        "Windows: winget install/upgrade was failing with a hash mismatch — the published manifest's installer hash was generated from a \"latest\" URL whose contents change on every new release, instead of the immutable, version-pinned artifact already published alongside it.",
+        "nix profile install (voiden.cachix.org) never actually had a working cached build to install from — a Git/Yarn incompatibility fetching one transitive dependency silently made every cache build fall back to a full source rebuild. Fixed by resolving that dependency from npm instead of git.",
+        "When run via an AI agent (the run_request/tool verify MCP tools) or voiden run: a headers/query/path/multipart-form table block could silently send zero fields — no error, just data visibly present in the .void file never making it into the request. A binary/multipart file field using the app's legacy /subfolder/file.png path convention also failed with ENOENT specifically on this execution path.",
+        "When run via an AI agent (the run_request MCP tool) or voiden run: a 401/404/500 response was reported exactly the same as a successful 200 — only whether a status code came back was checked, never what it actually meant."
+      ]
+    }
+  },
+  {
     "version": "v2.3.0-beta.2",
     "date": "02/09/2026",
     "title": "MCP Tool Serving & MCP Client Blocks",

@@ -1,6 +1,32 @@
 {
   "releases": [
     {
+      "version": "2.3.0-beta.3",
+      "date": "September 2026",
+      "whatsnew": [
+        {
+          "icon": "🔌",
+          "title": "Agents Can Fix Their Own Missing Plugins",
+          "description": "When an agent hits a request that needs a plugin you haven't installed or updated yet, it no longer has to just fail and wait for you. It can now check what's enabled, install what's missing, or grab the latest version itself — and keep going in the same conversation, no restart needed."
+        },
+        {
+          "icon": "🌍",
+          "title": "Agents Can Now Pick Your Environment Too",
+          "description": "Two new tools let an agent see every environment profile your project has — staging, prod, nested ones like \"staging.eu\" — and select one to use for the rest of the session, instead of guessing or asking you every single time."
+        },
+        {
+          "icon": "🔓",
+          "title": "Disable MCP, Right From the Status Bar",
+          "description": "\"Initialize MCP\" now has a counterpart. Turn Claude Code/Codex access for a project back off from the exact same status-bar button you used to turn it on, with a confirmation step so it's never an accident."
+        },
+        {
+          "icon": "🐛",
+          "title": "Fewer Surprises",
+          "description": "No more sudo password prompt on every single launch. Dotfiles show up in the file explorer and search again. winget and the Nix cache install correctly. And two request-execution bugs are fixed for anything run by an agent or the CLI: table fields (headers, query params, form data) no longer silently go missing, and a failed response no longer shows the same green checkmark as a successful one."
+        }
+      ]
+    },
+    {
       "version": "2.3.0-beta.2",
       "date": "September 2026",
       "whatsnew": [
