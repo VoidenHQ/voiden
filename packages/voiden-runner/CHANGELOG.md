@@ -19,6 +19,12 @@ versioned and released independently of the Voiden desktop app.
   mcp-stdio` CLI only for now — that surface has no `bundled-runners` fallback of its own (unlike
   this CLI, which ships one), so it depends entirely on `~/.voiden/extensions` being populated and
   had no way to fix that itself before this.
+- `resolveCliEnv`, `resolveEnvProfile`, `discoverEnvProfiles`, and `EnvCliOptsError` (plus the
+  `EnvCliOpts`/`EnvProfileInfo` types) are now exported from the package's public `lib.ts`, not just
+  used internally by this CLI's own `index.ts`. Lets another package in the monorepo (`@voiden/mcp`)
+  reuse the exact same `--env`/`--profile`/`--environment` flag semantics — including the
+  mutual-exclusivity error and the public+private YAML profile merge — instead of re-implementing a
+  thinner, profile-unaware version of `--env` on its own.
 
 ## v2.3.0-beta.17 - 2026-09-09
 

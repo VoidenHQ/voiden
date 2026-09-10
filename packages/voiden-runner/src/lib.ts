@@ -17,6 +17,9 @@ export { loadEnabledPlugins } from './plugins/loader.js'
 
 export { loadEnvFile } from './envFile.js'
 
+export { resolveCliEnv, resolveEnvProfile, discoverEnvProfiles, EnvCliOptsError } from './envProfiles.js'
+export type { EnvCliOpts, EnvProfileInfo } from './envProfiles.js'
+
 export type { RunResult, CliReportEntry } from './types.js'
 
 export { discoverTools, verifyTools, validateTools, upsertToolStatus, registerDynamicTools, registerToolsFromDecisions, planServedTools, getCommitSha, registerMcpToolCapabilityProvider } from './mcpToolCapability.js'
