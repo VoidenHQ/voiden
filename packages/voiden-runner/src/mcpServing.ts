@@ -253,7 +253,7 @@ export interface BuildMcpServerOptions {
 }
 
 /**
- * Builds a fully-registered McpServer — the 4 fixed tools plus whatever
+ * Builds a fully-registered McpServer — the 6 fixed tools plus whatever
  * /tool declarations pass verification — ready to `.connect(transport)`.
  * Transport-agnostic on purpose: the caller decides stdio vs HTTP.
  */

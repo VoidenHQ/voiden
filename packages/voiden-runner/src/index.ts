@@ -554,7 +554,7 @@ program
   )
   .option('-e, --env <path>', 'Path to one plain .env file for variable substitution — for a file outside the project\'s profile convention (e.g. a CI-provided secrets path). Mutually exclusive with --profile.')
   .option('--profile [name]', 'Use a project env profile (.voiden/env-<profile>-{public,private}.yaml, or that profile\'s legacy .env* fallback) — the same profile system the MCP select_environment tool exposes to an agent, now reachable from the command line too. Bare --profile (no name) means "default". Mutually exclusive with --env.')
-  .option('--environment <name>', 'Scope --env or --profile to one named environment within it (e.g. "dev", or a dotted child like "staging.eu") instead of merging every environment together')
+  .option('--environment <name>', 'Scope --profile to one named environment within it (e.g. "dev", or a dotted child like "staging.eu") instead of merging every environment together — only valid with --profile; a plain .env file (--env) has no named-environment concept to scope to')
   .option('--env-var <key=value>', 'Individual environment variable override (can be used multiple times)', (val, memo: string[]) => {
     memo.push(val)
     return memo
@@ -1469,7 +1469,7 @@ mcpCmd
   .command('install')
   .description(
     'Register this project with Claude Code and/or Codex — points .mcp.json / config.toml at ' +
-    '`voiden-runner mcp serve` (the same 4 fixed tools, standalone, no other Voiden package ' +
+    '`voiden-runner mcp serve` (the same 6 fixed tools, standalone, no other Voiden package ' +
     'required), and installs a skill teaching the run/verify/write-back loop.\n\n' +
     '  Examples:\n' +
     '    voiden-runner mcp install                                    # both Claude Code and Codex\n' +
@@ -1567,7 +1567,7 @@ mcpCmd
   .option('--host <host>', 'HTTP bind address (only with --http) — binding beyond 127.0.0.1 is a real exposure risk', '127.0.0.1')
   .option('-e, --env <path>', 'Path to one plain .env file for variable substitution — for a file outside the project\'s profile convention. Mutually exclusive with --profile.')
   .option('--profile [name]', 'Use a project env profile (.voiden/env-<profile>-{public,private}.yaml, or its legacy .env* fallback) — same profile system the select_environment tool exposes to an agent, as the server\'s initial env before any select_environment call. Bare --profile means "default". Mutually exclusive with --env.')
-  .option('--environment <name>', 'Scope --env or --profile to one named environment within it (e.g. "dev", or a dotted child like "staging.eu")')
+  .option('--environment <name>', 'Scope --profile to one named environment within it (e.g. "dev", or a dotted child like "staging.eu") — only valid with --profile; a plain .env file (--env) has no named-environment concept to scope to')
   .option('--check', 'Print what would be served and exit, without starting a live server')
   .action(async (path: string | undefined, opts) => {
     const projectRoot = resolve(path ?? '.')
@@ -1598,7 +1598,7 @@ mcpCmd
         const label = d.served ? (d.descriptionNote ? `SERVED (${d.status!.state})` : 'SERVED') : 'WITHDRAWN'
         console.log(`  [${label}] ${d.tool.name} — ${d.status!.state}${d.status!.note ? `: ${d.status!.note}` : ''}`)
       }
-      console.log(chalk.gray(`  (plus the 4 fixed tools: list_void_files, list_requests, run_request, write_result)`))
+      console.log(chalk.gray(`  (plus the 6 fixed tools: list_void_files, list_requests, run_request, write_result, list_environments, select_environment)`))
       console.log()
       const anyFailing = decisions.some((d) => d.excluded || d.status?.state === 'failing')
       process.exit(anyFailing ? EXIT_RUN_FAILURE : EXIT_SUCCESS)
@@ -1729,7 +1729,7 @@ toolCmd
   .option('--write', 'Write the computed status back into each /tool block. Off by default — verification always recomputes fresh and never trusts a stale write-back')
   .option('-e, --env <path>', 'Path to one plain .env file for variable substitution — for a file outside the project\'s profile convention. Mutually exclusive with --profile.')
   .option('--profile [name]', 'Use a project env profile (.voiden/env-<profile>-{public,private}.yaml, or its legacy .env* fallback). Bare --profile means "default". Mutually exclusive with --env.')
-  .option('--environment <name>', 'Scope --env or --profile to one named environment within it (e.g. "dev", or a dotted child like "staging.eu")')
+  .option('--environment <name>', 'Scope --profile to one named environment within it (e.g. "dev", or a dotted child like "staging.eu") — only valid with --profile; a plain .env file (--env) has no named-environment concept to scope to')
   .action(async (paths: string[], opts) => {
     const targets = paths.length > 0 ? paths : ['.']
 
