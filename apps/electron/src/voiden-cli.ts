@@ -39,9 +39,10 @@
  *                          installable package for CI use.
  *   - `mcp-stdio [path]` — HIDDEN, not a documented command. What `agent`
  *                          actually points .mcp.json's `command`/`args` at:
- *                          a stdio MCP server exposing just the 4 fixed
+ *                          a stdio MCP server exposing just the 6 fixed
  *                          tools (list_void_files/list_requests/run_request/
- *                          write_result), via @voiden/runner's own
+ *                          write_result/list_environments/select_environment),
+ *                          via @voiden/runner's own
  *                          registerFixedTools(). Deliberately does NOT
  *                          discover/verify/serve /tool blocks — that's
  *                          @voiden/mcp's job alone, a separate, standalone,
@@ -63,6 +64,7 @@ import {
 } from '@voiden/executors'
 import {
   registerFixedTools,
+  registerPluginManagementTools,
   runVoidFile,
   resolveFiles,
   loadEnabledPlugins,
@@ -85,7 +87,8 @@ program
   .description(
     'Register this project with an agent editor (Claude Code / Codex) — writes .mcp.json ' +
     '(and the Codex config.toml equivalent) pointing at this same `voiden` command, so the ' +
-    "host sees the 4 fixed tools (list_void_files, list_requests, run_request, write_result). " +
+    "host sees the 6 fixed tools (list_void_files, list_requests, run_request, write_result, " +
+    "list_environments, select_environment). " +
     "Nothing to do with @voiden/mcp — that's a separate, standalone server for publishing " +
     "/tool blocks, not what an everyday agent-editor session talks to.\n\n" +
     '  Examples:\n' +
@@ -113,7 +116,7 @@ program
     }
 
     // Points at THIS binary (voiden), not @voiden/mcp — mcp-stdio is the
-    // hidden command below that actually serves the 4 fixed tools.
+    // hidden command below that actually serves the 6 fixed tools.
     const serverCommand: ServerCommand = { command: 'voiden', args: ['mcp-stdio', projectPath] }
     const installed = installMcpIntegration(projectPath, targets, MCP_SKILL_MARKDOWN, serverCommand)
     if (installed.length === 0) {
@@ -213,6 +216,12 @@ program
     const selectedEnv: SelectedEnv = { vars: {} }
     const server = new McpServer({ name: 'voiden', version: '0.1.0' })
     registerFixedTools(server, projectRoot, runtimeVars, activePlugins, selectedEnv)
+    // This CLI is baked into the packaged app with no bundled-runners
+    // fallback of its own (see this file's header comment) — unlike the
+    // standalone voiden-runner CLI, a plugin missing from ~/.voiden/extensions
+    // has no other way to become available here. Give the agent a way to fix
+    // that itself instead of failing on a missing builder every time.
+    registerPluginManagementTools(server, activePlugins)
     await server.connect(new StdioServerTransport())
   })
 

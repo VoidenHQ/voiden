@@ -26,6 +26,12 @@ export type { ToolDef, ToolExtraction, ToolParamDef, ToolVerifyEntry, ToolVerify
 export { buildMcpServer, registerFixedTools } from './mcpServing.js'
 export type { BuildMcpServerOptions, SelectedEnv } from './mcpServing.js'
 
+// Opt-in — NOT part of registerFixedTools/buildMcpServer's shared tool set,
+// see managementTools.ts's own doc comment for why. Lets a caller give an
+// agent write access to the local plugin cache (install/update) on top of
+// the 6 fixed tools everyone gets.
+export { registerPluginManagementTools } from './plugins/managementTools.js'
+
 // Shared CLI pretty-printing for a RunResult — same --show-req/--show-res
 // detail and per-request formatting `voiden-runner run` itself uses,
 // exported so other CLIs (the bundled `voiden run` in apps/electron) can

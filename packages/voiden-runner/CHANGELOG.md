@@ -3,6 +3,23 @@
 All notable changes to `@voiden/runner` are documented here. This package is
 versioned and released independently of the Voiden desktop app.
 
+## v2.3.0-beta.18 - 2026-09-10
+
+### Added
+- `registerPluginManagementTools(server, activePlugins)` — a new opt-in export (not part of
+  `registerFixedTools`/`buildMcpServer`'s shared tool set, so `@voiden/mcp` and `voiden-runner mcp
+  serve` are unaffected) adding three MCP tools: `list_plugins` (enabled state, whether a runner is
+  actually present locally, installed vs. latest registry version, update availability),
+  `install_plugin` (name, optional pinned version), and `update_plugin` (name, or every plugin with
+  an update available if omitted). Both install/update reload the active plugin set and refresh the
+  caller's `activePlugins` array in place, so a newly-installed or updated plugin is usable on the
+  very next tool call in the same session — no server restart required. Lets an agent connected over
+  MCP fix a "plugin not active" failure itself instead of leaving it to a human running
+  `voiden-runner plugin install`/`update` out of band. Wired into the Electron app's bundled `voiden
+  mcp-stdio` CLI only for now — that surface has no `bundled-runners` fallback of its own (unlike
+  this CLI, which ships one), so it depends entirely on `~/.voiden/extensions` being populated and
+  had no way to fix that itself before this.
+
 ## v2.3.0-beta.17 - 2026-09-09
 
 ### Fixed
