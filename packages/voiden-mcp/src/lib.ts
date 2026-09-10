@@ -35,7 +35,7 @@ import { VoidenSsoOAuthProvider, type SsoEndpoints } from './oauthSsoProvider.js
 import { getOrCreateProjectApiKey } from './apiKeyStore.js'
 import {
   loadEnabledPlugins,
-  loadEnvFile,
+  resolveCliEnv,
   planServedTools,
   registerToolsFromDecisions,
   getCommitSha,
@@ -65,7 +65,9 @@ export function withPublishOptions(cmd: Command): Command {
     .option('--sso-client-secret <secret>', 'See --sso-client-id — not supported yet for the same reason')
     .option('--no-scheduler', 'Disable periodic re-verification while the server stays up (on by default; env: VOIDEN_PUBLISH_SCHEDULER)')
     .option('--scheduler-interval-minutes <n>', 'How often the scheduler checks which verify items are due (env: VOIDEN_PUBLISH_SCHEDULER_INTERVAL_MINUTES, default 1). Each item is still only actually re-run when its own declared cadence (hourly/daily/weekly/monthly) says it\'s due — this just controls how often that check happens, not how often any given item is re-verified')
-    .option('-e, --env <path>', 'Path to a .env or .voiden/env-*.yaml file to merge on top of process env')
+    .option('-e, --env <path>', 'Path to one plain .env file for variable substitution — for a file outside the project\'s profile convention. Mutually exclusive with --profile')
+    .option('--profile [name]', 'Use a project env profile (.voiden/env-<profile>-{public,private}.yaml, merged — or its legacy .env* fallback) as the server\'s initial env — the same profile system the MCP select_environment tool exposes to an agent. Bare --profile means "default". Mutually exclusive with --env')
+    .option('--environment <name>', 'Scope --profile to one named environment within it (e.g. "dev", or a dotted child like "staging.eu") — only valid with --profile, not --env')
     .option('--check', 'Print what would be served and exit, without starting a live server')
     .option('--print-config', 'Once the server is actually up, print a ready-to-paste mcpServers config entry for it (stdio: command/args; --http: the real listening or --tunnel URL) — for pasting into Claude Desktop/Claude Code/Cursor/etc.\'s own config, or into a Voiden .void file\'s mcp-connection block (env: VOIDEN_PUBLISH_PRINT_CONFIG)')
     .option('--no-restart', 'Disable automatic restart if the server crashes (on by default for a live server; env: VOIDEN_PUBLISH_RESTART). Never applies to --check.')
@@ -90,6 +92,8 @@ export interface PublishOpts {
   scheduler?: boolean
   schedulerIntervalMinutes?: string
   env?: string
+  profile?: string | true
+  environment?: string
   check?: boolean
   restart?: boolean
   printConfig?: boolean
@@ -146,13 +150,18 @@ function printMcpServerConfig(name: string, entry: Record<string, unknown>): voi
  *  (unlike a .void file's own cross-file references, which move between
  *  machines and need project-root-relative paths — see resolvePath()). Only
  *  the flags that change what's actually served/how are reproduced —
- *  --dynamic-tools/--env change served-surface identity; --scheduler/
- *  --no-restart/etc. are ops concerns, not part of "what would connecting
- *  via this config actually get you". */
-function buildStdioConfigEntry(projectRoot: string, opts: { dynamicTools: boolean; env?: string }): Record<string, unknown> {
+ *  --dynamic-tools/--env/--profile/--environment change served-surface
+ *  identity; --scheduler/--no-restart/etc. are ops concerns, not part of
+ *  "what would connecting via this config actually get you". */
+function buildStdioConfigEntry(
+  projectRoot: string,
+  opts: { dynamicTools: boolean; env?: string; profile?: string | true; environment?: string },
+): Record<string, unknown> {
   const args = ['-y', '@voiden/mcp', projectRoot]
   if (opts.dynamicTools) args.push('--dynamic-tools')
   if (opts.env) args.push('--env', resolve(opts.env))
+  if (opts.profile !== undefined) args.push('--profile', ...(opts.profile === true ? [] : [opts.profile]))
+  if (opts.environment) args.push('--environment', opts.environment)
   return { command: 'npx', args }
 }
 
@@ -452,13 +461,11 @@ export async function runPublish(projectRoot: string, rawOpts: PublishOpts): Pro
   const baseEnv: Record<string, string> = Object.fromEntries(
     Object.entries(process.env).filter(([, v]) => v !== undefined) as [string, string][],
   )
-  if (rawOpts.env) {
-    const envPath = resolve(rawOpts.env)
-    if (!existsSync(envPath)) {
-      console.error(`  ✗  Env file not found: ${envPath}`)
-      process.exit(2)
-    }
-    Object.assign(baseEnv, loadEnvFile(envPath))
+  try {
+    Object.assign(baseEnv, resolveCliEnv(rawOpts, projectRoot, baseEnv))
+  } catch (err: any) {
+    console.error(`  ✗  ${err.message}`)
+    process.exit(2)
   }
 
   const activePlugins = await loadEnabledPlugins(verbose)
@@ -786,7 +793,7 @@ export async function runPublish(projectRoot: string, rawOpts: PublishOpts): Pro
     await stdioServer.connect(new StdioServerTransport())
     logExcludedTools(decisions)
     if (printConfig) {
-      printMcpServerConfig(serverConfigName, buildStdioConfigEntry(projectRoot, { dynamicTools: mode === 'dynamic', env: rawOpts.env }))
+      printMcpServerConfig(serverConfigName, buildStdioConfigEntry(projectRoot, { dynamicTools: mode === 'dynamic', env: rawOpts.env, profile: rawOpts.profile, environment: rawOpts.environment }))
     }
   }
 

@@ -3,6 +3,22 @@
 All notable changes to `@voiden/mcp` are documented here. This package is
 versioned and released independently of the Voiden desktop app.
 
+## v0.0.17 - 2026-09-10
+
+### Changed
+- `-e, --env <path>` used to accept a `.env` **or** a `.voiden/env-*.yaml` file directly, with no way
+  to reach a project's actual env-profile system — pointing it straight at a `-public.yaml` file
+  silently dropped every variable in the matching `-private.yaml`, and there was no way to select a
+  named environment inside a multi-environment profile. Replaced with the same `--env`/`--profile`/
+  `--environment` design `voiden-runner` already has: `--env` is now a plain `.env` file only (errors
+  on `.yaml`/`.yml`); `--profile [name]` resolves a project's env profile
+  (`.voiden/env-<profile>-{public,private}.yaml`, both merged — or that profile's legacy `.env*`
+  fallback), the same profile system the MCP `select_environment` tool exposes to an agent; and
+  `--environment <name>` scopes `--profile` to one named environment within it. `--env` and
+  `--profile` are mutually exclusive — combining them is a usage error, not a silent priority order.
+  `--print-config` now reproduces `--profile`/`--environment` in the printed stdio config too, not
+  just `--env`.
+
 ## v0.0.16 - 2026-09-08
 
 ### Fixed
