@@ -194,12 +194,6 @@ async function main() {
   if (!me.ok) throw new Error(`Failed to resolve token identity: ${JSON.stringify(me.json)}`);
   const forkOwner = me.json.login;
   console.log(`   token identity : ${forkOwner}`);
-  // Temporary diagnostic for the recurring "git/refs 404 on this token but
-  // not on a manually-tested broader one" investigation — the X-OAuth-Scopes
-  // response header echoes back exactly what scopes GitHub itself sees on
-  // this token, removing any doubt about what actually got saved to the
-  // WINGET_GITHUB_TOKEN secret vs. what was intended in the GitHub UI.
-  console.log(`   token scopes   : ${me.headers.get('x-oauth-scopes') || '(none reported)'}`);
 
   console.log(`\n🍴 Ensuring fork of ${UPSTREAM_OWNER}/${UPSTREAM_REPO}...`);
   const fork = await gh('POST', `/repos/${UPSTREAM_OWNER}/${UPSTREAM_REPO}/forks`);
