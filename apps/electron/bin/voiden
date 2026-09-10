@@ -80,15 +80,37 @@ resolve_path() {
     fi
 }
 
-function app_realpath() {
+# Resolves this script's own symlink chain (e.g. /usr/local/bin/voiden, the
+# CLI installer's symlink — see cliInstaller.ts's getTargetPath()) down to the
+# real, packaged bin/voiden file, and returns the real directory containing
+# it (bundled via extraResource — see forge.config.ts — so this is always
+# <resourcesPath>/bin, on every platform).
+function resolve_script_dir() {
     SOURCE=$1
     while [ -h "$SOURCE" ]; do
         DIR=$(dirname "$SOURCE")
         SOURCE=$(readlink "$SOURCE")
         [[ $SOURCE != /* ]] && SOURCE=$DIR/$SOURCE
     done
-    SOURCE_DIR="$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )"
-    echo "${SOURCE_DIR%%${SOURCE_DIR#*.app}}"
+    cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd
+}
+
+# macOS-only: trims .../Voiden.app/Contents/Resources/bin back to the .app
+# bundle root itself (.../Voiden.app), which is what the Darwin launch branch
+# below expects APP_PATH to be. Was previously applied unconditionally
+# inside app_realpath() (this function's old name/shape) — on a Linux path,
+# which never contains ".app" anywhere, `${SOURCE_DIR#*.app}` is a no-op
+# (returns the string unchanged since the pattern never matches), which then
+# made `${SOURCE_DIR%%<that unchanged string>}` strip the ENTIRE path as a
+# self-match, always yielding an empty APP_PATH on Linux. That silently sent
+# every Linux invocation (including `agent`/`run`/`mcp-stdio`) into the
+# generic-guess fallback below, which hardcodes /usr/bin as the very first
+# candidate — a directory that exists on every Linux system regardless of
+# where Voiden actually is — so APP_PATH was always wrong on Linux, and
+# mcp-stdio always failed to find its own CLI_JS bundle as a result.
+function trim_to_app_bundle() {
+    local dir="$1"
+    echo "${dir%%${dir#*.app}}"
 }
 
 # ============================================
@@ -124,25 +146,38 @@ if [ -z "$IS_CLI_SUBCOMMAND" ]; then
     validate_arguments "$@"
 fi
 
-# Determine the application path
-APP_PATH="$(app_realpath "${BASH_SOURCE[0]}")"
+# Determine the application path. SCRIPT_DIR is always <resourcesPath>/bin
+# on every platform (see resolve_script_dir's own comment); what counts as
+# the "app path" from there is platform-specific.
+SCRIPT_DIR="$(resolve_script_dir "${BASH_SOURCE[0]}")"
+if [ "$(uname)" == "Darwin" ]; then
+    # .../Voiden.app/Contents/Resources/bin -> .../Voiden.app
+    APP_PATH="$(trim_to_app_bundle "$SCRIPT_DIR")"
+else
+    # .../resources/bin -> up two levels -> the install prefix itself
+    # (matches this script's own Linux launch branch below, which expects
+    # the main binary directly at $APP_PATH and resources/ under it).
+    APP_PATH="$(dirname "$(dirname "$SCRIPT_DIR")")"
+fi
 
-# If we couldn't determine from symlink, try common installation paths
+# If we couldn't determine it from the symlink chain (e.g. this script was
+# copied/invoked directly rather than through the installed symlink), fall
+# back to guessing a common installation path. Checked in order of
+# specificity — /usr/bin exists on every Linux system regardless of where
+# Voiden actually is, so it must be checked last, not first, or it always
+# wins and every other candidate becomes unreachable.
 if [ -z "$APP_PATH" ] || [ ! -d "$APP_PATH" ]; then
-    # macOS
     if [ "$(uname)" == "Darwin" ]; then
         APP_PATH="/Applications/Voiden.app"
-    # Linux
     else
-        # Try common Linux installation paths
-        if [ -d "/usr/bin" ]; then
-            APP_PATH="/usr/bin"
-        elif [ -d "/opt/Voiden" ]; then
+        if [ -d "/opt/Voiden" ]; then
             APP_PATH="/opt/Voiden"
         elif [ -d "/usr/share/voiden" ]; then
             APP_PATH="/usr/share/voiden"
         elif [ -d "$HOME/.local/share/voiden" ]; then
             APP_PATH="$HOME/.local/share/voiden"
+        elif [ -d "/usr/bin" ]; then
+            APP_PATH="/usr/bin"
         fi
     fi
 fi
