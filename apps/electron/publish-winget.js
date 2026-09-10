@@ -100,11 +100,9 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 // A freshly-created fork of a huge repo (microsoft/winget-pkgs has 100k+
 // manifest files) is created asynchronously on GitHub's backend — the POST
 // /forks response returns immediately, but git data operations against the
-// fork (blobs/trees/commits can start succeeding within seconds; the actual
-// ref/branch namespace lags further behind) can 404 for anywhere from a few
-// seconds up to a couple of minutes afterward. Polls the fork's default
-// branch ref until it's actually readable before doing anything else,
-// instead of racing straight into blob/tree/commit/ref creation.
+// fork can lag behind that for a while. Cheap to check even when the fork
+// already existed from a previous run (the common case) — this just confirms
+// the fork's own default branch is queryable before doing anything else.
 async function waitForForkReady(forkOwner, repo, { attempts = 15, delayMs = 4000 } = {}) {
   for (let i = 1; i <= attempts; i++) {
     const ref = await gh('GET', `/repos/${forkOwner}/${repo}/git/ref/heads/master`);
@@ -113,6 +111,27 @@ async function waitForForkReady(forkOwner, repo, { attempts = 15, delayMs = 4000
     await sleep(delayMs);
   }
   throw new Error(`Fork ${forkOwner}/${repo} never became ready (git ref queries kept failing) after ${attempts} attempts.`);
+}
+
+// Separate from waitForForkReady: even on a long-established, fully-ready
+// fork, a *specific newly-created* commit object (via POST .../git/commits)
+// can take a short-to-noticeable while longer to become visible to the
+// git/refs validation path than to a plain GET of the object itself —
+// confirmed in production against this exact fork (voiden-beta-2.3.0-beta.3:
+// blob/tree/commit creation all succeeded immediately, but git/refs POST
+// still 404'd on every retry across a 15s window; the same commit shape
+// created moments later via a fresh manual attempt succeeded on the very
+// first try). Polls the commit object itself before attempting to point a
+// ref at it, since that's the specific propagation gap observed, not fork
+// readiness in general.
+async function waitForCommitVisible(forkOwner, repo, commitSha, { attempts = 10, delayMs = 6000 } = {}) {
+  for (let i = 1; i <= attempts; i++) {
+    const commit = await gh('GET', `/repos/${forkOwner}/${repo}/git/commits/${commitSha}`);
+    if (commit.ok) return;
+    console.log(`   ...commit ${commitSha.slice(0, 8)} not visible yet (attempt ${i}/${attempts}, HTTP ${commit.status}), waiting ${delayMs / 1000}s`);
+    await sleep(delayMs);
+  }
+  throw new Error(`Commit ${commitSha} on ${forkOwner}/${repo} never became visible after ${attempts} attempts.`);
 }
 
 function manifestFiles(v, sha256) {
@@ -228,10 +247,15 @@ async function main() {
   });
   if (!commit.ok) throw new Error(`Failed to create commit: ${JSON.stringify(commit.json)}`);
 
+  // See waitForCommitVisible's own comment — this specific commit object can
+  // lag behind being queryable, independent of the fork itself being ready.
+  console.log('   waiting for the new commit to actually be visible...');
+  await waitForCommitVisible(forkOwner, UPSTREAM_REPO, commit.json.sha);
+
   const branch = `${PACKAGE_NAME_PART.toLowerCase()}-${version}`;
   console.log(`\n🌿 Pushing branch ${forkOwner}:${branch}...`);
   let ref;
-  const maxRefAttempts = 4;
+  const maxRefAttempts = 8;
   for (let attempt = 1; attempt <= maxRefAttempts; attempt++) {
     ref = await gh('POST', `/repos/${forkOwner}/${UPSTREAM_REPO}/git/refs`, {
       ref: `refs/heads/${branch}`,
@@ -245,14 +269,18 @@ async function main() {
       });
       break;
     }
-    // A 404 here (as opposed to on the branch-not-found PATCH path above) means
-    // the fork's ref namespace still isn't consistent yet, even after
-    // waitForForkReady — belt-and-suspenders for a race that's already been
-    // observed in production. Anything else (network error, actual auth/perm
-    // failure) isn't transient — fail immediately instead of retrying blind.
+    // A 404 here (as opposed to on the branch-not-found PATCH path above)
+    // means the commit still isn't consistent from the ref-creation path's
+    // point of view, even after waitForCommitVisible's own check passed —
+    // belt-and-suspenders for exactly the propagation gap that's already
+    // been observed in production (waitForCommitVisible confirmed readable,
+    // git/refs still 404'd for a while after). Anything else (network
+    // error, actual auth/perm failure) isn't transient — fail immediately
+    // instead of retrying blind.
     if (ref.ok || ref.status !== 404 || attempt === maxRefAttempts) break;
-    console.log(`   ...ref push got 404 (attempt ${attempt}/${maxRefAttempts}), fork still settling — retrying in 5s`);
-    await sleep(5000);
+    const delaySec = Math.min(10 * attempt, 30);
+    console.log(`   ...ref push got 404 (attempt ${attempt}/${maxRefAttempts}), still settling — retrying in ${delaySec}s`);
+    await sleep(delaySec * 1000);
   }
   if (!ref.ok) throw new Error(`Failed to push branch: ${JSON.stringify(ref.json)}`);
 
