@@ -95,6 +95,26 @@ async function gh(method, apiPath, body) {
   return { status: res.status, ok: res.ok, json };
 }
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// A freshly-created fork of a huge repo (microsoft/winget-pkgs has 100k+
+// manifest files) is created asynchronously on GitHub's backend — the POST
+// /forks response returns immediately, but git data operations against the
+// fork (blobs/trees/commits can start succeeding within seconds; the actual
+// ref/branch namespace lags further behind) can 404 for anywhere from a few
+// seconds up to a couple of minutes afterward. Polls the fork's default
+// branch ref until it's actually readable before doing anything else,
+// instead of racing straight into blob/tree/commit/ref creation.
+async function waitForForkReady(forkOwner, repo, { attempts = 15, delayMs = 4000 } = {}) {
+  for (let i = 1; i <= attempts; i++) {
+    const ref = await gh('GET', `/repos/${forkOwner}/${repo}/git/ref/heads/master`);
+    if (ref.ok) return;
+    console.log(`   ...fork not ready yet (attempt ${i}/${attempts}, HTTP ${ref.status}), waiting ${delayMs / 1000}s`);
+    await sleep(delayMs);
+  }
+  throw new Error(`Fork ${forkOwner}/${repo} never became ready (git ref queries kept failing) after ${attempts} attempts.`);
+}
+
 function manifestFiles(v, sha256) {
   return {
     [`${PACKAGE_IDENTIFIER}.yaml`]: [
@@ -160,6 +180,13 @@ async function main() {
   const fork = await gh('POST', `/repos/${UPSTREAM_OWNER}/${UPSTREAM_REPO}/forks`);
   if (!fork.ok) throw new Error(`Fork request failed: ${JSON.stringify(fork.json)}`);
 
+  // fork.json.created_at/updated_at won't tell us whether THIS run just
+  // created it vs. it already existed from a previous run — always poll
+  // rather than trying to distinguish those cases, it's a no-op cost when
+  // the fork was already fully ready.
+  console.log('   waiting for the fork to actually be ready for git data operations...');
+  await waitForForkReady(forkOwner, UPSTREAM_REPO);
+
   console.log(`\n⬇️  Downloading installer for hashing:\n   ${INSTALLER_URL}`);
   const installerRes = await fetch(INSTALLER_URL);
   if (!installerRes.ok) throw new Error(`Installer download failed: HTTP ${installerRes.status}`);
@@ -203,16 +230,29 @@ async function main() {
 
   const branch = `${PACKAGE_NAME_PART.toLowerCase()}-${version}`;
   console.log(`\n🌿 Pushing branch ${forkOwner}:${branch}...`);
-  let ref = await gh('POST', `/repos/${forkOwner}/${UPSTREAM_REPO}/git/refs`, {
-    ref: `refs/heads/${branch}`,
-    sha: commit.json.sha,
-  });
-  if (ref.status === 422) {
-    // Branch already exists (retry of a previous run) — force-update it instead.
-    ref = await gh('PATCH', `/repos/${forkOwner}/${UPSTREAM_REPO}/git/refs/heads/${branch}`, {
+  let ref;
+  const maxRefAttempts = 4;
+  for (let attempt = 1; attempt <= maxRefAttempts; attempt++) {
+    ref = await gh('POST', `/repos/${forkOwner}/${UPSTREAM_REPO}/git/refs`, {
+      ref: `refs/heads/${branch}`,
       sha: commit.json.sha,
-      force: true,
     });
+    if (ref.status === 422) {
+      // Branch already exists (retry of a previous run) — force-update it instead.
+      ref = await gh('PATCH', `/repos/${forkOwner}/${UPSTREAM_REPO}/git/refs/heads/${branch}`, {
+        sha: commit.json.sha,
+        force: true,
+      });
+      break;
+    }
+    // A 404 here (as opposed to on the branch-not-found PATCH path above) means
+    // the fork's ref namespace still isn't consistent yet, even after
+    // waitForForkReady — belt-and-suspenders for a race that's already been
+    // observed in production. Anything else (network error, actual auth/perm
+    // failure) isn't transient — fail immediately instead of retrying blind.
+    if (ref.ok || ref.status !== 404 || attempt === maxRefAttempts) break;
+    console.log(`   ...ref push got 404 (attempt ${attempt}/${maxRefAttempts}), fork still settling — retrying in 5s`);
+    await sleep(5000);
   }
   if (!ref.ok) throw new Error(`Failed to push branch: ${JSON.stringify(ref.json)}`);
 
