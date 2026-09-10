@@ -1,5 +1,19 @@
 [
   {
+    "version": "v2.3.0-beta.4",
+    "date": "10/09/2026",
+    "title": "Linux: MCP Actually Connects Now",
+    "description": "Patch release fixing the bundled voiden CLI on Linux — the same command \"Initialize MCP\"/voiden agent registers for Claude Code and Codex was resolving its own install location wrong on every Linux install, so the MCP server process always exited immediately instead of ever connecting.",
+    "icon": "Bug",
+    "iconColor": "text-red-400",
+    "bgColor": "bg-gradient-to-br from-slate-900 to-red-950",
+    "changes": {
+      "Fixed": [
+        "On Linux, the voiden CLI resolved its own installed app location incorrectly on every install — a path-trimming step meant only for macOS's .app bundle structure had no effect on a Linux path, so the script silently fell back to a generic guess (/usr/bin) that exists on every Linux system regardless of where Voiden actually is. This broke every real use of the CLI: voiden agent (what \"Initialize MCP\" registers for Claude Code/Codex — the server process exited immediately with \"Voiden executable not found\" the moment a client tried to connect, with .mcp.json showing the entry as configured but the connection never succeeding), voiden run, voiden mcp-stdio, and even plain voiden <path> to open a project from a terminal. Only -h/--help and -v/--version were unaffected, since those exit before this resolution step runs. Now resolves the real install directory correctly on Linux."
+      ]
+    }
+  },
+  {
     "version": "v2.3.0-beta.3",
     "date": "10/09/2026",
     "title": "Agent Self-Service: Plugins & Environments",
