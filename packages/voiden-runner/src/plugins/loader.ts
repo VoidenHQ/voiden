@@ -155,9 +155,16 @@ async function loadPlugin(
     if (verbose) console.log(`  [plugins] Loaded plugin: ${pluginName}`)
     return true
   } catch (err: any) {
-    if (verbose) {
-      console.warn(`  [plugins] Failed to load "${pluginName}": ${err?.message ?? String(err)}`)
-    }
+    // Always surfaced, not gated behind --verbose (matching the "not
+    // installed" message above) — a plugin that's enabled and has a runner
+    // present but still fails to actually load is a real, unexpected
+    // problem (e.g. a bundled runner.js with an unresolvable external
+    // dependency — see voiden-scripting's own history), not a normal,
+    // silent "nothing to do here" case. Without this, the failure was
+    // invisible everywhere: install_plugin's own response only shows
+    // `active: false`, with no indication of why, unless the caller happens
+    // to be running with --verbose already.
+    console.warn(`  [plugins] Failed to load "${pluginName}": ${err?.message ?? String(err)}`)
     return false
   }
 }

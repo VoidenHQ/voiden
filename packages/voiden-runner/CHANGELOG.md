@@ -3,6 +3,19 @@
 All notable changes to `@voiden/runner` are documented here. This package is
 versioned and released independently of the Voiden desktop app.
 
+## v2.3.0-beta.19 - 2026-09-10
+
+### Fixed
+- A plugin's runner failing to load (a thrown error during its dynamic `import()` or `onload()`,
+  as opposed to simply being disabled or never installed) was silently swallowed unless the caller
+  passed `verbose: true` — no error surfaced anywhere, including to `install_plugin`'s own response,
+  which only showed `active: false` with no indication why. Root-caused against a real case
+  (`voiden-scripting`'s standalone-downloaded bundle crashing on an unresolvable `@voiden/sdk`
+  import — fixed in that plugin's own `v1.1.8`) that was effectively invisible without manually
+  re-running with `--verbose`. This failure is now always logged to stderr, matching the existing
+  "plugin not installed" message a few lines above it, which was never gated behind `--verbose`
+  either.
+
 ## v2.3.0-beta.18 - 2026-09-10
 
 ### Added
