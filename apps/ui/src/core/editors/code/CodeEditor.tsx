@@ -30,6 +30,7 @@ import { yaml } from "@codemirror/lang-yaml";
 import { langs } from "@uiw/codemirror-extensions-langs";
 import { useCodeEditorStore } from "./CodeEditorStore";
 import { lintYaml } from "@/core/editors/code/lib/extensions/lintYaml";
+import { createHiddenSearchPanel } from "./lib/createHiddenSearchPanel";
 
 interface CodeEditorProps {
   tabId: string;
@@ -1072,7 +1073,7 @@ export const CodeEditor = memo(({ tabId, content, source, panelId, isActive = tr
       // "scrolls right, then snaps to the new line" glitch while typing.
       EditorView.lineWrapping,
       lintCompartment.of(initialLint),
-      search({ top: true, createPanel: () => ({ dom: document.createElement("div") }) }),
+      search({ top: true, createPanel: createHiddenSearchPanel }),
       Prec.highest(keymap.of([
         {
           key: "Mod-f", preventDefault: true, run: () => {
