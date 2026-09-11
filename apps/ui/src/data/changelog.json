@@ -2,14 +2,14 @@
   {
     "version": "v2.3.0-beta.4",
     "date": "10/09/2026",
-    "title": "Linux: MCP Actually Connects Now",
-    "description": "Patch release fixing the bundled voiden CLI on Linux — the same command \"Initialize MCP\"/voiden agent registers for Claude Code and Codex was resolving its own install location wrong on every Linux install, so the MCP server process always exited immediately instead of ever connecting.",
+    "title": "Linux: MCP Connection Fix",
+    "description": "Patch release fixing the bundled voiden CLI on Linux — Initialize MCP/voiden agent was resolving its own install location wrong, so the MCP server always exited immediately instead of connecting.",
     "icon": "Bug",
     "iconColor": "text-red-400",
     "bgColor": "bg-gradient-to-br from-slate-900 to-red-950",
     "changes": {
       "Fixed": [
-        "On Linux, the voiden CLI resolved its own installed app location incorrectly on every install — a path-trimming step meant only for macOS's .app bundle structure had no effect on a Linux path, so the script silently fell back to a generic guess (/usr/bin) that exists on every Linux system regardless of where Voiden actually is. This broke every real use of the CLI: voiden agent (what \"Initialize MCP\" registers for Claude Code/Codex — the server process exited immediately with \"Voiden executable not found\" the moment a client tried to connect, with .mcp.json showing the entry as configured but the connection never succeeding), voiden run, voiden mcp-stdio, and even plain voiden <path> to open a project from a terminal. Only -h/--help and -v/--version were unaffected, since those exit before this resolution step runs. Now resolves the real install directory correctly on Linux."
+        "Linux: the CLI resolved its own install path incorrectly, so voiden agent (Initialize MCP), voiden run, and voiden mcp-stdio all failed silently"
       ]
     }
   },
@@ -23,17 +23,17 @@
     "bgColor": "bg-gradient-to-br from-blue-900 to-slate-900",
     "changes": {
       "Added": [
-        "AI agents connected via MCP can now install a missing plugin or update one to the latest registry version themselves — three new tools, list_plugins, install_plugin, and update_plugin, registered on the same mcp-stdio server \"Initialize MCP\" sets up for Claude Code/Codex. Installing or updating reloads the active plugin set immediately in the same session, no restart needed, instead of an agent failing on a missing request builder and leaving a human to fix it out of band.",
-        "list_environments and select_environment — two new MCP tools alongside the existing four, so an agent can discover every env profile in a project (including nested named environments, e.g. \"staging.eu\") and select one as the session default for every later run_request call, instead of having to guess or ask at every step. The bundled agent skill (installed by Initialize MCP) now documents both.",
-        "\"Disable MCP\" — a new confirm-gated action next to \"Initialize MCP\" in the status bar, so registering Claude Code/Codex access for a project can be undone from the same place it was set up, scoped to just that project (doesn't touch Codex's shared global config or the installed skill)."
+        "AI agents can now install or update a plugin themselves — three new MCP tools, list_plugins/install_plugin/update_plugin",
+        "list_environments and select_environment — two new MCP tools for discovering and selecting a project's env profiles",
+        "\"Disable MCP\" — undo Initialize MCP's registration from the same status bar spot"
       ],
       "Fixed": [
-        "The CLI installer's sudo password prompt no longer fires on every single app launch. It compared the running instance's own on-disk path — which macOS's Gatekeeper App Translocation randomizes on every launch until the app is moved to /Applications — instead of comparing versions, so it looked \"different\" and silently reinstalled (prompting for a password) even when nothing had actually changed.",
-        "File explorer and Quick Open search no longer hide dotfiles. Everything except .gitignore, .env*, and .voiden/ was previously filtered out of both the tree and search results by an overly broad allowlist.",
-        "Windows: winget install/upgrade was failing with a hash mismatch — the published manifest's installer hash was generated from a \"latest\" URL whose contents change on every new release, instead of the immutable, version-pinned artifact already published alongside it.",
-        "nix profile install (voiden.cachix.org) never actually had a working cached build to install from — a Git/Yarn incompatibility fetching one transitive dependency silently made every cache build fall back to a full source rebuild. Fixed by resolving that dependency from npm instead of git.",
-        "When run via an AI agent (the run_request/tool verify MCP tools) or voiden run: a headers/query/path/multipart-form table block could silently send zero fields — no error, just data visibly present in the .void file never making it into the request. A binary/multipart file field using the app's legacy /subfolder/file.png path convention also failed with ENOENT specifically on this execution path.",
-        "When run via an AI agent (the run_request MCP tool) or voiden run: a 401/404/500 response was reported exactly the same as a successful 200 — only whether a status code came back was checked, never what it actually meant."
+        "CLI installer no longer prompts for a sudo password on every launch",
+        "File explorer and Quick Open no longer hide dotfiles",
+        "Windows: winget install/upgrade hash mismatch fixed",
+        "nix profile install now has a real cached build instead of always rebuilding from source",
+        "Agent/CLI runs: a headers/query/path/multipart table could silently send zero fields",
+        "Agent/CLI runs: a 401/404/500 response was reported the same as a 200"
       ]
     }
   },
@@ -47,29 +47,37 @@
     "bgColor": "bg-gradient-to-br from-violet-900 to-slate-900",
     "changes": {
       "Added": [
-        "/tool block (voiden-mcp-tool plugin) — mark an existing request as a named, described, agent-callable tool with a parameters table (agent-supplied vs. environment-only sources resolved from the project's own env files) and a verification policy (happy-path/error-contract/auth-check rows, each with its own live/sandbox/none mode and optional cadence) — including for a single-request file with nothing to disambiguate, no section label gymnastics required",
-        "Verified /tool blocks are now dynamically served as real, individually-named MCP tools by @voiden/mcp-server and voiden-runner mcp serve, alongside the 4 built-in ones — a failing tool withdraws automatically (or serves flagged degraded, your choice), and a manual enabled override lets you add or remove a tool regardless of verification state from the new MCP tab's Serve view",
-        "/mcp block (voiden-mcp-client plugin) — connect to and test an external Streamable-HTTP MCP server directly from a .void file: list_tools, call_tool, list_resources, read_resource, list_prompts, get_prompt, reusing the existing Auth block, Headers table, and Assertions table, with {{...}} environment and runtime variables resolving correctly in tool/prompt arguments. Paste a Claude Desktop / Cursor / VS Code / Windsurf-style mcpServers JSON config to fill in the connection automatically",
-        "New MCP tab in the Voiden app (top bar plug icon) — List / Verify / Serve views for every /tool block in the project — and voiden-runner tool list / tool verify / mcp serve [--http] [--check] for the same from the CLI",
-        "\"Initialize MCP\" is now its own status bar button, scoped to the currently open project, that reliably registers the server without ever silently overwriting a manually configured .mcp.json or config.toml — no longer a side effect of the Settings → AI Skill toggle or something that re-runs on every app startup/project switch",
-        "New Bruno Collection Importer plugin (bundled core extension) — import a Bruno (usebruno.com) .bru request/environment file, or a whole OpenCollection YAML/JSON export, directly into Voiden. Covers HTTP, GraphQL, gRPC, and WebSocket requests, all built-in auth types including both OAuth1 and every OAuth2 grant type, query/path/multipart/url-encoded bodies, environment files merged into your existing environments, and translates a request's pre-request/post-response scripts and assert{} checks into live pre_script/post_script and assertions-table blocks whenever every line matches a recognized safe pattern — otherwise left commented out for manual review rather than silently dropped"
+        "/tool block — mark a request as a named, agent-callable tool with typed parameters and a verification policy",
+        "Verified /tool blocks are now served as real MCP tools, withdrawn automatically (or flagged degraded) on failure",
+        "/mcp block — connect to and test an external MCP server directly from a .void file",
+        "New MCP tab — List/Verify/Serve views for every /tool block, plus matching voiden-runner CLI commands",
+        "\"Initialize MCP\" is now its own status bar button, scoped to the open project",
+        "New Bruno Collection Importer plugin — import .bru files and OpenCollection exports"
       ],
       "Fixed": [
-        "The bundled voiden skill (base.skill.md) now documents which .void block types are allowed at most once per request section — across core (request, headers-table, query-table, path-table, url-table, multipart-table, cookies-table, options-table, and independently json_body/xml_body/yml_body) and every bundled plugin that owns a singleton block type (voiden-advanced-auth's single auth slot regardless of type, voiden-graphql, voiden-mcp-client, voiden-mcp-tool, voiden-scripting), plus which block types are explicitly NOT singleton and shouldn't be \"deduplicated\" (request-separator, socket-request, stitch, assertions-table). Previously undocumented, which could lead an AI agent authoring .void files directly to insert duplicate singleton blocks — something the app has no load-time guard against.",
-        "Fixed the AI skill (base.skill.md and voiden-rest-api's skill.md) showing stale 2-column row examples for headers-table, query-table, path-table, multipart-table, url-table, options-table, and the runtime-variables block, after these moved to a 3-column (Key, Value, Description) row shape. An AI agent following the stale docs to add a row to an existing table would append a row with a different length than the table's other rows — the column count is derived from the first row only, so a length mismatch breaks rendering/editing, unlike a uniformly-old 2-column table which still opens fine.",
-        "Fixed Run All stopping entirely partway through a multi-section file when a middle section failed with an unresolved-variable error (e.g. a {{PLACEHOLDER}} the active environment doesn't define) — every section after the failing one silently never ran. Also fixed that error not showing up in the failing section's own response panel at all: a currentRequestSectionIndex the error display relied on was declared but never actually set anywhere, so the error was always attributed to section 0 instead of whichever section actually failed. Run All now correctly shows the error on the section that failed and continues running the rest of the file.",
-        "Fixed the response panel: after a middle section in a multi-request Run All failed with an unresolved-variable error, the full-panel 'Unable to Complete Request' overlay covered the ENTIRE response panel instead of showing inline under just the section that failed — hiding every other section's already-successful response underneath it. The overlay was driven by whichever section had the highest index touched, not the section that actually failed, and failed sections were being filtered out of the per-section stacked list entirely. Each section's error now renders inline in its own place in the stack; the full-panel overlay is reserved for a genuinely single-request file.",
-        "Fixed the section-scoped error card (see the previous fix in this release) showing 'Request N' instead of the request-separator's actual label. A failing section has no responseDoc to read sectionLabel/sectionColorIndex from (those only ever get set on a successful response), so the label/color are now captured directly from the document's request-separator node at the moment the error occurs and passed through to the error record, instead of falling back to a number.",
-        "Fixed the AI skill giving no guidance on where section documentation belongs in a multi-request .void file. The document is one flat sequence of nodes split purely by where each request-separator sits in it — markdown headings are section-scoped exactly like void blocks are, with no special case for prose. An AI agent naturally writing a heading like \"## Create User\" immediately before that section's request-separator (the intuitive top-to-bottom reading order) was silently attaching it to the END of the PRECEDING section instead of introducing the one that follows, since the rule text only said 'blocks' without calling out that markdown prose is included. Added an explicit right/wrong comparison and a worked example showing correct placement (after the separator), and clarified that the separator's own label attribute is what should name the section — a redundant heading is rarely needed at all.",
-        "File explorer: dragging an item and dropping it into empty space below the tree (i.e. onto the project root) silently did nothing — only dropping directly onto a visible row worked. react-arborist reports a root-level drop target as parentId: null, which was being treated as an invalid/disabled drop instead of the intentional \"move to root\" signal it actually is. Root-level drops and reorders now work the same as dropping on any other row.",
-        "File explorer: dragging files from outside the app (Finder/Explorer) and dropping them into empty space below the tree did nothing — external drops only worked when dropped directly onto an existing row. The file explorer's empty area now accepts external file drops the same way each row already did, including the same hover highlight.",
-        "File explorer: dropping an item (internal or external) with nothing hovering under the cursor gave no visual feedback at all, making it look like drag-and-drop wasn't working even when it was about to succeed. Rows and the root drop area now highlight while something is dragged over them.",
-        "File explorer: dragging a folder in from Finder/Explorer silently failed to import anything, while dragging in individual files worked fine. Electron 30+ removed the .path property from dropped File objects; the folder-drop handler was still reading it and getting undefined for every folder. Both the per-row and root-level drop handlers now resolve the real filesystem path via the correct current API, and a failed drop now surfaces an error toast instead of failing silently.",
-        "File explorer: running a request or deleting a file could randomly scroll the file tree, collapse/expand folders, or open an unrelated folder, because ANY invalidation of the shared tab list (37 call sites throughout the app, most unrelated to the file tree) was re-running the tree's \"reveal the active file\" logic on every render. Revealing a file in the tree (expanding its ancestors and scrolling to it) now only happens in response to an explicit reveal request — opening a file via Quick Open, creating a new file, or clicking a search result — never as a side effect of unrelated tab-list changes.",
-        "File explorer: the Delete key only removed a selected file when the tree itself had keyboard focus, so it silently did nothing if focus had moved elsewhere in the sidebar. Delete now works regardless of where in the file explorer focus currently is, while still doing nothing while a text input or rename field is focused.",
-        "Response panel: in a multi-request response view, each section's \"find in this response\", \"expand all\", and \"collapse all\" icons stayed visible and clickable even while that section was collapsed, but clicking did nothing until the section was expanded first. These icons are now only shown once their section is actually expanded.",
-        "Block overview panel: clicking a linked block entry scrolled the editor to the very top of the document instead of to that block. Linked blocks (and other atom-type blocks, e.g. external file embeds) have no addressable position \"inside\" them the way normal text blocks do, so the scroll-to-block logic's generic position math resolved to an invalid location; it now detects atom-type blocks and selects/scrolls to them directly.",
-        "AI skill: the base skill's own \"Multi-Request File\" worked example had content nested inside attrs on its request blocks — an invalid shape that contradicts the correct single-request example earlier in the same document. An agent copying this example would generate malformed .void files. content is now correctly documented as a sibling of attrs, matching the app's actual file format."
+        "AI skill now documents which .void block types are singleton per section",
+        "AI skill's table row examples updated to the new 3-column shape",
+        "Run All no longer stops entirely when a middle section fails",
+        "Response panel: a failed section's error overlay no longer covers every other section's response",
+        "Response panel: a failed section's error card now shows its real label instead of \"Request N\"",
+        "AI skill now documents where section headings belong in a multi-request file",
+        "File explorer: dropping a file onto the project root (empty space) now works",
+        "File explorer: dropping files from outside the app onto empty space now works",
+        "File explorer: drop targets now highlight while something is dragged over them",
+        "File explorer: dragging a folder in from Finder/Explorer now works",
+        "File explorer no longer randomly scrolls or collapses folders when running a request or deleting a file",
+        "File explorer: Delete key now works regardless of where focus is in the sidebar",
+        "Response panel: per-section find/expand/collapse icons no longer stay clickable while collapsed",
+        "Block overview panel: clicking a linked block now scrolls to it instead of the top of the document",
+        "AI skill's multi-request example no longer shows an invalid block shape",
+        "File explorer no longer shows two rows highlighted at once (#528) — contributed by [@suhailopensource](https://github.com/suhailopensource)",
+        "File explorer state (scroll position, expanded folders) no longer resets on every save (#544) — contributed by [@akira-in-tech](https://github.com/akira-in-tech)",
+        "Terminal output order is now preserved (#553) — contributed by [@dawNotPoi](https://github.com/dawNotPoi)",
+        "Rename input no longer overflows outside the sidebar (#550) — contributed by [@NONAN23x](https://github.com/NONAN23x)",
+        "Request name edit input now sizes to its content instead of a fixed 200px cap (#542) — contributed by [@NONAN23x](https://github.com/NONAN23x)",
+        "Request labels now use theme-correct contrast instead of a hardcoded color (#535) — contributed by [@vianmangal](https://github.com/vianmangal)",
+        "Request histories for two files sharing a basename no longer merge into one (#525) — contributed by [@A-S-Manoj](https://github.com/A-S-Manoj)",
+        "Multi-byte UTF-8 characters no longer corrupt at chunk read boundaries (#524) — contributed by [@A-S-Manoj](https://github.com/A-S-Manoj)"
       ]
     }
   },
@@ -83,24 +91,25 @@
     "bgColor": "bg-gradient-to-br from-emerald-900 to-slate-900",
     "changes": {
       "Added": [
-        ".void blocks are now tagged with the plugin id and version that created them — Voiden shows a specific install/enable prompt when a block's plugin is missing or disabled, and voiden-runner validates block/plugin compatibility on open and run, reporting project-wide version status after a run",
-        "MCP server registration is now automatic — toggling the Claude or Codex skill also registers/unregisters the @voiden/mcp-server entry for the active project, so the installed skill instructions and actual tool access never drift apart",
-        "Protocol plugins (REST, GraphQL, sockets/gRPC, and third-party protocol plugins) can now register their own request-container block shape via registerRequestContainer, so the MCP server's list_requests and write_result work generically across whatever protocols are installed instead of only recognizing REST's hardcoded \"request\" block type",
-        ".void files changed externally (e.g. written by an agent) are now validated on save — a parse failure shows a warning toast naming the file and how many blocks failed, instead of failing silently",
-        "Inline block help — a new \"?\" tooltip framework (registerBlockHelp) lets core and plugin blocks show contextual documentation in the block header; Runtime Variables' help content was rewritten to document the actual `{{$res.body...}}` / `{{$req...}}` / `{{process.variable}}` capture-expression syntax instead of the old, incorrect JSONPath example",
-        "\"Update All\" for core plugins — updates every installed core plugin in a single batched call instead of one IPC round-trip per plugin, avoiding concurrent update requests clobbering each other's version bookkeeping",
-        "voiden-runner's --env option now parses YAML (.yaml/.yml) env files in addition to JSON"
+        ".void blocks are now tagged with the plugin id/version that created them, with compatibility checks on open and run",
+        "MCP server registration is now automatic when toggling the Claude/Codex skill",
+        "Protocol plugins can register their own request-container block shape for MCP support",
+        ".void files changed externally are now validated on save",
+        "Inline block help — a \"?\" tooltip framework for core and plugin blocks, plus rewritten Runtime Variables docs (#185) — contributed by [@Exudev](https://github.com/Exudev)",
+        "\"Update All\" for core plugins — updates every installed plugin in one batched call",
+        "voiden-runner's --env option now parses YAML env files (#523) — contributed by [@suhailopensource](https://github.com/suhailopensource)",
+        "Nix flake dev shell and sandboxed build derivation for contributors (#203) — contributed by [@Exudev](https://github.com/Exudev)"
       ],
       "Improved": [
-        "Terminal font size now follows the UI font size setting instead of the editor font size, and no longer gets stuck on the fallback font the first time a font family loads — it waits for the font to finish loading before redrawing. Proportional fonts (e.g. Inter) picked directly from the font dropdown now fall back to the monospace stack instead of breaking the terminal's character grid",
-        "Word-delete backspace shortcuts (Alt-Backspace, Mod-Backspace) now match each platform's actual convention — Mac and Windows/Linux had been using each other's bindings for delete-to-line-start vs. delete-previous-word",
-        "Extension, environment, and runtime-variable queries no longer poll on an interval, removing a recurring editor flicker",
-        "Plugin browser: a broken or unreachable plugin icon URL now falls back to the default icon instead of showing a broken image",
-        "Checking for plugin updates now clears a stale \"update available\" badge when the real latest release already matches what's installed, instead of nagging indefinitely"
+        "Terminal font size now follows the UI font size setting, with proper font-load handling",
+        "Word-delete shortcuts (Alt/Mod-Backspace) now match each platform's actual convention",
+        "Extension, environment, and runtime-variable queries no longer poll on an interval",
+        "Plugin browser falls back to the default icon when a plugin's icon URL is broken",
+        "Plugin update badges now clear correctly once the installed version catches up"
       ],
       "Fixed": [
-        "Request errors now surface the underlying cause (e.g. \"self-signed certificate\", a TLS/connection failure reason) instead of a generic \"fetch failed\" message",
-        "A plugin response handler that throws before rendering anything no longer leaves the response panel stuck on an infinite loading spinner — the error now surfaces in the UI"
+        "Request errors now show the actual cause (e.g. a TLS/certificate issue) instead of a generic \"fetch failed\"",
+        "A plugin response handler that throws no longer leaves the response panel stuck loading"
       ]
     }
   },

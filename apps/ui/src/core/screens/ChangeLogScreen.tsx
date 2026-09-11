@@ -1,6 +1,42 @@
 import { Cookie, FileText, Puzzle } from "lucide-react";
 import { Terminal, Plug, FileDown, Paintbrush, Braces, Code, LayoutDashboard, Eye, FilePlus2, Rocket, Wrench, Zap, Sparkles, Compass, Workflow, PanelBottom , FolderOpen ,Lock , Bug ,Bandage} from "lucide-react";
 import changelogData from "@/data/changelog.json";
+import { openExternalLink } from "@/core/lib/utils";
+
+// changelog.json entries are plain strings, but a contributor credit can embed
+// a markdown-style link — "...contributed by [@user](https://github.com/user)"
+// — so a change can link to their GitHub profile. Rendered here rather than
+// pulled in as a full markdown renderer, since this is the only markdown this
+// data ever needs. Anything not matching the [text](url) pattern renders as
+// plain text exactly as before.
+const CHANGE_LINK_RE = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g;
+
+function renderChangeText(text: string) {
+  const nodes: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  let key = 0;
+  CHANGE_LINK_RE.lastIndex = 0;
+  while ((match = CHANGE_LINK_RE.exec(text)) !== null) {
+    if (match.index > lastIndex) nodes.push(text.slice(lastIndex, match.index));
+    const [, label, url] = match;
+    nodes.push(
+      <a
+        key={key++}
+        onClick={(e) => {
+          e.stopPropagation();
+          openExternalLink(url);
+        }}
+        className="text-accent hover:underline cursor-pointer"
+      >
+        {label}
+      </a>,
+    );
+    lastIndex = match.index + match[0].length;
+  }
+  if (lastIndex < text.length) nodes.push(text.slice(lastIndex));
+  return nodes;
+}
 
 // Map icon names to Lucide icon components
 const iconMap = {
@@ -111,7 +147,7 @@ const ChangeLogScreen = () => {
                       <ul className="space-y-2 ml-6">
                         {item.changes.Added.map((change, idx) => (
                           <li key={idx} className="text-text leading-relaxed relative before:content-['–'] before:absolute before:-left-4 before:text-comment">
-                            {change}
+                            {renderChangeText(change)}
                           </li>
                         ))}
                       </ul>
@@ -125,7 +161,7 @@ const ChangeLogScreen = () => {
                       <ul className="space-y-2 ml-6">
                         {item.changes.Improved.map((change, idx) => (
                           <li key={idx} className="text-text leading-relaxed relative before:content-['–'] before:absolute before:-left-4 before:text-comment">
-                            {change}
+                            {renderChangeText(change)}
                           </li>
                         ))}
                       </ul>
@@ -139,7 +175,7 @@ const ChangeLogScreen = () => {
                       <ul className="space-y-2 ml-6">
                         {item.changes.Changed.map((change, idx) => (
                           <li key={idx} className="text-text leading-relaxed relative before:content-['–'] before:absolute before:-left-4 before:text-comment">
-                            {change}
+                            {renderChangeText(change)}
                           </li>
                         ))}
                       </ul>
@@ -153,7 +189,7 @@ const ChangeLogScreen = () => {
                       <ul className="space-y-2 ml-6">
                         {item.changes.Fixed.map((change, idx) => (
                           <li key={idx} className="text-text leading-relaxed relative before:content-['–'] before:absolute before:-left-4 before:text-comment">
-                            {change}
+                            {renderChangeText(change)}
                           </li>
                         ))}
                       </ul>
@@ -167,7 +203,7 @@ const ChangeLogScreen = () => {
                       <ul className="space-y-2 ml-6">
                         {item.changes.Notes.map((change, idx) => (
                           <li key={idx} className="text-text leading-relaxed relative before:content-['–'] before:absolute before:-left-4 before:text-comment">
-                            {change}
+                            {renderChangeText(change)}
                           </li>
                         ))}
                       </ul>
