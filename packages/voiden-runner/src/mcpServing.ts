@@ -176,7 +176,10 @@ export function registerFixedTools(
       }
 
       const result = await runVoidFile(resolved, { env, runtimeVars, sectionLabel, activePlugins, projectRoot })
-      return textResult(result)
+      // Full results are returned either way; a failed section just flags the call
+      // so the MCP client doesn't show it as a normal successful run.
+      const anyFailed = result.results.some((r) => r.result?.success === false)
+      return { ...textResult(result), ...(anyFailed ? { isError: true } : {}) }
     },
   )
 

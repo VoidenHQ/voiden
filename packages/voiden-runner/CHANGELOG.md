@@ -3,6 +3,14 @@
 All notable changes to `@voiden/runner` are documented here. This package is
 versioned and released independently of the Voiden desktop app.
 
+## v2.3.0-beta.20 - 2026-09-21
+
+### Fixed
+- The MCP `run_request` tool returned a normal, successful-looking result even when a request failed
+  (network error, unresolved variable, non-2xx/3xx response), so an MCP client showed it as OK. The
+  full results are still returned as before, but the call is now flagged with MCP's `isError` when
+  any section failed.
+
 ## v2.3.0-beta.19 - 2026-09-10
 
 ### Fixed
