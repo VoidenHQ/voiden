@@ -771,67 +771,71 @@ export function ResponsePanelContainer() {
                       <div
                         className="flex min-w-0 items-center gap-2 overflow-hidden px-3 py-1.5 border-b border-border bg-bg flex-shrink-0"
                       >
-                        <div
-                          className="size-2 rounded-full flex-shrink-0"
-                          style={{
-                            backgroundColor: singleStatus >= 200 && singleStatus < 300
-                              ? "var(--success, #4ade80)"
-                              : singleStatus >= 400
-                                ? "var(--error, #f87171)"
-                                : "var(--warning, #facc15)",
-                          }}
-                        />
-                        <span className="font-mono text-xs font-bold">
-                          {singleStatus} {singleStatusMsg}
-                        </span>
-                        {singleElapsed != null && (
-                          <span className="text-comment text-xs font-mono flex-shrink-0">
-                            {singleElapsed < 1000 ? `${Math.round(singleElapsed)}ms` : `${(singleElapsed / 1000).toFixed(1)}s`}
-                          </span>
-                        )}
-                        <span
-                          className="text-xs font-semibold uppercase flex-shrink-0"
-                          style={{ color: singleBorderColor, letterSpacing: "0.5px" }}
-                        >
-                          {singleLabel || "Request 1"}
-                        </span>
-                        <span className="text-comment text-xs truncate flex-1">
-                          {singleUrl}
-                        </span>
-                        {singleTimestamp && (
-                          <Tip label={formatAbsoluteTime(singleTimestamp)} side="bottom">
-                            <span className="text-comment text-[10px] flex-shrink-0 opacity-60 cursor-default">
-                              {formatRelativeTime(singleTimestamp)}
-                            </span>
-                          </Tip>
-                        )}
-                        <Tip label="Find (⌘F)" side="bottom">
-                          <button
-                            className="p-1 text-comment hover:text-text transition-colors rounded flex-shrink-0"
-                            onClick={() => {
-                              setShowResponseFind(true);
-                              setTimeout(() => responseFindInputRef.current?.focus(), 50);
+                        <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
+                          <div
+                            className="size-2 rounded-full flex-shrink-0"
+                            style={{
+                              backgroundColor: singleStatus >= 200 && singleStatus < 300
+                                ? "var(--success, #4ade80)"
+                                : singleStatus >= 400
+                                  ? "var(--error, #f87171)"
+                                  : "var(--warning, #facc15)",
                             }}
+                          />
+                          <span className="font-mono text-xs font-bold flex-shrink-0 whitespace-nowrap">
+                            {singleStatus} {singleStatusMsg}
+                          </span>
+                          {singleElapsed != null && (
+                            <span className="text-comment text-xs font-mono flex-shrink-0">
+                              {singleElapsed < 1000 ? `${Math.round(singleElapsed)}ms` : `${(singleElapsed / 1000).toFixed(1)}s`}
+                            </span>
+                          )}
+                          <span
+                            className="text-xs font-semibold uppercase flex-shrink-0"
+                            style={{ color: singleBorderColor, letterSpacing: "0.5px" }}
                           >
-                            <Search size={14} />
-                          </button>
-                        </Tip>
-                        <Tip label="Expand all nodes" side="bottom">
-                          <button
-                            className="p-1 text-comment hover:text-text transition-colors rounded flex-shrink-0"
-                            onClick={() => viewerRefs.current.get(`${tabId}:0`)?.expandAll()}
-                          >
-                            <ChevronsUpDown size={13} />
-                          </button>
-                        </Tip>
-                        <Tip label="Collapse all nodes" side="bottom">
-                          <button
-                            className="p-1 text-comment hover:text-text transition-colors rounded flex-shrink-0"
-                            onClick={() => viewerRefs.current.get(`${tabId}:0`)?.collapseAll()}
-                          >
-                            <ChevronsDownUp size={13} />
-                          </button>
-                        </Tip>
+                            {singleLabel || "Request 1"}
+                          </span>
+                          <span className="text-comment text-xs truncate flex-1">
+                            {singleUrl}
+                          </span>
+                          {singleTimestamp && (
+                            <Tip label={formatAbsoluteTime(singleTimestamp)} side="bottom">
+                              <span className="text-comment text-[10px] flex-shrink-0 opacity-60 cursor-default">
+                                {formatRelativeTime(singleTimestamp)}
+                              </span>
+                            </Tip>
+                          )}
+                        </div>
+                        <div className="flex flex-shrink-0 items-center gap-2">
+                          <Tip label="Find (⌘F)" side="bottom">
+                            <button
+                              className="p-1 text-comment hover:text-text transition-colors rounded flex-shrink-0"
+                              onClick={() => {
+                                setShowResponseFind(true);
+                                setTimeout(() => responseFindInputRef.current?.focus(), 50);
+                              }}
+                            >
+                              <Search size={14} />
+                            </button>
+                          </Tip>
+                          <Tip label="Expand all nodes" side="bottom">
+                            <button
+                              className="p-1 text-comment hover:text-text transition-colors rounded flex-shrink-0"
+                              onClick={() => viewerRefs.current.get(`${tabId}:0`)?.expandAll()}
+                            >
+                              <ChevronsUpDown size={13} />
+                            </button>
+                          </Tip>
+                          <Tip label="Collapse all nodes" side="bottom">
+                            <button
+                              className="p-1 text-comment hover:text-text transition-colors rounded flex-shrink-0"
+                              onClick={() => viewerRefs.current.get(`${tabId}:0`)?.collapseAll()}
+                            >
+                              <ChevronsDownUp size={13} />
+                            </button>
+                          </Tip>
+                        </div>
                       </div>
                       <div className="flex-1 min-h-0 min-w-0 ml-2 overflow-hidden">
                         <ResponseViewer
@@ -1002,51 +1006,53 @@ export function ResponsePanelContainer() {
                               className="flex min-w-0 items-center gap-2 overflow-hidden px-3 py-1.5 border-b border-border bg-bg cursor-pointer hover:bg-active transition-colors select-none"
                               onClick={() => toggleSectionCollapse(tabId, sectionIndex)}
                             >
-                              {isCollapsed
-                                ? <ChevronRight size={14} className="text-comment flex-shrink-0" />
-                                : <ChevronDown size={14} className="text-comment flex-shrink-0" />
-                              }
-                              <div
-                                className="size-2 rounded-full flex-shrink-0"
-                                style={{
-                                  backgroundColor: status >= 200 && status < 300
-                                    ? "var(--success, #4ade80)"
-                                    : status >= 400
-                                      ? "var(--error, #f87171)"
-                                      : "var(--warning, #facc15)",
-                                }}
-                              />
-                              <span className="font-mono text-xs font-bold">
-                                {status} {statusMsg}
-                              </span>
-                              {elapsed != null && (
-                                <span className="text-comment text-xs font-mono flex-shrink-0">
-                                  {elapsed < 1000 ? `${Math.round(elapsed)}ms` : `${(elapsed / 1000).toFixed(1)}s`}
+                              <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
+                                {isCollapsed
+                                  ? <ChevronRight size={14} className="text-comment flex-shrink-0" />
+                                  : <ChevronDown size={14} className="text-comment flex-shrink-0" />
+                                }
+                                <div
+                                  className="size-2 rounded-full flex-shrink-0"
+                                  style={{
+                                    backgroundColor: status >= 200 && status < 300
+                                      ? "var(--success, #4ade80)"
+                                      : status >= 400
+                                        ? "var(--error, #f87171)"
+                                        : "var(--warning, #facc15)",
+                                  }}
+                                />
+                                <span className="font-mono text-xs font-bold flex-shrink-0 whitespace-nowrap">
+                                  {status} {statusMsg}
                                 </span>
-                              )}
-                              <span
-                                className="text-xs font-semibold uppercase flex-shrink-0"
-                                style={{ color: borderColor, letterSpacing: "0.5px" }}
-                              >
-                                {label || "Request"}
-                              </span>
-                              <span className="text-comment text-xs truncate flex-1">
-                                {doc?.attrs?.url}
-                              </span>
-                              {timestamp && (
-                                <Tip label={formatAbsoluteTime(timestamp)} side="bottom">
-                                  <span className="text-comment text-[10px] flex-shrink-0 opacity-60 cursor-default">
-                                    {formatRelativeTime(timestamp)}
+                                {elapsed != null && (
+                                  <span className="text-comment text-xs font-mono flex-shrink-0">
+                                    {elapsed < 1000 ? `${Math.round(elapsed)}ms` : `${(elapsed / 1000).toFixed(1)}s`}
                                   </span>
-                                </Tip>
-                              )}
+                                )}
+                                <span
+                                  className="text-xs font-semibold uppercase flex-shrink-0"
+                                  style={{ color: borderColor, letterSpacing: "0.5px" }}
+                                >
+                                  {label || "Request"}
+                                </span>
+                                <span className="text-comment text-xs truncate flex-1">
+                                  {doc?.attrs?.url}
+                                </span>
+                                {timestamp && (
+                                  <Tip label={formatAbsoluteTime(timestamp)} side="bottom">
+                                    <span className="text-comment text-[10px] flex-shrink-0 opacity-60 cursor-default">
+                                      {formatRelativeTime(timestamp)}
+                                    </span>
+                                  </Tip>
+                                )}
+                              </div>
                               {/* These act on this section's ResponseViewer instance, which
                                   only exists while the section is expanded (see the
                                   conditional render below) — visible-but-inert while
                                   collapsed was the bug: the ref lookup would silently miss,
                                   so search/expand-all/collapse-all did nothing. */}
                               {!isCollapsed && (
-                                <>
+                                <div className="flex flex-shrink-0 items-center gap-2">
                                   <Tip label="Find in this response" side="bottom">
                                     <button
                                       className="p-1 text-comment hover:text-text transition-colors rounded flex-shrink-0"
@@ -1075,7 +1081,7 @@ export function ResponsePanelContainer() {
                                       <ChevronsDownUp size={12} />
                                     </button>
                                   </Tip>
-                                </>
+                                </div>
                               )}
                             </div>
                             {/* Response content — hidden when collapsed */}

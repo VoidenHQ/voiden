@@ -20,6 +20,7 @@ import { json, jsonParseLinter } from "@codemirror/lang-json";
 import { html } from "@codemirror/lang-html";
 import { css } from "@codemirror/lang-css";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
+import { attachScrollTracker } from "./scrollTracker";
 import { python } from "@codemirror/lang-python";
 import { java } from "@codemirror/lang-java";
 import { cpp } from "@codemirror/lang-cpp";
@@ -980,53 +981,22 @@ export const CodeEditor = memo(({ tabId, content, source, panelId, isActive = tr
     // reset to 0 (there was nothing saved to restore in the first place).
     const scrollEl = editorView.scrollDOM;
 
-    let currentTarget = getScrollPosition(tabId);
-    let isUserScrolling = false;
-    let userScrollTimeout: number | null = null;
-
-    const setUserScrolling = () => {
-      isUserScrolling = true;
-      if (userScrollTimeout !== null) clearTimeout(userScrollTimeout);
-      userScrollTimeout = window.setTimeout(() => {
-        isUserScrolling = false;
-        userScrollTimeout = null;
-      }, 1000);
-    };
-
-    const applySavedScroll = () => {
-      if (isUserScrolling) return;
-      const maxScrollTop = Math.max(0, scrollEl.scrollHeight - scrollEl.clientHeight);
-      scrollEl.scrollTop = Math.min(currentTarget, maxScrollTop);
-    };
-
-    const handleScroll = () => {
-      if (isUserScrolling || searchNavScrollRef.current) {
-        // A flagged search-nav jump counts as a new deliberate position too —
-        // reset it now so the *next* unflagged scroll (e.g. a later,
-        // unrelated tab-switch remeasure) doesn't also get waved through.
+    // Snapping back an unrequested scroll is only right just after this tab
+    // activates (CodeMirror re-measuring can reset scrollTop to 0) — see
+    // scrollTracker.ts for why it must not outlive that window.
+    const tracker = attachScrollTracker({
+      scrollEl,
+      initialTarget: getScrollPosition(tabId),
+      onPositionChange: (scrollTop) => setScrollPosition(tabId, scrollTop),
+      consumeProgrammaticFlag: () => {
+        const flagged = searchNavScrollRef.current;
         searchNavScrollRef.current = false;
-        currentTarget = scrollEl.scrollTop;
-        setScrollPosition(tabId, scrollEl.scrollTop);
-      } else {
-        // Any other scroll wasn't asked for — most commonly CodeMirror
-        // re-measuring its viewport once this tab flips from hidden back to
-        // visible, which can reset scrollTop to 0. Snap back to the last
-        // known-good position instead of letting it stand (same defensive
-        // behavior VoidenEditor already has for .void files).
-        applySavedScroll();
-      }
-    };
-
-    const handleUserInteraction = () => { setUserScrolling(); };
-
-    scrollEl.addEventListener("scroll", handleScroll, { passive: true });
-    scrollEl.addEventListener("wheel", handleUserInteraction, { passive: true, capture: true });
-    scrollEl.addEventListener("touchmove", handleUserInteraction, { passive: true, capture: true });
-    scrollEl.addEventListener("keydown", handleUserInteraction, { capture: true });
-    scrollEl.addEventListener("mousedown", handleUserInteraction, { capture: true });
+        return flagged;
+      },
+    });
 
     scrollEl.style.scrollBehavior = "auto";
-    applySavedScroll();
+    tracker.restore();
 
     let rafId: number;
     const timeoutIds: number[] = [];
@@ -1034,23 +1004,17 @@ export const CodeEditor = memo(({ tabId, content, source, panelId, isActive = tr
     rafId = requestAnimationFrame(() => {
       rafId = requestAnimationFrame(() => {
         scrollEl.style.scrollBehavior = "auto";
-        applySavedScroll();
-        timeoutIds.push(window.setTimeout(applySavedScroll, 0));
-        timeoutIds.push(window.setTimeout(applySavedScroll, 60));
-        timeoutIds.push(window.setTimeout(applySavedScroll, 140));
+        tracker.restore();
+        timeoutIds.push(window.setTimeout(tracker.restore, 0));
+        timeoutIds.push(window.setTimeout(tracker.restore, 60));
+        timeoutIds.push(window.setTimeout(tracker.restore, 140));
       });
     });
 
     return () => {
-      scrollEl.removeEventListener("scroll", handleScroll);
-      scrollEl.removeEventListener("wheel", handleUserInteraction, { capture: true });
-      scrollEl.removeEventListener("touchmove", handleUserInteraction, { capture: true });
-      scrollEl.removeEventListener("keydown", handleUserInteraction, { capture: true });
-      scrollEl.removeEventListener("mousedown", handleUserInteraction, { capture: true });
-      if (userScrollTimeout !== null) clearTimeout(userScrollTimeout);
       cancelAnimationFrame(rafId);
       timeoutIds.forEach(clearTimeout);
-      setScrollPosition(tabId, currentTarget);
+      setScrollPosition(tabId, tracker.detach());
     };
   }, [editorView, tabId, isActive, getScrollPosition, setScrollPosition]);
 
