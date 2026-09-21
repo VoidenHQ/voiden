@@ -751,8 +751,16 @@ export async function runPublish(projectRoot: string, rawOpts: PublishOpts): Pro
     // as-is — printing bare {"url": ...} here for an api-key-gated server
     // produced a config that connects to something requiring auth with no
     // way to supply it, silently missing the one thing that makes it work.
+    //
+    // "type": "http" is what tells Claude Code/VS Code which transport a
+    // url-based entry uses — without it their config loaders don't recognize
+    // the entry as a remote HTTP server, so the printed config wasn't
+    // usable as-is. Clients that infer the transport from the url (Cursor)
+    // and Voiden's own paste-importer just ignore the extra key.
     const buildHttpConfigEntry = (mcpUrl: string): Record<string, unknown> =>
-      apiKeyEnabled ? { url: mcpUrl, headers: { Authorization: `Bearer ${apiKey}` } } : { url: mcpUrl }
+      apiKeyEnabled
+        ? { type: 'http', url: mcpUrl, headers: { Authorization: `Bearer ${apiKey}` } }
+        : { type: 'http', url: mcpUrl }
 
     if (printConfig && !tunnel) {
       if (publicUrl) {

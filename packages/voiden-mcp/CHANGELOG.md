@@ -3,6 +3,15 @@
 All notable changes to `@voiden/mcp` are documented here. This package is
 versioned and released independently of the Voiden desktop app.
 
+## v0.0.18 - 2026-09-21
+
+### Fixed
+- `--print-config` for `--http` (localhost, `--public-url` and `--tunnel`) printed an entry without
+  `"type": "http"`, so Claude Code and VS Code didn't recognize it as a remote HTTP server and the
+  pasted config didn't work until the key was added by hand. The printed entry now includes
+  `"type": "http"` (alongside the `Authorization` header when `--api-key` is on). Clients that infer
+  the transport from the URL, and the Voiden MCP client block's paste-importer, ignore the extra key.
+
 ## v0.0.17 - 2026-09-10
 
 ### Changed
