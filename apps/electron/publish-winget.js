@@ -255,7 +255,11 @@ async function main() {
   const branch = `${PACKAGE_NAME_PART.toLowerCase()}-${version}`;
   console.log(`\n🌿 Pushing branch ${forkOwner}:${branch}...`);
   let ref;
-  const maxRefAttempts = 8;
+  // Bumped from 8 attempts / 30s backoff cap (~3min total) after the v2.3.0
+  // stable release hit the exact propagation gap this loop exists for, but
+  // outlasted the old budget — GitHub's fork ref propagation isn't bounded
+  // by a fixed SLA, so 8/30 was just not always enough. ~7min total now.
+  const maxRefAttempts = 12;
   for (let attempt = 1; attempt <= maxRefAttempts; attempt++) {
     ref = await gh('POST', `/repos/${forkOwner}/${UPSTREAM_REPO}/git/refs`, {
       ref: `refs/heads/${branch}`,
@@ -278,7 +282,7 @@ async function main() {
     // error, actual auth/perm failure) isn't transient — fail immediately
     // instead of retrying blind.
     if (ref.ok || ref.status !== 404 || attempt === maxRefAttempts) break;
-    const delaySec = Math.min(10 * attempt, 30);
+    const delaySec = Math.min(10 * attempt, 45);
     console.log(`   ...ref push got 404 (attempt ${attempt}/${maxRefAttempts}), still settling — retrying in ${delaySec}s`);
     await sleep(delaySec * 1000);
   }
