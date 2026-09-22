@@ -1,6 +1,32 @@
 {
   "releases": [
     {
+      "version": "2.3.0",
+      "date": "September 2026",
+      "whatsnew": [
+        {
+          "icon": "🛠️",
+          "title": "Turn Any Request Into an Agent-Callable Tool",
+          "description": "Add a /tool block to any request and it becomes its own named tool — with a description and typed parameters — that an agent can call directly, verified automatically before it's ever handed over. A tool that starts failing gets withdrawn or flagged instead of silently staying available."
+        },
+        {
+          "icon": "🔌",
+          "title": "Talk to Other MCP Servers From Inside Voiden",
+          "description": "The new /mcp block connects to and tests an external MCP server right from a .void file, and a dedicated MCP tab shows every tool block's list/verify/serve status at a glance."
+        },
+        {
+          "icon": "🤖",
+          "title": "Agents Can Manage Their Own Plugins and Environments",
+          "description": "An agent can now install or update a missing plugin and pick the right environment profile itself, mid-conversation, without you stepping in — plus a one-click \"Disable MCP\" to match \"Initialize MCP.\""
+        },
+        {
+          "icon": "🐛",
+          "title": "Editor Polish & Reliability Fixes",
+          "description": "Scrolling in the code editor no longer fights you while typing or reviewing a response, the response panel's toolbar stays visible on long URLs, file-explorer drag-and-drop is fixed, and a long list of CLI, installer, and theme issues are cleared up."
+        }
+      ]
+    },
+    {
       "version": "2.3.0-beta.3",
       "date": "September 2026",
       "whatsnew": [
