@@ -9600,7 +9600,7 @@ __metadata:
     "@voiden/sdk": "npm:*"
     chalk: "npm:^5.3.0"
     commander: "npm:^12.0.0"
-    nodemailer: "npm:^8.0.7"
+    nodemailer: "npm:^9.0.3"
     tsx: "npm:^4.15.0"
     typescript: "npm:^5.5.3"
     yaml: "npm:^2.4.2"
@@ -17788,10 +17788,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"nodemailer@npm:^8.0.7":
-  version: 8.0.11
-  resolution: "nodemailer@npm:8.0.11"
-  checksum: 10c0/19229216c63a32eae59d7b39f3dffeba20be317f2335d08d86fb70bd01845a1bf108fecd019c0e90ef186e3d9177cf478192b333cf38620ad0f8c7a6e1e5ae05
+"nodemailer@npm:^9.0.3":
+  version: 9.1.1
+  resolution: "nodemailer@npm:9.1.1"
+  checksum: 10c0/b213a2a906697a735f6eb21103629b7a77aeac297b6d843efd4588157999bf6d19381853ac1224e472f5a34aec2e2412444151a2c6ec6e8c52150afa3055039c
   languageName: node
   linkType: hard
 

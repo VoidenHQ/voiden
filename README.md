@@ -97,6 +97,7 @@ AI Friendly:
 
 - No proprietary workspace. No binary exports. Pure text all the way down, diffable like code, greppable, AI-editable, and merge-friendly.
 - Supports Voiden skills for Claude and Codex agents.
+- MCP support — connect Claude Code or Codex directly to a project so they can run your `.void` requests themselves, or serve your own requests as tools other agents can call. See the [MCP docs](https://docs.voiden.md/docs/mcp/overview).
 
 [Voiden Runner](https://github.com/VoidenHQ/voiden/tree/beta/packages/voiden-runner): A headless CLI for running those .void files outside the desktop app, directly in the terminal.
 
@@ -108,14 +109,12 @@ AI Friendly:
 
 ## Install
 
-**Current version:** `2.1.0`
+**Current version:** `2.2.0` (stable)
 
 Download installers for macOS, Windows, and Linux from [voiden.md/download](https://voiden.md/download).
 Direct downloads are available for Apple Silicon and Intel macOS, Windows `.exe`, and Linux `.deb`, `.rpm`, and `.AppImage` builds.
 
 > **Windows note (starting v2.1.1):** the Windows installer is now signed via Azure Trusted Signing instead of our previous certificate provider. Because of this change, you may see a "Windows protected your PC" SmartScreen dialog during install — the installer is signed and verified, this is expected while the app builds up download reputation with Microsoft. Click "More info" → "Run anyway" to proceed.
->
-> ![Windows SmartScreen warning](apps/electron/public/windows-smartscreen-warning.png)
 
 ### Package managers
 
