@@ -677,14 +677,34 @@ export function registerCoreExtensionsIpcHandlers(): void {
    *
    * Pass pluginId to scope to a single plugin (used by the "Install" button).
    * Returns { updated, upToDate, incompatible }.
+   *
+   * Every invocation reads-modifies-writes the single shared manifest.json (read at the
+   * top, written near the bottom). If two invocations run concurrently — e.g. the user
+   * clicks "Update" on several plugin rows in quick succession — each reads its own snapshot
+   * before either has written back, so whichever write lands last silently reverts the
+   * others' version bookkeeping even though their files downloaded fine. All calls are
+   * funneled through checkAndUpdateQueue so they always run one at a time.
    */
-  ipcMain.handle('coreExtensions:checkAndUpdate', async (_event, pluginId?: string): Promise<{
-    updated: string[]
-    upToDate: boolean
-    incompatible: string[]
-    incompatibleVersions: { [id: string]: { version: string; requiredVoidenVersion: string } }
-    error?: string
-  }> => {
+  ipcMain.handle('coreExtensions:checkAndUpdate', (_event, pluginId?: string) =>
+    enqueueCheckAndUpdate(() => runCheckAndUpdate(pluginId))
+  )
+}
+
+let checkAndUpdateQueue: Promise<unknown> = Promise.resolve()
+
+function enqueueCheckAndUpdate<T>(task: () => Promise<T>): Promise<T> {
+  const run = checkAndUpdateQueue.catch(() => {}).then(task)
+  checkAndUpdateQueue = run.catch(() => {})
+  return run
+}
+
+async function runCheckAndUpdate(pluginId?: string): Promise<{
+  updated: string[]
+  upToDate: boolean
+  incompatible: string[]
+  incompatibleVersions: { [id: string]: { version: string; requiredVoidenVersion: string } }
+  error?: string
+}> {
     try {
       const cacheDir = getCacheDir()
       await fs.mkdir(cacheDir, { recursive: true })
@@ -839,7 +859,6 @@ export function registerCoreExtensionsIpcHandlers(): void {
       console.error('[CoreExtensions] checkAndUpdate failed:', message)
       return { updated: [], upToDate: true, incompatible: [], incompatibleVersions: {}, error: message }
     }
-  })
 }
 
 /**

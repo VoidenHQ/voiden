@@ -10,6 +10,7 @@ import { Schema } from "@tiptap/pm/model";
 import { getSchema } from "@tiptap/core";
 import { useCodeEditorStore } from "@/core/editors/code/CodeEditorStore";
 import { useEditorEnhancementStore } from "@/plugins";
+import { invalidateFileSaveQueries } from "./fileSaveInvalidation";
 import { isPathInsideLockedProject } from "./useProjectLock";
 import { toast } from "@/core/components/ui/sonner";
 
@@ -99,13 +100,15 @@ export const prosemirrorToMarkdown = (content: string, schema: Schema) => {
   return markdownWithVersion;
 };
 
-export const invalidateOnFileSave = (path: string, panelId: string, tabId: string) => {
+export const invalidateOnFileSave = (panelId: string, tabId: string, fileTreeChanged = false) => {
   const queryClient = getQueryClient();
-  const appState = queryClient.getQueryData<any>(["app:state"]);
-  const activeDirectory = appState?.activeDirectory;
-  queryClient.invalidateQueries({ queryKey: ["panel:tabs", panelId] });
-  queryClient.invalidateQueries({ queryKey: ["tab:content", panelId, tabId] });
-  queryClient.invalidateQueries({ queryKey: ["files:tree", activeDirectory] });
+  const appState = fileTreeChanged
+    ? queryClient.getQueryData<{ activeDirectory?: string }>(["app:state"])
+    : undefined;
+  invalidateFileSaveQueries(queryClient, panelId, tabId, {
+    activeDirectory: appState?.activeDirectory,
+    fileTreeChanged,
+  });
 };
 
 export const saveFileUtil = async (path: string | null, content: string, panelId: string, tabId: string, schema: Schema) => {
@@ -128,7 +131,7 @@ export const saveFileUtil = async (path: string | null, content: string, panelId
   // For new (previously unsaved) files, register now that we have the real path.
   if (!path) registerSelfSave(filePath);
 
-  invalidateOnFileSave(filePath, panelId, tabId);
+  invalidateOnFileSave(panelId, tabId, path === null);
 
   useEditorStore.getState().clearUnsaved(tabId);
   useVoidenEditorStore.getState().setFilePath(filePath);
@@ -615,7 +618,7 @@ export const saveTabById = async (tabId: string, options?: { silent?: boolean })
       
       await window.electron?.files.write(tab.source, unsavedContent);
       if (shouldInvalidate) {
-        invalidateOnFileSave(tab.source, "main", tabId);
+        invalidateOnFileSave("main", tabId);
       } else {
         syncTabContentCache(unsavedContent);
       }
@@ -704,7 +707,7 @@ export const globalSaveFile = async () => {
             ? view.state.doc.toString()
             : activeEditor.content;
           await writeFileChunked(activeEditor.source, content);
-          invalidateOnFileSave(activeEditor.source, activeEditor.panelId || "", activeEditor.tabId);
+          invalidateOnFileSave(activeEditor.panelId || "", activeEditor.tabId);
           useEditorStore.getState().clearUnsaved(activeEditor.tabId);
           return true;
         } catch (error) {
@@ -736,7 +739,7 @@ export const globalSaveFile = async () => {
           ? view.state.doc.toString()
           : activeEditor.content;
         await writeFileChunked(activeEditor.source, content);
-        invalidateOnFileSave(activeEditor.source, activeEditor.panelId || "", activeEditor.tabId);
+        invalidateOnFileSave(activeEditor.panelId || "", activeEditor.tabId);
         useEditorStore.getState().clearUnsaved(activeEditor.tabId);
         return true;
       } catch (error) {

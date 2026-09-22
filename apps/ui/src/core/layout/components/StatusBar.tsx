@@ -1,8 +1,9 @@
-import { PanelLeft, Terminal, Github, MessageCircle, PanelRight, GitCompareArrows, Download, icons, Activity, X, GripHorizontal, Trash2, Logs, Lock, Unlock } from "lucide-react";
+import { PanelLeft, Terminal, Github, MessageCircle, PanelRight, GitCompareArrows, Download, icons, Activity, X, GripHorizontal, Trash2, Logs, Lock, Unlock, Plug } from "lucide-react";
 import { useProjectLock } from "@/core/file-system/hooks";
 import { cn, isMac } from "@/core/lib/utils";
 import { GitBranchesList } from "@/core/git/components/GitBranchesList";
 import { BranchComparisonDialog } from "@/core/git/components/BranchComparisonDialog";
+import { DisableMcpDialog } from "@/core/layout/components/DisableMcpDialog";
 import { useSettings } from "@/core/settings/hooks/useSettings";
 import { usePanelStore } from "@/core/stores/panelStore";
 import { useResponsePanelPosition } from "@/core/stores/responsePanelPosition";
@@ -13,6 +14,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import ReactDOM from "react-dom";
 import { Kbd } from "@/core/components/ui/kbd";
 import { Tip } from "@/core/components/ui/Tip";
+import { toast } from "@/core/components/ui/sonner";
 import { usePluginStore } from "@/plugins";
 import type { StatusBarItem } from "@voiden/sdk/ui";
 import { matchesShortcut, getShortcutLabel } from "@/core/shortcuts";
@@ -265,6 +267,17 @@ export const StatusBar = ({
   const rightItems = statusBarItems.filter((item) => item.position === 'right');
   const { mutate: addPanelTab } = useAddPanelTab();
   const [isCheckingUpdates, setIsCheckingUpdates] = useState(false);
+  const [isInitializingMcp, setIsInitializingMcp] = useState(false);
+  const [mcpRegistered, setMcpRegistered] = useState(false);
+  const [mcpInitError, setMcpInitError] = useState(false);
+  // Set when this project's .mcp.json already has a registration, but the
+  // `voiden` CLI it points at isn't actually installed right now — a real,
+  // persistent state (not the transient 2s mcpInitError flash), since a
+  // stale/pre-existing registration should keep surfacing this until the
+  // CLI is installed, not just once on the click that created it.
+  const [mcpCliMissing, setMcpCliMissing] = useState(false);
+  const [isDisablingMcp, setIsDisablingMcp] = useState(false);
+  const [showDisableMcpConfirm, setShowDisableMcpConfirm] = useState(false);
   const [isCompareDialogOpen, setIsCompareDialogOpen] = useState(false);
   const [memStats, setMemStats] = useState<{ heap: number; processes: { type: string; mb: number; cpu: number }[] } | null>(null);
   const [updateProgress, setUpdateProgress] = useState<{ percent?: number; bytesPerSecond?: number; transferred?: number; total?: number; status: string } | null>(null);
@@ -280,6 +293,107 @@ export const StatusBar = ({
       console.error("Failed to check for updates:", error);
     } finally {
       setIsCheckingUpdates(false);
+    }
+  };
+
+  // Persistent "already registered" state — queried on mount, whenever the
+  // active project changes, AND whenever settings.cli.installed flips (e.g.
+  // right after installing the CLI from Settings) — without that last
+  // dependency, this only re-ran on project switch, so a stale "MCP needs
+  // CLI" state stuck around until the user happened to switch projects even
+  // though the CLI was now actually installed. SettingsContent.tsx writes
+  // that same shared settings field via useSettings()'s save() the moment
+  // cli:install succeeds, so this effect re-firing off it is the same
+  // "already installed, re-check" signal, not a new one invented here.
+  useEffect(() => {
+    if (!projectRoot) return;
+    let cancelled = false;
+    window.electron?.mcp?.status().then((result) => {
+      if (cancelled) return;
+      setMcpRegistered(!!result?.registered);
+      const cliMissing = !!result?.registered && result?.cliInstalled === false;
+      setMcpCliMissing(cliMissing);
+      if (cliMissing) {
+        toast.error("MCP needs the Voiden CLI", {
+          description: "This project is registered, but the Voiden CLI isn't installed — install it from Settings for Claude/Codex to actually launch it.",
+          duration: 6000,
+          closeButton: true,
+        });
+      }
+    }).catch((error) => {
+      // Without this, an IPC failure here leaves mcpRegistered stuck at its
+      // initial `false` forever with zero indication — the button just reads
+      // "Initialize MCP" even when the project actually is registered,
+      // indistinguishable from the real unregistered case.
+      if (!cancelled) console.error("Failed to check MCP status:", error);
+    });
+    return () => { cancelled = true; };
+  }, [projectRoot, settings?.cli?.installed]);
+
+  const handleInitializeMcp = async () => {
+    if (isInitializingMcp) return;
+
+    setIsInitializingMcp(true);
+    setMcpInitError(false);
+    try {
+      const result = await window.electron?.mcp?.initialize();
+      if (result?.success) {
+        setMcpRegistered(true);
+        setMcpCliMissing(false);
+      } else {
+        setMcpInitError(true);
+        console.error("Failed to initialize MCP:", result?.message);
+        toast.error("Failed to initialize MCP", {
+          description: result?.message || "Unknown error",
+          duration: 6000,
+          closeButton: true,
+        });
+      }
+    } catch (error) {
+      console.error("Failed to initialize MCP:", error);
+      setMcpInitError(true);
+      toast.error("Failed to initialize MCP", {
+        description: error instanceof Error ? error.message : "Unknown error",
+        duration: 6000,
+        closeButton: true,
+      });
+    } finally {
+      setIsInitializingMcp(false);
+      setTimeout(() => setMcpInitError(false), 2000);
+    }
+  };
+
+  const handleDisableMcp = async () => {
+    if (isDisablingMcp) return;
+
+    setIsDisablingMcp(true);
+    setMcpInitError(false);
+    try {
+      const result = await window.electron?.mcp?.disable();
+      if (result?.success) {
+        setMcpRegistered(false);
+        setMcpCliMissing(false);
+        setShowDisableMcpConfirm(false);
+      } else {
+        setMcpInitError(true);
+        console.error("Failed to disable MCP:", result?.message);
+        toast.error("Failed to disable MCP", {
+          description: result?.message || "Unknown error",
+          duration: 6000,
+          closeButton: true,
+        });
+      }
+    } catch (error) {
+      console.error("Failed to disable MCP:", error);
+      setMcpInitError(true);
+      toast.error("Failed to disable MCP", {
+        description: error instanceof Error ? error.message : "Unknown error",
+        duration: 6000,
+        closeButton: true,
+      });
+    } finally {
+      setIsDisablingMcp(false);
+      setTimeout(() => setMcpInitError(false), 2000);
     }
   };
 
@@ -424,6 +538,49 @@ export const StatusBar = ({
               </button>
             </Tip>
           )}
+
+          {/* Initialize/Disable MCP — registers or unregisters this project's
+              .mcp.json entry so Claude Code/Codex can launch @voiden/mcp,
+              without hunting through Settings' "AI Skills" toggle. */}
+          {projectRoot && (
+            <Tip
+              label={
+                mcpCliMissing
+                  ? "This project is registered, but the Voiden CLI isn't installed — install it from Settings."
+                  : mcpRegistered
+                  ? "This project is registered as an MCP server for Claude Code. Click to disable."
+                  : "Register this project with Claude Code / Codex as an MCP server."
+              }
+              align="end"
+            >
+              <button
+                onClick={() => {
+                  if (mcpRegistered) {
+                    setShowDisableMcpConfirm(true);
+                  } else {
+                    void handleInitializeMcp();
+                  }
+                }}
+                disabled={isInitializingMcp || isDisablingMcp}
+                className={cn(
+                  "h-full px-2 flex items-center gap-1.5 hover:bg-active transition-colors",
+                  mcpInitError || mcpCliMissing ? "text-red-500" : mcpRegistered ? "text-green-500" : "text-comment",
+                  (isInitializingMcp || isDisablingMcp) && "opacity-60 cursor-wait",
+                )}
+              >
+                <Plug size={13} />
+                <span className="text-xs">
+                  {isInitializingMcp ? "Initializing…" : isDisablingMcp ? "Disabling…" : mcpInitError ? "MCP failed" : mcpCliMissing ? "MCP needs CLI" : mcpRegistered ? "MCP ready" : "Initialize MCP"}
+                </span>
+              </button>
+            </Tip>
+          )}
+
+          <DisableMcpDialog
+            open={showDisableMcpConfirm}
+            onConfirm={() => { void handleDisableMcp(); }}
+            onCancel={() => setShowDisableMcpConfirm(false)}
+          />
 
           {/* Memory / CPU */}
           {memStats && (() => {

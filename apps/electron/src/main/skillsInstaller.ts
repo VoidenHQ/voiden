@@ -3,6 +3,13 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { AppState } from "src/shared/types";
 import { composeSkillMarkdown } from "./skillsComposer";
+import {
+  installClaudeSkill as installMcpClaudeSkill,
+  uninstallClaudeSkill as uninstallMcpClaudeSkill,
+  installCodexSkill as installMcpCodexSkill,
+  uninstallCodexSkill as uninstallMcpCodexSkill,
+  MCP_SKILL_MARKDOWN,
+} from "@voiden/executors";
 
 function getClaudeSkillDir(): string {
   return path.join(app.getPath("home"), ".claude", "skills", "voiden");
@@ -35,6 +42,7 @@ export function uninstallClaudeSkill(): void {
       if (fs.existsSync(p)) fs.unlinkSync(p);
     }
   } catch {}
+  try { uninstallMcpClaudeSkill(); } catch {}
 }
 
 // --- Codex ---
@@ -52,20 +60,32 @@ export function uninstallCodexSkill(): void {
     const skillDir = getCodexSkillDir();
     if (fs.existsSync(skillDir)) fs.rmSync(skillDir, { recursive: true, force: true });
   } catch {}
+  try { uninstallMcpCodexSkill(); } catch {}
 }
 
 // --- Public API ---
 
-type SkillTargets = { claude: boolean; codex: boolean };
+export type SkillTargets = { claude: boolean; codex: boolean };
 
 /**
- * Composes skills from all enabled extensions and installs them to the requested targets:
- * ~/.claude/skills/voiden/SKILL.md and/or ~/.codex/skills/voiden/SKILL.md
+ * Installs two distinct skills per target, always kept in sync with each other:
+ *   - ~/.claude|codex/skills/voiden/SKILL.md     — authoring, composed fresh from
+ *     all enabled extensions' skill.md (this app's own content)
+ *   - ~/.claude|codex/skills/voiden-mcp/SKILL.md — running/verifying via the MCP
+ *     tools, sourced from @voiden/executors so the CLI and the app never drift apart
+ * Both are fully regenerated and overwritten on every call — there's no partial/stale
+ * state between them.
  */
 export async function recomposeAndInstall(appState: AppState, targets: SkillTargets): Promise<void> {
   const markdown = composeSkillMarkdown(appState);
-  if (targets.claude) installClaude(markdown);
-  if (targets.codex) installCodex(markdown);
+  if (targets.claude) {
+    installClaude(markdown);
+    installMcpClaudeSkill(MCP_SKILL_MARKDOWN);
+  }
+  if (targets.codex) {
+    installCodex(markdown);
+    installMcpCodexSkill(MCP_SKILL_MARKDOWN);
+  }
 }
 
 /**
@@ -74,4 +94,22 @@ export async function recomposeAndInstall(appState: AppState, targets: SkillTarg
 export function uninstallSkills(): void {
   uninstallClaudeSkill();
   uninstallCodexSkill();
+}
+
+/**
+ * Recomposes and rewrites just the app's own `voiden` skill — not the
+ * separate standalone `voiden-mcp` skill `recomposeAndInstall()` also
+ * installs. Used by the "Initialize MCP" action: that action already
+ * registers the real MCP server connection (`.mcp.json`/`config.toml`), so
+ * installing the standalone `voiden-mcp` skill alongside it would just be a
+ * second, more minimal skill file duplicating what the composed skill
+ * already documents (it already includes `voiden-mcp-tool`'s own skill.md
+ * content whenever that plugin is enabled, via composeSkillMarkdown()'s
+ * per-extension concatenation) — this refreshes that existing skill without
+ * writing the duplicate.
+ */
+export function updateComposedSkillOnly(appState: AppState, targets: SkillTargets): void {
+  const markdown = composeSkillMarkdown(appState);
+  if (targets.claude) installClaude(markdown);
+  if (targets.codex) installCodex(markdown);
 }

@@ -13,5 +13,5 @@
     "sourceMap": true
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "src/voiden-sdk-audio.ts", "src/audio", "src/ui", "src/examples"]
+  "exclude": ["node_modules", "dist", "src/voiden-sdk-audio.ts", "src/audio", "src/ui", "src/examples", "src/**/*.test.ts", "src/**/__test__"]
 }

@@ -29,6 +29,7 @@ export const useVoidVariables = () => {
     queryKey: ["void-variable-keys"],
     queryFn: loadVoidVariablesKeys,
     staleTime: 3000, // Keys don't change often, cache for 30s
+    refetchInterval: false,
   });
 }
 
@@ -52,5 +53,6 @@ export const useVoidVariableData = () => {
     queryKey: ["void-variable-data"],
     queryFn: loadVoidVariableData,
     staleTime: 3000,
+    refetchInterval: false,
   });
 }

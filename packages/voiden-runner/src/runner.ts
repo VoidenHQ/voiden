@@ -16,16 +16,106 @@
  *   3. Map PipelineResponse → RunResult
  */
 
-import { readFileSync } from 'fs'
-import { parseVoidFileSections } from './parser.js'
-import { requestOrchestrator } from '@voiden/executors'
-import type { PipelineResponse } from '@voiden/executors'
+import { readFileSync, existsSync } from 'fs'
+import { join } from 'path'
+import {
+  requestOrchestrator,
+  classifyBlockVersion,
+  parseVoidFile,
+  groupBlocksIntoSections,
+  resolveLinkedBlocks,
+  resolveLinkedFiles,
+} from '@voiden/executors'
+import type { PipelineResponse, LinkedBlockResolver } from '@voiden/executors'
 import { createCliElectron } from './cliElectron.js'
 import { loadEnabledPlugins } from './plugins/loader.js'
+import { getInstalledPluginInfo } from './plugins/versionInfo.js'
 import { normalizeBlocks } from './blockSchemaRegistry.js'
+import { findRequestBlock as findRegisteredRequestBlock, getRequestContainerDef } from './requestContainerRegistry.js'
 import { extractRuntimeVarRows, captureRuntimeVars } from './runtimeVars.js'
 import type { CaptureRequest, CaptureResponse } from './runtimeVars.js'
 import type { RunResult } from './types.js'
+
+// ─── linkedBlock / linkedFile resolution ───────────────────────────────────
+//
+// `originalFile` on a linkedBlock/linkedFile is project-root-relative, but
+// unlike the Tool block's requestFilePath (which forbids a leading slash —
+// see toolCapability.ts's resolvePath), the app's own linkedBlock/linkedFile
+// UI (BlockLink.tsx, LinkedFile.tsx) always resolves it via
+// `window.electron.utils.pathJoin(activeProject, originalFile)`, which is
+// literally Node's `path.join` (apps/electron/src/main/utils.ts) — and
+// `path.join` does NOT treat a leading slash on a later segment as anchoring
+// to filesystem root, it just joins+normalises. The skill's own examples
+// (e.g. `/shared/base-headers.void`) rely on exactly this. Match that exact
+// behaviour here instead of the Tool block's stricter isAbsolute() rule, so
+// files already authored (by the app or the skill) resolve the same way.
+function resolveProjectPath(filePath: string, projectRoot: string | undefined): string {
+  if (!projectRoot) return filePath
+  return join(projectRoot, filePath)
+}
+
+export function createLinkedBlockResolver(projectRoot: string | undefined): LinkedBlockResolver {
+  return {
+    readFile: async (relPath: string) => {
+      try {
+        const absPath = resolveProjectPath(relPath, projectRoot)
+        if (!existsSync(absPath)) return null
+        return readFileSync(absPath, 'utf-8')
+      } catch {
+        return null
+      }
+    },
+  }
+}
+
+// ─── Declared plugin+version check (tagged blocks only — legacy files with no
+// pluginId attr are skipped entirely, unchanged behaviour) ────────────────────
+//
+// Runs before a section is executed. Any non-"ok" status — missing, disabled,
+// or a different version than what saved the block — stops execution with a
+// specific, actionable error instead of the generic "no plugin could build a
+// request" fallback in the shared orchestrator. This is what makes execution
+// deterministic: a file always runs against the exact plugin version it was
+// authored with, never silently against whatever happens to be installed.
+function checkBlockVersions(blocks: any[]): void {
+  for (const block of blocks) {
+    const pluginId = block?.attrs?.pluginId
+    const pluginVersion = block?.attrs?.pluginVersion
+    if (!pluginId || !pluginVersion) continue
+
+    const installed = getInstalledPluginInfo(pluginId)
+    const status = classifyBlockVersion({ pluginId, pluginVersion, blockType: block.type }, installed)
+    if (status === 'ok') continue
+
+    throw new Error(formatVersionError(block.type, pluginId, pluginVersion, status, installed))
+  }
+}
+
+function formatVersionError(
+  blockType: string,
+  pluginId: string,
+  pluginVersion: string,
+  status: 'not-installed' | 'disabled' | 'version-mismatch',
+  installed: { version?: string; enabled?: boolean } | undefined,
+): string {
+  switch (status) {
+    case 'not-installed':
+      return (
+        `Block "${blockType}" requires plugin "${pluginId}" v${pluginVersion}, which is not installed.\n` +
+        `  Run: voiden-runner plugin install ${pluginId}@${pluginVersion}`
+      )
+    case 'disabled':
+      return (
+        `Plugin "${pluginId}" is installed but disabled.\n` +
+        `  Run: voiden-runner plugin enable ${pluginId}`
+      )
+    case 'version-mismatch':
+      return (
+        `Block "${blockType}" requires ${pluginId} v${pluginVersion}, but v${installed?.version} is installed.\n` +
+        `  Run: voiden-runner plugin install ${pluginId}@${pluginVersion}`
+      )
+  }
+}
 
 // ─── Raw request extraction from blocks (used for error reporting) ────────────
 //
@@ -34,21 +124,44 @@ import type { RunResult } from './types.js'
 // This lets us show the user what was attempted even when the request threw
 // before requestMeta was populated (e.g. invalid URL after unresolved {{KEY}}).
 
-interface RawRequestInfo {
+export interface RawRequestInfo {
   url:     string
   method:  string
   headers: Record<string, string>
   body?:   string
 }
 
+/** Public alias — lets callers (e.g. the MCP server's list_requests tool) preview
+ *  a section's method/url without executing anything. */
+export function getRequestPreview(blocks: any[]): RawRequestInfo {
+  return extractRawRequest(blocks)
+}
+
+/**
+ * Finds the block that represents "the request" in a section, whichever
+ * protocol it belongs to. Backed by requestContainerRegistry.ts, populated
+ * by each protocol plugin's own context.registerRequestContainer() call —
+ * exported so callers that only need the block's `uid` (e.g. the MCP
+ * server's list_requests tool) share this same registry instead of
+ * hardcoding their own list of protocol block types.
+ */
+export function findRequestBlock(blocks: any[]): any | undefined {
+  return findRegisteredRequestBlock(blocks)
+}
+
 function extractRawRequest(blocks: any[]): RawRequestInfo {
-  const req = blocks.find((b: any) => b.type === 'request')
   let url    = ''
   let method = 'GET'
-  if (req && Array.isArray(req.content)) {
-    for (const node of req.content) {
-      if (node.type === 'method' && typeof node.content === 'string') method = node.content.trim()
-      if (node.type === 'url'    && typeof node.content === 'string') url    = node.content.trim()
+
+  const req = findRequestBlock(blocks)
+  if (req) {
+    const cfg = getRequestContainerDef(req.type)
+    if (cfg && Array.isArray(req.content)) {
+      for (const node of req.content) {
+        if (cfg.methodType && node.type === cfg.methodType && typeof node.content === 'string') method = node.content.trim()
+        if (node.type === cfg.urlType && typeof node.content === 'string') url = node.content.trim()
+      }
+      if (cfg.defaultMethod) method = cfg.defaultMethod
     }
   }
 
@@ -109,11 +222,27 @@ function toRunResult(response: PipelineResponse, url: string, startMs: number): 
       ? Object.fromEntries(response.headers.map(h => [h.key, h.value]))
       : undefined
 
+  // A completed HTTP exchange (any status code, including 4xx/5xx) used to
+  // count as "success" here — a 401/404/500 showed the same green checkmark
+  // as a real 200, since this only ever checked "did we get a status code
+  // back with no transport-level error", never what that status actually
+  // meant. Only tightened for plain HTTP-like protocols (same 3-value check
+  // plugin.ts's onProcessResponse already uses to distinguish these from
+  // WebSocket/gRPC/GraphQL-subscription) — those report a legitimate
+  // success as statusCode: 0 on a completed handoff (see cliElectron.ts's
+  // handoff branch), so the original "> 0" check must stay for them.
+  const protocol = response.protocol ?? 'rest'
+  const isHttpLike = protocol === 'rest' || protocol === 'http' || protocol === 'https'
+  const statusCode = response.statusCode ?? 0
+  const success = !response.error && (
+    isHttpLike ? (statusCode >= 200 && statusCode < 400) : statusCode > 0
+  )
+
   const result: RunResult = {
     protocol:       response.protocol  ?? 'rest',
     method:         response.requestMeta?.method,
     url:            response.requestMeta?.url ?? response.url ?? url,
-    success:        !response.error && response.statusCode > 0,
+    success,
     status:         response.statusCode || undefined,
     statusText:     response.statusMessage || undefined,
     durationMs,
@@ -146,6 +275,15 @@ export interface RunOptions {
    * when running multiple files.
    */
   activePlugins?: string[]
+  /** Run only the section whose request-separator label matches exactly, instead of every section in the file. */
+  sectionLabel?: string
+  /**
+   * Project root that linkedBlock/linkedFile `originalFile` paths resolve
+   * against (same convention as the Tool block's requestFilePath). Defaults
+   * to process.cwd() when not provided — matches how --env file paths are
+   * already resolved for this same command.
+   */
+  projectRoot?: string
 }
 
 export interface SectionResult {
@@ -171,7 +309,38 @@ export async function runVoidFile(
   const activePlugins = options.activePlugins ?? await loadEnabledPlugins(verbose, skipPlugins)
 
   const content  = readFileSync(filePath, 'utf-8')
-  const sections = parseVoidFileSections(content)
+  const resolver = createLinkedBlockResolver(options.projectRoot ?? process.cwd())
+
+  // Resolve linkedFile first (it can carry its own request-separators, which
+  // must be visible before section-splitting), then linkedBlock, then group
+  // into sections — same ordering the app's own expandLinkedBlocks.ts uses.
+  let rawBlocks = parseVoidFile(content)
+  rawBlocks = await resolveLinkedFiles(rawBlocks, resolver)
+  rawBlocks = await resolveLinkedBlocks(rawBlocks, resolver)
+  const allSections = groupBlocksIntoSections(rawBlocks)
+  // A file with no request-separators has no real "sections" to disambiguate
+  // between — it's just one request. Only apply the label filter when
+  // there's more than one section to choose from; a single-section file
+  // always means "run the one request present", regardless of what
+  // sectionLabel was asked for (including none, or a stale/mismatched one).
+  const sections    = (options.sectionLabel && allSections.length > 1)
+    ? allSections.filter(s => s.label === options.sectionLabel)
+    : allSections
+
+  if (options.sectionLabel && allSections.length > 1 && sections.length === 0) {
+    return {
+      results: [{
+        result: {
+          protocol:  'unknown',
+          url:       '',
+          success:   false,
+          durationMs: 0,
+          error:     `No section labelled "${options.sectionLabel}" found in ${filePath}`,
+        },
+      }],
+      activePlugins,
+    }
+  }
 
   if (sections.length === 0) {
     return {
@@ -188,8 +357,11 @@ export async function runVoidFile(
     }
   }
 
-  // CLI IPC adapter — pass runtimeVars so preSendProcess can substitute {{process.xxx}}
-  const ipcAdapter = createCliElectron(env, runtimeVars)
+  // CLI IPC adapter — pass runtimeVars so preSendProcess can substitute
+  // {{process.xxx}}, and projectRoot so a binary/multipart file field's
+  // stored path (which can use the app's own legacy leading-slash
+  // project-relative convention) resolves the same way the app itself does.
+  const ipcAdapter = createCliElectron(env, runtimeVars, options.projectRoot)
 
   const results: SectionResult[] = []
 
@@ -222,6 +394,7 @@ export async function runVoidFile(
     //    failed PipelineResponse rather than throwing, so we handle both paths.
     let response: PipelineResponse
     try {
+      checkBlockVersions(normalizedBlocks)
       response = await requestOrchestrator.executeRequest(editor, ipcAdapter)
     } catch (err: any) {
       results.push({

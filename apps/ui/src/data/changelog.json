@@ -1,5 +1,176 @@
 [
   {
+    "version": "v2.3.0",
+    "date": "22/09/2026",
+    "title": "Stable: MCP Agent Integration",
+    "description": "Stable release rolling up the v2.3.0-beta.1 through beta.4 betas — deep MCP/agent integration (agent-callable /tool blocks, /mcp blocks, agent plugin & environment self-service) plus a large batch of editor, file-explorer, and reliability fixes.",
+    "icon": "Sparkles",
+    "iconColor": "text-pink-400",
+    "bgColor": "bg-gradient-to-br from-pink-900 to-slate-900",
+    "changes": {
+      "Added": [
+        "/tool block — mark a request as a named, agent-callable MCP tool with typed parameters and a verification policy; verified tools are served as real MCP tools by @voiden/mcp-server and voiden-runner mcp serve, and withdrawn automatically (or flagged degraded) on failure",
+        "/mcp block — connect to and test an external MCP server directly from a .void file",
+        "New MCP tab — List/Verify/Serve views for every /tool block, plus matching voiden-runner CLI commands",
+        "AI agents can now install, update, and list plugins themselves (list_plugins/install_plugin/update_plugin), and discover/select a project's environment profiles (list_environments/select_environment)",
+        "\"Initialize MCP\" and \"Disable MCP\" — dedicated status bar buttons scoped to the open project, with automatic MCP server registration when toggling the Claude/Codex skill",
+        ".void blocks are now tagged with the plugin id/version that created them, with compatibility checks on open and run",
+        "Inline block help — a \"?\" tooltip framework for core and plugin blocks, plus rewritten Runtime Variables docs (#185) — contributed by [@Exudev](https://github.com/Exudev)",
+        "\"Update All\" for core plugins — updates every installed plugin in one batched call",
+        "New Bruno Collection Importer plugin — import .bru files and OpenCollection exports",
+        "voiden-runner's --env option now parses YAML env files (#523) — contributed by [@suhailopensource](https://github.com/suhailopensource)",
+        "Nix flake dev shell and sandboxed build derivation for contributors (#203) — contributed by [@Exudev](https://github.com/Exudev)"
+      ],
+      "Improved": [
+        "Code editor scroll handling reworked so it no longer fights the user's own scrolling — the snap-back that protects against CodeMirror's re-measure reset now only applies in the brief window right after a tab reactivates",
+        "Response panel header layout reworked so find/expand/collapse controls no longer get squeezed out by a long URL or label",
+        "Terminal font size now follows the UI font size setting, with proper font-load handling",
+        "Word-delete shortcuts (Alt/Mod-Backspace) now match each platform's actual convention",
+        "Extension, environment, and runtime-variable queries no longer poll on an interval",
+        "Plugin browser falls back to the default icon when a plugin's icon URL is broken, and update badges clear correctly once the installed version catches up",
+        ".void files changed externally are now validated on save",
+        "Protocol plugins can register their own request-container block shape for MCP support"
+      ],
+      "Fixed": [
+        "Linux: the CLI resolved its own install path incorrectly, so voiden agent (Initialize MCP), voiden run, and voiden mcp-stdio all failed silently",
+        "voiden-runner: a failed run_request call (network error, unresolved variable, non-2xx/3xx section) is now flagged with isError instead of looking like a normal result to MCP clients",
+        "voiden-runner: a plugin whose load throws is now always surfaced as a failure instead of silently swallowed",
+        "voiden-mcp: --print-config's HTTP entry now includes \"type\": \"http\" so Claude Code/VS Code recognize it as a remote server",
+        "Agent/CLI runs: a headers/query/path/multipart table could silently send zero fields, and a 401/404/500 response was reported the same as a 200",
+        "CLI installer no longer prompts for a sudo password on every launch",
+        "Windows: winget install/upgrade hash mismatch fixed; nix profile install now has a real cached build instead of always rebuilding from source",
+        "Request errors now show the actual cause (e.g. a TLS/certificate issue) instead of a generic \"fetch failed\", and a plugin response handler that throws no longer leaves the response panel stuck loading",
+        "File explorer: drag-and-drop from Finder/Explorer and onto empty space now works, drop targets highlight while dragging, and it no longer randomly scrolls or collapses folders during a run or delete",
+        "File explorer no longer shows two rows highlighted at once (#528) — contributed by [@suhailopensource](https://github.com/suhailopensource)",
+        "File explorer state (scroll position, expanded folders) no longer resets on every save (#544) — contributed by [@akira-in-tech](https://github.com/akira-in-tech)",
+        "Terminal output order is now preserved (#553) — contributed by [@dawNotPoi](https://github.com/dawNotPoi)",
+        "Rename input no longer overflows outside the sidebar (#550) — contributed by [@NONAN23x](https://github.com/NONAN23x)",
+        "Request name edit input now sizes to its content instead of a fixed 200px cap (#542) — contributed by [@NONAN23x](https://github.com/NONAN23x)",
+        "Request labels now use theme-correct contrast instead of a hardcoded color (#535) — contributed by [@vianmangal](https://github.com/vianmangal)",
+        "Request histories for two files sharing a basename no longer merge into one (#525) — contributed by [@A-S-Manoj](https://github.com/A-S-Manoj)",
+        "Multi-byte UTF-8 characters no longer corrupt at chunk read boundaries (#524) — contributed by [@A-S-Manoj](https://github.com/A-S-Manoj)",
+        "Run All no longer stops entirely when a middle section fails, and a failed section's error overlay/label in the response panel no longer covers or misnames other sections",
+        "Toast close button no longer renders invisible when the OS theme and Voiden's selected theme disagree",
+        "Empty project state buttons now use readable text color instead of inheriting the background color",
+        "Hidden CodeMirror search bridge panel no longer reserves a phantom bottom scroll margin"
+      ]
+    }
+  },
+  {
+    "version": "v2.3.0-beta.4",
+    "date": "10/09/2026",
+    "title": "Linux: MCP Connection Fix",
+    "description": "Patch release fixing the bundled voiden CLI on Linux — Initialize MCP/voiden agent was resolving its own install location wrong, so the MCP server always exited immediately instead of connecting.",
+    "icon": "Bug",
+    "iconColor": "text-red-400",
+    "bgColor": "bg-gradient-to-br from-slate-900 to-red-950",
+    "changes": {
+      "Fixed": [
+        "Linux: the CLI resolved its own install path incorrectly, so voiden agent (Initialize MCP), voiden run, and voiden mcp-stdio all failed silently"
+      ]
+    }
+  },
+  {
+    "version": "v2.3.0-beta.3",
+    "date": "10/09/2026",
+    "title": "Agent Self-Service: Plugins & Environments",
+    "description": "Continues beta.2's MCP work: an agent connected via MCP can now install or update a missing plugin itself, discover and select a project's environment profiles, and \"Initialize MCP\" has a matching \"Disable MCP\". Also fixes a sudo prompt firing on every launch, hidden dotfiles in the file explorer, Windows/Nix installer issues, and two bugs affecting requests run by an agent or the CLI.",
+    "icon": "Plug",
+    "iconColor": "text-blue-400",
+    "bgColor": "bg-gradient-to-br from-blue-900 to-slate-900",
+    "changes": {
+      "Added": [
+        "AI agents can now install or update a plugin themselves — three new MCP tools, list_plugins/install_plugin/update_plugin",
+        "list_environments and select_environment — two new MCP tools for discovering and selecting a project's env profiles",
+        "\"Disable MCP\" — undo Initialize MCP's registration from the same status bar spot"
+      ],
+      "Fixed": [
+        "CLI installer no longer prompts for a sudo password on every launch",
+        "File explorer and Quick Open no longer hide dotfiles",
+        "Windows: winget install/upgrade hash mismatch fixed",
+        "nix profile install now has a real cached build instead of always rebuilding from source",
+        "Agent/CLI runs: a headers/query/path/multipart table could silently send zero fields",
+        "Agent/CLI runs: a 401/404/500 response was reported the same as a 200"
+      ]
+    }
+  },
+  {
+    "version": "v2.3.0-beta.2",
+    "date": "02/09/2026",
+    "title": "MCP Tool Serving & MCP Client Blocks",
+    "description": "Beta release turning MCP integration from \"generic access to your .void files\" into \"your own agent-callable tools\" — the new /tool block is discovered, verified, and served by @voiden/mcp-server and voiden-runner mcp serve as real, individually-named tools alongside the four built-in ones, with a new /mcp block for connecting to and testing external MCP servers, and a redesigned Initialize MCP action.",
+    "icon": "Plug",
+    "iconColor": "text-violet-400",
+    "bgColor": "bg-gradient-to-br from-violet-900 to-slate-900",
+    "changes": {
+      "Added": [
+        "/tool block — mark a request as a named, agent-callable tool with typed parameters and a verification policy",
+        "Verified /tool blocks are now served as real MCP tools, withdrawn automatically (or flagged degraded) on failure",
+        "/mcp block — connect to and test an external MCP server directly from a .void file",
+        "New MCP tab — List/Verify/Serve views for every /tool block, plus matching voiden-runner CLI commands",
+        "\"Initialize MCP\" is now its own status bar button, scoped to the open project",
+        "New Bruno Collection Importer plugin — import .bru files and OpenCollection exports"
+      ],
+      "Fixed": [
+        "AI skill now documents which .void block types are singleton per section",
+        "AI skill's table row examples updated to the new 3-column shape",
+        "Run All no longer stops entirely when a middle section fails",
+        "Response panel: a failed section's error overlay no longer covers every other section's response",
+        "Response panel: a failed section's error card now shows its real label instead of \"Request N\"",
+        "AI skill now documents where section headings belong in a multi-request file",
+        "File explorer: dropping a file onto the project root (empty space) now works",
+        "File explorer: dropping files from outside the app onto empty space now works",
+        "File explorer: drop targets now highlight while something is dragged over them",
+        "File explorer: dragging a folder in from Finder/Explorer now works",
+        "File explorer no longer randomly scrolls or collapses folders when running a request or deleting a file",
+        "File explorer: Delete key now works regardless of where focus is in the sidebar",
+        "Response panel: per-section find/expand/collapse icons no longer stay clickable while collapsed",
+        "Block overview panel: clicking a linked block now scrolls to it instead of the top of the document",
+        "AI skill's multi-request example no longer shows an invalid block shape",
+        "File explorer no longer shows two rows highlighted at once (#528) — contributed by [@suhailopensource](https://github.com/suhailopensource)",
+        "File explorer state (scroll position, expanded folders) no longer resets on every save (#544) — contributed by [@akira-in-tech](https://github.com/akira-in-tech)",
+        "Terminal output order is now preserved (#553) — contributed by [@dawNotPoi](https://github.com/dawNotPoi)",
+        "Rename input no longer overflows outside the sidebar (#550) — contributed by [@NONAN23x](https://github.com/NONAN23x)",
+        "Request name edit input now sizes to its content instead of a fixed 200px cap (#542) — contributed by [@NONAN23x](https://github.com/NONAN23x)",
+        "Request labels now use theme-correct contrast instead of a hardcoded color (#535) — contributed by [@vianmangal](https://github.com/vianmangal)",
+        "Request histories for two files sharing a basename no longer merge into one (#525) — contributed by [@A-S-Manoj](https://github.com/A-S-Manoj)",
+        "Multi-byte UTF-8 characters no longer corrupt at chunk read boundaries (#524) — contributed by [@A-S-Manoj](https://github.com/A-S-Manoj)"
+      ]
+    }
+  },
+  {
+    "version": "v2.3.0-beta.1",
+    "date": "30/07/2026",
+    "title": "MCP Workflow, Block Help & Editor Reliability",
+    "description": "Beta release deepening the MCP/agent integration — auto-registered MCP server, protocol-agnostic request handling for plugins, and plugin+version validation on .void blocks — alongside inline block help, terminal font fixes, and a batch of editor and plugin-manager reliability fixes.",
+    "icon": "Plug",
+    "iconColor": "text-emerald-400",
+    "bgColor": "bg-gradient-to-br from-emerald-900 to-slate-900",
+    "changes": {
+      "Added": [
+        ".void blocks are now tagged with the plugin id/version that created them, with compatibility checks on open and run",
+        "MCP server registration is now automatic when toggling the Claude/Codex skill",
+        "Protocol plugins can register their own request-container block shape for MCP support",
+        ".void files changed externally are now validated on save",
+        "Inline block help — a \"?\" tooltip framework for core and plugin blocks, plus rewritten Runtime Variables docs (#185) — contributed by [@Exudev](https://github.com/Exudev)",
+        "\"Update All\" for core plugins — updates every installed plugin in one batched call",
+        "voiden-runner's --env option now parses YAML env files (#523) — contributed by [@suhailopensource](https://github.com/suhailopensource)",
+        "Nix flake dev shell and sandboxed build derivation for contributors (#203) — contributed by [@Exudev](https://github.com/Exudev)"
+      ],
+      "Improved": [
+        "Terminal font size now follows the UI font size setting, with proper font-load handling",
+        "Word-delete shortcuts (Alt/Mod-Backspace) now match each platform's actual convention",
+        "Extension, environment, and runtime-variable queries no longer poll on an interval",
+        "Plugin browser falls back to the default icon when a plugin's icon URL is broken",
+        "Plugin update badges now clear correctly once the installed version catches up"
+      ],
+      "Fixed": [
+        "Request errors now show the actual cause (e.g. a TLS/certificate issue) instead of a generic \"fetch failed\"",
+        "A plugin response handler that throws no longer leaves the response panel stuck loading"
+      ]
+    }
+  },
+  {
     "version": "v2.2.2",
     "date": "17/07/2026",
     "title": "Cursor Dark Default Theme & Editor Reliability",

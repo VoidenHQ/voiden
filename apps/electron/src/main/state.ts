@@ -482,7 +482,7 @@ async function isClosingTabInLockedProject(
  * down. The always-on-top toggle stays as a second nudge for the (separate)
  * foreground-lock/SetForegroundWindow restriction on top of that.
  */
-function forceRefocusWindow(win: BrowserWindow | null): void {
+export function forceRefocusWindow(win: BrowserWindow | null): void {
   if (!win) return;
   if (process.platform === "win32") {
     setImmediate(() => {

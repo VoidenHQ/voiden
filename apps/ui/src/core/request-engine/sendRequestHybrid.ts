@@ -319,13 +319,36 @@ export async function sendRequestHybrid(
     if (request.protocolType === 'rest') {
       requestState = await convertToRestApiRequestState(request);
       console.log('[sendRequestHybrid] after convert method:', requestState.method);
-    } else if (request.protocolType === 'graphql') {
-      // Merge auth into headers for GraphQL (same logic as REST via getHeaders)
+    } else if (request.protocolType === 'graphql' || request.protocolType === 'mcp') {
+      // Merge auth into headers (same logic as REST via getHeaders) — every
+      // protocol besides REST (which gets this via convertToRestApiRequestState)
+      // builds `headers` as a plain array already, so this merge is identical
+      // regardless of which one it is.
       const mergedHeaders = await getHeaders(request.headers || [], request.auth);
       const headersArray = Object.entries(mergedHeaders).map(([key, value]) => ({
         key, value, enabled: true,
       }));
-      requestState = { ...request, headers: headersArray };
+
+      // REST gets `params`→`queryParams` / `path_params`→`pathParams` renamed
+      // by convertToRestApiRequestState above; GraphQL/MCP skip that function
+      // entirely, so without this, requestState.queryParams stays undefined
+      // and secureRequest.ts's `requestState.queryParams ?? []` silently
+      // treats any query-table/path-table block in the doc as empty.
+      const queryParamsArray = (request.params || [])
+        .filter((p: any) => p.enabled)
+        .map((p: any) => ({ key: p.key, value: p.value, enabled: p.enabled }));
+      if (request.auth?.enabled && request.auth?.config) {
+        if (request.auth.type === 'api-key' && request.auth.config.in === 'query' && request.auth.config.key) {
+          queryParamsArray.push({ key: request.auth.config.key, value: request.auth.config.value || '', enabled: true });
+        } else if (request.auth.type === 'oauth2' && request.auth.config.addTokenTo === 'query' && request.auth.config.accessToken) {
+          queryParamsArray.push({ key: 'access_token', value: request.auth.config.accessToken, enabled: true });
+        }
+      }
+      const pathParamsArray = (request.path_params || [])
+        .filter((p: any) => p.enabled)
+        .map((p: any) => ({ key: p.key, value: p.value, enabled: p.enabled }));
+
+      requestState = { ...request, headers: headersArray, queryParams: queryParamsArray, pathParams: pathParamsArray };
     }
 
     const url = requestState.url.toLowerCase();

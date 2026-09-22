@@ -1,10 +1,6 @@
 // ─── Block ────────────────────────────────────────────────────────────────────
 
-export interface Block {
-  type: string
-  attrs?: Record<string, any>
-  content?: Block[] | string
-}
+export type { Block } from '@voiden/executors'
 
 // ─── Protocol request / result types (from shared executors package) ──────────
 

@@ -20,7 +20,7 @@ function EmptyPlaceholder({ onCreate }: { onCreate: () => void }) {
         Create a new Voiden project to get started.
         <button
           style={{ maxWidth: "200px" }}
-          className="bg-button-primary hover:bg-button-primary-hover rounded transition px-2 py-1"
+          className="bg-button-primary hover:bg-button-primary-hover text-bg rounded transition px-2 py-1"
           onClick={onCreate}
         >
           New Voiden project
@@ -30,7 +30,7 @@ function EmptyPlaceholder({ onCreate }: { onCreate: () => void }) {
         Or open an existing project.
         <button
           style={{ maxWidth: "200px" }}
-          className="bg-button-primary hover:bg-button-primary-hover transition px-2 py-1"
+          className="bg-button-primary hover:bg-button-primary-hover text-bg rounded transition px-2 py-1"
           onClick={() => openProject("~/")}
         >
           Open a project

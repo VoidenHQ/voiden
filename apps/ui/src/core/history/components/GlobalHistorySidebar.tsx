@@ -11,6 +11,7 @@ import { voidenExtensions } from '@/core/editors/voiden/extensions';
 import { METHOD_COLORS } from '@/constants';
 import { Tip } from '@/core/components/ui/Tip';
 import { toast } from '@/core/components/ui/sonner';
+import { useActivateTab } from '@/core/layout/hooks';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -261,6 +262,28 @@ const EntryRow: React.FC<EntryRowProps> = ({ entry, query, copiedId, projectPath
   const [activeTab, setActiveTab] = useState<DetailTab>('request');
   const [openSections, setOpenSections] = useState({ reqHeaders: true, reqBody: true, resHeaders: true, resBody: true });
   const [attachmentChanges, setAttachmentChanges] = useState<AttachmentChange[]>([]);
+  const { mutateAsync: activateTab } = useActivateTab();
+
+  // Opens (or focuses, if already open) the .void file this history entry
+  // was recorded from, mirroring FileSystemList's file-click behavior.
+  const handleOpenSourceFile = useCallback(async (e: React.MouseEvent, filePath: string) => {
+    e.stopPropagation();
+    try {
+      const newTab = {
+        id: crypto.randomUUID(),
+        type: 'document' as const,
+        title: filePath.split('/').pop() ?? filePath,
+        source: filePath,
+        directory: null,
+      };
+      const { tabId = null } = (await window.electron?.state.addPanelTab('main', newTab)) ?? {};
+      if (tabId) {
+        await activateTab({ panelId: 'main', tabId });
+      }
+    } catch {
+      toast.error('Could not open source file — it may have been moved or deleted.');
+    }
+  }, [activateTab]);
 
   useEffect(() => {
     const hasCheckable = entry.request.fileAttachments?.some((a) => a.path && a.hash);
@@ -351,9 +374,14 @@ const EntryRow: React.FC<EntryRowProps> = ({ entry, query, copiedId, projectPath
           <div className="flex items-center gap-1 mt-1">
             <FileText size={9} className="text-comment/60 shrink-0" />
             {fileName && (
-              <span className="text-[10px] text-comment truncate">
-                <Highlight text={fileName} query={query} />
-              </span>
+              <Tip label="Open source file" side="top">
+                <span
+                  className="text-[10px] text-comment truncate hover:text-active hover:underline cursor-pointer"
+                  onClick={(e) => entry.filePath && handleOpenSourceFile(e, entry.filePath)}
+                >
+                  <Highlight text={fileName} query={query} />
+                </span>
+              </Tip>
             )}
             {entry.request.fileAttachments && entry.request.fileAttachments.length > 0 && (
               <span className="flex items-center gap-0.5 text-[9px] text-comment/60 ml-auto shrink-0">
@@ -487,7 +515,11 @@ const EntryRow: React.FC<EntryRowProps> = ({ entry, query, copiedId, projectPath
                   {entry.filePath && (
                     <div>
                       <p className="text-[10px] uppercase text-comment tracking-wide mb-1 flex items-center gap-1"><FileText size={9} />Source file</p>
-                      <p className="text-[11px] font-mono text-text break-all">
+                      <p
+                        className="text-[11px] font-mono text-text break-all hover:text-active hover:underline cursor-pointer w-fit"
+                        onClick={(e) => handleOpenSourceFile(e, entry.filePath!)}
+                        title="Open source file"
+                      >
                         <Highlight text={toRelativePath(entry.filePath, projectPath)} query={query} />
                       </p>
                     </div>

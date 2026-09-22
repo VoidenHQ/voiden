@@ -22,7 +22,10 @@ import { registerSearchIpcHandler } from "./main/ipc/search";
 import { registerContextMenuIpcHandlers } from "./main/ipc/contextMenus";
 import { registerThemeIpcHandlers } from "./main/ipc/themes";
 import { registerCliIpcHandlers } from "./main/ipc/cli";
+import { reconcileCliInstall } from "./main/cliInstaller";
 import { registerSkillsIpcHandlers } from "./main/ipc/skills";
+import { registerMcpIpcHandlers } from "./main/ipc/mcp";
+import { registerPathIpcHandlers } from "./main/ipc/path";
 import { registerPythonScriptIpcHandler } from "./main/ipc/pythonScript";
 import { registerNodeScriptIpcHandler } from "./main/ipc/nodeScript";
 import { registerCoreExtensionsIpcHandlers, watchBundledPluginsForDevReload, seedBundledPluginsToCache } from "./main/ipc/coreExtensions";
@@ -184,7 +187,15 @@ app.on("ready", async () => {
   registerContextMenuIpcHandlers();
   registerThemeIpcHandlers();
   registerCliIpcHandlers();
+  // Fire-and-forget — silently repairs a stale `voiden` CLI symlink left
+  // over from a previous install location, only if one was already
+  // installed (never installs fresh for someone who hasn't opted in via
+  // the Settings button). Not awaited: the rare repair path can show a
+  // native sudo/password dialog, which must never hold up window creation.
+  void reconcileCliInstall();
   registerSkillsIpcHandlers();
+  registerMcpIpcHandlers();
+  registerPathIpcHandlers();
   registerPythonScriptIpcHandler();
   registerNodeScriptIpcHandler();
   registerCoreExtensionsIpcHandlers();
@@ -234,7 +245,9 @@ app.on("ready", async () => {
     if (appState?.extensions) {
       await loadMainProcessExtensions(appState.extensions);
     }
-    // Recompose skills now that state (extensions list) is available
+    // Recompose skills now that state (extensions list) is available. Skill
+    // text install only — MCP registration is a separate, explicit action
+    // (the status bar's Initialize MCP button), never auto-fired here.
     const skills = settings.skills;
     if (appState && (skills?.claude || skills?.codex)) {
       recomposeAndInstall(appState, { claude: skills.claude ?? false, codex: skills.codex ?? false }).catch(() => {});

@@ -9,10 +9,19 @@ import { useElectronEvent } from "@/core/providers";
 import { useSendRestRequest } from "@/core/request-engine/hooks";
 import { Link2, Unlink, Play } from "lucide-react";
 
+// linkedBlock/linkedFile are pointers, not content — never resolve to one of
+// these even if its own `uid` happens to collide with the `blockUid` being
+// searched for (e.g. a hand-authored file that copied a block's uid onto the
+// linkedBlock wrapper instead of generating a fresh one, or a self-referencing
+// link into the same file). Matching a pointer node here would hand back a
+// linkedBlock as if it were resolved content, which then gets rendered/executed
+// as the imported block itself instead of failing loudly.
+const NON_TARGETABLE_TYPES = new Set(["linkedBlock", "linkedFile"]);
+
 // Helper to recursively find a block by uid.
-const findBlockByUid = (nodes: any[], blockUid: string): any | null => {
+export const findBlockByUid = (nodes: any[], blockUid: string): any | null => {
   for (const node of nodes) {
-    if (node.attrs && node.attrs.uid === blockUid) return node;
+    if (node.attrs && node.attrs.uid === blockUid && !NON_TARGETABLE_TYPES.has(node.type)) return node;
     if (node.content && Array.isArray(node.content)) {
       const result = findBlockByUid(node.content, blockUid);
       if (result) return result;

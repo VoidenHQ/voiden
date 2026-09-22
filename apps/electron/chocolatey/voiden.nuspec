@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Version is not set here — publish-choco.js invokes `choco pack` with
-  `--version <version>`, which overrides this at pack time.
+  Version is not set here — publish-choco.js invokes choco pack with a
+  version override flag, which replaces this value at pack time.
 -->
 <package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
   <metadata>
@@ -11,7 +11,7 @@
     <authors>Voiden</authors>
     <owners>Voiden</owners>
     <projectUrl>https://voiden.md</projectUrl>
-    <license type="expression">Apache-2.0</license>
+    <licenseUrl>https://github.com/VoidenHQ/voiden/blob/main/LICENSE</licenseUrl>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
     <docsUrl>https://github.com/VoidenHQ/voiden</docsUrl>
     <bugTrackerUrl>https://github.com/VoidenHQ/voiden/issues</bugTrackerUrl>

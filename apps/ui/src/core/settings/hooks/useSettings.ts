@@ -25,6 +25,11 @@ export const VALID_FONT_FAMILIES = [
   "Fira Code",
   "Inter"
 ];
+// Entries in VALID_FONT_FAMILIES that are proportional rather than monospace.
+// "Inter" can be picked directly from the Font family dropdown (not just via
+// System Default), but it hits the same terminal-grid problem described above
+// — the terminal must fall back to TERMINAL_DEFAULT_MONO_STACK for these too.
+export const PROPORTIONAL_FONT_FAMILIES = ["Inter"];
 
 // Validation ranges
 const FONT_SIZE_MIN = 10;

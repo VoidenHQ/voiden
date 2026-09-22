@@ -3,7 +3,6 @@ import { CellSelection } from "@tiptap/pm/tables";
 import { Editor, mergeAttributes, Node, NodeViewProps } from "@tiptap/core";
 import { NodeViewContent, NodeViewWrapper, ReactNodeViewRenderer } from "@tiptap/react";
 import { RequestBlockHeader } from "./RequestBlockHeader";
-import { RuntimeVariablesHelp } from "./help";
 
 export function isCellSelection(value: unknown): value is CellSelection {
   return value instanceof CellSelection;
@@ -86,7 +85,7 @@ const createNodeView =
           title="Runtime Variables"
           editor={editor}
           importedDocumentId={node.attrs.importedFrom}
-          helpContent={<RuntimeVariablesHelp />}
+          blockType="runtime-variables"
           actions={
             showAddDescription ? (
               <button

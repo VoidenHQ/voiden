@@ -7,10 +7,14 @@
 #
 # Trigger:
 #   - workflow_call — invoked by release-app.yml right after the Linux build,
-#     reusing that run's "voiden-linux-x64" artifact.
+#     reusing that run's "voiden-linux-x64" artifact. Always runs every target.
 #   - workflow_dispatch — manual retry. Defaults to pulling the artifact from
 #     this same run; pass `run_id` to pull from an earlier "Release Voiden App"
 #     run instead (e.g. retrying after the build already succeeded elsewhere).
+#     The run_apt_snap / run_winget / run_chocolatey / run_nix_cache toggles let
+#     you retry just the target(s) that failed, instead of re-running all four
+#     (useful while iterating on a fix — no need to re-push to a real package
+#     manager for every target each time).
 #
 # Required repository secrets:
 #   S3_ACCESS_KEY_ID_BETA / S3_SECRET_ACCESS_KEY_BETA / S3_BUCKET_NAME_BETA
@@ -19,9 +23,10 @@
 #                                 (omit VOIDEN_GPG_PRIVATE_KEY to publish an unsigned repo)
 #   SNAPCRAFT_STORE_CREDENTIALS — output of `snapcraft export-login -`
 #   WINGET_GITHUB_TOKEN — classic PAT (public_repo scope) for the account that forks
-#                         microsoft/winget-pkgs and opens the manifest-bump PR (stable only)
+#                         microsoft/winget-pkgs and opens the manifest-bump PR (beta + stable,
+#                         separate package identifiers: Voiden.Voiden / Voiden.Voiden-Beta)
 #   CHOCOLATEY_API_KEY — from https://community.chocolatey.org/account, after claiming
-#                        the "voiden" package id there (stable only)
+#                        the "voiden" package id there (beta + stable)
 #   CACHIX_AUTH_TOKEN — auth token for a "voiden" cache created at https://app.cachix.org
 #                       (beta + stable; builds straight from the flake, no S3/build
 #                       artifact dependency)
@@ -34,6 +39,22 @@ on:
       channel:
         required: true
         type: string
+      run_apt_snap:
+        required: false
+        type: boolean
+        default: true
+      run_winget:
+        required: false
+        type: boolean
+        default: true
+      run_chocolatey:
+        required: false
+        type: boolean
+        default: true
+      run_nix_cache:
+        required: false
+        type: boolean
+        default: true
 
   workflow_dispatch:
     inputs:
@@ -45,9 +66,29 @@ on:
           - beta
           - stable
       run_id:
-        description: 'Run ID of a "Release Voiden App" run to pull the linux-x64 .deb from (blank = this run)'
+        description: 'Run ID of a "Release Voiden App" run to pull the linux-x64 .deb / win32-x64 .exe from (blank = this run)'
         required: false
         type: string
+      run_apt_snap:
+        description: 'Publish APT + Snap'
+        required: false
+        type: boolean
+        default: true
+      run_winget:
+        description: 'Publish Winget'
+        required: false
+        type: boolean
+        default: true
+      run_chocolatey:
+        description: 'Publish Chocolatey'
+        required: false
+        type: boolean
+        default: true
+      run_nix_cache:
+        description: 'Publish Nix Cachix cache'
+        required: false
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -56,6 +97,7 @@ permissions:
 jobs:
   publish:
     name: Publish APT + Snap
+    if: inputs.run_apt_snap
     runs-on: ubuntu-latest
 
     steps:
@@ -134,13 +176,15 @@ jobs:
         if: steps.publish-snap.outcome == 'failure'
         run: echo "::warning::Snap Store publish failed — continuing without it. Check the 'Publish Snap' step logs." | tee -a "$GITHUB_STEP_SUMMARY"
 
-  # ── winget (stable only) ────────────────────────────────────────────────────────
+  # ── winget (beta + stable) ──────────────────────────────────────────────────────
   # Doesn't need the Linux artifact — opens a manifest-bump PR against
-  # microsoft/winget-pkgs referencing the already-published stable Windows
-  # installer URL. Winget's own bot (wingetbot) validates and auto-merges from there.
+  # microsoft/winget-pkgs referencing the already-published Windows installer URL
+  # for the channel. Winget's own bot (wingetbot) validates and auto-merges from
+  # there. Beta publishes under its own package identifier (Voiden.Voiden-Beta) so
+  # a beta build's higher version number can't outrank stable as the default install.
   publish-winget:
     name: Publish Winget
-    if: inputs.channel == 'stable'
+    if: inputs.run_winget && (inputs.channel == 'beta' || inputs.channel == 'stable')
     runs-on: ubuntu-latest
 
     steps:
@@ -159,18 +203,19 @@ jobs:
         working-directory: apps/electron
         env:
           WINGET_GITHUB_TOKEN: ${{ secrets.WINGET_GITHUB_TOKEN }}
-        run: node publish-winget.js stable
+        run: node publish-winget.js ${{ inputs.channel }}
 
       - name: Report Winget publish failure
         if: steps.publish-winget.outcome == 'failure'
         run: echo "::warning::Winget manifest publish failed — continuing without it. Check the 'Publish Winget manifest' step logs." | tee -a "$GITHUB_STEP_SUMMARY"
 
-  # ── chocolatey (stable only) ──────────────────────────────────────────────────
+  # ── chocolatey (beta + stable) ─────────────────────────────────────────────────
   # choco.exe is Windows-only, so this needs its own runner + the win32-x64
   # artifact (unlike apt/snap/winget, which don't need a Windows build at all).
+  # Beta versions (e.g. 2.3.0-beta.1) publish as a Chocolatey prerelease.
   publish-chocolatey:
     name: Publish Chocolatey
-    if: inputs.channel == 'stable'
+    if: inputs.run_chocolatey && (inputs.channel == 'beta' || inputs.channel == 'stable')
     runs-on: windows-2022
 
     steps:
@@ -197,11 +242,23 @@ jobs:
         working-directory: apps/electron
         env:
           CHOCOLATEY_API_KEY: ${{ secrets.CHOCOLATEY_API_KEY }}
-        run: node publish-choco.js stable
+        run: node publish-choco.js ${{ inputs.channel }}
 
       - name: Report Chocolatey publish failure
         if: steps.publish-chocolatey.outcome == 'failure'
+        shell: bash
         run: echo "::warning::Chocolatey publish failed — continuing without it. Check the 'Publish Chocolatey package' step logs." | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # Uploads the built .nupkg regardless of whether `choco push` above
+      # succeeded — lets a failed automated push be retried manually (e.g. via
+      # community.chocolatey.org's web upload) without rebuilding anything.
+      - name: Upload .nupkg artifact
+        if: always() && steps.publish-chocolatey.outputs.nupkg_path != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: voiden-chocolatey-nupkg
+          path: ${{ steps.publish-chocolatey.outputs.nupkg_path }}
+          if-no-files-found: ignore
 
   # ── nix binary cache (beta + stable) ──────────────────────────────────────────
   # `nix run github:VoidenHQ/voiden` already builds straight from this repo — there's
@@ -215,6 +272,7 @@ jobs:
   # emulation or self-hosted runners and aren't covered yet.
   publish-nix-cache:
     name: Publish Nix Cache — ${{ matrix.label }}
+    if: inputs.run_nix_cache
     strategy:
       fail-fast: false
       matrix:

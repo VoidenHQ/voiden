@@ -5,7 +5,7 @@
  * runs entirely in Node.js — no IPC, no Electron main process involved.
  *
  * Electron side:   sendRequestHybrid(..., window.electron)
- * CLI side:        sendRequestHybrid(..., createCliElectron(env))
+ * CLI side:        sendRequestHybrid(..., createCliElectron(env, runtimeVars, projectRoot))
  *
  * request.sendSecure  → delegates to executeSecureRequest from @voiden/executors
  *                        (same variable replacement + body building + HTTP execution)
@@ -18,7 +18,40 @@ import { replaceEnvVars, executeSecureRequest } from '@voiden/executors'
 import type { SecureRequestAdapter } from '@voiden/executors'
 import type { RestApiRequestState } from '@voiden/sdk'
 import { readFile } from 'node:fs/promises'
+import { isAbsolute, join } from 'node:path'
 import { applyProcessVarsToState } from './runtimeVars.js'
+
+/**
+ * Resolves a binary/multipart file field's stored path the same way
+ * apps/electron/src/main/ipc/request.ts's own readFile adapter does (see
+ * its own doc comment for the platform-specific "genuinely absolute" logic
+ * this mirrors) — this CLI adapter used to just pass the raw path straight
+ * to fs.readFile with no project-relative resolution and no fallback at
+ * all, which broke any .void file's binary/multipart-table file field
+ * whose stored path used the app's own legacy "/subfolder/file.png"
+ * project-relative convention (a leading slash that isn't actually
+ * filesystem-root — .void files created by the app can and do use this).
+ * Kept in sync manually since this package has no runtime dependency on
+ * Electron to import the original from.
+ */
+async function readProjectFile(filePath: string, projectRoot: string | undefined): Promise<Buffer> {
+  const isGenuinelyAbsolute = process.platform === 'win32'
+    ? /^([A-Za-z]:[/\\]|[/\\]{2})/.test(filePath)
+    : isAbsolute(filePath)
+
+  if (projectRoot && !isGenuinelyAbsolute) {
+    return readFile(join(projectRoot, filePath))
+  }
+
+  try {
+    return await readFile(filePath)
+  } catch (err: any) {
+    if (err?.code === 'ENOENT' && projectRoot) {
+      return readFile(join(projectRoot, filePath))
+    }
+    throw err
+  }
+}
 
 // ─── Core sendSecure — delegates to the shared executor ───────────────────────
 
@@ -27,10 +60,11 @@ async function sendSecure(
   _signalState?: { aborted?: boolean },
 ): Promise<any> {
   const env: Record<string, string> = (requestState as any).__cliEnv ?? {}
+  const projectRoot: string | undefined = (requestState as any).__cliProjectRoot
 
   const adapter: SecureRequestAdapter = {
     replaceVar: (text: string) => Promise.resolve(replaceEnvVars(text, env)),
-    readFile: (filePath: string) => readFile(filePath),
+    readFile: (filePath: string) => readProjectFile(filePath, projectRoot),
     isElectron: false, // CLI: connect inline and return a report in the body
   }
 
@@ -94,18 +128,18 @@ async function sendSecure(
 
 // ─── Public factory ───────────────────────────────────────────────────────────
 
-export function createCliElectron(env: Record<string, string>, runtimeVars: Record<string, any> = {}) {
+export function createCliElectron(env: Record<string, string>, runtimeVars: Record<string, any> = {}, projectRoot?: string) {
   return {
     isApp: false,
 
     request: {
       /**
        * Drop-in replacement for window.electron.request.sendSecure.
-       * Injects __cliEnv so sendSecure can access the env map without
-       * changing the RestApiRequestState interface.
+       * Injects __cliEnv/__cliProjectRoot so sendSecure can access them
+       * without changing the RestApiRequestState interface.
        */
       sendSecure: (requestState: RestApiRequestState, signalState?: any) =>
-        sendSecure({ ...requestState, __cliEnv: env } as any, signalState),
+        sendSecure({ ...requestState, __cliEnv: env, __cliProjectRoot: projectRoot } as any, signalState),
     },
 
     env: {

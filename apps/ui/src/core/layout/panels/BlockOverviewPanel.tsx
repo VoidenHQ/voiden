@@ -247,7 +247,7 @@ export const BlockOverviewPanel: React.FC = () => {
         </span>
         {hasSeparators && (
           <span className="ml-auto text-[10px] text-comment/50">
-            {sections.length} {sections.length !== 1 ? "requests" : "request"}
+            {sections.length} {sections.length !== 1 ? "sections" : "section"}
           </span>
         )}
       </div>

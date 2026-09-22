@@ -76,6 +76,12 @@ declare global {
       };
       utils: {
         pathJoin: (...paths: string[]) => Promise<string>;
+        /** Resolves a dragged File's real filesystem path — needed for
+         * directories, since Electron no longer exposes `.path` directly on
+         * a drag-and-drop File object (see the preload implementation for
+         * why). Regular files don't need this — their content is read via
+         * `file.arrayBuffer()` instead, which doesn't depend on a path. */
+        getPathForFile: (file: File) => string;
       };
       dialog: {
         openFile: (options: Electron.OpenDialogOptions) => Promise<string[]>;
@@ -158,6 +164,9 @@ declare global {
         ) => Promise<{ success: boolean; error?: string }>;
         deleteDirectory: (path: string) => Promise<boolean>;
         bulkDelete: (items: FileTreeItem[]) => Promise<boolean>;
+        deleteItems: (items: FileTreeItem[]) => Promise<void>;
+        revealInFinder: (path: string) => Promise<void>;
+        setTreeFocusState: (item: FileTreeItem | null) => void;
         getFiles: (
           filePaths: string[],
           isExternal?: boolean,
@@ -417,6 +426,16 @@ declare global {
           projectPath?: string,
         ) => Promise<void>;
         getProfiles: () => Promise<string[]>;
+        getProfileFiles: () => Promise<Record<string, string>>;
+        getNestedEnvSources: () => Promise<
+          Array<{
+            projectPath: string;
+            relPath: string;
+            profile: string;
+            public: Record<string, unknown>;
+            private: Record<string, unknown>;
+          }>
+        >;
         setActiveProfile: (profile: string) => Promise<void>;
         createProfile: (profile: string) => Promise<void>;
         deleteProfile: (profile: string) => Promise<void>;
@@ -478,6 +497,11 @@ declare global {
           cb: (payload: { projectRoot: string; locked: boolean }) => void,
         ) => () => void;
       };
+      path: {
+        toRelative: (base: string, target: string) => Promise<string>;
+        toAbsolute: (base: string, maybeRelative: string) => Promise<string>;
+        findProjectRoot: (filePath: string) => Promise<string | null>;
+      };
       logger: {
         getLogs: () => Promise<any[]>;
         filterLogs: (category?: string, level?: string, sinceTimestamp?: number) => Promise<any[]>;
@@ -490,6 +514,11 @@ declare global {
         getActive: () => Promise<any[]>;
         clearHistory: () => Promise<boolean>;
         subscribe: (callback: (processes: any[]) => void) => () => void;
+      };
+      mcp: {
+        initialize: () => Promise<{ success: boolean; message?: string }>;
+        disable: () => Promise<{ success: boolean; message?: string }>;
+        status: () => Promise<{ registered: boolean; cliInstalled: boolean }>;
       };
     };
     platform: NodeJS.Platform;

@@ -2,6 +2,7 @@ import { Loader, Replace, ReplaceAll } from "lucide-react";
 import type { SearchResult } from "@/types";
 import { cn } from "@/core/lib/utils";
 import { useSearchStore as useEditorSearchStore } from "@/core/stores/searchParamsStore";
+import { useRevealInExplorerStore } from "@/core/stores/revealInExplorerStore";
 import type { ReplacedMatch } from "./useFullTextSearch";
 
 interface SearchResultsProps {
@@ -79,6 +80,10 @@ export function SearchResults({
     const response = await window.electron?.state.addPanelTab("main", newTab);
     const tabId = response?.tabId;
     if (tabId) await activateTab({ panelId: "main", tabId });
+    // Deliberate navigation to a search result — reveal it in the explorer.
+    // See revealInExplorerStore's doc comment for why this is opt-in rather
+    // than something the tree does for every active-tab change.
+    useRevealInExplorerStore.getState().requestReveal(path);
     // Target info set AFTER activateTab in same React batch as requestOpenSearchPanel
     // so navigation effects fire last and win.
     editorSearch.setTargetLine(line);

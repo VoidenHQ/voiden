@@ -21,7 +21,7 @@ export function RenameInput({ node, error, setError, onSubmit, setIsRenaming }: 
   }, [node.data.name, setIsRenaming]);
 
   return (
-    <div className="flex flex-col flex-1">
+    <div className="flex min-w-0 flex-1 flex-col">
       <input
         autoFocus
         ref={inputRef}
@@ -44,7 +44,7 @@ export function RenameInput({ node, error, setError, onSubmit, setIsRenaming }: 
           }
         }}
         onClick={(e) => e.stopPropagation()}
-        className={`px-1 py-0 border rounded h-5 bg-stone-800 text-stone-200 focus:outline-none focus:ring-1 ${error ? "border-red-500 focus:ring-red-500" : "border-stone-700 focus:ring-orange-500"
+        className={`w-full min-w-0 max-w-full box-border px-1 py-0 border rounded h-5 bg-stone-800 text-stone-200 focus:outline-none focus:ring-1 ${error ? "border-red-500 focus:ring-red-500" : "border-stone-700 focus:ring-orange-500"
           }`}
       />
       {error && <span className="bg-red-500 text-xs text-white absolute top-7 left-12 p-1 rounded z-10">{error}</span>}

@@ -46,12 +46,14 @@ import { proseClasses, previewProseClasses } from "@/core/editors/voiden/VoidenE
 import { useCodeEditorStore } from "@/core/editors/code/CodeEditorStore";
 import { usePanelStore } from "@/core/stores/panelStore";
 import { requestOrchestrator } from "@/core/request-engine/requestOrchestrator";
+import { registerToolCapabilityProvider as registerToolCapabilityProviderFn, clearToolCapabilityProvider, getToolCapabilityProvider, useToolCapabilityProvider, type ToolCapabilityProvider } from "@/core/tools/toolCapabilityRegistry";
 import { pasteOrchestrator } from "@/core/paste/pasteOrchestrator";
 import { CodeEditor as GenericCodeEditor } from "@/core/editors/code/lib/components/CodeEditor";
 import { Table, TableBody, TableRow, TableCell } from "@/core/components/ui/table";
 import { NodeViewWrapper } from "@tiptap/react";
 import { useSendRestRequest } from "@/core/request-engine";
-import { RequestBlockHeader } from "@/core/editors/voiden/nodes/RequestBlockHeader";
+import { RequestBlockHeader, BlockHelpTooltip } from "@/core/editors/voiden/nodes/RequestBlockHeader";
+import { RuntimeVariablesHelp } from "@/core/editors/voiden/nodes/help";
 import { useParentResponseDoc } from "@/core/extensions/hooks/useParentResponseDoc";
 import { useResponseBodyHeight } from "@/core/extensions/hooks/useResponseBodyHeight";
 import { Tip } from "@/core/components/ui/Tip";
@@ -486,8 +488,23 @@ const linkableNodeTypes = new Set<string>(coreLinkableNodeTypes);
 // Global registry for node display names (for showing human-readable names in UI)
 const nodeDisplayNames = new Map<string, string>(Object.entries(coreNodeDisplayNames));
 
-// Global registry for table cell autocomplete suggestions (plugin-owned)
-const tableSuggestionsRegistry = new Map<string, { [columnIndex: number]: Array<{ label: string; description?: string }> }>();
+// Global registry for table cell autocomplete suggestions (plugin-owned).
+// A column's suggestions can be a static list, or a function of the row/tab
+// context — e.g. headers-table's value column tailoring its list to whichever
+// header key was typed in column 0 (rowContext), or assertions-table's field
+// column offering paths pulled from the current tab's last response (tabId,
+// added for issue #548 — see plugins/simple-assertions).
+export type TableSuggestionItem = { label: string; description?: string };
+export interface TableSuggestionContext {
+  /** Other cells already filled in on this row, keyed by column index. */
+  rowContext: Record<number, string>;
+  /** tabId of the editor the table lives in (editor.storage.tabId), if known. */
+  tabId?: string;
+}
+export type TableSuggestionsForColumn =
+  | TableSuggestionItem[]
+  | ((context: TableSuggestionContext) => TableSuggestionItem[]);
+const tableSuggestionsRegistry = new Map<string, { [columnIndex: number]: TableSuggestionsForColumn }>();
 
 // Global registry for block outline metadata (label + lucide icon name) — registered by plugins
 export interface BlockOutlineMeta {
@@ -558,6 +575,13 @@ const coreBlockOutlineMeta: Record<string, BlockOutlineMeta> = {
   },
 };
 
+// Core (non-plugin) block help content — registered the same way a plugin
+// would via registerBlockHelp, just seeded directly since this node lives in
+// apps/ui core, not a plugin package.
+const coreBlockHelp: Record<string, React.ComponentType> = {
+  "runtime-variables": RuntimeVariablesHelp,
+};
+
 const blockOutlineRegistry = new Map<string, BlockOutlineMeta>(Object.entries(coreBlockOutlineMeta));
 
 /** Returns the outline metadata registered by a plugin for a given node type. */
@@ -573,6 +597,18 @@ export function getBlockDocsUrl(nodeType: string, attrs?: Record<string, any>, n
     return meta.docsUrl(attrs || {}, node);
   }
   return meta.docsUrl;
+}
+
+// Block-type-keyed registry for the header-bar "?" help tooltip
+// (RequestBlockHeader's helpContent). Mirrors blockOutlineRegistry above —
+// register once per node type via context.registerBlockHelp, and any block
+// header that passes blockType picks up the content automatically instead of
+// needing helpContent hand-wired at every NodeView call site.
+const blockHelpRegistry = new Map<string, React.ComponentType>(Object.entries(coreBlockHelp));
+
+/** Returns the help component registered for a given node type, if any. */
+export function getBlockHelp(nodeType: string): React.ComponentType | undefined {
+  return blockHelpRegistry.get(nodeType);
 }
 
 // Global registry for loaded plugin instances (for cleanup)
@@ -630,6 +666,7 @@ if (typeof window !== 'undefined') {
     "@/core/stores/panelStore": { usePanelStore },
     "@/core/stores/responsePanelPosition": { getResponsePanelPosition: getResponsePanelPositionFn },
     "@/core/environment/hooks": { useActiveEnvironment, useEnvironments },
+    "@/core/tools/toolCapabilityRegistry": { getToolCapabilityProvider, useToolCapabilityProvider },
     // @voiden/sdk — base classes plugins extend (UIExtension, etc.)
     "@voiden/sdk": { UIExtension, PipelineStage },
     "@voiden/sdk/shared": { parseCookies },
@@ -688,10 +725,13 @@ export const getNodeDisplayName = (nodeType: string): string | undefined => {
 export const getTableSuggestions = (
   tableType: string,
   columnIndex: number,
+  context: TableSuggestionContext = { rowContext: {} },
 ): Array<{ label: string; description?: string }> => {
   const config = tableSuggestionsRegistry.get(tableType);
   if (!config) return [];
-  return config[columnIndex] || [];
+  const forColumn = config[columnIndex];
+  if (!forColumn) return [];
+  return typeof forColumn === 'function' ? forColumn(context) : forColumn;
 };
 
 export class PluginPermissionError extends Error {
@@ -1113,6 +1153,7 @@ export const createPlugin = (
         TableCell,
         NodeViewWrapper,
         RequestBlockHeader,
+        BlockHelpTooltip,
         Tip,
       } as any,
       hooks: {
@@ -1269,6 +1310,13 @@ export const createPlugin = (
     registerResponseSection: (section: any) => {
       requestOrchestrator.registerResponseSection(section);
     },
+    // Host capability for the plugin owning the /tool block — hands back its
+    // own discover/validate/verify/plan-served implementation (mirrors
+    // @voiden/runner's registerMcpToolCapabilityProvider for the headless
+    // side), so this app never hardcodes that block's own semantics.
+    registerToolCapabilityProvider: (p: ToolCapabilityProvider) => {
+      registerToolCapabilityProviderFn(p);
+    },
     openVoidenTab: async (title: string, content: any, options?: { readOnly?: boolean }) => {
       try {
         const { useResponseStore } = await import('@/core/request-engine/stores/responseStore');
@@ -1302,7 +1350,13 @@ export const createPlugin = (
         blockOutlineRegistry.set(nodeType, meta);
       });
     },
-    registerTableSuggestions: (tableType: string, suggestions: { [columnIndex: number]: Array<{ label: string; description?: string }> }) => {
+    registerBlockHelp: (entries: Record<string, React.ComponentType>) => {
+      extensionLogger.info(`Plugin "${extensionId}" registering ${Object.keys(entries).length} block help entries`);
+      Object.entries(entries).forEach(([nodeType, component]) => {
+        blockHelpRegistry.set(nodeType, component);
+      });
+    },
+    registerTableSuggestions: (tableType: string, suggestions: { [columnIndex: number]: TableSuggestionsForColumn }) => {
       extensionLogger.info(`Plugin "${extensionId}" registering table suggestions for "${tableType}"`);
       tableSuggestionsRegistry.set(tableType, suggestions);
     },
@@ -1500,10 +1554,13 @@ export const getPlugins = async () => {
   tableSuggestionsRegistry.clear();
   blockOutlineRegistry.clear();
   Object.entries(coreBlockOutlineMeta).forEach(([type, meta]) => blockOutlineRegistry.set(type, meta));
+  blockHelpRegistry.clear();
+  Object.entries(coreBlockHelp).forEach(([type, component]) => blockHelpRegistry.set(type, component));
   clearHelpRegistry();
   requestOrchestrator.clear();
   pasteOrchestrator.clear();
   historyAdapterRegistry.clear();
+  clearToolCapabilityProvider();
 
   // ── Core history (not a plugin — registered here so it survives plugin reloads) ──
   {
@@ -1603,11 +1660,21 @@ export const getPlugins = async () => {
 
       // Register ownership for all plugins (enabled and disabled)
       ownedBlocks.forEach((blockType: string) => {
-        registerBlockOwnership(blockType, extension.id, extension.name);
+        registerBlockOwnership(blockType, extension.id, extension.name, extension.version);
       });
 
-      // Create placeholder nodes for DISABLED plugins
-      if (!extension.enabled && ownedBlocks.length > 0) {
+      // Create placeholder nodes for DISABLED plugins only — NOT for uninstalled
+      // ones. For core plugins, `enabled` alone can't tell the two apart: an
+      // uninstalled core plugin also reports `enabled: false` (see
+      // extensionManager.ts syncCoreExtensions — isLocallyAvailable is false
+      // when explicitly uninstalled, which forces enabled to false too).
+      // isLocallyAvailable is the field that actually distinguishes them; it's
+      // core-only, so `!== false` (true, or undefined for community plugins)
+      // keeps existing community-disabled behaviour unchanged. When a plugin is
+      // truly uninstalled, skip the placeholder so the block type stays absent
+      // from the schema and falls through to the "not installed" card instead
+      // of the "disabled" one.
+      if (!extension.enabled && extension.isLocallyAvailable !== false && ownedBlocks.length > 0) {
         extensionLogger.info(`Creating placeholders for disabled plugin: ${extension.id} (${ownedBlocks.length} blocks)`);
         ownedBlocks.forEach((blockType: string) => {
           const placeholderNode = createPlaceholderBlock(blockType);

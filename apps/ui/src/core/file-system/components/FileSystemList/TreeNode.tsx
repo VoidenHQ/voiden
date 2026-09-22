@@ -17,7 +17,7 @@ import { useEditorStore } from "@/core/editors/voiden/VoidenEditor";
 import { getSchema } from "@tiptap/core";
 import { voidenExtensions } from "@/core/editors/voiden/extensions";
 import { prosemirrorToMarkdown } from "@/core/file-system/hooks";
-import { useEditorEnhancementStore } from "@/plugins";
+import { useEditorEnhancementStore, getContextMenuItems } from "@/plugins";
 import { confirmAndSaveTab } from "@/core/stores/unsavedChangesDialogStore";
 
 export interface TreeNodeProps extends NodeRendererProps<ExtendedFileTree> {
@@ -46,8 +46,13 @@ function hasOpenDescendant(node: NodeApi<ExtendedFileTree>): boolean {
   return false;
 }
 
-const isInternalTreeDrag = (e: React.DragEvent) => e.dataTransfer.types.includes("application/x-arborist-node");
-const isExternalFileDrag = (e: React.DragEvent) => e.dataTransfer.types.includes("Files") && !isInternalTreeDrag(e);
+// Exported for FileSystemList's own container-level drop handler — external
+// file drops (from Finder/Explorer) landing in the empty space below the
+// last row never reach any row's onDrop at all (there's no row there to
+// bubble from), so that container needs the same drag-type detection to
+// accept them instead of only ever-item-scoped drops working.
+export const isInternalTreeDrag = (e: React.DragEvent) => e.dataTransfer.types.includes("application/x-arborist-node");
+export const isExternalFileDrag = (e: React.DragEvent) => e.dataTransfer.types.includes("Files") && !isInternalTreeDrag(e);
 const isKnownFileSystemDrag = (e: React.DragEvent) => isInternalTreeDrag(e) || isExternalFileDrag(e);
 
 function getNameClass(data: ExtendedFileTree, activeFile: { source: string } | null): string {
@@ -90,6 +95,30 @@ export function TreeNode({
   const [, forceRerender] = useState(0);
   const [isDragOver, setIsDragOver] = useState(false);
   const dragOverTimerRef = useRef<NodeJS.Timeout | null>(null);
+  // Safety net for a highlight that gets stuck "on" forever. dragleave/dragend
+  // are supposed to clear isDragOver, but native OS drag sessions don't
+  // reliably deliver them — most visibly on Windows, where dragging a file in
+  // from Explorer and then dropping it outside the window (or the drag
+  // otherwise ending abnormally) can leave the browser never told the drag is
+  // over. dragover fires continuously (well under a second apart) for as long
+  // as a drag is genuinely still happening over this row, so re-arming this
+  // timeout on every dragover and clearing state if it ever goes quiet is a
+  // platform-agnostic way to self-heal regardless of which specific "the drag
+  // ended" event did or didn't fire.
+  const dragOverWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const armDragOverWatchdog = () => {
+    if (dragOverWatchdogRef.current) clearTimeout(dragOverWatchdogRef.current);
+    dragOverWatchdogRef.current = setTimeout(() => {
+      dragOverWatchdogRef.current = null;
+      setIsDragOver(false);
+      setDragOverParentId(null);
+    }, 600);
+  };
+  useEffect(() => {
+    return () => {
+      if (dragOverWatchdogRef.current) clearTimeout(dragOverWatchdogRef.current);
+    };
+  }, []);
   const [isContextMenuOpen, setIsContextMenuOpen] = useState(false);
   const { dragOverParentId, setDragOverParentId } = useContext(DragOverContext);
   const { expandAllRecursive, collapseAllFromFolder } = useContext(TreeActionsContext);
@@ -190,6 +219,10 @@ export function TreeNode({
       clearTimeout(dragOverTimerRef.current);
       dragOverTimerRef.current = null;
     }
+    if (dragOverWatchdogRef.current) {
+      clearTimeout(dragOverWatchdogRef.current);
+      dragOverWatchdogRef.current = null;
+    }
 
     if (!isExternalFileDrag(e)) {
       return;
@@ -214,9 +247,18 @@ export function TreeNode({
     for (const item of Array.from(e.dataTransfer.items)) {
       const entry = item.webkitGetAsEntry?.();
       if (entry?.isDirectory) {
-        const file = item.getAsFile() as (File & { path?: string }) | null;
-        if (file?.path) {
-          folderPaths.push(file.path);
+        // A directory item's own File object never carried real content, so
+        // regular files (read via file.arrayBuffer() below) never needed
+        // this — but folders have no content stream, only a path, and
+        // Electron removed direct `.path` access on drag-and-drop File
+        // objects in v30+ (a deliberate Chromium-security-driven change —
+        // see electron/electron#44370, #44600, #47284). This is why
+        // dropping a file worked but dropping a folder silently didn't.
+        // webUtils.getPathForFile is the current replacement.
+        const file = item.getAsFile();
+        const path = file ? window.electron?.utils.getPathForFile(file) : undefined;
+        if (path) {
+          folderPaths.push(path);
         }
       } else {
         const file = item.getAsFile();
@@ -263,6 +305,7 @@ export function TreeNode({
 
       setIsDragOver(true);
       setDragOverParentId(null);
+      armDragOverWatchdog();
 
       if (!node.isOpen && !dragOverTimerRef.current) {
         dragOverTimerRef.current = setTimeout(() => {
@@ -277,6 +320,7 @@ export function TreeNode({
     e.stopPropagation();
 
     setIsDragOver(true);
+    armDragOverWatchdog();
 
     let parentId = null;
     if (node.data.type === "folder") {
@@ -327,6 +371,10 @@ export function TreeNode({
       if (dragOverTimerRef.current) {
         clearTimeout(dragOverTimerRef.current);
         dragOverTimerRef.current = null;
+      }
+      if (dragOverWatchdogRef.current) {
+        clearTimeout(dragOverWatchdogRef.current);
+        dragOverWatchdogRef.current = null;
       }
     }
   };
@@ -436,17 +484,18 @@ export function TreeNode({
         })),
       );
     } else {
+      const fileTarget = { path: node.data.path, type: node.data.type, name: node.data.name };
       window.electron?.files.showFileContextMenu({
-        path: node.data.path,
-        type: node.data.type,
-        name: node.data.name,
+        ...fileTarget,
         isProjectRoot: node.level === 0,
+        pluginItems: getContextMenuItems('file', fileTarget).map((i) => ({ id: i.id, label: i.label })),
       });
     }
   };
 
   const nameClass = getNameClass(node.data, activeFile);
   const showCollapseAll = node.data.type === "folder" && hasOpenDescendant(node);
+  const isRangeSelected = node.isSelected && node.tree.selectedNodes.length > 1;
 
   return (
     <div
@@ -454,17 +503,16 @@ export function TreeNode({
       ref={dragHandle}
       className={cn(
         "group h-[22px] overflow-hidden transition-colors border border-transparent",
-        !isDragOver && activeFile?.source !== node.data.path && !node.isSelected && "hover:bg-hover",
+        !isDragOver && !node.isSelected && "hover:bg-hover",
         isContextMenuOpen && "border-active",
-        activeFile?.source === node.data.path && !isDragOver && "bg-active",
         // Selection stays visible (background) even after focus moves away
         // (e.g. clicking into the editor) — a border is added only while
         // this row is still the actually-focused selection, so the two
         // states ("selected" vs "selected AND focused") read differently,
         // matching Cursor's sidebar.
-        node.isSelected && node.tree.selectedNodes.length <= 1 && activeFile?.source !== node.data.path && !isDragOver && "bg-active",
-        node.isSelected && node.tree.selectedNodes.length <= 1 && node.isFocused && activeFile?.source !== node.data.path && !isDragOver && "border-border",
-        node.isSelected && node.tree.selectedNodes.length > 1 && activeFile?.source !== node.data.path && !isDragOver && "bg-accent/20",
+        node.isSelected && !isRangeSelected && !isDragOver && "bg-active",
+        node.isSelected && !isRangeSelected && node.isFocused && !isDragOver && "border-border",
+        isRangeSelected && !isDragOver && "bg-accent/20",
         node.isFocused && !isDragOver && "ring-0",
         (isDragOver || isInternalDropTargetFolder) && `bg-accent/30 ${node.data.type === "folder" ? "border-l-2 border-accent" : ""}`,
         isSiblingHighlight && !isDragOver && !isInternalDropTargetFolder && "bg-accent/30 hover:bg-accent/30",

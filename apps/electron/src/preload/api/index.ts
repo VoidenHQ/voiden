@@ -28,8 +28,10 @@ import {
   fontsApi,
   cliApi,
   skillsApi,
+  mcpApi,
   variablesApi,
   projectApi,
+  pathApi,
   mainWindow
 } from "./misc";
 
@@ -61,9 +63,11 @@ export const electronApi = {
   fonts: fontsApi,
   cli: cliApi,
   skills: skillsApi,
+  mcp: mcpApi,
   themes: themesApi,
   autosave: autosaveApi,
   project: projectApi,
+  path: pathApi,
   mainwindow: mainWindow,
   logger: loggerAPI,
   processMonitor: processMonitorAPI,

@@ -11,8 +11,28 @@ dotenv.config({ path: "../../.env" });
 
 export const builtins = ["electron", ...builtinModules.map((m) => [m, `node:${m}`]).flat()];
 
-// Filter out workspace packages that should be bundled (not treated as external)
-const workspacePackages = ["@voiden/fuzzy-search", "@voiden/executors"];
+// Filter out workspace packages that should be bundled (not treated as external).
+// These are ESM-only ("type": "module", no "require" export condition), so they
+// must be bundled rather than left as an external require() call, which would
+// throw ERR_PACKAGE_PATH_NOT_EXPORTED in the CJS main-process bundle.
+//
+// @voiden/executors is listed under devDependencies (not dependencies) in
+// package.json, not by accident: Vite inlines its compiled output into the
+// bundle at build time, so the packaged app never needs it physically present
+// in node_modules. Listing it as a real "dependency" once made
+// @electron/packager try to copy its workspace symlink into the .app bundle,
+// which @electron/asar rejects (symlink resolves outside the package root) —
+// see the git history on this comment if that error resurfaces.
+//
+// @voiden/runner joined this list for the exact same two reasons (workspace
+// symlink + `"type": "module"` with no "require" export condition) once the
+// `voiden` CLI's cli.js build (vite.cli.config.ts) started importing it —
+// its own third-party dependencies (chalk, nodemailer, yaml, zod,
+// @grpc/proto-loader, @modelcontextprotocol/sdk) are NOT added here, since
+// those are real, non-workspace npm packages with proper CJS export
+// conditions — they stay external and get resolved from the packaged app's
+// own node_modules like any other dependency, not re-bundled a second time.
+const workspacePackages = ["@voiden/fuzzy-search", "@voiden/executors", "@voiden/runner"];
 const externalDeps = Object.keys("dependencies" in pkg ? (pkg.dependencies as Record<string, unknown>) : {})
   .filter(dep => !workspacePackages.includes(dep));
 
@@ -38,6 +58,7 @@ export function getBuildConfig(env: ConfigEnv<"build">): UserConfig {
       alias: {
         "@": path.resolve(__dirname, "../ui/src"),
         "@voiden/executors": path.resolve(__dirname, "../../packages/executors/src/index.ts"),
+        "@voiden/runner": path.resolve(__dirname, "../../packages/voiden-runner/src/lib.ts"),
       },
     },
   };

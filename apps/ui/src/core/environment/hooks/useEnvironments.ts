@@ -12,6 +12,18 @@ export interface EnvironmentData {
   activeProfile: string | null;
   data: Record<string, Record<string, string>>;
   displayNames: Record<string, string>;
+  // Project-relative path of the active profile's YAML file (e.g.
+  // ".voiden/env-public.yaml", or "env-public.yaml" for an unmigrated
+  // project). Undefined when data came from the legacy per-file .env
+  // fallback instead of the YAML system.
+  profileFile?: string;
+  // For environments discovered inside a nested .voiden/ directory
+  // elsewhere in a monorepo: maps that env's data key to the folder
+  // (project-relative, no filename) it was found in.
+  sourcePaths?: Record<string, string>;
+  // Same keys as sourcePaths — the profile that nested env came from
+  // (e.g. "default" or a legacy root-level named profile).
+  sourceProfiles?: Record<string, string>;
 }
 
 const loadEnvironments = async (): Promise<EnvironmentData> => {
@@ -23,5 +35,6 @@ export const useEnvironments = () => {
   return useQuery({
     queryKey: ["environments"],
     queryFn: loadEnvironments,
+    refetchInterval: false,
   });
 };

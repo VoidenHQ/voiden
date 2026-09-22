@@ -3,11 +3,12 @@ import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import "@xterm/xterm/css/xterm.css";
-import { useSettings, SYSTEM_DEFAULT_FONT, TERMINAL_DEFAULT_MONO_STACK } from "../../settings/hooks/useSettings";
+import { useSettings, SYSTEM_DEFAULT_FONT, TERMINAL_DEFAULT_MONO_STACK, PROPORTIONAL_FONT_FAMILIES } from "../../settings/hooks/useSettings";
 import { useNerdFont } from "../hooks/useNerdFont";
 import { useClosePanelTab, useGetPanelTabs } from "@/core/layout/hooks";
 import { usePanelStore } from "@/core/stores/panelStore";
 import { getShortcutLabel, matchesShortcut } from "@/core/shortcuts";
+import { TerminalOutputQueue } from "../terminalOutputQueue";
 
 interface TerminalProps {
   tabId: string;
@@ -32,17 +33,16 @@ export const Terminal = ({ tabId, cwd }: TerminalProps) => {
   const xtermRef = useRef<XTerm | null>(null);
   // In our design, we use the tabId as the session id.
   const sessionIdRef = useRef<string | null>(null);
-  // Throttling for terminal output
-  const outputBufferRef = useRef<string>("");
-  const writeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Get font size from settings, fallback to 14
-  const fontSize = settings?.appearance?.font_size || 14;
+  // Get font size from settings — the terminal is chrome/UI, not document
+  // content, so it follows UI font size rather than the editor's, fallback to 13
+  const fontSize = settings?.appearance?.ui_font_size || 13;
 
   // Derive effective font family: prefer Nerd Font when active, otherwise use the app's chosen font
   const appFontFamily = settings?.appearance?.font_family || SYSTEM_DEFAULT_FONT;
+  const isProportionalFont = appFontFamily === SYSTEM_DEFAULT_FONT || PROPORTIONAL_FONT_FAMILIES.includes(appFontFamily);
   const effectiveFontFamily = fontFamily || (
-    appFontFamily === SYSTEM_DEFAULT_FONT ? TERMINAL_DEFAULT_MONO_STACK : `'${appFontFamily}', monospace`
+    isProportionalFont ? TERMINAL_DEFAULT_MONO_STACK : `'${appFontFamily}', monospace`
   );
 
   // Helper to fit terminal and sync dimensions with PTY
@@ -53,48 +53,6 @@ export const Terminal = ({ tabId, cwd }: TerminalProps) => {
     if (cols && rows) {
       window.electron?.terminal.resize?.({ id: sessionIdRef.current, cols, rows });
     }
-  };
-
-  // Throttled write function to batch terminal output for better performance
-  const throttledWrite = (data: string) => {
-    outputBufferRef.current += data;
-
-    if (writeTimeoutRef.current) {
-      return; // Already scheduled
-    }
-
-    // Use requestIdleCallback for writing during browser idle time
-    // This prevents blocking the main thread during heavy terminal output
-    writeTimeoutRef.current = setTimeout(() => {
-      if (xtermRef.current && outputBufferRef.current) {
-        const chunk = outputBufferRef.current;
-        outputBufferRef.current = "";
-
-        // For large chunks (>2KB), split writes across idle callbacks
-        if (chunk.length > 2048) {
-          let offset = 0;
-          const writeChunk = () => {
-            if (offset < chunk.length && xtermRef.current) {
-              const slice = chunk.slice(offset, offset + 2048);
-              xtermRef.current.write(slice);
-              offset += 2048;
-              if (offset < chunk.length) {
-                // Use requestIdleCallback if available, otherwise requestAnimationFrame
-                if ('requestIdleCallback' in window) {
-                  (window as any).requestIdleCallback(writeChunk, { timeout: 50 });
-                } else {
-                  requestAnimationFrame(writeChunk);
-                }
-              }
-            }
-          };
-          writeChunk();
-        } else {
-          xtermRef.current.write(chunk);
-        }
-      }
-      writeTimeoutRef.current = null;
-    }, 8); // Reduced batch interval for faster updates
   };
 
   // Debounced fit terminal to prevent excessive calls
@@ -118,12 +76,25 @@ export const Terminal = ({ tabId, cwd }: TerminalProps) => {
     }
   }, [fontSize]);
 
+  // xterm draws into a canvas/WebGL surface, which is a snapshot at draw time.
+  // Unlike DOM text, it does not repaint itself once a lazily-fetched @font-face
+  // (font-display: swap) finishes downloading — so the very first time a given
+  // font family is used, the terminal can get stuck showing the fallback font
+  // forever unless we explicitly wait for the load and force a redraw.
+  const refreshAfterFontLoad = (term: XTerm, family: string, size: number) => {
+    if (typeof document === "undefined" || !document.fonts) return;
+    document.fonts.load(`${size}px ${family}`).then(() => {
+      if (xtermRef.current !== term) return;
+      term.refresh(0, term.rows - 1);
+      debouncedFit();
+    }).catch(() => {});
+  };
+
   // Update terminal font family when Nerd Font or app font setting changes
   useEffect(() => {
     if (xtermRef.current) {
       xtermRef.current.options.fontFamily = effectiveFontFamily;
-      // Debounced fit to prevent excessive re-renders
-      debouncedFit();
+      refreshAfterFontLoad(xtermRef.current, effectiveFontFamily, fontSize);
     }
   }, [effectiveFontFamily]);
 
@@ -253,8 +224,9 @@ export const Terminal = ({ tabId, cwd }: TerminalProps) => {
     xterm.loadAddon(fitAddon);
     xterm.open(terminalRef.current);
     xterm.focus();
+    refreshAfterFontLoad(xterm, effectiveFontFamily, fontSize);
+    const outputQueue = new TerminalOutputQueue(() => xtermRef.current);
 
-   
     const pasteEventHandler = (e: ClipboardEvent) => {
       e.preventDefault();
       e.stopPropagation();
@@ -391,7 +363,7 @@ export const Terminal = ({ tabId, cwd }: TerminalProps) => {
 
       // Subscribe to output for this session and capture the cleanup function.
       const unsubscribeOutput = window.electron?.terminal.onOutput(id, (data: string) => {
-        throttledWrite(data);
+        outputQueue.enqueue(data);
       });
       if (unsubscribeOutput) {
         cleanupFunctionsRef.current.push(unsubscribeOutput);
@@ -419,11 +391,7 @@ export const Terminal = ({ tabId, cwd }: TerminalProps) => {
       mounted = false;
 
       // Clear pending operations
-      if (writeTimeoutRef.current) {
-        clearTimeout(writeTimeoutRef.current);
-        writeTimeoutRef.current = null;
-      }
-      outputBufferRef.current = "";
+      outputQueue.dispose();
 
       if (debouncedFitRef.current) {
         clearTimeout(debouncedFitRef.current);

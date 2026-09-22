@@ -314,5 +314,22 @@ export function applyProcessVarsToState(
   if (Array.isArray(s.bodyParams))
     s.bodyParams = s.bodyParams.map((p: any) => ({ ...p, value: procReplace(String(p.value ?? ''), vars) }))
 
+  // voiden-mcp-client's toolName/toolArgs/resourceUri/promptName/promptArgs —
+  // not one of the generic REST-shaped fields above, so it's easy to miss
+  // (this same gap existed for env-var substitution until it was fixed
+  // separately in @voiden/executors' secureRequest.ts). toolArgs/promptArgs
+  // are JSON objects the user authored in the operation block, so they need
+  // a recursive walk rather than procReplace's plain-string handling.
+  if (s.mcp && typeof s.mcp === 'object') {
+    const deepProcReplace = (value: any): any => {
+      if (typeof value === 'string') return procReplace(value, vars)
+      if (Array.isArray(value)) return value.map(deepProcReplace)
+      if (value && typeof value === 'object')
+        return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, deepProcReplace(v)]))
+      return value
+    }
+    s.mcp = deepProcReplace(s.mcp)
+  }
+
   return s
 }

@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { Editor } from "@tiptap/react";
 import { HelpCircle } from "lucide-react";
 import * as Tooltip from "@radix-ui/react-tooltip";
+import { getBlockHelp } from "@/plugins";
 
 function getInheritedFolderName(importedDocumentId: string): string | null {
   const normalized = importedDocumentId.replace(/\\/g, "/");
@@ -10,6 +11,52 @@ function getInheritedFolderName(importedDocumentId: string): string | null {
   return parts[parts.length - 2] ?? null;
 }
 
+/**
+ * The "?" help icon + tooltip popover, extracted out of RequestBlockHeader so
+ * blocks with their own custom header (e.g. voiden-sockets-grpcs's
+ * StreamHeader) can reuse the exact same affordance via its `actions` slot,
+ * without needing to adopt RequestBlockHeader wholesale.
+ */
+export const BlockHelpTooltip = ({ helpContent }: { helpContent?: React.ReactNode }) => {
+  const [helpOpen, setHelpOpen] = useState(false);
+  if (!helpContent) return null;
+
+  return (
+    <Tooltip.Provider delayDuration={0}>
+      <Tooltip.Root open={helpOpen} onOpenChange={setHelpOpen}>
+        <Tooltip.Trigger asChild>
+          <button
+            type="button"
+            className="flex items-center justify-center w-5 h-5 rounded opacity-40 hover:opacity-80 transition-opacity"
+            style={{ color: 'var(--syntax-tag)', cursor: 'pointer' }}
+            onClick={(e) => { e.stopPropagation(); setHelpOpen(o => !o); }}
+            aria-label="Help"
+          >
+            <HelpCircle size={12} />
+          </button>
+        </Tooltip.Trigger>
+        <Tooltip.Portal>
+          <Tooltip.Content
+            side="bottom"
+            align="end"
+            className="z-50 max-w-xs rounded-md border p-3 shadow-lg text-sm overflow-y-auto"
+            style={{
+              backgroundColor: 'var(--ui-panel-bg)',
+              borderColor: 'var(--ui-line)',
+              color: 'var(--editor-fg)',
+              maxHeight: '50vh',
+            }}
+            onPointerDownOutside={() => setHelpOpen(false)}
+          >
+            {helpContent}
+            <Tooltip.Arrow style={{ fill: 'var(--ui-line)' }} />
+          </Tooltip.Content>
+        </Tooltip.Portal>
+      </Tooltip.Root>
+    </Tooltip.Provider>
+  );
+};
+
 export const RequestBlockHeader = ({
   title,
   withBorder,
@@ -17,6 +64,7 @@ export const RequestBlockHeader = ({
   actions,
   importedDocumentId,
   helpContent,
+  blockType,
   openFile,
 }: {
   title: string;
@@ -24,12 +72,20 @@ export const RequestBlockHeader = ({
   editor: Editor;
   importedDocumentId?: string;
   actions?: React.ReactNode;
-  /** Optional inline help content shown in a tooltip popover. */
+  /** Optional inline help content shown in a tooltip popover. Takes priority over blockType. */
   helpContent?: React.ReactNode;
+  /**
+   * Node type name (e.g. "headers-table") to look up help content from the
+   * block-help registry (context.registerBlockHelp) — the preferred way to
+   * wire this up, since it needs no per-instance import of the help
+   * component. Ignored if `helpContent` is explicitly provided.
+   */
+  blockType?: string;
   /** Optional callback to open a file from within the block (used by scripting plugin). */
   openFile?: (relativePath: string) => Promise<void>;
 }) => {
-  const [helpOpen, setHelpOpen] = useState(false);
+  const RegisteredHelp = blockType ? getBlockHelp(blockType) : undefined;
+  const resolvedHelpContent = helpContent ?? (RegisteredHelp ? <RegisteredHelp /> : undefined);
 
   const inheritedFolder = importedDocumentId ? getInheritedFolderName(importedDocumentId) : null;
   return (
@@ -57,41 +113,7 @@ export const RequestBlockHeader = ({
 
       <div className="flex items-center gap-1">
         {actions}
-
-        {helpContent && (
-          <Tooltip.Provider delayDuration={0}>
-            <Tooltip.Root open={helpOpen} onOpenChange={setHelpOpen}>
-              <Tooltip.Trigger asChild>
-                <button
-                  type="button"
-                  className="flex items-center justify-center w-5 h-5 rounded opacity-40 hover:opacity-80 transition-opacity"
-                  style={{ color: 'var(--syntax-tag)', cursor: 'pointer' }}
-                  onClick={(e) => { e.stopPropagation(); setHelpOpen(o => !o); }}
-                  aria-label="Help"
-                >
-                  <HelpCircle size={12} />
-                </button>
-              </Tooltip.Trigger>
-              <Tooltip.Portal>
-                <Tooltip.Content
-                  side="bottom"
-                  align="end"
-                  className="z-50 max-w-xs rounded-md border p-3 shadow-lg text-sm overflow-y-auto"
-                  style={{
-                    backgroundColor: 'var(--ui-panel-bg)',
-                    borderColor: 'var(--ui-line)',
-                    color: 'var(--editor-fg)',
-                    maxHeight: '50vh',
-                  }}
-                  onPointerDownOutside={() => setHelpOpen(false)}
-                >
-                  {helpContent}
-                  <Tooltip.Arrow style={{ fill: 'var(--ui-line)' }} />
-                </Tooltip.Content>
-              </Tooltip.Portal>
-            </Tooltip.Root>
-          </Tooltip.Provider>
-        )}
+        <BlockHelpTooltip helpContent={resolvedHelpContent} />
       </div>
     </div>
   );

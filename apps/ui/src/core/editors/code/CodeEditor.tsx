@@ -20,6 +20,7 @@ import { json, jsonParseLinter } from "@codemirror/lang-json";
 import { html } from "@codemirror/lang-html";
 import { css } from "@codemirror/lang-css";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
+import { attachScrollTracker } from "./scrollTracker";
 import { python } from "@codemirror/lang-python";
 import { java } from "@codemirror/lang-java";
 import { cpp } from "@codemirror/lang-cpp";
@@ -372,15 +373,27 @@ const activeMatchHighlighter = Prec.high(ViewPlugin.fromClass(
   { decorations: v => v.decorations },
 ));
 
-function scrollMatchIntoView(view: EditorView) {
+// `markProgrammatic` flags the resulting 'scroll' event as a deliberate
+// search-nav jump (not a stray/incidental one) so the tab-switch scroll
+// tracker below doesn't snap it back to the saved position — see
+// searchNavScrollRef where it's wired up.
+function scrollMatchIntoView(view: EditorView, markProgrammatic?: () => void) {
   requestAnimationFrame(() => {
-    const scrollEl = document.getElementById("code-editor-container");
-    if (!scrollEl) return;
+    // CodeMirror's own scroller (.cm-scroller), NOT the outer shared
+    // #code-editor-container — @uiw/react-codemirror height-bounds
+    // .cm-scroller to 100% of its wrapper and CodeMirror's base theme
+    // already makes it overflow:auto, so it's .cm-scroller that actually
+    // scrolls when .cm-content overflows. The outer container's own content
+    // (this tab's wrapper div) is always pinned to exactly its height, so
+    // its scrollTop never has anywhere to go — writing to it here was a
+    // silent no-op.
+    const scrollEl = view.scrollDOM;
     const pos = view.state.selection.main.head;
     const coords = view.coordsAtPos(pos);
     if (!coords) return;
     const containerRect = scrollEl.getBoundingClientRect();
     const relativeTop = coords.top - containerRect.top + scrollEl.scrollTop;
+    markProgrammatic?.();
     scrollEl.scrollTop = Math.max(0, relativeTop - scrollEl.clientHeight / 2);
   });
 }
@@ -603,6 +616,11 @@ export const CodeEditor = memo(({ tabId, content, source, panelId, isActive = tr
   const lintCompartment = useRef(new Compartment()).current;
   const isActiveRef = useRef(isActive);
   isActiveRef.current = isActive;
+  // Set right before any deliberate search-nav scroll (scrollMatchIntoView,
+  // the go-to-line jump below) so the scroll tracker's handleScroll can tell
+  // it apart from an incidental/unwanted programmatic scroll and let it
+  // through instead of snapping back to the saved tab-switch position.
+  const searchNavScrollRef = useRef(false);
 
   const { setUnsaved, clearUnsaved, setScrollPosition, getScrollPosition } = useEditorStore((state) => ({
     setUnsaved: state.setUnsaved,
@@ -658,7 +676,7 @@ export const CodeEditor = memo(({ tabId, content, source, panelId, isActive = tr
       // Skip if a targeted line jump is pending — storeTargetLine effect handles it.
       if (useEditorSearchStore.getState().targetLine === null) {
         navigateToFirst(editorView);
-        scrollMatchIntoView(editorView);
+        scrollMatchIntoView(editorView, () => { searchNavScrollRef.current = true; });
       }
     }
   }, [searchTerm, matchCase, matchWholeWord, useRegex, replaceTerm, editorView, isActive]);
@@ -711,13 +729,13 @@ export const CodeEditor = memo(({ tabId, content, source, panelId, isActive = tr
     if (!editorView || !isActive) return;
     const { registerSearchCallbacks, unregisterSearchCallbacks } = useEditorSearchStore.getState();
     const callbacks: SearchCallbacks = {
-      onFindNext: () => { navigateNext(editorView); scrollMatchIntoView(editorView); },
-      onFindPrevious: () => { navigatePrev(editorView); scrollMatchIntoView(editorView); },
+      onFindNext: () => { navigateNext(editorView); scrollMatchIntoView(editorView, () => { searchNavScrollRef.current = true; }); },
+      onFindPrevious: () => { navigatePrev(editorView); scrollMatchIntoView(editorView, () => { searchNavScrollRef.current = true; }); },
       onClose: () => {
         useEditorSearchStore.getState().setIsOpen(false);
         useEditorSearchStore.getState().setUnifiedSearchActive(false);
       },
-      onReplace: () => { replaceNext(editorView); scrollMatchIntoView(editorView); },
+      onReplace: () => { replaceNext(editorView); scrollMatchIntoView(editorView, () => { searchNavScrollRef.current = true; }); },
       onReplaceAll: () => replaceAll(editorView),
       getStatus: () => computeCmStatus(editorView),
     };
@@ -758,7 +776,7 @@ export const CodeEditor = memo(({ tabId, content, source, panelId, isActive = tr
     // Skip first-match navigation when targetLine is set — the dedicated effect below handles it.
     if (targetLine !== null) return;
     navigateToFirst(editorView);
-    scrollMatchIntoView(editorView);
+    scrollMatchIntoView(editorView, () => { searchNavScrollRef.current = true; });
   }, [openPanelTick, editorView, isActive]);
 
   // Dedicated effect: jump to the exact line from a search-result click.
@@ -801,14 +819,16 @@ export const CodeEditor = memo(({ tabId, content, source, panelId, isActive = tr
       }))] : [],
     });
 
-    // Scroll the custom container to centre the target line.
+    // Scroll CodeMirror's own scroller (.cm-scroller via view.scrollDOM) to
+    // centre the target line — not #code-editor-container, see
+    // scrollMatchIntoView above for why that's the wrong element.
     // Retry at increasing delays to handle layout timing on newly mounted editors.
     const doScroll = () => {
-      const scrollEl = document.getElementById("code-editor-container");
-      if (!scrollEl) return false;
+      const scrollEl = editorView.scrollDOM;
       const coords = editorView.coordsAtPos(pos);
       if (!coords) return false;
       const relTop = coords.top - scrollEl.getBoundingClientRect().top + scrollEl.scrollTop;
+      searchNavScrollRef.current = true;
       scrollEl.scrollTop = Math.max(0, relTop - scrollEl.clientHeight / 2);
       return true;
     };
@@ -949,47 +969,34 @@ export const CodeEditor = memo(({ tabId, content, source, panelId, isActive = tr
   useLayoutEffect(() => {
     if (!editorView || !isActive) return;
 
-    const scrollEl = document.getElementById("code-editor-container") as HTMLElement | null;
-    if (!scrollEl) return;
+    // CodeMirror's own scroller (.cm-scroller), not the outer shared
+    // #code-editor-container. @uiw/react-codemirror height-bounds
+    // .cm-scroller to 100% of its wrapper and CodeMirror's base theme
+    // already sets it to overflow:auto, so .cm-scroller is what actually
+    // scrolls once .cm-content overflows — #code-editor-container's own
+    // content (this tab's wrapper div) is always pinned to exactly its
+    // height, so its scrollTop never had anywhere to go. That's why saving/
+    // restoring against #code-editor-container was a silent no-op: nothing
+    // was ever actually being tracked, so a tab switch always looked like a
+    // reset to 0 (there was nothing saved to restore in the first place).
+    const scrollEl = editorView.scrollDOM;
 
-    let currentTarget = getScrollPosition(tabId);
-    let isUserScrolling = false;
-    let userScrollTimeout: number | null = null;
-
-    const setUserScrolling = () => {
-      isUserScrolling = true;
-      if (userScrollTimeout !== null) clearTimeout(userScrollTimeout);
-      userScrollTimeout = window.setTimeout(() => {
-        isUserScrolling = false;
-        userScrollTimeout = null;
-      }, 1000);
-    };
-
-    const applySavedScroll = () => {
-      if (isUserScrolling) return;
-      const maxScrollTop = Math.max(0, scrollEl.scrollHeight - scrollEl.clientHeight);
-      scrollEl.scrollTop = Math.min(currentTarget, maxScrollTop);
-    };
-
-    const handleScroll = () => {
-      if (isUserScrolling) {
-        currentTarget = scrollEl.scrollTop;
-        setScrollPosition(tabId, scrollEl.scrollTop);
-      }
-      // Programmatic scrolls (e.g. find navigation) must not be fought against —
-      // the initial rAF restoration already handles tab-switch scroll restoration.
-    };
-
-    const handleUserInteraction = () => { setUserScrolling(); };
-
-    scrollEl.addEventListener("scroll", handleScroll, { passive: true });
-    scrollEl.addEventListener("wheel", handleUserInteraction, { passive: true, capture: true });
-    scrollEl.addEventListener("touchmove", handleUserInteraction, { passive: true, capture: true });
-    scrollEl.addEventListener("keydown", handleUserInteraction, { capture: true });
-    scrollEl.addEventListener("mousedown", handleUserInteraction, { capture: true });
+    // Snapping back an unrequested scroll is only right just after this tab
+    // activates (CodeMirror re-measuring can reset scrollTop to 0) — see
+    // scrollTracker.ts for why it must not outlive that window.
+    const tracker = attachScrollTracker({
+      scrollEl,
+      initialTarget: getScrollPosition(tabId),
+      onPositionChange: (scrollTop) => setScrollPosition(tabId, scrollTop),
+      consumeProgrammaticFlag: () => {
+        const flagged = searchNavScrollRef.current;
+        searchNavScrollRef.current = false;
+        return flagged;
+      },
+    });
 
     scrollEl.style.scrollBehavior = "auto";
-    applySavedScroll();
+    tracker.restore();
 
     let rafId: number;
     const timeoutIds: number[] = [];
@@ -997,23 +1004,17 @@ export const CodeEditor = memo(({ tabId, content, source, panelId, isActive = tr
     rafId = requestAnimationFrame(() => {
       rafId = requestAnimationFrame(() => {
         scrollEl.style.scrollBehavior = "auto";
-        applySavedScroll();
-        timeoutIds.push(window.setTimeout(applySavedScroll, 0));
-        timeoutIds.push(window.setTimeout(applySavedScroll, 60));
-        timeoutIds.push(window.setTimeout(applySavedScroll, 140));
+        tracker.restore();
+        timeoutIds.push(window.setTimeout(tracker.restore, 0));
+        timeoutIds.push(window.setTimeout(tracker.restore, 60));
+        timeoutIds.push(window.setTimeout(tracker.restore, 140));
       });
     });
 
     return () => {
-      scrollEl.removeEventListener("scroll", handleScroll);
-      scrollEl.removeEventListener("wheel", handleUserInteraction, { capture: true });
-      scrollEl.removeEventListener("touchmove", handleUserInteraction, { capture: true });
-      scrollEl.removeEventListener("keydown", handleUserInteraction, { capture: true });
-      scrollEl.removeEventListener("mousedown", handleUserInteraction, { capture: true });
-      if (userScrollTimeout !== null) clearTimeout(userScrollTimeout);
       cancelAnimationFrame(rafId);
       timeoutIds.forEach(clearTimeout);
-      setScrollPosition(tabId, currentTarget);
+      setScrollPosition(tabId, tracker.detach());
     };
   }, [editorView, tabId, isActive, getScrollPosition, setScrollPosition]);
 

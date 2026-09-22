@@ -3,12 +3,16 @@
 /**
  * Voiden Winget Manifest Publisher
  *
- * Opens a PR against microsoft/winget-pkgs bumping the Voiden.Voiden manifest
- * to the current app version. Stable channel only — winget has no beta channel
- * concept, so this is a no-op for beta/development builds.
+ * Opens a PR against microsoft/winget-pkgs bumping the Voiden manifest to the
+ * current app version. Runs for both channels, each under its own package
+ * identifier since winget resolves `winget install <id>` to the highest
+ * version under that id — a beta build (e.g. 2.3.0-beta.1) would otherwise
+ * outrank stable and become the default install:
+ *   - stable → Voiden.Voiden
+ *   - beta   → Voiden.Voiden-Beta
  *
  * Usage:
- *   node publish-winget.js [stable]
+ *   node publish-winget.js [beta|stable]
  *
  * Required env vars:
  *   WINGET_GITHUB_TOKEN — classic PAT with the "public_repo" scope, belonging to
@@ -17,7 +21,7 @@
  *                         first run if it doesn't exist yet.
  *
  * What it does:
- *   1. Downloads the current stable Windows installer and hashes it (sha256).
+ *   1. Downloads the channel's current Windows installer and hashes it (sha256).
  *   2. Forks microsoft/winget-pkgs under the token's account (idempotent).
  *   3. Copies the existing manifest forward to a new version folder, via the
  *      GitHub Git Data API — no local clone (winget-pkgs is huge).
@@ -38,17 +42,30 @@ const version = packageJson.version;
 const isBetaBuild = version.includes('beta') || version.includes('alpha') || version.includes('rc');
 const channel = process.argv[2] || (isBetaBuild ? 'beta' : 'stable');
 
-const PACKAGE_IDENTIFIER = 'Voiden.Voiden';
+const PACKAGE_NAME_PART = channel === 'beta' ? 'Voiden-Beta' : 'Voiden';
+const PACKAGE_IDENTIFIER = `Voiden.${PACKAGE_NAME_PART}`;
+const MANIFEST_PATH = `manifests/v/Voiden/${PACKAGE_NAME_PART}/${version}`;
 const UPSTREAM_OWNER = 'microsoft';
 const UPSTREAM_REPO = 'winget-pkgs';
 const MANIFEST_SCHEMA_VERSION = '1.12.0';
-const INSTALLER_URL = 'https://voiden.md/api/download/stable/win32/x64/setup-latest.exe';
+// Must be a version-pinned URL, not the "latest" pointer — winget-pkgs keeps
+// every version's manifest forever with InstallerSha256 baked in at publish
+// time, so a URL a future release overwrites breaks that manifest's hash
+// check as soon as the next version ships (this is what was happening:
+// setup-latest.exe is a mutable "latest" pointer, so every previously
+// published manifest's hash went stale the moment a newer version replaced
+// it). The NSIS installer itself is already published under a real,
+// immutable, version-pinned filename by the "Publish to S3 — Windows" step
+// (electron-forge's publisher-s3, from forge.config.ts) — reference that
+// directly instead of a separate "latest" copy.
+const INSTALLER_FILENAME = `${packageJson.productName || 'Voiden'} Setup ${version}.exe`;
+const INSTALLER_URL = `https://voiden.md/api/download/${channel}/win32/x64/${encodeURIComponent(INSTALLER_FILENAME)}`;
 const GITHUB_API = 'https://api.github.com';
 
 console.log(`\n📦 Winget Publisher — Voiden v${version} [${channel}]\n`);
 
-if (channel !== 'stable') {
-  console.log('ℹ️  Winget has no beta channel — nothing to publish for a non-stable build. Skipping.\n');
+if (channel !== 'beta' && channel !== 'stable') {
+  console.log(`ℹ️  Nothing to publish for channel "${channel}". Skipping.\n`);
   process.exit(0);
 }
 
@@ -75,7 +92,46 @@ async function gh(method, apiPath, body) {
   });
   const text = await res.text();
   const json = text ? JSON.parse(text) : {};
-  return { status: res.status, ok: res.ok, json };
+  return { status: res.status, ok: res.ok, json, headers: res.headers };
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// A freshly-created fork of a huge repo (microsoft/winget-pkgs has 100k+
+// manifest files) is created asynchronously on GitHub's backend — the POST
+// /forks response returns immediately, but git data operations against the
+// fork can lag behind that for a while. Cheap to check even when the fork
+// already existed from a previous run (the common case) — this just confirms
+// the fork's own default branch is queryable before doing anything else.
+async function waitForForkReady(forkOwner, repo, { attempts = 15, delayMs = 4000 } = {}) {
+  for (let i = 1; i <= attempts; i++) {
+    const ref = await gh('GET', `/repos/${forkOwner}/${repo}/git/ref/heads/master`);
+    if (ref.ok) return;
+    console.log(`   ...fork not ready yet (attempt ${i}/${attempts}, HTTP ${ref.status}), waiting ${delayMs / 1000}s`);
+    await sleep(delayMs);
+  }
+  throw new Error(`Fork ${forkOwner}/${repo} never became ready (git ref queries kept failing) after ${attempts} attempts.`);
+}
+
+// Separate from waitForForkReady: even on a long-established, fully-ready
+// fork, a *specific newly-created* commit object (via POST .../git/commits)
+// can take a short-to-noticeable while longer to become visible to the
+// git/refs validation path than to a plain GET of the object itself —
+// confirmed in production against this exact fork (voiden-beta-2.3.0-beta.3:
+// blob/tree/commit creation all succeeded immediately, but git/refs POST
+// still 404'd on every retry across a 15s window; the same commit shape
+// created moments later via a fresh manual attempt succeeded on the very
+// first try). Polls the commit object itself before attempting to point a
+// ref at it, since that's the specific propagation gap observed, not fork
+// readiness in general.
+async function waitForCommitVisible(forkOwner, repo, commitSha, { attempts = 10, delayMs = 6000 } = {}) {
+  for (let i = 1; i <= attempts; i++) {
+    const commit = await gh('GET', `/repos/${forkOwner}/${repo}/git/commits/${commitSha}`);
+    if (commit.ok) return;
+    console.log(`   ...commit ${commitSha.slice(0, 8)} not visible yet (attempt ${i}/${attempts}, HTTP ${commit.status}), waiting ${delayMs / 1000}s`);
+    await sleep(delayMs);
+  }
+  throw new Error(`Commit ${commitSha} on ${forkOwner}/${repo} never became visible after ${attempts} attempts.`);
 }
 
 function manifestFiles(v, sha256) {
@@ -115,10 +171,10 @@ function manifestFiles(v, sha256) {
       'PackageLocale: en-US',
       'Publisher: Voiden',
       'PublisherUrl: https://voiden.md',
-      'PackageName: Voiden',
+      `PackageName: Voiden${channel === 'beta' ? ' Beta' : ''}`,
       'PackageUrl: https://voiden.md',
       'License: Apache-2.0',
-      'ShortDescription: Build, Test, Document & Collaborate. Streamline your API development process with Voiden',
+      `ShortDescription: Build, Test, Document & Collaborate. Streamline your API development process with Voiden${channel === 'beta' ? ' (Beta channel)' : ''}`,
       'ManifestType: defaultLocale',
       `ManifestVersion: ${MANIFEST_SCHEMA_VERSION}`,
       '',
@@ -128,9 +184,9 @@ function manifestFiles(v, sha256) {
 
 async function main() {
   // Already published? (re-runs / retries should be harmless no-ops)
-  const existing = await gh('GET', `/repos/${UPSTREAM_OWNER}/${UPSTREAM_REPO}/contents/manifests/v/Voiden/Voiden/${version}`);
+  const existing = await gh('GET', `/repos/${UPSTREAM_OWNER}/${UPSTREAM_REPO}/contents/${MANIFEST_PATH}`);
   if (existing.ok) {
-    console.log(`ℹ️  manifests/v/Voiden/Voiden/${version} already exists upstream. Nothing to do.\n`);
+    console.log(`ℹ️  ${MANIFEST_PATH} already exists upstream. Nothing to do.\n`);
     return;
   }
 
@@ -142,6 +198,13 @@ async function main() {
   console.log(`\n🍴 Ensuring fork of ${UPSTREAM_OWNER}/${UPSTREAM_REPO}...`);
   const fork = await gh('POST', `/repos/${UPSTREAM_OWNER}/${UPSTREAM_REPO}/forks`);
   if (!fork.ok) throw new Error(`Fork request failed: ${JSON.stringify(fork.json)}`);
+
+  // fork.json.created_at/updated_at won't tell us whether THIS run just
+  // created it vs. it already existed from a previous run — always poll
+  // rather than trying to distinguish those cases, it's a no-op cost when
+  // the fork was already fully ready.
+  console.log('   waiting for the fork to actually be ready for git data operations...');
+  await waitForForkReady(forkOwner, UPSTREAM_REPO);
 
   console.log(`\n⬇️  Downloading installer for hashing:\n   ${INSTALLER_URL}`);
   const installerRes = await fetch(INSTALLER_URL);
@@ -164,7 +227,7 @@ async function main() {
     });
     if (!blob.ok) throw new Error(`Failed to create blob for ${name}: ${JSON.stringify(blob.json)}`);
     treeEntries.push({
-      path: `manifests/v/Voiden/Voiden/${version}/${name}`,
+      path: `${MANIFEST_PATH}/${name}`,
       mode: '100644',
       type: 'blob',
       sha: blob.json.sha,
@@ -184,18 +247,40 @@ async function main() {
   });
   if (!commit.ok) throw new Error(`Failed to create commit: ${JSON.stringify(commit.json)}`);
 
-  const branch = `voiden-${version}`;
+  // See waitForCommitVisible's own comment — this specific commit object can
+  // lag behind being queryable, independent of the fork itself being ready.
+  console.log('   waiting for the new commit to actually be visible...');
+  await waitForCommitVisible(forkOwner, UPSTREAM_REPO, commit.json.sha);
+
+  const branch = `${PACKAGE_NAME_PART.toLowerCase()}-${version}`;
   console.log(`\n🌿 Pushing branch ${forkOwner}:${branch}...`);
-  let ref = await gh('POST', `/repos/${forkOwner}/${UPSTREAM_REPO}/git/refs`, {
-    ref: `refs/heads/${branch}`,
-    sha: commit.json.sha,
-  });
-  if (ref.status === 422) {
-    // Branch already exists (retry of a previous run) — force-update it instead.
-    ref = await gh('PATCH', `/repos/${forkOwner}/${UPSTREAM_REPO}/git/refs/heads/${branch}`, {
+  let ref;
+  const maxRefAttempts = 8;
+  for (let attempt = 1; attempt <= maxRefAttempts; attempt++) {
+    ref = await gh('POST', `/repos/${forkOwner}/${UPSTREAM_REPO}/git/refs`, {
+      ref: `refs/heads/${branch}`,
       sha: commit.json.sha,
-      force: true,
     });
+    if (ref.status === 422) {
+      // Branch already exists (retry of a previous run) — force-update it instead.
+      ref = await gh('PATCH', `/repos/${forkOwner}/${UPSTREAM_REPO}/git/refs/heads/${branch}`, {
+        sha: commit.json.sha,
+        force: true,
+      });
+      break;
+    }
+    // A 404 here (as opposed to on the branch-not-found PATCH path above)
+    // means the commit still isn't consistent from the ref-creation path's
+    // point of view, even after waitForCommitVisible's own check passed —
+    // belt-and-suspenders for exactly the propagation gap that's already
+    // been observed in production (waitForCommitVisible confirmed readable,
+    // git/refs still 404'd for a while after). Anything else (network
+    // error, actual auth/perm failure) isn't transient — fail immediately
+    // instead of retrying blind.
+    if (ref.ok || ref.status !== 404 || attempt === maxRefAttempts) break;
+    const delaySec = Math.min(10 * attempt, 30);
+    console.log(`   ...ref push got 404 (attempt ${attempt}/${maxRefAttempts}), still settling — retrying in ${delaySec}s`);
+    await sleep(delaySec * 1000);
   }
   if (!ref.ok) throw new Error(`Failed to push branch: ${JSON.stringify(ref.json)}`);
 

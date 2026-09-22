@@ -9,6 +9,7 @@ import { Editor } from "@tiptap/core";
 import { sendRequestHybrid } from "./sendRequestHybrid";
 import type { RequestBuildHandler, ResponseProcessHandler, ResponseSection } from "@voiden/sdk/ui";
 import { requestLogger } from "@/core/lib/logger";
+import { useResponseStore } from "./stores/responseStore";
 import { getFirstSectionLabel } from "@/core/editors/voiden/extensions/sectionIndicator";
 import { expandLinkedBlocksInDoc, expandLinkedFilesInDoc } from "@/core/editors/voiden/utils/expandLinkedBlocks";
 import { injectInheritedBlocks } from "./utils/injectInheritedBlocks";
@@ -270,6 +271,19 @@ class RequestOrchestratorImpl implements RequestOrchestrator {
     // so the absence of a url here is a generic, plugin-agnostic "not a request"
     // signal rather than a build failure.
     if (!request?.url) {
+      // A section resolved via a linkedFile (sectionIndex path) that hits this
+      // is ambiguous from the "Nothing to run" toast alone: it could genuinely
+      // be a documentation-only section, or the linked section could have
+      // failed to expand (see expandLinkedFilesInDoc's own logging for why).
+      // Logging what actually reached the handlers here is the fastest way to
+      // tell those two apart without re-instrumenting on the next report.
+      if (hasSectionInfo) {
+        requestLogger.warn(
+          `No request block found for section ${resolvedSectionIndex}` +
+          (resolvedSectionLabel ? ` ("${resolvedSectionLabel}")` : "") +
+          `. Resolved content: ${JSON.stringify(handlerEditor.getJSON()?.content?.map((n: any) => n.type))}`,
+        );
+      }
       throw new NotARequestError();
     }
 
@@ -305,13 +319,25 @@ class RequestOrchestratorImpl implements RequestOrchestrator {
 
     // Step 3: Process response through plugin chain
     requestLogger.info(`Processing response through ${this.responseHandlers.length} plugin handler(s)`);
+    let handlerError: unknown = null;
     for (const handler of this.responseHandlers) {
       try {
         await handler(response);
       } catch (error) {
         requestLogger.error("Error in plugin response handler:", error);
+        handlerError = error;
         // Don't throw - let other handlers execute
       }
+    }
+
+    // A handler throwing before it renders anything (e.g. onProcessResponse in
+    // voiden-rest-api) leaves isLoading stuck true forever — onRequestBuilt already
+    // flipped it on, and nothing else clears it. Surface the error instead of leaving
+    // the UI on an infinite spinner with no feedback at all.
+    if (handlerError && useResponseStore.getState().isLoading) {
+      const tabId = useResponseStore.getState().currentRequestTabId;
+      const message = handlerError instanceof Error ? handlerError.message : String(handlerError);
+      useResponseStore.getState().setError(tabId, `Failed to display response: ${message}`);
     }
 
     import('@/plugins').then(({ emitPluginEvent }) => emitPluginEvent('response:received', { response })).catch(() => {});

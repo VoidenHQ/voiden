@@ -67,6 +67,7 @@
     "testing-library": "^0.0.2"
   },
   "resolutions": {
+    "@electron/node-gyp": "npm:10.2.0-electron.1",
     "fast-xml-parser": "5.5.7",
     "form-data": "^4.0.6",
     "pbkdf2": "^3.1.3",

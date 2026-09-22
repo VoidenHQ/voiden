@@ -166,8 +166,14 @@ export async function executeRequestPipeline(
 
       return {
         ...baseResponse,
-        requestHeaders: requestState.headers.filter(h => h.enabled !== false),
-        requestBody: requestState.body,
+        // Prefer the adapter's own resolved requestMeta (headers/body AFTER
+        // {{...}} substitution) — falling back to the raw, pre-substitution
+        // requestState only if the adapter didn't report one. Using
+        // requestState directly here always reports the unresolved template
+        // text regardless of what was actually sent — see the REST branch
+        // below for the same fix and full reasoning.
+        requestHeaders: baseResponse.requestMeta?.headers ?? requestState.headers.filter(h => h.enabled !== false),
+        requestBody: baseResponse.requestMeta?.body ?? requestState.body,
         metadata: responseState.metadata,
       }
     }
@@ -213,8 +219,17 @@ export async function executeRequestPipeline(
       prerequestResult: options.preRequestResult,
       requestMeta: responseState.requestMeta,
       metadata: responseState.metadata,
-      requestHeaders: requestState.headers.filter(h => h.enabled !== false),
-      requestBody: requestState.body,
+      // Prefer the adapter's own resolved requestMeta (headers/body AFTER
+      // {{...}} substitution — see secureRequest.ts's "2. Replace variables
+      // in headers" step) over the raw requestState, which still has the
+      // literal, unsubstituted {{token}} text. requestState.headers/.body
+      // are what was PARSED from the block, not what was actually SENT —
+      // using them directly here was reporting the wrong thing back to
+      // whoever reads requestHeaders/requestBody (a run_request/tool-call
+      // result, a report entry, etc.) regardless of whether substitution
+      // actually succeeded.
+      requestHeaders: responseState.requestMeta?.headers ?? requestState.headers.filter(h => h.enabled !== false),
+      requestBody: responseState.requestMeta?.body ?? requestState.body,
     }
 
   } catch (error: any) {

@@ -107,6 +107,17 @@ const Toaster = ({ ...props }: ToasterProps) => {
             "group-[.toast]:bg-active group-[.toast]:text-text transition-transform duration-150 hover:scale-[1.02] active:scale-95",
           cancelButton:
             "group-[.toast]:bg-active group-[.toast]:text-comment",
+          // Sonner colors this from its own light/dark palette (driven by
+          // the `theme` prop above, which tracks next-themes/system) rather
+          // than Voiden's actual active theme — the two can disagree (e.g.
+          // OS in dark mode while a light Voiden theme is selected), leaving
+          // a white X on a white toast. Pin it to our own theme tokens
+          // instead, `!` to win over sonner's own non-:where-wrapped
+          // close-button rules (its background and dark-mode color rules
+          // aren't in a zero-specificity :where(), unlike the rest of its
+          // toast styling).
+          closeButton:
+            "group-[.toast]:!bg-panel group-[.toast]:!text-comment group-[.toast]:!border-border group-[.toast]:hover:!bg-hover group-[.toast]:hover:!text-text",
         },
       }}
       {...props}

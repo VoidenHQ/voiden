@@ -20,8 +20,9 @@ import path from 'path';
 import mainConfigFn from './vite.main.config';
 import preloadConfigFn from './vite.preload.config';
 import rendererConfigFn from './vite.renderer.config';
+import cliConfigFn from './vite.cli.config';
 
-// Define type-safe environments extending Vite's ConfigEnv to satisfy 
+// Define type-safe environments extending Vite's ConfigEnv to satisfy
 // TypeScript structural subtyping requirements without type assertions.
 interface CustomMainEnv extends ConfigEnv {
   root: string;
@@ -30,6 +31,12 @@ interface CustomMainEnv extends ConfigEnv {
 }
 
 interface CustomPreloadEnv extends ConfigEnv {
+  root: string;
+  forgeConfig: VitePluginConfig;
+  forgeConfigSelf: VitePluginConfig['build'][number];
+}
+
+interface CustomCliEnv extends ConfigEnv {
   root: string;
   forgeConfig: VitePluginConfig;
   forgeConfigSelf: VitePluginConfig['build'][number];
@@ -44,6 +51,15 @@ interface CustomRendererEnv extends ConfigEnv {
 async function run() {
   const root = __dirname;
 
+  // Forge normally hands every build target (main, preload, renderer) the
+  // same full plugin config, including the renderer list — vite.base.config's
+  // getBuildDefine() reads forgeConfig.renderer to generate the
+  // <NAME>_VITE_DEV_SERVER_URL / <NAME>_VITE_NAME globals main.ts (window.ts)
+  // references at runtime. Leaving it empty for main/preload here meant those
+  // globals were never defined, so referencing them threw a ReferenceError as
+  // soon as a window was created.
+  const rendererTargets = [{ name: 'main_window', config: 'vite.renderer.config.ts' }];
+
   // Main
   const mainEnv: CustomMainEnv = {
     command: 'build',
@@ -53,7 +69,7 @@ async function run() {
       build: [
         { entry: 'src/main.ts', config: 'vite.main.config.ts' }
       ],
-      renderer: []
+      renderer: rendererTargets
     },
     forgeConfigSelf: { entry: 'src/main.ts', config: 'vite.main.config.ts' }
   };
@@ -70,13 +86,35 @@ async function run() {
       build: [
         { entry: 'src/preload.ts', config: 'vite.preload.config.ts' }
       ],
-      renderer: []
+      renderer: rendererTargets
     },
     forgeConfigSelf: { entry: 'src/preload.ts', config: 'vite.preload.config.ts' }
   };
   console.log('Building preload script...');
   const preloadConfig = preloadConfigFn(preloadEnv);
   await build(preloadConfig);
+
+  // CLI (voiden agent/run/mcp-stdio) — mirrors forge.config.ts's own VitePlugin
+  // build array (see its `plugins` section): built alongside main/preload so
+  // it lands at .vite/build/voiden-cli.js, next to main.js, exactly where
+  // bin/voiden's ELECTRON_RUN_AS_NODE dispatch expects it. Omitting this
+  // meant Nix builds shipped a `voiden` with no working agent/run/mcp-stdio
+  // at all — bin/voiden's dispatch would `exec` a file that doesn't exist.
+  const cliEnv: CustomCliEnv = {
+    command: 'build',
+    mode: 'production',
+    root: '',
+    forgeConfig: {
+      build: [
+        { entry: 'src/voiden-cli.ts', config: 'vite.cli.config.ts' }
+      ],
+      renderer: rendererTargets
+    },
+    forgeConfigSelf: { entry: 'src/voiden-cli.ts', config: 'vite.cli.config.ts' }
+  };
+  console.log('Building CLI (agent/run/mcp-stdio)...');
+  const cliConfig = cliConfigFn(cliEnv);
+  await build(cliConfig);
 
   // Renderer (main_window)
   const rendererEnv: CustomRendererEnv = {

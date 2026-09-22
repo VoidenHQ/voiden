@@ -64,6 +64,7 @@ export const TopNavBar = ({ onShowAbout }: TopNavBarProps) => {
       tab: { id: crypto.randomUUID(), type: "settings", title: "Settings", source: null },
     });
   };
+
   const [isMaximized,setIsMaximized] = useState(false);
 
   useEffect(()=>{

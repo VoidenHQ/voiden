@@ -18,7 +18,7 @@ import { homedir } from 'os'
 import { existsSync, statSync, readFileSync } from 'fs'
 import { pathToFileURL } from 'url'
 import { getRegistry, type RegistryEntry } from './registryCache.js'
-import { getInstalledVersion } from './store.js'
+import { getInstalledVersion, isPluginUninstalled } from './store.js'
 
 // ─── Runner paths (priority: bundled-at-build-time > user cache > download) ───
 const RUNNER_CACHE_DIR = join(homedir(), '.voiden', 'extensions')
@@ -72,8 +72,15 @@ export function getBundledVersion(pluginId: string): string | undefined {
   return getBundledVersions()[pluginId]
 }
 
-/** The version actually present locally — cached download takes priority over the bundled copy. */
+/**
+ * The version actually present locally — cached download takes priority over
+ * the bundled copy. Returns undefined once explicitly uninstalled, even
+ * though a bundled file may still physically exist on disk — uninstalled
+ * bundled plugins are treated as unavailable, not just "using the bundled
+ * version", so `plugin list`/version checks correctly show "not installed".
+ */
 export function getCoreRunnerVersion(pluginId: string): string | undefined {
+  if (isPluginUninstalled(pluginId)) return undefined
   return getInstalledVersion(pluginId) ?? getBundledVersion(pluginId)
 }
 
@@ -81,7 +88,9 @@ export function getCoreRunnerPath(pluginId: string): string {
   return join(RUNNER_CACHE_DIR, pluginId, 'runner.js')
 }
 
+/** False once explicitly uninstalled, even if a bundled or cached file still exists on disk. */
 export function hasCoreRunner(pluginId: string): boolean {
+  if (isPluginUninstalled(pluginId)) return false
   return !!getBundledRunnerPath(pluginId) || isValidRunnerFile(getCoreRunnerPath(pluginId))
 }
 
