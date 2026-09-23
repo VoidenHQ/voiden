@@ -1,9 +1,10 @@
-# Publishes the Linux .deb produced by "Release Voiden App" to the APT repo (S3)
-# and the Snap Store.
+# Publishes the Linux .deb produced by "Release Voiden App" to the APT repo (S3),
+# the Snap Store, the Homebrew (Linux) tap, and a Flatpak/Flathub submission.
 #
-# Split out of release-app.yml so a flaky apt/snap publish (e.g. transient
-# snapd/core22 install failures on GitHub-hosted runners) can be retried on its
-# own, without rebuilding macOS/Linux artifacts or re-cutting the GitHub Release.
+# Split out of release-app.yml so a flaky apt/snap/brew/flatpak publish (e.g.
+# transient snapd/core22 install failures on GitHub-hosted runners) can be
+# retried on its own, without rebuilding macOS/Linux artifacts or re-cutting
+# the GitHub Release.
 #
 # Trigger:
 #   - workflow_call — invoked by release-app.yml right after the Linux build,
@@ -14,7 +15,9 @@
 #     The run_apt_snap / run_winget / run_chocolatey / run_nix_cache toggles let
 #     you retry just the target(s) that failed, instead of re-running all four
 #     (useful while iterating on a fix — no need to re-push to a real package
-#     manager for every target each time).
+#     manager for every target each time). Homebrew and Flatpak only publish
+#     for the "stable" channel — neither has a first-class prerelease concept
+#     for a single formula/manifest (see HOMEBREW.md / FLATPAK.md).
 #
 # Required repository secrets:
 #   S3_ACCESS_KEY_ID_BETA / S3_SECRET_ACCESS_KEY_BETA / S3_BUCKET_NAME_BETA
@@ -28,6 +31,11 @@
 #   CHOCOLATEY_API_KEY — from https://community.chocolatey.org/account, after claiming
 #                        the "voiden" package id there (beta + stable)
 #   CACHIX_AUTH_TOKEN — auth token for a "voiden" cache created at https://app.cachix.org
+#   HOMEBREW_TAP_GITHUB_TOKEN — token with push access to VoidenHQ/homebrew-voiden
+#                               (stable only — see HOMEBREW.md)
+#   FLATHUB_GITHUB_TOKEN — classic PAT (public_repo scope) for the account that forks
+#                          flathub/flathub and opens the new-app submission PR
+#                          (stable only — see FLATPAK.md)
 #                       (beta + stable; builds straight from the flake, no S3/build
 #                       artifact dependency)
 
@@ -52,6 +60,14 @@ on:
         type: boolean
         default: true
       run_nix_cache:
+        required: false
+        type: boolean
+        default: true
+      run_homebrew:
+        required: false
+        type: boolean
+        default: true
+      run_flatpak:
         required: false
         type: boolean
         default: true
@@ -89,6 +105,16 @@ on:
         required: false
         type: boolean
         default: true
+      run_homebrew:
+        description: 'Publish Homebrew (Linux) — stable only'
+        required: false
+        type: boolean
+        default: true
+      run_flatpak:
+        description: 'Publish Flatpak/Flathub submission — stable only'
+        required: false
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -96,8 +122,8 @@ permissions:
 
 jobs:
   publish:
-    name: Publish APT + Snap
-    if: inputs.run_apt_snap
+    name: Publish APT + Snap + Homebrew + Flatpak
+    if: inputs.run_apt_snap || inputs.run_homebrew || inputs.run_flatpak
     runs-on: ubuntu-latest
 
     steps:
@@ -121,6 +147,7 @@ jobs:
       # tries to auto-install it — doing both right after `snap install snapcraft`
       # races snapd and intermittently fails with "Error installing snap 'core22'".
       - name: Install snapcraft
+        if: inputs.run_apt_snap
         run: |
           sudo snap install snapcraft --classic
           sudo snap wait system seed.loaded
@@ -135,6 +162,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Import GPG signing key
+        if: inputs.run_apt_snap
         env:
           VOIDEN_GPG_PRIVATE_KEY: ${{ secrets.VOIDEN_GPG_PRIVATE_KEY }}
         run: |
@@ -147,6 +175,7 @@ jobs:
       # Not mandatory for a successful release — apt/snap failures are reported but don't fail the job.
       - name: Publish APT repo
         id: publish-apt
+        if: inputs.run_apt_snap
         continue-on-error: true
         working-directory: apps/electron
         env:
@@ -166,6 +195,7 @@ jobs:
 
       - name: Publish Snap
         id: publish-snap
+        if: inputs.run_apt_snap
         continue-on-error: true
         working-directory: apps/electron
         env:
@@ -175,6 +205,38 @@ jobs:
       - name: Report Snap publish failure
         if: steps.publish-snap.outcome == 'failure'
         run: echo "::warning::Snap Store publish failed — continuing without it. Check the 'Publish Snap' step logs." | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # Not mandatory for a successful release — reported but doesn't fail the job.
+      # Uses the same voiden-linux-x64 artifact already downloaded above (the
+      # .AppImage inside it) — no separate build or artifact download needed.
+      - name: Publish Homebrew (Linux)
+        id: publish-homebrew
+        if: inputs.run_homebrew
+        continue-on-error: true
+        working-directory: apps/electron
+        env:
+          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+        run: node publish-brew.js ${{ inputs.channel }}
+
+      - name: Report Homebrew publish failure
+        if: steps.publish-homebrew.outcome == 'failure'
+        run: echo "::warning::Homebrew tap publish failed — continuing without it. Check the 'Publish Homebrew (Linux)' step logs." | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # Not mandatory for a successful release — reported but doesn't fail the job.
+      # Uses the same voiden-linux-x64 artifact already downloaded above (the
+      # .deb inside it) — no separate build or artifact download needed.
+      - name: Publish Flatpak submission
+        id: publish-flatpak
+        if: inputs.run_flatpak
+        continue-on-error: true
+        working-directory: apps/electron
+        env:
+          FLATHUB_GITHUB_TOKEN: ${{ secrets.FLATHUB_GITHUB_TOKEN }}
+        run: node publish-flatpak.js ${{ inputs.channel }}
+
+      - name: Report Flatpak publish failure
+        if: steps.publish-flatpak.outcome == 'failure'
+        run: echo "::warning::Flatpak/Flathub publish failed — continuing without it. Check the 'Publish Flatpak submission' step logs." | tee -a "$GITHUB_STEP_SUMMARY"
 
   # ── winget (beta + stable) ──────────────────────────────────────────────────────
   # Doesn't need the Linux artifact — opens a manifest-bump PR against
