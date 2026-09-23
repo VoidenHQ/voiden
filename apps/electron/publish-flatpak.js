@@ -137,6 +137,24 @@ async function waitForForkReady(forkOwner, repo, { attempts = 15, delayMs = 4000
   throw new Error(`Fork ${forkOwner}/${repo} never became ready after ${attempts} attempts.`);
 }
 
+// Separate from waitForForkReady: even on a fully-ready fork, a specific
+// newly-created commit object (via POST .../git/commits) can take a short-to
+// -noticeable while longer to become visible to the git/refs validation path
+// than to a plain GET of the object itself. Confirmed against this exact
+// flathub/flathub fork on this run: the fork itself was ready, but pushing
+// the branch still 404'd ("Failed to push branch: Not Found") because the
+// commit wasn't visible to git/refs yet. See the identical comment on
+// publish-winget.js's own waitForCommitVisible, which this mirrors.
+async function waitForCommitVisible(forkOwner, repo, commitSha, { attempts = 10, delayMs = 6000 } = {}) {
+  for (let i = 1; i <= attempts; i++) {
+    const commit = await gh('GET', `/repos/${forkOwner}/${repo}/git/commits/${commitSha}`);
+    if (commit.ok) return;
+    console.log(`   ...commit ${commitSha.slice(0, 8)} not visible yet (attempt ${i}/${attempts}, HTTP ${commit.status}), waiting ${delayMs / 1000}s`);
+    await sleep(delayMs);
+  }
+  throw new Error(`Commit ${commitSha} on ${forkOwner}/${repo} never became visible after ${attempts} attempts.`);
+}
+
 async function main() {
   const branch = `${APP_ID.toLowerCase()}-${version}`;
 
@@ -182,16 +200,29 @@ async function main() {
   });
   if (!commit.ok) throw new Error(`Failed to create commit: ${JSON.stringify(commit.json)}`);
 
+  console.log('   waiting for the new commit to actually be visible...');
+  await waitForCommitVisible(forkOwner, UPSTREAM_REPO, commit.json.sha);
+
   console.log(`\n🌿 Pushing branch ${forkOwner}:${branch}...`);
-  let ref = await gh('POST', `/repos/${forkOwner}/${UPSTREAM_REPO}/git/refs`, {
-    ref: `refs/heads/${branch}`,
-    sha: commit.json.sha,
-  });
-  if (ref.status === 422) {
-    ref = await gh('PATCH', `/repos/${forkOwner}/${UPSTREAM_REPO}/git/refs/heads/${branch}`, {
+  let ref;
+  const maxRefAttempts = 12;
+  for (let attempt = 1; attempt <= maxRefAttempts; attempt++) {
+    ref = await gh('POST', `/repos/${forkOwner}/${UPSTREAM_REPO}/git/refs`, {
+      ref: `refs/heads/${branch}`,
       sha: commit.json.sha,
-      force: true,
     });
+    if (ref.status === 422) {
+      // Branch already exists (retry of a previous run) — force-update it instead.
+      ref = await gh('PATCH', `/repos/${forkOwner}/${UPSTREAM_REPO}/git/refs/heads/${branch}`, {
+        sha: commit.json.sha,
+        force: true,
+      });
+      break;
+    }
+    if (ref.ok || ref.status !== 404 || attempt === maxRefAttempts) break;
+    const delaySec = Math.min(10 * attempt, 45);
+    console.log(`   ...ref push got 404 (attempt ${attempt}/${maxRefAttempts}), still settling — retrying in ${delaySec}s`);
+    await sleep(delaySec * 1000);
   }
   if (!ref.ok) throw new Error(`Failed to push branch: ${JSON.stringify(ref.json)}`);
 
