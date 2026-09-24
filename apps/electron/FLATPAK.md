@@ -64,14 +64,23 @@ request PR against `flathub/flathub` (fork + PR, same technique
 `publish-winget.js` uses against `microsoft/winget-pkgs`) — idempotent, safe
 to re-run.
 
-**Confirmed against a real submission (PR opened, then auto-closed by
-Flathub's bot on the first attempt):** the PR must target Flathub's `new-pr`
-branch, not `master` — `new-pr` is a permanently empty orphan branch (a
-single 2017 "Initial commit" with no files), so the PR's diff ends up being
-just this app's own folder added on top of nothing. Targeting `master`
-first got an instant automated close: "application submission pull requests
-must be made against the new-pr branch." `publish-flatpak.js` now branches
-off and targets `new-pr` correctly (`SUBMISSION_BASE_BRANCH` in the script).
+**Confirmed against two real submission attempts, both auto-closed by
+Flathub's `submission-checker` bot:**
+1. The PR must target Flathub's `new-pr` branch, not `master` — `new-pr` is
+   a permanently empty orphan branch (a single 2017 "Initial commit" with no
+   files), so the PR's diff ends up being just this app's own folder added
+   on top of nothing. Targeting `master` got an instant close:
+   "application submission pull requests must be made against the new-pr
+   branch."
+2. The manifest file must sit at the **PR diff's root** — `<app-id>.yml`,
+   not `<app-id>/<app-id>.yml` in a subfolder. A nested path got: "Files not
+   in toplevel."
+
+`publish-flatpak.js` now does both correctly. It also **reopens the same PR
+on a corrected retry** instead of opening a new one each time — the bot
+explicitly asks for that ("please post a comment below instead of opening
+or reopening (new) PRs"), and two real PRs (flathub/flathub#10360, #10361)
+already got opened-then-closed working through these two issues.
 
 **Flathub's submission process is external and can change** — re-check
 https://docs.flathub.org/docs/for-app-authors/submission against what the

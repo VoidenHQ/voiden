@@ -166,12 +166,18 @@ async function main() {
   const forkOwner = me.json.login;
   console.log(`   token identity : ${forkOwner}`);
 
-  // Already submitted? Only an OPEN PR counts — a closed one (e.g. Flathub's
-  // bot auto-closing a submission that targeted the wrong base branch, as
-  // happened on the first real attempt here) must not block a corrected retry.
-  const existingPr = await gh('GET', `/repos/${UPSTREAM_OWNER}/${UPSTREAM_REPO}/pulls?head=${forkOwner}:${branch}&state=open`);
-  if (existingPr.ok && existingPr.json.length > 0) {
-    console.log(`ℹ️  A submission PR already exists: ${existingPr.json[0].html_url}\n`);
+  // Already submitted? An OPEN PR means nothing further to do. A CLOSED one
+  // (Flathub's submission-checker bot auto-closes on anything it flags, e.g.
+  // wrong base branch or a nested file path — both hit for real on the first
+  // two attempts here) shouldn't turn into yet another new PR on retry —
+  // Flathub's own bot explicitly asks for that ("please post a comment
+  // instead of opening or reopening (new) PRs"). Reopen the same PR instead,
+  // once the underlying issue is actually fixed.
+  const allPrs = await gh('GET', `/repos/${UPSTREAM_OWNER}/${UPSTREAM_REPO}/pulls?head=${forkOwner}:${branch}&state=all`);
+  const existingOpenPr = allPrs.ok ? allPrs.json.find((p) => p.state === 'open') : undefined;
+  const existingClosedPr = allPrs.ok ? allPrs.json.find((p) => p.state === 'closed') : undefined;
+  if (existingOpenPr) {
+    console.log(`ℹ️  A submission PR already exists: ${existingOpenPr.html_url}\n`);
     return;
   }
 
@@ -201,7 +207,11 @@ async function main() {
 
   const tree = await gh('POST', `/repos/${forkOwner}/${UPSTREAM_REPO}/git/trees`, {
     base_tree: baseSha,
-    tree: [{ path: `${APP_ID}/${APP_ID}.yml`, mode: '100644', type: 'blob', sha: blob.json.sha }],
+    // Flathub's submission-checker bot rejects a nested path — confirmed via
+    // a real submission (flathub/flathub#10361, auto-closed: "Files not in
+    // toplevel") — the manifest must sit at the PR diff's root, not in a
+    // subfolder named after the app id.
+    tree: [{ path: `${APP_ID}.yml`, mode: '100644', type: 'blob', sha: blob.json.sha }],
   });
   if (!tree.ok) throw new Error(`Failed to create tree: ${JSON.stringify(tree.json)}`);
 
@@ -237,6 +247,16 @@ async function main() {
     await sleep(delaySec * 1000);
   }
   if (!ref.ok) throw new Error(`Failed to push branch: ${JSON.stringify(ref.json)}`);
+
+  if (existingClosedPr) {
+    console.log(`\n🔓 Reopening PR #${existingClosedPr.number} (was auto-closed, now fixed)...`);
+    const reopen = await gh('PATCH', `/repos/${UPSTREAM_OWNER}/${UPSTREAM_REPO}/pulls/${existingClosedPr.number}`, {
+      state: 'open',
+    });
+    if (!reopen.ok) throw new Error(`Failed to reopen PR: ${JSON.stringify(reopen.json)}`);
+    console.log(`\n✅ Reopened: ${reopen.json.html_url}\n`);
+    return;
+  }
 
   console.log('\n🚀 Opening new-app submission PR against flathub/flathub...');
   const pr = await gh('POST', `/repos/${UPSTREAM_OWNER}/${UPSTREAM_REPO}/pulls`, {
