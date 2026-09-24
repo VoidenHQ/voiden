@@ -14,6 +14,20 @@
  *   CHOCOLATEY_API_KEY — from https://community.chocolatey.org/account (after
  *                        claiming/publishing the "voiden" package id there once)
  *
+ * Optional env vars:
+ *   CHOCO_PACKAGE_VERSION — overrides the pushed Chocolatey package version
+ *                           without changing the software version baked into
+ *                           the install URL/checksum. Chocolatey won't let you
+ *                           re-push an already-submitted version number, even
+ *                           to fix a failed one — the standard convention for
+ *                           "same software, fixed packaging" is a revision
+ *                           suffix (e.g. CHOCO_PACKAGE_VERSION=2.3.0.1 while
+ *                           the app itself is still 2.3.0). Only affects
+ *                           `choco pack --version` and the resulting .nupkg
+ *                           filename; $version inside chocolateyinstall.ps1
+ *                           (and therefore the download URL) always reflects
+ *                           the real software version from package.json.
+ *
  * Notes:
  *   - Beta builds publish as a Chocolatey prerelease (NuGet prerelease semver,
  *     e.g. 2.3.0-beta.1) — installable via `choco install voiden --pre`.
@@ -36,10 +50,11 @@ const { spawnSync } = require('child_process');
 
 const packageJson = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf-8'));
 const version = packageJson.version;
+const packageVersion = process.env.CHOCO_PACKAGE_VERSION || version;
 const isBetaBuild = version.includes('beta') || version.includes('alpha') || version.includes('rc');
 const channel = process.argv[2] || (isBetaBuild ? 'beta' : 'stable');
 
-console.log(`\n📦 Chocolatey Publisher — Voiden v${version} [${channel}]\n`);
+console.log(`\n📦 Chocolatey Publisher — Voiden v${version} [${channel}]${packageVersion !== version ? ` (package revision ${packageVersion})` : ''}\n`);
 
 if (channel !== 'beta' && channel !== 'stable') {
   console.log(`ℹ️  Nothing to publish for channel "${channel}". Skipping.\n`);
@@ -119,7 +134,7 @@ fs.writeFileSync(installScriptPath, installScript);
 console.log('🔨 Packing .nupkg...\n');
 const packResult = spawnSync('choco', [
   'pack', path.join(workDir, 'voiden.nuspec'),
-  '--version', version,
+  '--version', packageVersion,
   '--outputdirectory', workDir,
 ], { stdio: 'inherit' });
 
@@ -128,7 +143,7 @@ if (packResult.status !== 0) {
   process.exit(1);
 }
 
-const nupkgName = `voiden.${version}.nupkg`;
+const nupkgName = `voiden.${packageVersion}.nupkg`;
 const nupkgPath = path.join(workDir, nupkgName);
 if (!fs.existsSync(nupkgPath)) {
   console.error(`❌ Expected ${nupkgPath} after pack but it wasn't produced.`);
@@ -170,7 +185,7 @@ async function pushWithRetry() {
     if (pushResult.status === 0) return;
 
     if (/already exists and cannot be modified/i.test(pushStdout + pushStderr)) {
-      console.log(`\nℹ️  voiden ${version} was already pushed. Nothing to do.\n`);
+      console.log(`\nℹ️  voiden ${packageVersion} was already pushed. Nothing to do.\n`);
       process.exit(0);
     }
 
@@ -191,7 +206,7 @@ async function pushWithRetry() {
 (async () => {
   await pushWithRetry();
 
-  console.log(`\n✅ Pushed voiden ${version} to Chocolatey.\n`);
+  console.log(`\n✅ Pushed voiden ${packageVersion} to Chocolatey.\n`);
   console.log('─── User install command ────────────────────────────────────\n');
   console.log('choco install voiden\n');
 })();
