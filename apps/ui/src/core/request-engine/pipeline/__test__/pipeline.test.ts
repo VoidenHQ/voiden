@@ -282,7 +282,7 @@ describe('PipelineExecutor', () => {
       statusText: 'OK',
       headers: new Map([['content-type', 'application/json']]),
       json: async () => ({ success: true }),
-      text: async () => 'success',
+      text: async () => JSON.stringify({ success: true }),
       arrayBuffer: async () => new ArrayBuffer(0),
       url: 'https://api.example.com',
     });
@@ -492,7 +492,7 @@ describe('PipelineExecutor', () => {
 
       await executor.execute();
 
-      expect(responseBody).toEqual({ success: true });
+      expect(responseBody).toBe('{\n  "success": true\n}');
     });
 
     it('voiden test : handle null or undefined response gracefully', async () => {
