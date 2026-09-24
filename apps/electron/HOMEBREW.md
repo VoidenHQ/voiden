@@ -14,22 +14,45 @@ no separate `stage-packages`-style dependency list to keep in sync here.
 Homebrew has no first-class prerelease/beta channel for a single formula —
 `publish-brew.js` only publishes for the **stable** channel.
 
+## A bare `brew install voiden` is not possible from a custom tap
+
+This is a real, working Homebrew tap (**verified against live infra** — see
+below), but `brew install voiden` with no prior `brew tap` will never find
+it. Homebrew only searches `homebrew-core` (and, on macOS, the official
+`homebrew-cask`, which is why `brew install voiden` already works on macOS —
+Voiden has a real, accepted entry in `Homebrew/homebrew-cask`, set up
+separately from anything in this doc) by default. A custom tap is invisible
+to a bare install until Homebrew is told to look there:
+
+```bash
+brew tap voidenhq/voiden
+brew install voiden
+
+# or, equivalently, one line:
+brew install voidenhq/voiden/voiden
+```
+
+The only way to get a truly bare `brew install voiden` on Linux is
+acceptance into `homebrew-core` itself — a separate, human-reviewed
+submission process with its own strict criteria (and GUI-only apps are
+usually pointed at Cask instead of core formulae, which doesn't have a
+Linux equivalent the way macOS does). Not attempted here.
+
 ## One-time Setup
 
-The tap already exists: https://github.com/phurpa-tsering/homebrew-voiden
+The tap: https://github.com/VoidenHQ/homebrew-voiden
 
-Hosted under a personal account rather than `VoidenHQ` — a fine-grained PAT
-scoped to an org repo typically needs an org *owner* to approve it before it
-works, which isn't available here; a repo owned outright by the token's own
-account has no such approval step.
+1. Create a **classic** GitHub PAT with the `repo` scope and store it as the
+   `HOMEBREW_TAP_GITHUB_TOKEN` secret, from an account with push access to
+   that repo (e.g. whoever created it — repo creators get admin on that
+   specific repo even without being an org owner overall).
 
-1. Create a **classic** GitHub PAT with the `repo` scope (fine-grained tokens
-   work too for a repo you own, but classic avoids org-approval gotchas
-   entirely) and store it as the `HOMEBREW_TAP_GITHUB_TOKEN` secret.
-
-That's the only setup — unlike Winget/Chocolatey/Snap, there's no external
-account to register or package id to claim, since the tap owner pushes to
-their own repo outright.
+**Use classic, not fine-grained.** This tap briefly lived under a personal
+account after a fine-grained PAT scoped to `VoidenHQ` got a real, confirmed
+403 — fine-grained PATs scoped to an org repo typically need an org *owner*
+to approve them before they work, which wasn't available. A classic PAT has
+no such approval step and works fine here once it belongs to an account
+that can push to this specific repo.
 
 ## Every Release (Linux, after `electron-forge make`)
 
@@ -41,17 +64,16 @@ The script:
 - Finds the built `.AppImage` in `out/make/`
 - Computes its sha256
 - Templates `Formula/voiden.rb` with the real version/url/sha256
-- Clones `phurpa-tsering/homebrew-voiden`, commits, and pushes directly to
-  `main` (no fork/PR — same-repo push, unlike `publish-winget.js`'s
-  fork-and-PR flow against the much larger, externally-owned
-  `microsoft/winget-pkgs`)
+- Clones `VoidenHQ/homebrew-voiden`, commits, and pushes directly to `main`
+  (no fork/PR — same-repo push, unlike `publish-winget.js`'s fork-and-PR
+  flow against the much larger, externally-owned `microsoft/winget-pkgs`)
 - No-ops cleanly if the formula is already up to date for this version
   (safe to re-run)
 
 ## User Install Commands
 
 ```bash
-brew tap phurpa-tsering/voiden
+brew tap voidenhq/voiden
 brew install voiden
 
 # Update
@@ -64,14 +86,21 @@ brew update && brew upgrade voiden
 |---|---|
 | `apps/electron/publish-brew.js` | Templates and pushes `Formula/voiden.rb` to the tap |
 
-The formula itself lives in the separate `phurpa-tsering/homebrew-voiden`
-repo, not here — do not hand-edit it there, it's overwritten on every
-publish.
+The formula itself lives in the separate `VoidenHQ/homebrew-voiden` repo,
+not here — do not hand-edit it there, it's overwritten on every publish.
 
-## Verifying a real install (not done as part of this change)
+## Verified against real infra
 
-`publish-brew.js` and the formula's syntax have been checked
-(`node --check`, `ruby -c`), but an actual `brew install voiden` from the
-tap has not been run end-to-end — that needs a real released AppImage at
-the pinned URL first. Do that once a real version has gone through
-`publish-brew.js` for the first time.
+A real dispatch of `publish-brew.js` (against the actual v2.3.0 stable
+build artifact) successfully pushed a real formula update, confirmed by
+reading the pushed file back from the tap repo:
+
+```ruby
+url "https://voiden.md/api/download/stable/linux/x64/Voiden-2.3.0.AppImage"
+sha256 "d25ecf80790eee15f13c5e9a136171d359554c2535beddd9106491fbbdea6cd0"
+version "2.3.0"
+```
+
+Not yet done: an actual `brew install voiden` run end-to-end on a real
+Linux machine (the push is confirmed; the resulting install experience
+itself hasn't been).
