@@ -64,12 +64,20 @@ request PR against `flathub/flathub` (fork + PR, same technique
 `publish-winget.js` uses against `microsoft/winget-pkgs`) — idempotent, safe
 to re-run.
 
+**Confirmed against a real submission (PR opened, then auto-closed by
+Flathub's bot on the first attempt):** the PR must target Flathub's `new-pr`
+branch, not `master` — `new-pr` is a permanently empty orphan branch (a
+single 2017 "Initial commit" with no files), so the PR's diff ends up being
+just this app's own folder added on top of nothing. Targeting `master`
+first got an instant automated close: "application submission pull requests
+must be made against the new-pr branch." `publish-flatpak.js` now branches
+off and targets `new-pr` correctly (`SUBMISSION_BASE_BRANCH` in the script).
+
 **Flathub's submission process is external and can change** — re-check
 https://docs.flathub.org/docs/for-app-authors/submission against what the
-script actually does before relying on it for the real submission. As of
-writing, new apps request their id via a PR like this one; once
+script actually does before relying on it for future submissions. Once
 accepted, Flathub creates a dedicated `flathub/<app-id>` repo for future
-updates to push to directly instead.
+updates to push to directly instead of opening a new PR each time.
 
 ## After Acceptance (not yet implemented)
 

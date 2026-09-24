@@ -56,6 +56,9 @@ const MANIFEST_RELATIVE_PATH = `flatpak/${APP_ID}.yml`;
 const MANIFEST_LOCAL_PATH = path.join(__dirname, MANIFEST_RELATIVE_PATH);
 const UPSTREAM_OWNER = 'flathub';
 const UPSTREAM_REPO = 'flathub';
+// New-app submission PRs must target this branch, not the default (master) —
+// see the comment above where it's read, in main().
+const SUBMISSION_BASE_BRANCH = 'new-pr';
 const GITHUB_API = 'https://api.github.com';
 
 console.log(`\n📦 Flatpak Publisher — Voiden v${version} [${channel}]\n`);
@@ -127,9 +130,9 @@ async function gh(method, apiPath, body) {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-async function waitForForkReady(forkOwner, repo, { attempts = 15, delayMs = 4000 } = {}) {
+async function waitForForkReady(forkOwner, repo, branchName, { attempts = 15, delayMs = 4000 } = {}) {
   for (let i = 1; i <= attempts; i++) {
-    const ref = await gh('GET', `/repos/${forkOwner}/${repo}/git/ref/heads/master`);
+    const ref = await gh('GET', `/repos/${forkOwner}/${repo}/git/ref/heads/${branchName}`);
     if (ref.ok) return;
     console.log(`   ...fork not ready yet (attempt ${i}/${attempts}, HTTP ${ref.status}), waiting ${delayMs / 1000}s`);
     await sleep(delayMs);
@@ -173,10 +176,17 @@ async function main() {
   console.log(`\n🍴 Ensuring fork of ${UPSTREAM_OWNER}/${UPSTREAM_REPO}...`);
   const fork = await gh('POST', `/repos/${UPSTREAM_OWNER}/${UPSTREAM_REPO}/forks`);
   if (!fork.ok) throw new Error(`Fork request failed: ${JSON.stringify(fork.json)}`);
-  await waitForForkReady(forkOwner, UPSTREAM_REPO);
+  await waitForForkReady(forkOwner, UPSTREAM_REPO, SUBMISSION_BASE_BRANCH);
 
-  const upstreamRef = await gh('GET', `/repos/${UPSTREAM_OWNER}/${UPSTREAM_REPO}/git/ref/heads/master`);
-  if (!upstreamRef.ok) throw new Error(`Failed to read upstream master ref: ${JSON.stringify(upstreamRef.json)}`);
+  // Flathub's new-app submission PRs target `new-pr`, a permanently empty
+  // orphan branch (a single 2017 "Initial commit" with the well-known empty
+  // git tree) — NOT `master`, which holds the whole repo's history/CI config.
+  // Confirmed the hard way: a first real submission attempt targeting
+  // `master` was auto-closed instantly by flathub's own bot with "must be
+  // made against the new-pr branch". Branching off `new-pr` means the PR's
+  // diff is just this app's own folder, added on top of nothing.
+  const upstreamRef = await gh('GET', `/repos/${UPSTREAM_OWNER}/${UPSTREAM_REPO}/git/ref/heads/${SUBMISSION_BASE_BRANCH}`);
+  if (!upstreamRef.ok) throw new Error(`Failed to read upstream ${SUBMISSION_BASE_BRANCH} ref: ${JSON.stringify(upstreamRef.json)}`);
   const baseSha = upstreamRef.json.object.sha;
 
   console.log('\n📝 Building manifest blob...');
@@ -239,7 +249,7 @@ async function main() {
       'process expects something different from what this PR does._',
     ].join('\n'),
     head: `${forkOwner}:${branch}`,
-    base: 'master',
+    base: SUBMISSION_BASE_BRANCH,
   });
   if (!pr.ok) {
     const alreadyExists = pr.status === 422 && JSON.stringify(pr.json).includes('already exists');
