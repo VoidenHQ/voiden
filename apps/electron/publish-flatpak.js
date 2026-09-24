@@ -166,8 +166,10 @@ async function main() {
   const forkOwner = me.json.login;
   console.log(`   token identity : ${forkOwner}`);
 
-  // Already submitted?
-  const existingPr = await gh('GET', `/repos/${UPSTREAM_OWNER}/${UPSTREAM_REPO}/pulls?head=${forkOwner}:${branch}&state=all`);
+  // Already submitted? Only an OPEN PR counts — a closed one (e.g. Flathub's
+  // bot auto-closing a submission that targeted the wrong base branch, as
+  // happened on the first real attempt here) must not block a corrected retry.
+  const existingPr = await gh('GET', `/repos/${UPSTREAM_OWNER}/${UPSTREAM_REPO}/pulls?head=${forkOwner}:${branch}&state=open`);
   if (existingPr.ok && existingPr.json.length > 0) {
     console.log(`ℹ️  A submission PR already exists: ${existingPr.json[0].html_url}\n`);
     return;
