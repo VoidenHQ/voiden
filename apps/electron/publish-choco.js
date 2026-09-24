@@ -102,9 +102,16 @@ fs.cpSync(srcDir, workDir, { recursive: true });
 
 const installScriptPath = path.join(workDir, 'tools', 'chocolateyinstall.ps1');
 let installScript = fs.readFileSync(installScriptPath, 'utf-8');
+// replaceAll, not replace: a plain (non-global) .replace() only substitutes the
+// FIRST occurrence in the whole file. Confirmed the hard way — a comment line
+// mentioning "__VERSION__ / __CHECKSUM__" above the real $version/$checksum
+// assignments ate the substitution every single time, silently shipping every
+// past release with a literal, unsubstituted "__VERSION__" in the download URL
+// (a guaranteed 404 on install). replaceAll is correct regardless of whether
+// the token text also happens to appear anywhere else in the file, comment or not.
 installScript = installScript
-  .replace('__VERSION__', version)
-  .replace('__CHECKSUM__', checksum);
+  .replaceAll('__VERSION__', version)
+  .replaceAll('__CHECKSUM__', checksum);
 fs.writeFileSync(installScriptPath, installScript);
 
 // ─── Pack ───────────────────────────────────────────────────────────────────────

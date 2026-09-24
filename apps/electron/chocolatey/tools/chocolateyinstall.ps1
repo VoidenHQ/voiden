@@ -1,6 +1,6 @@
 $ErrorActionPreference = 'Stop'
 
-# __VERSION__ / __CHECKSUM__ are substituted by publish-choco.js before `choco pack`.
+# The two values below are substituted by publish-choco.js before `choco pack`.
 $version  = '__VERSION__'
 $checksum = '__CHECKSUM__'
 $url64    = "https://github.com/VoidenHQ/voiden/releases/download/v$version/Voiden.Setup.$version.exe"
