@@ -84,6 +84,10 @@ on:
         required: false
         type: boolean
         default: true
+      choco_package_version:
+        description: 'Override the Chocolatey package version (e.g. 2.3.0.1) without changing the software version in the install URL — for re-submitting a fixed package after a version already failed under its real version number. Leave blank for a normal release.'
+        required: false
+        type: string
       run_nix_cache:
         description: 'Publish Nix Cachix cache'
         required: false
@@ -242,6 +246,7 @@ jobs:
         working-directory: apps/electron
         env:
           CHOCOLATEY_API_KEY: ${{ secrets.CHOCOLATEY_API_KEY }}
+          CHOCO_PACKAGE_VERSION: ${{ inputs.choco_package_version }}
         run: node publish-choco.js ${{ inputs.channel }}
 
       - name: Report Chocolatey publish failure
