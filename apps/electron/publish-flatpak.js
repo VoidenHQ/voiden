@@ -169,10 +169,13 @@ async function main() {
   // Already submitted? An OPEN PR means nothing further to do. A CLOSED one
   // (Flathub's submission-checker bot auto-closes on anything it flags, e.g.
   // wrong base branch or a nested file path — both hit for real on the first
-  // two attempts here) shouldn't turn into yet another new PR on retry —
-  // Flathub's own bot explicitly asks for that ("please post a comment
-  // instead of opening or reopening (new) PRs"). Reopen the same PR instead,
-  // once the underlying issue is actually fixed.
+  // two attempts here) ideally wouldn't turn into yet another new PR on
+  // retry, since the bot explicitly asks for that instead ("please post a
+  // comment instead of opening or reopening (new) PRs") — reopening was
+  // tried, but GitHub hard-blocks reopening a PR whose head branch was
+  // force-pushed ("state cannot be changed"), which a content fix on the
+  // same branch name always triggers. So: a closed PR just gets referenced
+  // in the new PR's body for reviewer context instead.
   const allPrs = await gh('GET', `/repos/${UPSTREAM_OWNER}/${UPSTREAM_REPO}/pulls?head=${forkOwner}:${branch}&state=all`);
   const existingOpenPr = allPrs.ok ? allPrs.json.find((p) => p.state === 'open') : undefined;
   const existingClosedPr = allPrs.ok ? allPrs.json.find((p) => p.state === 'closed') : undefined;
@@ -248,16 +251,6 @@ async function main() {
   }
   if (!ref.ok) throw new Error(`Failed to push branch: ${JSON.stringify(ref.json)}`);
 
-  if (existingClosedPr) {
-    console.log(`\n🔓 Reopening PR #${existingClosedPr.number} (was auto-closed, now fixed)...`);
-    const reopen = await gh('PATCH', `/repos/${UPSTREAM_OWNER}/${UPSTREAM_REPO}/pulls/${existingClosedPr.number}`, {
-      state: 'open',
-    });
-    if (!reopen.ok) throw new Error(`Failed to reopen PR: ${JSON.stringify(reopen.json)}`);
-    console.log(`\n✅ Reopened: ${reopen.json.html_url}\n`);
-    return;
-  }
-
   console.log('\n🚀 Opening new-app submission PR against flathub/flathub...');
   const pr = await gh('POST', `/repos/${UPSTREAM_OWNER}/${UPSTREAM_REPO}/pulls`, {
     title: `Add ${APP_ID}`,
@@ -267,6 +260,9 @@ async function main() {
       'Voiden is a file-based API client for building, testing, documenting and',
       'collaborating on APIs (REST, GraphQL, WebSocket, gRPC). Source: https://github.com/VoidenHQ/voiden',
       '',
+      ...(existingClosedPr
+        ? [`Supersedes #${existingClosedPr.number}, auto-closed by the submission checker — that feedback is now addressed.`, '']
+        : []),
       '_Opened by publish-flatpak.js — please flag if the current Flathub submission',
       'process expects something different from what this PR does._',
     ].join('\n'),

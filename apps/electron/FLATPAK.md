@@ -76,11 +76,14 @@ Flathub's `submission-checker` bot:**
    not `<app-id>/<app-id>.yml` in a subfolder. A nested path got: "Files not
    in toplevel."
 
-`publish-flatpak.js` now does both correctly. It also **reopens the same PR
-on a corrected retry** instead of opening a new one each time — the bot
-explicitly asks for that ("please post a comment below instead of opening
-or reopening (new) PRs"), and two real PRs (flathub/flathub#10360, #10361)
-already got opened-then-closed working through these two issues.
+`publish-flatpak.js` now does both correctly. It tried reopening the same
+PR on a corrected retry (the bot's own preference: "please post a comment
+below instead of opening or reopening (new) PRs") — but GitHub hard-blocks
+reopening a PR whose head branch was force-pushed ("state cannot be
+changed"), which a content fix on the same branch name always triggers. So
+a closed PR just gets referenced ("Supersedes #...") in the fresh PR's body
+for reviewer context instead. Working through these two issues took three
+real PRs (flathub/flathub#10360, #10361, and whatever number comes next).
 
 **Flathub's submission process is external and can change** — re-check
 https://docs.flathub.org/docs/for-app-authors/submission against what the
