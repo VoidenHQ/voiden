@@ -115,7 +115,7 @@ function formulaContents() {
       bin.install appimage => "voiden"
     end
 
-    caveats do
+    def caveats
       <<~EOS
         Voiden ships as an AppImage. On some modern kernels (Ubuntu 24.04+,
         Fedora with strict AppArmor userns restrictions), the sandboxed
