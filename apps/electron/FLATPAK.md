@@ -76,10 +76,11 @@ updates to push to directly instead.
 Once `flathub/md.voiden.Voiden` exists, `publish-flatpak.js` needs a
 direct-push path to that repo instead of a fresh `flathub/flathub` PR each
 time (mirroring how `publish-brew.js` pushes straight to
-`VoidenHQ/homebrew-voiden`, since Voiden would then own that repo too). The
-script currently exits with guidance if `FLATHUB_APP_REPO_EXISTS=1` is set,
-rather than guessing at a flow that hasn't been validated against the real
-repo yet — implement that path once the app is actually accepted.
+`phurpa-tsering/homebrew-voiden` once that's created/accepted, rather than
+opening a PR each time). The script currently exits with guidance if
+`FLATHUB_APP_REPO_EXISTS=1` is set, rather than guessing at a flow that
+hasn't been validated against the real repo yet — implement that path once
+the app is actually accepted.
 
 ## Files in This Repo
 

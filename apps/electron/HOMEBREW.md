@@ -16,15 +16,20 @@ Homebrew has no first-class prerelease/beta channel for a single formula —
 
 ## One-time Setup
 
-The tap already exists: https://github.com/VoidenHQ/homebrew-voiden
+The tap already exists: https://github.com/phurpa-tsering/homebrew-voiden
 
-1. Create a GitHub token with push access to `VoidenHQ/homebrew-voiden`
-   (a classic PAT with `repo` scope, or a fine-grained token scoped to just
-   that repo) and store it as the `HOMEBREW_TAP_GITHUB_TOKEN` secret.
+Hosted under a personal account rather than `VoidenHQ` — a fine-grained PAT
+scoped to an org repo typically needs an org *owner* to approve it before it
+works, which isn't available here; a repo owned outright by the token's own
+account has no such approval step.
+
+1. Create a **classic** GitHub PAT with the `repo` scope (fine-grained tokens
+   work too for a repo you own, but classic avoids org-approval gotchas
+   entirely) and store it as the `HOMEBREW_TAP_GITHUB_TOKEN` secret.
 
 That's the only setup — unlike Winget/Chocolatey/Snap, there's no external
-account to register or package id to claim, since Voiden owns this tap
-outright.
+account to register or package id to claim, since the tap owner pushes to
+their own repo outright.
 
 ## Every Release (Linux, after `electron-forge make`)
 
@@ -36,16 +41,17 @@ The script:
 - Finds the built `.AppImage` in `out/make/`
 - Computes its sha256
 - Templates `Formula/voiden.rb` with the real version/url/sha256
-- Clones `VoidenHQ/homebrew-voiden`, commits, and pushes directly to `main`
-  (no fork/PR — same-repo push, unlike `publish-winget.js`'s fork-and-PR flow
-  against the much larger, externally-owned `microsoft/winget-pkgs`)
+- Clones `phurpa-tsering/homebrew-voiden`, commits, and pushes directly to
+  `main` (no fork/PR — same-repo push, unlike `publish-winget.js`'s
+  fork-and-PR flow against the much larger, externally-owned
+  `microsoft/winget-pkgs`)
 - No-ops cleanly if the formula is already up to date for this version
   (safe to re-run)
 
 ## User Install Commands
 
 ```bash
-brew tap voidenhq/voiden
+brew tap phurpa-tsering/voiden
 brew install voiden
 
 # Update
@@ -58,8 +64,9 @@ brew update && brew upgrade voiden
 |---|---|
 | `apps/electron/publish-brew.js` | Templates and pushes `Formula/voiden.rb` to the tap |
 
-The formula itself lives in the separate `VoidenHQ/homebrew-voiden` repo,
-not here — do not hand-edit it there, it's overwritten on every publish.
+The formula itself lives in the separate `phurpa-tsering/homebrew-voiden`
+repo, not here — do not hand-edit it there, it's overwritten on every
+publish.
 
 ## Verifying a real install (not done as part of this change)
 

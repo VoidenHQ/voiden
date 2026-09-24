@@ -3,19 +3,23 @@
 /**
  * Voiden Homebrew (Linux) Publisher
  *
- * Publishes the already-built Linux AppImage to the VoidenHQ/homebrew-voiden
+ * Publishes the already-built Linux AppImage to the phurpa-tsering/homebrew-voiden
  * tap by templating Formula/voiden.rb with the real version/url/sha256 and
- * pushing directly to that repo's main branch — no fork/PR needed, Voiden
- * owns this tap outright (unlike publish-winget.js's fork-and-PR dance
- * against the huge, third-party-owned microsoft/winget-pkgs).
+ * pushing directly to that repo's main branch — no fork/PR needed, the tap
+ * owner pushes to their own repo outright (unlike publish-winget.js's
+ * fork-and-PR dance against the huge, third-party-owned microsoft/winget-pkgs).
+ *
+ * Hosted under a personal account rather than VoidenHQ because fine-grained
+ * PATs scoped to an org typically need an org *owner* to approve them before
+ * they work, and classic PATs need the org's SSO enabled for the token if
+ * the org enforces it — neither hurdle applies to a repo you own outright.
  *
  * Usage:
  *   node publish-brew.js [beta|stable]
  *
  * Required env vars:
- *   HOMEBREW_TAP_GITHUB_TOKEN — classic PAT with "repo" scope (or a fine-grained
- *                               token scoped to VoidenHQ/homebrew-voiden) for
- *                               the account that pushes to the tap.
+ *   HOMEBREW_TAP_GITHUB_TOKEN — classic PAT with "repo" scope for the account
+ *                               that owns and pushes to the tap.
  *
  * Notes:
  *   - Homebrew has no first-class concept of a prerelease/beta channel for a
@@ -41,7 +45,7 @@ const version = packageJson.version;
 const isBetaBuild = version.includes('beta') || version.includes('alpha') || version.includes('rc');
 const channel = process.argv[2] || (isBetaBuild ? 'beta' : 'stable');
 
-const TAP_OWNER = 'VoidenHQ';
+const TAP_OWNER = 'phurpa-tsering';
 const TAP_REPO = 'homebrew-voiden';
 
 console.log(`\n📦 Homebrew (Linux) Publisher — Voiden v${version} [${channel}]\n`);
@@ -172,6 +176,6 @@ if (diff.status === 0) {
 fs.rmSync(tmpDir, { recursive: true, force: true });
 
 console.log('─── User install command ────────────────────────────────────\n');
-console.log('brew tap voidenhq/voiden');
+console.log(`brew tap ${TAP_OWNER}/voiden`);
 console.log('brew install voiden');
 console.log('');

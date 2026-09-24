@@ -31,7 +31,7 @@
 #   CHOCOLATEY_API_KEY — from https://community.chocolatey.org/account, after claiming
 #                        the "voiden" package id there (beta + stable)
 #   CACHIX_AUTH_TOKEN — auth token for a "voiden" cache created at https://app.cachix.org
-#   HOMEBREW_TAP_GITHUB_TOKEN — token with push access to VoidenHQ/homebrew-voiden
+#   HOMEBREW_TAP_GITHUB_TOKEN — classic PAT (repo scope) for phurpa-tsering/homebrew-voiden
 #                               (stable only — see HOMEBREW.md)
 #   FLATHUB_GITHUB_TOKEN — classic PAT (public_repo scope) for the account that forks
 #                          flathub/flathub and opens the new-app submission PR
