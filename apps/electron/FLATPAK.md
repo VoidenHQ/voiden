@@ -14,6 +14,49 @@ Chromium's real sandbox run *inside* Flatpak's own sandbox. This is the one
 Linux channel where that workaround shouldn't be needed at all, once the
 manifest is verified.
 
+## The submission PR must be opened by a human — not automated
+
+Flathub's own PR template
+(`.github/pull_request_template.md` in `flathub/flathub`) requires checking:
+
+> I have not used AI tools or agents to generate or automate this
+> submission pull request or its review interactions.
+
+`publish-flatpak.js` originally automated the fork + PR the same way
+`publish-winget.js` does against `microsoft/winget-pkgs`. Three real PRs got
+opened this way (`flathub/flathub#10360`, `#10361`, `#10362`) while
+iterating on unrelated bot rejections (wrong base branch, then a nested file
+path) — which is what surfaced this template requirement in the first
+place. Continuing to automate the PR would mean either checking that box
+dishonestly or submitting one that fails Flathub's own stated criteria
+either way. All three PRs were auto-closed by Flathub's `submission-checker`
+bot; no PR is currently open.
+
+**So `publish-flatpak.js` now only stamps the manifest file — it does not
+touch GitHub at all.** The actual submission needs a human:
+
+1. Fork `flathub/flathub` under your own account (or the account that
+   should be Voiden's Flathub maintainer).
+2. Add `apps/electron/flatpak/md.voiden.Voiden.yml` from this repo — **at
+   the root** of your branch, named `md.voiden.Voiden.yml` (not nested in a
+   subfolder — a nested path gets auto-rejected: "Files not in toplevel").
+3. Push that branch and open a PR against `flathub/flathub`, with the base
+   branch set to **`new-pr`** (not `master` — targeting `master` gets
+   auto-rejected: "application submission pull requests must be made
+   against the new-pr branch"). `new-pr` is a permanently empty orphan
+   branch, so the PR's diff should just be that one new file.
+4. Fill out the actual PR template honestly — it asks for an app
+   description in your own words, a demo video of Voiden running via the
+   Flatpak build, and an authorship/upstream-contact statement, none of
+   which this script can produce.
+
+This constraint is specific to the *initial submission* PR under Flathub's
+human review process. Once Voiden is accepted, routine version bumps push
+directly to the dedicated `flathub/md.voiden.Voiden` repo with no PR review
+gate — same shape as `publish-winget.js`/`publish-brew.js` already automate
+for their own ecosystems, and reasonable to automate here too once that repo
+exists (see "After Acceptance" below).
+
 ## Build approach
 
 `apps/electron/flatpak/md.voiden.Voiden.yml` extracts the already-built
@@ -41,7 +84,7 @@ Things likely worth checking/adjusting once you can actually run this:
   (e.g. `--filesystem=home` vs. a scoped project directory) as part of
   review.
 
-## One-time Setup — domain + app id
+## Domain + app id
 
 The app id `md.voiden.Voiden` is the reverse-DNS of `voiden.md`. Flathub
 requires proving ownership of that domain as part of first submission —
@@ -49,62 +92,31 @@ typically a file under `https://voiden.md/.well-known/`. Check
 https://docs.flathub.org/docs/for-app-authors/requirements for the exact
 current requirement before submitting; this hasn't been done yet.
 
-Store a GitHub PAT (classic, `public_repo` scope) for the account that
-should own the `flathub/flathub` fork and open the submission PR, as the
-`FLATHUB_GITHUB_TOKEN` secret.
-
-## First Submission
+## Every Release, Before Submission (Linux, after `electron-forge make`)
 
 ```bash
 node apps/electron/publish-flatpak.js stable
 ```
 
-Stamps the real `.deb` url/sha256 into the manifest, then opens a new-app
-request PR against `flathub/flathub` (fork + PR, same technique
-`publish-winget.js` uses against `microsoft/winget-pkgs`) — idempotent, safe
-to re-run.
-
-**Confirmed against two real submission attempts, both auto-closed by
-Flathub's `submission-checker` bot:**
-1. The PR must target Flathub's `new-pr` branch, not `master` — `new-pr` is
-   a permanently empty orphan branch (a single 2017 "Initial commit" with no
-   files), so the PR's diff ends up being just this app's own folder added
-   on top of nothing. Targeting `master` got an instant close:
-   "application submission pull requests must be made against the new-pr
-   branch."
-2. The manifest file must sit at the **PR diff's root** — `<app-id>.yml`,
-   not `<app-id>/<app-id>.yml` in a subfolder. A nested path got: "Files not
-   in toplevel."
-
-`publish-flatpak.js` now does both correctly. It tried reopening the same
-PR on a corrected retry (the bot's own preference: "please post a comment
-below instead of opening or reopening (new) PRs") — but GitHub hard-blocks
-reopening a PR whose head branch was force-pushed ("state cannot be
-changed"), which a content fix on the same branch name always triggers. So
-a closed PR just gets referenced ("Supersedes #...") in the fresh PR's body
-for reviewer context instead. Working through these two issues took three
-real PRs (flathub/flathub#10360, #10361, and whatever number comes next).
-
-**Flathub's submission process is external and can change** — re-check
-https://docs.flathub.org/docs/for-app-authors/submission against what the
-script actually does before relying on it for future submissions. Once
-accepted, Flathub creates a dedicated `flathub/<app-id>` repo for future
-updates to push to directly instead of opening a new PR each time.
+Finds the built `.deb`, computes its sha256, and stamps the real
+version-pinned url/sha256 into the manifest — nothing else. Commit the
+updated manifest yourself as part of whatever PR/update you're making by
+hand (see above for the initial submission; see "After Acceptance" for what
+routine updates should look like later).
 
 ## After Acceptance (not yet implemented)
 
-Once `flathub/md.voiden.Voiden` exists, `publish-flatpak.js` needs a
-direct-push path to that repo instead of a fresh `flathub/flathub` PR each
-time (mirroring how `publish-brew.js` pushes straight to
-`phurpa-tsering/homebrew-voiden` once that's created/accepted, rather than
-opening a PR each time). The script currently exits with guidance if
-`FLATHUB_APP_REPO_EXISTS=1` is set, rather than guessing at a flow that
-hasn't been validated against the real repo yet — implement that path once
-the app is actually accepted.
+Once a human has gotten Voiden accepted and `flathub/md.voiden.Voiden`
+exists, routine version bumps could push directly to that repo — no PR
+review gate applies to an already-accepted app's own repo, so this doesn't
+run into the same human-submission requirement as the initial PR. Not
+implemented yet since that repo doesn't exist yet; add a real push path
+(mirroring `publish-brew.js`'s direct push to
+`phurpa-tsering/homebrew-voiden`) once it does.
 
 ## Files in This Repo
 
 | File | Purpose |
 |---|---|
 | `apps/electron/flatpak/md.voiden.Voiden.yml` | Flatpak manifest |
-| `apps/electron/publish-flatpak.js` | Stamps the manifest + opens/tracks the Flathub submission |
+| `apps/electron/publish-flatpak.js` | Stamps the manifest's url/sha256 only — does not touch GitHub |
