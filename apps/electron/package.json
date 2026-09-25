@@ -53,7 +53,7 @@
     "aws-sdk": "2.1692.0",
     "commander": "^12.0.0",
     "dotenv": "^16.4.5",
-    "electron": "39.8.8",
+    "electron": "39.8.10",
     "electron-updater": "^6.3.9",
     "electron-updater-yaml": "^1.0.0",
     "semver": "^7.6.0",
