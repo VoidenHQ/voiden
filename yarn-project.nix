@@ -67,7 +67,7 @@ let
     # with any placeholder value here, take the "got:" hash from the error,
     # and add it below.
     outputHash = {
-      "aarch64-darwin" = "sha512-9VhdsdWnbrCGaVRpLqx3wFb38kmfpbxa98v5/XJNib+mMpnSWvvd4AjftSDgSuNlgEjhRmPjllPpEYWZZ+eybw==";
+      "aarch64-darwin" = "sha512-kndD7aJsgSfC0klbyZIhRGBDQSU74FhmoDne7fGjH3ssZ8XiE3wGc072jGMf70/NuwJEADdJjzxZhVABzazH5w==";
       "x86_64-linux" = "sha512-uX+NET72WQzWTBTxEVZzhsE80Gx0Eorf0XJspe/9dHEgtmJ9lpm9HJaU+OQVXBLLRg0QbJFMjJn6UT15jdjSxQ==";
     }.${stdenv.system} or (throw "yarn-project.nix: no pinned yarn-cache outputHash for system '${stdenv.system}' — see the comment above for how to add one");
   };
