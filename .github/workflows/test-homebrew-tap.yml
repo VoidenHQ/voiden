@@ -17,17 +17,36 @@ jobs:
       - name: Install Homebrew
         run: |
           NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-          echo "$(brew --prefix)/bin" >> "$GITHUB_PATH"
-          echo "$(brew --prefix)/sbin" >> "$GITHUB_PATH"
+          # `brew --prefix` isn't usable yet here — brew itself isn't on PATH
+          # until a later step picks up $GITHUB_PATH. Linuxbrew's install
+          # location is fixed, so hardcode it instead of trying to ask brew.
+          echo "/home/linuxbrew/.linuxbrew/bin" >> "$GITHUB_PATH"
+          echo "/home/linuxbrew/.linuxbrew/sbin" >> "$GITHUB_PATH"
 
       - name: brew tap voidenhq/voiden
         run: brew tap voidenhq/voiden
 
-      - name: brew install voiden
-        run: brew install --verbose voiden
+      # Newer Homebrew refuses to load a formula from a third-party tap until
+      # explicitly trusted — confirmed for real here: "Refusing to load
+      # formula voidenhq/voiden/voiden from untrusted tap voidenhq/voiden."
+      # Not a bug in the formula; a real Homebrew security gate every
+      # third-party tap install needs, documented in HOMEBREW.md.
+      - name: brew trust voidenhq/voiden
+        run: brew trust voidenhq/voiden
 
-      - name: brew info voiden (confirm it's actually recognized as the formula, not a cask fallback)
-        run: brew info voiden
+      # A bare "voiden" resolves to the official macOS Cask instead of this
+      # tap's Formula — confirmed for real: "Treating voiden as a cask...
+      # This cask requires macOS." Voiden already has a real, separate Cask
+      # entry in Homebrew/homebrew-cask (same name, different software
+      # target — macOS only), so the bare name is ambiguous and Homebrew
+      # resolves it to the cask first. The fully-qualified name (or
+      # `--formula`) is required on Linux, not just "nice to have" — update
+      # HOMEBREW.md's install instructions to match if this confirms it.
+      - name: brew install voidenhq/voiden/voiden
+        run: brew install --verbose voidenhq/voiden/voiden
+
+      - name: brew info voidenhq/voiden/voiden
+        run: brew info voidenhq/voiden/voiden
 
       - name: Confirm the installed binary exists and is executable
         run: |
