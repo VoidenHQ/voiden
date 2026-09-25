@@ -315,7 +315,7 @@ jobs:
         run: |
           security delete-keychain build.keychain 2>/dev/null || true
 
-  # ── apt + snap publishing (beta + stable only) ────────────────────────────────
+  # ── apt + snap + homebrew publishing (beta + stable; homebrew is stable-only — see HOMEBREW.md) ──
   package-managers:
     name: Release Package Managers
     needs: [build, resolve-channel]
