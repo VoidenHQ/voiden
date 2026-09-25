@@ -11,32 +11,52 @@ self-contained executable Voiden already ships and has already worked
 through sandboxing caveats for (see the `caveats` block in the formula) —
 no separate `stage-packages`-style dependency list to keep in sync here.
 
+The formula is a plain, unconditional `url`/`sha256`/`version` gated by
+`depends_on :linux` (a real Homebrew `LinuxRequirement`) — **not** nested
+inside `on_linux do...end`. That nesting was tried first and broke tapping
+*entirely*: Homebrew's `on_linux`/`on_macos` DSL validates the formula
+against every OS variant it knows about, and since nothing was defined
+outside the block, validation failed for every macOS bottle codename
+(`golden_gate`, `tahoe`, `sequoia`, ...) simultaneously, which took the
+whole tap down with "Cannot tap voidenhq/voiden: invalid syntax in tap!" —
+confirmed on a real user's Linux machine. `depends_on :linux` fails cleanly
+on macOS instead ("Linux is required for this software.") without touching
+tap-wide validation at all.
+
 Homebrew has no first-class prerelease/beta channel for a single formula —
 `publish-brew.js` only publishes for the **stable** channel.
 
-## A bare `brew install voiden` is not possible from a custom tap
-
-This is a real, working Homebrew tap (**verified against live infra** — see
-below), but `brew install voiden` with no prior `brew tap` will never find
-it. Homebrew only searches `homebrew-core` (and, on macOS, the official
-`homebrew-cask`, which is why `brew install voiden` already works on macOS —
-Voiden has a real, accepted entry in `Homebrew/homebrew-cask`, set up
-separately from anything in this doc) by default. A custom tap is invisible
-to a bare install until Homebrew is told to look there:
+## Install command — two things this needs that aren't obvious, confirmed on real Linux
 
 ```bash
 brew tap voidenhq/voiden
-brew install voiden
-
-# or, equivalently, one line:
+brew trust voidenhq/voiden
 brew install voidenhq/voiden/voiden
 ```
 
-The only way to get a truly bare `brew install voiden` on Linux is
+**Both `brew trust` and the fully-qualified name are required, not
+optional conveniences** — both confirmed by actually running this on a
+real `ubuntu-latest` GitHub Actions runner (see `test-homebrew-tap.yml`),
+not assumed from reading docs:
+
+1. **`brew trust voidenhq/voiden`** — newer Homebrew refuses to load a
+   formula from a third-party tap until it's explicitly trusted:
+   `Refusing to load formula voidenhq/voiden/voiden from untrusted tap
+   voidenhq/voiden.` This is a real Homebrew security gate for *any*
+   third-party tap, not specific to this one.
+2. **The fully-qualified name (`voidenhq/voiden/voiden`), not bare
+   `voiden`** — Voiden already has a real, separately-accepted entry in
+   the official `Homebrew/homebrew-cask` (macOS only). Because that name
+   already exists elsewhere, a bare `brew install voiden` resolves to
+   *that* Cask instead of this tap's formula — confirmed on Linux CI:
+   `Treating voiden as a cask... This cask requires macOS.` Homebrew's own
+   warning names the fix: use the fully-qualified name, or pass
+   `--formula`.
+
+A bare `brew install voiden` with **zero** ambiguity (no tap, no
+qualification, and not shadowed by the Cask) is only possible via
 acceptance into `homebrew-core` itself — a separate, human-reviewed
-submission process with its own strict criteria (and GUI-only apps are
-usually pointed at Cask instead of core formulae, which doesn't have a
-Linux equivalent the way macOS does). Not attempted here.
+submission process with its own strict criteria. Not attempted here.
 
 ## One-time Setup
 
@@ -70,37 +90,36 @@ The script:
 - No-ops cleanly if the formula is already up to date for this version
   (safe to re-run)
 
-## User Install Commands
+## Verifying a tap/formula change before pushing it live
 
-```bash
-brew tap voidenhq/voiden
-brew install voiden
-
-# Update
-brew update && brew upgrade voiden
-```
+`ruby -c` only checks Ruby *syntax* — it does not catch Homebrew DSL
+mistakes (wrong `caveats` shape, `on_linux` structural issues, etc.), both
+of which reached a real user before being caught here. Use
+`.github/workflows/test-homebrew-tap.yml` (`workflow_dispatch`, runs on a
+real `ubuntu-latest` box) to actually tap and install from the live repo
+end-to-end before trusting a formula change.
 
 ## Files in This Repo
 
 | File | Purpose |
 |---|---|
 | `apps/electron/publish-brew.js` | Templates and pushes `Formula/voiden.rb` to the tap |
+| `.github/workflows/test-homebrew-tap.yml` | Manual real-Linux tap+install verification |
 
 The formula itself lives in the separate `VoidenHQ/homebrew-voiden` repo,
 not here — do not hand-edit it there, it's overwritten on every publish.
 
 ## Verified against real infra
 
-A real dispatch of `publish-brew.js` (against the actual v2.3.0 stable
-build artifact) successfully pushed a real formula update, confirmed by
-reading the pushed file back from the tap repo:
+A full `brew tap` → `brew trust` → `brew install voidenhq/voiden/voiden`
+run succeeded end-to-end on a real `ubuntu-latest` GitHub Actions runner,
+including confirming the installed binary:
 
-```ruby
-url "https://voiden.md/api/download/stable/linux/x64/Voiden-2.3.0.AppImage"
-sha256 "d25ecf80790eee15f13c5e9a136171d359554c2535beddd9106491fbbdea6cd0"
-version "2.3.0"
+```
+/home/linuxbrew/.linuxbrew/bin/voiden -> ../Cellar/voiden/2.3.0/bin/voiden
 ```
 
-Not yet done: an actual `brew install voiden` run end-to-end on a real
-Linux machine (the push is confirmed; the resulting install experience
-itself hasn't been).
+`voiden --version` itself doesn't run headlessly in that environment
+(`AppImages require FUSE to run` — the CI container has no FUSE), which is
+an unrelated, expected AppImage/CI limitation, not a formula problem; real
+desktop Linux systems have FUSE available by default.

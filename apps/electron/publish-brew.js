@@ -180,5 +180,12 @@ fs.rmSync(tmpDir, { recursive: true, force: true });
 
 console.log('─── User install command ────────────────────────────────────\n');
 console.log(`brew tap ${TAP_OWNER}/voiden`);
-console.log('brew install voiden');
+console.log(`brew trust ${TAP_OWNER}/voiden`);
+console.log(`brew install ${TAP_OWNER}/voiden/voiden`);
+console.log('');
+console.log('(Not "brew install voiden" — Voiden also has a real, separate macOS Cask');
+console.log(' entry with the same bare name, so the unqualified name resolves to that');
+console.log(' instead of this tap\'s formula; confirmed on real Linux CI. "brew trust"');
+console.log(' is also required — a real Homebrew security gate for third-party taps,');
+console.log(' not specific to this one.)');
 console.log('');
