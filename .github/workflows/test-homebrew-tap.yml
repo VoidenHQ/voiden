@@ -34,11 +34,19 @@ jobs:
       - name: brew trust voidenhq/voiden
         run: brew trust voidenhq/voiden
 
-      - name: brew install voiden
-        run: brew install --verbose voiden
+      # A bare "voiden" resolves to the official macOS Cask instead of this
+      # tap's Formula — confirmed for real: "Treating voiden as a cask...
+      # This cask requires macOS." Voiden already has a real, separate Cask
+      # entry in Homebrew/homebrew-cask (same name, different software
+      # target — macOS only), so the bare name is ambiguous and Homebrew
+      # resolves it to the cask first. The fully-qualified name (or
+      # `--formula`) is required on Linux, not just "nice to have" — update
+      # HOMEBREW.md's install instructions to match if this confirms it.
+      - name: brew install voidenhq/voiden/voiden
+        run: brew install --verbose voidenhq/voiden/voiden
 
-      - name: brew info voiden (confirm it's actually recognized as the formula, not a cask fallback)
-        run: brew info voiden
+      - name: brew info voidenhq/voiden/voiden
+        run: brew info voidenhq/voiden/voiden
 
       - name: Confirm the installed binary exists and is executable
         run: |
