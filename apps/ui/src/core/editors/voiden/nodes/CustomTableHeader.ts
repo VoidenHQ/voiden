@@ -8,6 +8,7 @@ export const CustomTableHeader = TableHeader.extend({
   name: "tableHeader",
   addOptions() {
     return {
+      HTMLAttributes: {},
       ...this.parent?.(),
     };
   },

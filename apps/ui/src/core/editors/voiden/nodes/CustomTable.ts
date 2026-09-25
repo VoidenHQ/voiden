@@ -1,5 +1,5 @@
 import { mergeAttributes } from "@tiptap/core";
-import Table from "@tiptap/extension-table";
+import { Table } from "@tiptap/extension-table";
 
 export const CustomTable = Table.extend({
   addKeyboardShortcuts() {

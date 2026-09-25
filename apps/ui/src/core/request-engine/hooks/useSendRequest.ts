@@ -234,7 +234,7 @@ export const useSendRestRequest = (_editor: Editor) => {
     const hasLinkedFiles = docForCounting.content?.some((n: any) => n.type === "linkedFile");
     if (hasLinkedFiles) {
       try {
-        docForCounting = await expandLinkedFilesInDoc(docForCounting, (editor as any).schema);
+        docForCounting = (await expandLinkedFilesInDoc(docForCounting, (editor as any).schema)) as typeof docForCounting;
       } catch {
         toast.error("Could not load linked files. Fix any broken file links and try again.");
         return;
