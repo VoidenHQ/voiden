@@ -104,10 +104,31 @@ if (!exePath) {
   console.error(`❌ No .exe found under ${makeDir}. Run \`electron-forge make\` first.`);
   process.exit(1);
 }
-console.log(`   installer : ${path.basename(exePath)}`);
+console.log(`   installer : ${path.basename(exePath)} (build artifact — presence only; not hashed)`);
 
-const checksum = crypto.createHash('sha256').update(fs.readFileSync(exePath)).digest('hex').toUpperCase();
-console.log(`   sha256    : ${checksum}\n`);
+// ─── Download the real release asset and hash THAT ──────────────────────────────
+//
+// Must match chocolateyinstall.ps1's own $url64 exactly (see that file) — this
+// is deliberately the same public GitHub Release URL choco itself will later
+// download from, not a local file. Hashing the local CI build artifact instead
+// (the original approach here) silently shipped a checksum for the WRONG
+// bytes: this repo's release pipeline code-signs the Windows installer sometime
+// after the CI artifact is captured, so the artifact and the file that actually
+// ends up hosted on the GitHub Release differ — confirmed the hard way via a
+// real choco-bot test failure ("Checksum ... did not meet ...") after the
+// separate __VERSION__ substitution bug was already fixed. Downloading and
+// hashing the real asset (same technique publish-winget.js already uses for
+// the same reason) is correct regardless of what happens to the file in between.
+
+const downloadUrl = `https://github.com/VoidenHQ/voiden/releases/download/v${version}/Voiden.Setup.${version}.exe`;
+
+async function downloadAndHash(url) {
+  console.log(`⬇️  Downloading release asset for hashing:\n   ${url}`);
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Download failed: HTTP ${res.status} for ${url}`);
+  const buf = Buffer.from(await res.arrayBuffer());
+  return crypto.createHash('sha256').update(buf).digest('hex').toUpperCase();
+}
 
 // ─── Stamp version + checksum into a scratch copy of the package ────────────────
 
@@ -116,45 +137,53 @@ const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'voiden-choco-'));
 fs.cpSync(srcDir, workDir, { recursive: true });
 
 const installScriptPath = path.join(workDir, 'tools', 'chocolateyinstall.ps1');
-let installScript = fs.readFileSync(installScriptPath, 'utf-8');
-// replaceAll, not replace: a plain (non-global) .replace() only substitutes the
-// FIRST occurrence in the whole file. Confirmed the hard way — a comment line
-// mentioning "__VERSION__ / __CHECKSUM__" above the real $version/$checksum
-// assignments ate the substitution every single time, silently shipping every
-// past release with a literal, unsubstituted "__VERSION__" in the download URL
-// (a guaranteed 404 on install). replaceAll is correct regardless of whether
-// the token text also happens to appear anywhere else in the file, comment or not.
-installScript = installScript
-  .replaceAll('__VERSION__', version)
-  .replaceAll('__CHECKSUM__', checksum);
-fs.writeFileSync(installScriptPath, installScript);
 
-// ─── Pack ───────────────────────────────────────────────────────────────────────
+async function packAndPush() {
+  const checksum = await downloadAndHash(downloadUrl);
+  console.log(`   sha256   : ${checksum}\n`);
 
-console.log('🔨 Packing .nupkg...\n');
-const packResult = spawnSync('choco', [
-  'pack', path.join(workDir, 'voiden.nuspec'),
-  '--version', packageVersion,
-  '--outputdirectory', workDir,
-], { stdio: 'inherit' });
+  let installScript = fs.readFileSync(installScriptPath, 'utf-8');
+  // replaceAll, not replace: a plain (non-global) .replace() only substitutes the
+  // FIRST occurrence in the whole file. Confirmed the hard way — a comment line
+  // mentioning "__VERSION__ / __CHECKSUM__" above the real $version/$checksum
+  // assignments ate the substitution every single time, silently shipping every
+  // past release with a literal, unsubstituted "__VERSION__" in the download URL
+  // (a guaranteed 404 on install). replaceAll is correct regardless of whether
+  // the token text also happens to appear anywhere else in the file, comment or not.
+  installScript = installScript
+    .replaceAll('__VERSION__', version)
+    .replaceAll('__CHECKSUM__', checksum);
+  fs.writeFileSync(installScriptPath, installScript);
 
-if (packResult.status !== 0) {
-  console.error('\n❌ choco pack failed.');
-  process.exit(1);
-}
+  // ─── Pack ─────────────────────────────────────────────────────────────────────
 
-const nupkgName = `voiden.${packageVersion}.nupkg`;
-const nupkgPath = path.join(workDir, nupkgName);
-if (!fs.existsSync(nupkgPath)) {
-  console.error(`❌ Expected ${nupkgPath} after pack but it wasn't produced.`);
-  process.exit(1);
-}
+  console.log('🔨 Packing .nupkg...\n');
+  const packResult = spawnSync('choco', [
+    'pack', path.join(workDir, 'voiden.nuspec'),
+    '--version', packageVersion,
+    '--outputdirectory', workDir,
+  ], { stdio: 'inherit' });
 
-// Exposes the built package to a later CI step (e.g. actions/upload-artifact)
-// so it can be downloaded and pushed manually if `choco push` below fails —
-// the nupkg itself is already fully built at this point regardless of push.
-if (process.env.GITHUB_OUTPUT) {
-  fs.appendFileSync(process.env.GITHUB_OUTPUT, `nupkg_path=${nupkgPath}\n`);
+  if (packResult.status !== 0) {
+    console.error('\n❌ choco pack failed.');
+    process.exit(1);
+  }
+
+  const nupkgName = `voiden.${packageVersion}.nupkg`;
+  const nupkgPath = path.join(workDir, nupkgName);
+  if (!fs.existsSync(nupkgPath)) {
+    console.error(`❌ Expected ${nupkgPath} after pack but it wasn't produced.`);
+    process.exit(1);
+  }
+
+  // Exposes the built package to a later CI step (e.g. actions/upload-artifact)
+  // so it can be downloaded and pushed manually if `choco push` below fails —
+  // the nupkg itself is already fully built at this point regardless of push.
+  if (process.env.GITHUB_OUTPUT) {
+    fs.appendFileSync(process.env.GITHUB_OUTPUT, `nupkg_path=${nupkgPath}\n`);
+  }
+
+  return { nupkgName, nupkgPath };
 }
 
 // ─── Push ───────────────────────────────────────────────────────────────────────
@@ -168,7 +197,7 @@ const PUSH_RETRIES = 4;
 const PUSH_BACKOFF_MS = [15_000, 30_000, 60_000];
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-async function pushWithRetry() {
+async function pushWithRetry(nupkgName, nupkgPath) {
   for (let attempt = 1; attempt <= PUSH_RETRIES; attempt++) {
     console.log(`\n📤 Pushing ${nupkgName} to Chocolatey Community Repository... (attempt ${attempt}/${PUSH_RETRIES})\n`);
     const pushResult = spawnSync('choco', [
@@ -204,9 +233,13 @@ async function pushWithRetry() {
 }
 
 (async () => {
-  await pushWithRetry();
+  const { nupkgName, nupkgPath } = await packAndPush();
+  await pushWithRetry(nupkgName, nupkgPath);
 
   console.log(`\n✅ Pushed voiden ${packageVersion} to Chocolatey.\n`);
   console.log('─── User install command ────────────────────────────────────\n');
   console.log('choco install voiden\n');
-})();
+})().catch((err) => {
+  console.error(`\n❌ ${err.message}\n`);
+  process.exit(1);
+});
