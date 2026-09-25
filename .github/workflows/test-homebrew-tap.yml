@@ -26,6 +26,14 @@ jobs:
       - name: brew tap voidenhq/voiden
         run: brew tap voidenhq/voiden
 
+      # Newer Homebrew refuses to load a formula from a third-party tap until
+      # explicitly trusted — confirmed for real here: "Refusing to load
+      # formula voidenhq/voiden/voiden from untrusted tap voidenhq/voiden."
+      # Not a bug in the formula; a real Homebrew security gate every
+      # third-party tap install needs, documented in HOMEBREW.md.
+      - name: brew trust voidenhq/voiden
+        run: brew trust voidenhq/voiden
+
       - name: brew install voiden
         run: brew install --verbose voiden
 
