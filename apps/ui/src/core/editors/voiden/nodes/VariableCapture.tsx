@@ -33,12 +33,15 @@ const TableWrapperNode = Node.create({
 // Adds a Description column (issue #261) to a table created before this feature
 // shipped. Positions the selection in the last cell of the first row and runs
 // the standard addColumnAfter table command, which pads every row uniformly.
-const addDescriptionColumn = (editor: Editor, getPos: () => number, wrapperNode: NodeViewProps["node"]) => {
+const addDescriptionColumn = (editor: Editor, getPos: () => number | undefined, wrapperNode: NodeViewProps["node"]) => {
   const tableNode = wrapperNode.firstChild;
   const firstRow = tableNode?.firstChild;
   if (!tableNode || !firstRow || firstRow.childCount === 0) return;
 
-  let pos = getPos() + 3; // doc position of the first row's first cell
+  const nodePos = getPos();
+  if (nodePos === undefined) return;
+
+  let pos = nodePos + 3; // doc position of the first row's first cell
   for (let i = 0; i < firstRow.childCount - 1; i++) {
     pos += firstRow.child(i).nodeSize;
   }

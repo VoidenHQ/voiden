@@ -696,16 +696,16 @@ const VoidenEditorInner = ({
               const parsedUnsaved = JSON.parse(unsaved);
               if (JSON.stringify(parsedUnsaved) !== JSON.stringify(santizedContent)) {
                 console.log('[VoidenEditor] setContent — applyContent: restoring unsaved draft', { tabId, source });
-                editor.commands.setContent(parsedUnsaved, false);
+                editor.commands.setContent(parsedUnsaved, { emitUpdate: false });
               }
             } else {
               console.log('[VoidenEditor] setContent — applyContent: loading saved content', { tabId, source });
-              editor.commands.setContent(santizedContent, false);
+              editor.commands.setContent(santizedContent, { emitUpdate: false });
             }
           } catch {
             const fallbackContent = { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: content }] }] };
             console.log('[VoidenEditor] setContent — applyContent: fallback (parse error)', { tabId, source });
-            editor.commands.setContent(fallbackContent, false);
+            editor.commands.setContent(fallbackContent, { emitUpdate: false });
           }
 
           try {
@@ -758,7 +758,7 @@ const VoidenEditorInner = ({
           } catch {
             const fallbackContent = { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: content }] }] };
             console.log('[VoidenEditor] setContent — doLoad: fallback (parse error)', { tabId, source });
-            if (!editor.isDestroyed) editor.commands.setContent(fallbackContent, false);
+            if (!editor.isDestroyed) editor.commands.setContent(fallbackContent, { emitUpdate: false });
             setIsLoadingContent(false);
           }
         };
@@ -781,7 +781,7 @@ const VoidenEditorInner = ({
             // Mount the first chunk immediately so content appears right away.
             if (!editor.isDestroyed) {
               console.log('[VoidenEditor] setContent — doLoadChunked: first chunk', { tabId, source, totalNodes: allNodes.length });
-              editor.commands.setContent({ type: "doc", content: allNodes.slice(0, CHUNK_SIZE) }, false);
+              editor.commands.setContent({ type: "doc", content: allNodes.slice(0, CHUNK_SIZE) }, { emitUpdate: false });
             }
 
             let offset = CHUNK_SIZE;
@@ -833,7 +833,7 @@ const VoidenEditorInner = ({
           } catch {
             const fallbackContent = { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: content }] }] };
             console.log('[VoidenEditor] setContent — doLoadChunked: fallback (parse error)', { tabId, source });
-            if (!editor.isDestroyed) editor.commands.setContent(fallbackContent, false);
+            if (!editor.isDestroyed) editor.commands.setContent(fallbackContent, { emitUpdate: false });
             setIsLoadingContent(false);
           }
         };
@@ -849,7 +849,7 @@ const VoidenEditorInner = ({
         setIsLoadingContent(false);
         const fallbackContent = { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: content }] }] };
         console.log('[VoidenEditor] setContent — handleEditorCreate outer catch: fallback', { tabId, source, error: e });
-        if (!editor.isDestroyed) editor.commands.setContent(fallbackContent, false);
+        if (!editor.isDestroyed) editor.commands.setContent(fallbackContent, { emitUpdate: false });
       }
     },
     [source, panelId, tabId, content, memoizedSchema, isActive],
@@ -986,7 +986,7 @@ const VoidenEditorInner = ({
       // position is not lost when a background file-change reload fires.
       const savedSelection = editor.state.selection;
       console.log('[VoidenEditor] setContent — applyDiskContent: reloading from disk (file-watcher or forceReload)', { tabId, source });
-      editor.commands.setContent(preserved, false);
+      editor.commands.setContent(preserved, { emitUpdate: false });
       try {
         const docSize = editor.state.doc.content.size;
         const clamp = (pos: number) => Math.min(Math.max(1, pos), docSize - 1);

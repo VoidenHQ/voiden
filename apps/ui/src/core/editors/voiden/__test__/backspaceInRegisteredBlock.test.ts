@@ -55,7 +55,7 @@ beforeAll(() => {
 
 const typeChar = (editor: Editor, char: string) => {
   const { from } = editor.state.selection;
-  editor.view.someProp("handleTextInput", (fn) => fn(editor.view, from, from, char));
+  editor.view.someProp("handleTextInput", (fn) => fn(editor.view, from, from, char, () => editor.state.tr));
 };
 
 const isInRestrictedContext = ($from: { depth: number; node: (depth: number) => { type: { name: string } } }) => {

@@ -6,21 +6,18 @@ import * as TiptapReact from "@tiptap/react";
 
 // Import all Tiptap PM modules
 import * as PMChangeset from "@tiptap/pm/changeset";
-import * as PMCollab from "@tiptap/pm/collab";
 import * as PMCommands from "@tiptap/pm/commands";
 import * as PMDropcursor from "@tiptap/pm/dropcursor";
 import * as PMGapcursor from "@tiptap/pm/gapcursor";
 import * as PMHistory from "@tiptap/pm/history";
 import * as PMInputrules from "@tiptap/pm/inputrules";
 import * as PMKeymap from "@tiptap/pm/keymap";
-import * as PMMarkdown from "@tiptap/pm/markdown";
-import * as PMMenu from "@tiptap/pm/menu";
+// @tiptap/pm/markdown was removed in Tiptap 3; the underlying package is still installed
+import * as PMMarkdown from "prosemirror-markdown";
 import * as PMModel from "@tiptap/pm/model";
-import * as PMSchemaBasic from "@tiptap/pm/schema-basic";
 import * as PMSchemaList from "@tiptap/pm/schema-list";
 import * as PMState from "@tiptap/pm/state";
 import * as PMTables from "@tiptap/pm/tables";
-import * as PMTrailingNode from "@tiptap/pm/trailing-node";
 import * as PMTransform from "@tiptap/pm/transform";
 import * as PMView from "@tiptap/pm/view";
 
@@ -30,7 +27,6 @@ import * as PMView from "@tiptap/pm/view";
   React: TiptapReact,
   PM: {
     changeset: PMChangeset,
-    collab: PMCollab,
     commands: PMCommands,
     dropcursor: PMDropcursor,
     gapcursor: PMGapcursor,
@@ -38,13 +34,10 @@ import * as PMView from "@tiptap/pm/view";
     inputrules: PMInputrules,
     keymap: PMKeymap,
     markdown: PMMarkdown,
-    menu: PMMenu,
     model: PMModel,
-    schemaBasic: PMSchemaBasic,
     schemaList: PMSchemaList,
     state: PMState,
     tables: PMTables,
-    trailingNode: PMTrailingNode,
     transform: PMTransform,
     view: PMView,
   },

@@ -536,6 +536,7 @@ export const CodeEditor = ({
                 if (line.number === 1) {
                   const { editor, getPos } = tiptapProps;
                   const pos = getPos();
+                  if (pos === undefined) return false;
                   if (pos > 0) {
                     // Try to set position before the block
                     // If it fails, appendTransaction will fix it
@@ -567,6 +568,7 @@ export const CodeEditor = ({
                 if (line.number === totalLines) {
                   const { editor, getPos, node } = tiptapProps;
                   const pos = getPos();
+                  if (pos === undefined) return false;
                   const endPos = pos + node.nodeSize;
 
                   try {
@@ -593,6 +595,7 @@ export const CodeEditor = ({
                 if (main.empty && main.head === 0) {
                   const { editor, getPos } = tiptapProps;
                   const pos = getPos();
+                  if (pos === undefined) return false;
                   if (pos > 0) {
                     try {
                       editor.commands.focus();
@@ -617,6 +620,7 @@ export const CodeEditor = ({
                 if (main.empty && main.head === docLength) {
                   const { editor, getPos, node } = tiptapProps;
                   const pos = getPos();
+                  if (pos === undefined) return false;
                   const endPos = pos + node.nodeSize;
 
                   try {
