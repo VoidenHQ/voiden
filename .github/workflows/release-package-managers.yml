@@ -1,7 +1,5 @@
 # Publishes the Linux .deb produced by "Release Voiden App" to the APT repo (S3),
-# the Snap Store, and the Homebrew (Linux) tap — and stamps (but does not
-# submit) the Flatpak manifest; see FLATPAK.md for why that submission is a
-# manual, human step rather than something this workflow does.
+# the Snap Store, and the Homebrew (Linux) tap.
 #
 # Split out of release-app.yml so a flaky apt/snap/brew publish (e.g.
 # transient snapd/core22 install failures on GitHub-hosted runners) can be
@@ -17,9 +15,9 @@
 #     The run_apt_snap / run_winget / run_chocolatey / run_nix_cache toggles let
 #     you retry just the target(s) that failed, instead of re-running all four
 #     (useful while iterating on a fix — no need to re-push to a real package
-#     manager for every target each time). Homebrew and Flatpak only publish
-#     for the "stable" channel — neither has a first-class prerelease concept
-#     for a single formula/manifest (see HOMEBREW.md / FLATPAK.md).
+#     manager for every target each time). Homebrew only publishes for the
+#     "stable" channel — it has no first-class prerelease concept for a single
+#     formula (see HOMEBREW.md).
 #
 # Required repository secrets:
 #   S3_ACCESS_KEY_ID_BETA / S3_SECRET_ACCESS_KEY_BETA / S3_BUCKET_NAME_BETA
@@ -37,11 +35,6 @@
 #                       artifact dependency)
 #   HOMEBREW_TAP_GITHUB_TOKEN — classic PAT (repo scope) for phurpa-tsering/homebrew-voiden
 #                               (stable only — see HOMEBREW.md)
-#
-# Flatpak (stable only) is NOT in this list — it has no secret and does not
-# publish anywhere. It only stamps flatpak/md.voiden.Voiden.yml's url/sha256;
-# the actual Flathub submission PR must be opened by a human, not automated
-# (see FLATPAK.md for why).
 
 name: Release Package Managers
 
@@ -68,10 +61,6 @@ on:
         type: boolean
         default: true
       run_homebrew:
-        required: false
-        type: boolean
-        default: true
-      run_flatpak:
         required: false
         type: boolean
         default: true
@@ -118,11 +107,6 @@ on:
         required: false
         type: boolean
         default: true
-      run_flatpak:
-        description: 'Update the Flatpak manifest (url/sha256 only — no submission) — stable only'
-        required: false
-        type: boolean
-        default: true
 
 permissions:
   contents: read
@@ -130,8 +114,8 @@ permissions:
 
 jobs:
   publish:
-    name: Publish APT + Snap + Homebrew (+ update Flatpak manifest)
-    if: inputs.run_apt_snap || inputs.run_homebrew || inputs.run_flatpak
+    name: Publish APT + Snap + Homebrew
+    if: inputs.run_apt_snap || inputs.run_homebrew
     runs-on: ubuntu-latest
 
     steps:
@@ -229,34 +213,6 @@ jobs:
       - name: Report Homebrew publish failure
         if: steps.publish-homebrew.outcome == 'failure'
         run: echo "::warning::Homebrew tap publish failed — continuing without it. Check the 'Publish Homebrew (Linux)' step logs." | tee -a "$GITHUB_STEP_SUMMARY"
-
-      # Only stamps the manifest's url/sha256 — does not touch GitHub or any
-      # external service (see FLATPAK.md: the actual Flathub submission PR
-      # must be opened by a human). Uses the same voiden-linux-x64 artifact
-      # already downloaded above (the .deb inside it) — no separate build or
-      # artifact download needed. Not mandatory for a successful release —
-      # reported but doesn't fail the job.
-      - name: Update Flatpak manifest
-        id: publish-flatpak
-        if: inputs.run_flatpak
-        continue-on-error: true
-        working-directory: apps/electron
-        run: node publish-flatpak.js ${{ inputs.channel }}
-
-      - name: Report Flatpak manifest update failure
-        if: steps.publish-flatpak.outcome == 'failure'
-        run: echo "::warning::Flatpak manifest update failed. Check the 'Update Flatpak manifest' step logs." | tee -a "$GITHUB_STEP_SUMMARY"
-
-      # The stamped manifest only exists in this runner's checkout — upload it
-      # so whoever is doing the (manual, human) Flathub submission can grab
-      # the exact version-pinned file instead of re-deriving the url/sha256.
-      - name: Upload stamped Flatpak manifest
-        if: inputs.run_flatpak && steps.publish-flatpak.outcome == 'success'
-        uses: actions/upload-artifact@v4
-        with:
-          name: voiden-flatpak-manifest
-          path: apps/electron/flatpak/md.voiden.Voiden.yml
-          if-no-files-found: ignore
 
   # ── winget (beta + stable) ──────────────────────────────────────────────────────
   # Doesn't need the Linux artifact — opens a manifest-bump PR against
