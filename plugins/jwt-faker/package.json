@@ -1,0 +1,20 @@
+{
+  "name": "@voiden/plugin-jwt-faker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "scripts": {
+    "build": "node ../../scripts/build-plugins.mjs jwt-faker"
+  },
+  "peerDependencies": {
+    "@voiden/sdk": "^1.0.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@voiden/sdk": "^1.0.0",
+    "typescript": "^5.0.0",
+    "vite": "^5.0.0"
+  }
+}
