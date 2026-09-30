@@ -84,6 +84,23 @@ describe("sendRequestHybrid unresolved variable handling", () => {
     expect(response?.statusCode).toBe(200);
   });
 
+  it("passes the request file path to auth substitution and secure execution", async () => {
+    const requestFilePath = "/project/services/api/request.void";
+    await sendRequestHybrid(
+      restRequest({
+        url: "https://example.com",
+        auth: { enabled: true, type: "basic-auth", config: { username: "{{USER}}", password: "{{PASS}}" } },
+      }),
+      createMockEditor(),
+      undefined,
+      mockElectron,
+      requestFilePath,
+    );
+
+    expect(mockElectron.env.replaceVariables).toHaveBeenCalledWith("{{USER}}", requestFilePath);
+    expect(sendSecure.mock.calls.at(-1)?.[0]?.metadata?.requestFilePath).toBe(requestFilePath);
+  });
+
   it("voiden test : throws when sendSecure reports unresolved variables after substitution", async () => {
     sendSecure.mockResolvedValueOnce({
       status: 0,
