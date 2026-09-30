@@ -640,7 +640,7 @@ export function registerRequestIpcHandler() {
    */
   ipcMain.handle("send-secure-request", async (_event, { requestState, signalState }) => {
     const settings = getSettings();
-    const activeProject = await getActiveProject();
+    const activeProject = await getActiveProject(_event);
 
     if (signalState?.aborted) return { ok: false, status: 0, statusText: "aborted", error: "Request aborted" };
 
@@ -650,7 +650,7 @@ export function registerRequestIpcHandler() {
 
     const adapter: SecureRequestAdapter = {
       replaceVar: activeProject
-        ? (text: string) => replaceVariablesSecure(text, activeProject)
+        ? (text: string) => replaceVariablesSecure(text, activeProject, requestState.metadata?.requestFilePath, _event)
         : (text: string) => Promise.resolve(text),
 
       readFile: async (filePath: string) => {

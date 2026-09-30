@@ -14,9 +14,9 @@
 
 import { useQuery } from "@tanstack/react-query";
 
-const loadEnvironmentKeys = async (): Promise<string[]> => {
+const loadEnvironmentKeys = async (requestFilePath?: string): Promise<string[]> => {
   try {
-    const keys = await window.electron?.env.getKeys();
+    const keys = await window.electron?.env.getKeys(requestFilePath);
     return keys || [];
   } catch (error) {
     console.error("[useEnvironmentKeys] Error loading keys:", error);
@@ -24,10 +24,10 @@ const loadEnvironmentKeys = async (): Promise<string[]> => {
   }
 };
 
-export const useEnvironmentKeys = () => {
+export const useEnvironmentKeys = (requestFilePath?: string) => {
   return useQuery({
-    queryKey: ["environment-keys"],
-    queryFn: loadEnvironmentKeys,
+    queryKey: ["environment-keys", requestFilePath],
+    queryFn: () => loadEnvironmentKeys(requestFilePath),
     staleTime: 30000, // Keys don't change often, cache for 30s
     refetchInterval: false,
   });

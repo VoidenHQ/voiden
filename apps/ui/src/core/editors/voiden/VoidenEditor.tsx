@@ -23,7 +23,7 @@ import { useEditorEnhancementStore, emitPluginEvent } from "@/plugins";
 import { parseMarkdown } from "./markdownConverter";
 import UniqueID from "./extensions/uniqueId";
 import { VoidenDragMenu } from "./components/VoidenDragMenu";
-import { useActiveEnvironment, useEnvironmentKeys, useEnvironments } from "@/core/environment/hooks";
+import { useFileEnvironment, useEnvironmentKeys, useEnvironments } from "@/core/environment/hooks";
 import { environmentHighlighter, updateEnvironmentData, updateEnvironmentKeys } from "./extensions/environmentHighlighter";
 import { ReqSuggestion } from "./extensions/VariableReqSuggesion";
 import { ResSuggestion } from "./extensions/VariableResSuggestion";
@@ -140,7 +140,7 @@ export const useVoidenEditorStore = create<VoidenEditorStore>((set) => ({
   registerExtension: (extension: Extension) => set((state) => ({ extensions: [...state.extensions, extension] })),
 }));
 
-export const useVoidenExtensionsAndSchema = () => {
+export const useVoidenExtensionsAndSchema = (requestFilePath?: string) => {
   // Get voiden-wrapper extensions from your enhancements store.
   const voidenExtensionsFromStore = useEditorEnhancementStore((state) => state.voidenExtensions);
 
@@ -151,7 +151,7 @@ export const useVoidenExtensionsAndSchema = () => {
   const memoizedSchema = useMemo(() => getSchema(memoizedExtensions), [memoizedExtensions]);
 
   const { data: voidVariableData } = useVoidVariableData();
-  const envData = useActiveEnvironment();
+  const envData = useFileEnvironment(requestFilePath);
   const defaultNodeTypes = useMemo(
     () => [
       "doc",
@@ -391,9 +391,9 @@ const VoidenEditorInner = ({
   const clearUnsaved = useEditorStore((state) => state.clearUnsaved);
   const setScrollPosition = useEditorStore((state) => state.setScrollPosition);
   const getScrollPosition = useEditorStore((state) => state.getScrollPosition);
-  const { finalExtensions, memoizedSchema } = useVoidenExtensionsAndSchema();
+  const { finalExtensions, memoizedSchema } = useVoidenExtensionsAndSchema(source);
   const { data: envData } = useEnvironments();
-  const activeEnvData = useActiveEnvironment();
+  const activeEnvData = useFileEnvironment(source);
   const { data: voidVariableData } = useVoidVariableData();
   const activeEnvKey = envData?.activeEnv ?? "default";
   const extensionsKey = useMemo(() => finalExtensions.map((ext) => ext.name).join(","), [finalExtensions]);
@@ -1039,7 +1039,7 @@ const VoidenEditorInner = ({
   }, [editor, source, tabId, clearUnsaved, memoizedSchema]);
 
   // Fallback: if full value maps are unavailable, keep validity highlighting via keys-only lists.
-  const { data: envKeys } = useEnvironmentKeys();
+  const { data: envKeys } = useEnvironmentKeys(source);
   const { data: voidVariableKeys } = useVoidVariables();
 
   const queryClient = useQueryClient();
@@ -1119,6 +1119,7 @@ const VoidenEditorInner = ({
   useEffect(() => {
     if (!isActive) return;
     queryClient.invalidateQueries({ queryKey: ["environment-keys"] });
+    queryClient.invalidateQueries({ queryKey: ["file-environment"] });
     queryClient.invalidateQueries({ queryKey: ["file:exists"] });
     queryClient.invalidateQueries({ queryKey: ["voiden-wrapper:blockContent"] });
   }, [isActive, queryClient]);

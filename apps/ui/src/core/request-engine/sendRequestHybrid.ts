@@ -45,7 +45,7 @@ type RequestFieldRow = {
   omitIfUnresolved?: boolean;
 };
 
-async function getHeaders(headers: any[], auth?: any): Promise<RequestFieldRow[]> {
+async function getHeaders(headers: any[], auth?: any, requestFilePath?: string): Promise<RequestFieldRow[]> {
   const authHeaders: Record<string, string> = {};
 
   if (auth && auth.enabled && auth.config) {
@@ -54,13 +54,13 @@ async function getHeaders(headers: any[], auth?: any): Promise<RequestFieldRow[]
         let username = auth.config.username;
         let password = auth.config.password;
          try {
-          username = await window.electron?.env?.replaceVariables(username);
+          username = await window.electron?.env?.replaceVariables(username, requestFilePath);
         } catch (e) { console.warn("[auth] Failed to resolve env variables in username:", e); }
         try{
           username = await replaceProcessVariablesInText(username);
         } catch (e) { console.warn("[auth] Failed to resolve process variables in username:", e); }
         try {
-          password = await window.electron?.env?.replaceVariables(password);
+          password = await window.electron?.env?.replaceVariables(password, requestFilePath);
         } catch (e) { console.warn("[auth] Failed to resolve env variables in password:", e); }
         try{
           password = await replaceProcessVariablesInText(password);
@@ -78,9 +78,9 @@ async function getHeaders(headers: any[], auth?: any): Promise<RequestFieldRow[]
         let headerPrefix = auth.config.headerPrefix || auth.config.tokenType || "Bearer";
         let accessToken = auth.config.accessToken;
         // Resolve env and process variables in token values
-        try { accessToken = await window.electron?.env?.replaceVariables(accessToken); } catch (e) { console.warn("[auth] Failed to resolve env variables in accessToken:", e); }
+        try { accessToken = await window.electron?.env?.replaceVariables(accessToken, requestFilePath); } catch (e) { console.warn("[auth] Failed to resolve env variables in accessToken:", e); }
         try { accessToken = await replaceProcessVariablesInText(accessToken); } catch (e) { console.warn("[auth] Failed to resolve process variables in accessToken:", e); }
-        try { headerPrefix = await window.electron?.env?.replaceVariables(headerPrefix); } catch (e) { console.warn("[auth] Failed to resolve env variables in headerPrefix:", e); }
+        try { headerPrefix = await window.electron?.env?.replaceVariables(headerPrefix, requestFilePath); } catch (e) { console.warn("[auth] Failed to resolve env variables in headerPrefix:", e); }
         try { headerPrefix = await replaceProcessVariablesInText(headerPrefix); } catch (e) { console.warn("[auth] Failed to resolve process variables in headerPrefix:", e); }
         // addTokenTo defaults to "header"; query param handled in getParameters
         if (auth.config.addTokenTo !== "query") {
@@ -98,7 +98,7 @@ async function getHeaders(headers: any[], auth?: any): Promise<RequestFieldRow[]
         parts.push('oauth_signature_method="PLAINTEXT"');
         let signature = `${auth.config.consumerSecret || ""}&${auth.config.tokenSecret || ""}`;
         try {
-          signature = (await window.electron?.env?.replaceVariables(signature)) ?? signature;
+          signature = (await window.electron?.env?.replaceVariables(signature, requestFilePath)) ?? signature;
         } catch (e) { console.warn("[auth] Failed to resolve env variables in oauth1 signature:", e); }
           try {
           signature = await replaceProcessVariablesInText(signature);
@@ -164,10 +164,10 @@ async function getHeaders(headers: any[], auth?: any): Promise<RequestFieldRow[]
  * Convert Request object to RestApiRequestState
  * Merges auth into headers/queryParams
  */
-async function convertToRestApiRequestState(data: Request): Promise<RestApiRequestState> {
+async function convertToRestApiRequestState(data: Request, requestFilePath?: string): Promise<RestApiRequestState> {
 
   // Merge auth into headers and query params
-  const mergedHeaders = await getHeaders(data.headers, data.auth);
+  const mergedHeaders = await getHeaders(data.headers, data.auth, requestFilePath);
 
   // Parse query params
   const queryParamsArray = data.params
@@ -291,7 +291,8 @@ export async function sendRequestHybrid(
   request: any,
   editor: Editor,
   signal?: AbortSignal,
-  electron?: any
+  electron?: any,
+  requestFilePath?: string
 ): Promise<BaseResponse | undefined> {
   if (!electron || !window.electron?.request?.sendSecure) {
     throw new Error("Hybrid pipeline requires Electron secure request API");
@@ -305,14 +306,14 @@ export async function sendRequestHybrid(
     console.log('[sendRequestHybrid] input method:', request.method, 'protocolType:', request.protocolType);
     // Convert Request to RestApiRequestState
     if (request.protocolType === 'rest') {
-      requestState = await convertToRestApiRequestState(request);
+      requestState = await convertToRestApiRequestState(request, requestFilePath);
       console.log('[sendRequestHybrid] after convert method:', requestState.method);
     } else if (request.protocolType === 'graphql' || request.protocolType === 'mcp') {
       // Merge auth into headers (same logic as REST via getHeaders) — every
       // protocol besides REST (which gets this via convertToRestApiRequestState)
       // builds `headers` as a plain array already, so this merge is identical
       // regardless of which one it is.
-      const mergedHeaders = await getHeaders(request.headers || [], request.auth);
+      const mergedHeaders = await getHeaders(request.headers || [], request.auth, requestFilePath);
       // REST gets `params`→`queryParams` / `path_params`→`pathParams` renamed
       // by convertToRestApiRequestState above; GraphQL/MCP skip that function
       // entirely, so without this, requestState.queryParams stays undefined
@@ -417,6 +418,9 @@ export async function sendRequestHybrid(
     console.log('[sendRequestHybrid] method before Electron:', requestState.method, 'url:', requestState.url);
 
     // Send to Electron for secure processing
+    if (requestFilePath) {
+      requestState.metadata = { ...requestState.metadata, requestFilePath };
+    }
     const electronResponse = await window.electron.request.sendSecure(
       requestState,
       signal ? { aborted: signal.aborted } : undefined

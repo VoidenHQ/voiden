@@ -5,6 +5,7 @@ import { ipcMain, IpcMainInvokeEvent } from "electron";
 import { saveState } from "./persistState";
 import merge from "lodash/merge";
 import YAML from "yaml";
+import { loadFolderEnv, parseEnvContent } from "./folderEnv";
 
 /**
  * Type definitions for YAML environment system
@@ -38,31 +39,6 @@ interface EnvLoadResult {
   // came from (e.g. "default" or a legacy root-level named profile), so
   // callers can tell apart two environments that share a folder.
   sourceProfiles?: Record<string, string>;
-}
-
-/**
- * Parse the content of a .env file into an object.
- */
-function parseEnvContent(content: string) {
-  const env: Record<string, string> = {};
-  content.split(/\r?\n/).forEach((line) => {
-    line = line.trim();
-    if (!line || line.startsWith("#")) return;
-
-    const eqIndex = line.indexOf("=");
-    if (eqIndex < 0) return; // Skip malformed lines
-
-    const key = line.substring(0, eqIndex).trim();
-    let value = line.substring(eqIndex + 1).trim();
-
-    // Remove optional surrounding quotes
-    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-      value = value.substring(1, value.length - 1);
-    }
-
-    env[key] = value;
-  });
-  return env;
 }
 
 /**
@@ -522,25 +498,39 @@ ipcMain.handle("env:setActive", async (event:IpcMainInvokeEvent, envPath) => {
 });
 
 /**
- * Replace {{VARIABLE}} patterns with values from active environment.
- * This runs in Electron main process - UI never sees the actual values.
- *
- * @security Environment values never leave the main process
+ * Resolve the selected environment and ancestor .env files for one request.
+ * @param projectPath Workspace root.
+ * @param requestFilePath Absolute path to a saved request, when available.
+ * @param event IPC event used to read the correct window's selected environment.
+ * @returns Variables for this request.
+ * @example await getRequestEnvironment(projectPath, requestFilePath, event)
  */
-export async function replaceVariablesSecure(text: string, projectPath: string): Promise<string> {
-
-  const appState = getAppState();
+export async function getRequestEnvironment(projectPath: string, requestFilePath?: string, event?: IpcMainInvokeEvent): Promise<Record<string, string>> {
+  const appState = getAppState(event);
   const activeEnvPath = appState.directories[projectPath]?.activeEnv;
   const activeProfile = appState.directories[projectPath]?.activeProfile || null;
-
-  // Load environment variables
   let env: Record<string, string> = {};
   if (activeEnvPath) {
-    const { data: envData } = await resolveEnvironmentData(projectPath, activeProfile, activeEnvPath);
-    if (envData[activeEnvPath]) {
-      env = envData[activeEnvPath];
-    }
+    const { data } = await resolveEnvironmentData(projectPath, activeProfile, activeEnvPath);
+    env = data[activeEnvPath] ?? {};
   }
+  return requestFilePath ? loadFolderEnv(projectPath, requestFilePath, env) : env;
+}
+
+/**
+ * Replace {{VARIABLE}} patterns using the executing file's environment.
+ * @param text Request text containing variable references.
+ * @param projectPath Workspace root.
+ * @param requestFilePath Absolute path to a saved request, when available.
+ * @param event IPC event used to read the correct window's selected environment.
+ * @returns Text with available variables substituted.
+ * @example await replaceVariablesSecure("{{HOST}}", projectPath, requestFilePath)
+ */
+export async function replaceVariablesSecure(text: string, projectPath: string, requestFilePath?: string, event?: IpcMainInvokeEvent): Promise<string> {
+
+  const appState = getAppState(event);
+  const activeEnvPath = appState.directories[projectPath]?.activeEnv;
+  const env = await getRequestEnvironment(projectPath, requestFilePath, event);
 
   // Load process/runtime variables from .voiden/.process.env.json (env-scoped)
   let processVars: Record<string, any> = {};
@@ -594,16 +584,19 @@ export async function replaceVariablesSecure(text: string, projectPath: string):
 }
 
 /**
- * Secure IPC handler for variable replacement.
- * UI sends raw text with {{variables}}, receives replaced text.
- * UI never sees the actual environment values.
+ * IPC handler for variable replacement in Electron's main process.
  */
-ipcMain.handle("env:replaceVariables", async (_, text: string) => {
-  const activeProject = await getActiveProject();
+ipcMain.handle("env:replaceVariables", async (event, text: string, requestFilePath?: string) => {
+  const activeProject = await getActiveProject(event);
   if (!activeProject) {
     return text;
   }
-  return replaceVariablesSecure(text, activeProject);
+  return replaceVariablesSecure(text, activeProject, requestFilePath, event);
+});
+
+ipcMain.handle("env:forRequest", async (event: IpcMainInvokeEvent, requestFilePath: string) => {
+  const activeProject = await getActiveProject(event);
+  return activeProject ? getRequestEnvironment(activeProject, requestFilePath, event) : {};
 });
 
 /**
@@ -612,12 +605,16 @@ ipcMain.handle("env:replaceVariables", async (_, text: string) => {
  *
  * @security Only returns variable names, not values
  */
-ipcMain.handle("env:getKeys", async (event:IpcMainInvokeEvent) => {
+ipcMain.handle("env:getKeys", async (event:IpcMainInvokeEvent, requestFilePath?: string) => {
   const appState = getAppState(event);
-  const activeProject = await getActiveProject();
+  const activeProject = await getActiveProject(event);
 
   if (!activeProject) {
     return [];
+  }
+
+  if (requestFilePath) {
+    return Object.keys(await getRequestEnvironment(activeProject, requestFilePath, event));
   }
 
   const activeEnvPath = appState.directories[activeProject]?.activeEnv;
