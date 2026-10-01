@@ -1,0 +1,71 @@
+{
+  "id": "har-import",
+  "name": "HTTP Archive (HAR) Importer",
+  "description": "Import HTTP Archive (.har) files and automatically convert captured browser network requests into native Voiden request files with full support for headers, cookies, query parameters, request bodies, and optional static asset filtering.",
+  "version": "1.0.0",
+  "voidenVersion": ">=2.0.0",
+  "author": "Voiden Team",
+  "enabled": true,
+  "priority": 50,
+  "readme": "Import HTTP Archive (.har) files and automatically convert them into native Voiden .void request files. Supports headers, cookies, query parameters, request bodies (JSON, XML, Form Data, Multipart, Text), folder/page grouping, and static asset filtering.",
+
+  "capabilities": {
+    "ui": {
+      "buttons": [
+        {
+          "id": "har-import-btn",
+          "location": "sidebar-left",
+          "icon": "PackageImport",
+          "tooltip": "Import HAR Collection",
+          "description": "Opens file picker to select and import HTTP Archive (.har) JSON files"
+        }
+      ],
+      "description": "Adds import button for HAR files"
+    },
+
+    "fileSystem": {
+      "operations": [
+        "create-directory",
+        "write-file"
+      ],
+      "description": "Creates folder structure and .void files from HAR network capture"
+    },
+
+    "integration": {
+      "dependencies": [
+        {
+          "extension": "voiden-rest-api",
+          "reason": "Uses voiden-rest-api helpers to generate compatible REST API blocks",
+          "required": true
+        }
+      ],
+      "description": "Depends on voiden-rest-api extension for REST block generation"
+    }
+  },
+
+  "dependencies": {
+    "core": "^1.0.0",
+    "sdk": "^1.0.0",
+    "voiden-rest-api": "^1.0.0"
+  },
+
+  "features": [
+    "Import HTTP Archive (.har) JSON files captured from browser Developer Tools",
+    "Automatically create folder structure matching page titles or domain hostnames",
+    "Convert each HTTP request entry into a native .void file",
+    "Preserve request headers and convert to headers-table blocks",
+    "Preserve cookies and merge into headers or auth details",
+    "Extract query parameters and convert to query-table blocks",
+    "Support for all HTTP methods (GET, POST, PUT, DELETE, PATCH, OPTIONS, HEAD, etc.)",
+    "Import JSON request bodies and convert to json_body blocks",
+    "Import XML request bodies and convert to xml_body blocks",
+    "Import form-data bodies and convert to multipart-table blocks",
+    "Import URL-encoded bodies and convert to urlencoded-table blocks",
+    "Import Plain Text bodies",
+    "Optional static asset filtering (ignore images, stylesheets, scripts, fonts)",
+    "Sanitize file and folder names for filesystem compatibility",
+    "Progress tracking and cancel support during import",
+    "Batch file creation with throttling to prevent system overload",
+    "Uses voiden-rest-api helpers for consistent block generation"
+  ]
+}
