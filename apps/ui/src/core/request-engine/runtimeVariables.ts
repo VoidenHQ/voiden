@@ -415,7 +415,18 @@ export async function preSendProcessHook(requestState: any): Promise<any> {
         if (requestState.headers) {
             requestState.headers = requestState.headers.map((header: any) => ({
                 ...header,
+                key: header.key ? replaceProcessVariables(header.key, processVariables) : header.key,
                 value: replaceProcessVariables(header.value, processVariables),
+            }));
+        }
+
+        // Replace in cookies. Cookies stay as individual rows until the secure
+        // executor so optional rows can be omitted independently.
+        if (requestState.cookies) {
+            requestState.cookies = requestState.cookies.map((cookie: any) => ({
+                ...cookie,
+                key: cookie.key ? replaceProcessVariables(cookie.key, processVariables) : cookie.key,
+                value: cookie.value ? replaceProcessVariables(cookie.value, processVariables) : cookie.value,
             }));
         }
 
@@ -423,6 +434,7 @@ export async function preSendProcessHook(requestState: any): Promise<any> {
         if (requestState.queryParams) {
             requestState.queryParams = requestState.queryParams.map((param: any) => ({
                 ...param,
+                key: param.key ? replaceProcessVariables(param.key, processVariables) : param.key,
                 value: param.value ? replaceProcessVariables(param.value, processVariables) : param.value,
             }));
         }

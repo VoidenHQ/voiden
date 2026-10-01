@@ -101,4 +101,38 @@ describe("sendRequestHybrid unresolved variable handling", () => {
       ),
     ).rejects.toBeInstanceOf(UnresolvedVariablesError);
   });
+
+  it("voiden test : preserves required-row metadata for the secure executor", async () => {
+    await sendRequestHybrid(
+      restRequest({
+        url: "https://api.example.com/items",
+        headers: [
+          { key: "X-Optional", value: "{{MISSING_HEADER}}", enabled: true, omitIfUnresolved: true },
+        ],
+        cookies: [
+          { key: "session", value: "{{MISSING_COOKIE}}", enabled: true, omitIfUnresolved: true },
+        ],
+        params: [
+          { key: "filter", value: "{{MISSING_QUERY}}", enabled: true, omitIfUnresolved: true },
+        ],
+        content_type: "application/x-www-form-urlencoded",
+        body_params: [
+          { key: "form", value: "{{MISSING_FORM}}", type: "text", enabled: true, omitIfUnresolved: true },
+        ],
+      }),
+      createMockEditor(),
+      undefined,
+      mockElectron,
+    );
+
+    expect(sendSecure).toHaveBeenCalledWith(
+      expect.objectContaining({
+        headers: [expect.objectContaining({ key: "X-Optional", omitIfUnresolved: true })],
+        cookies: [expect.objectContaining({ key: "session", omitIfUnresolved: true })],
+        queryParams: [expect.objectContaining({ key: "filter", omitIfUnresolved: true })],
+        bodyParams: [expect.objectContaining({ key: "form", omitIfUnresolved: true })],
+      }),
+      undefined,
+    );
+  });
 });

@@ -53,12 +53,13 @@ export enum PipelineStage {
 export interface RestApiRequestState {
   method: string
   url: string
-  headers:     Array<{ key: string; value: string; enabled?: boolean }>
-  queryParams: Array<{ key: string; value: string; enabled?: boolean }>
+  headers:     Array<{ key: string; value: string; enabled?: boolean; omitIfUnresolved?: boolean }>
+  cookies?:    Array<{ key: string; value: string; enabled?: boolean; omitIfUnresolved?: boolean }>
+  queryParams: Array<{ key: string; value: string; enabled?: boolean; omitIfUnresolved?: boolean }>
   pathParams:  Array<{ key: string; value: string; enabled?: boolean }>
   body?: string
   contentType?: string
-  bodyParams?: Array<{ key: string; value: string | File; type?: string; enabled?: boolean }>
+  bodyParams?: Array<{ key: string; value: string | File; type?: string; enabled?: boolean; omitIfUnresolved?: boolean }>
   binary?: File | string | string[]
   authProfile?: string
   preRequestResult?: any
