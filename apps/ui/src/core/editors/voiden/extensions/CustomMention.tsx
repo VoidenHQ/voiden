@@ -1,4 +1,5 @@
 import { useAddNotification } from "@/features/notification/api/useAddNotification";
+import { isSuggestionAcceptKey } from "@/core/editors/voiden/utils/suggestionKeys";
 import { WorkspaceUser } from "@/features/workspace/api/getWorkspaceUsers";
 import Mention from "@tiptap/extension-mention";
 import { ReactRenderer } from "@tiptap/react";
@@ -73,7 +74,7 @@ const MentionList = forwardRef<MentionListRef, MentionListProps>((props, ref) =>
         return true;
       }
 
-      if (event.key === "Enter") {
+      if (isSuggestionAcceptKey(event)) {
         enterHandler();
         return true;
       }

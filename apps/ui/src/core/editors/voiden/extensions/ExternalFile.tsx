@@ -1,4 +1,5 @@
 import React, { forwardRef, startTransition, useContext, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import { isSuggestionAcceptKey } from "@/core/editors/voiden/utils/suggestionKeys";
 import type { MatchedFragment } from '@voiden/fuzzy-search';
 import { highlightText } from "./MatchedFragment";
 import { Editor, JSONContent, Node, NodeViewProps, Range, mergeAttributes } from "@tiptap/core";
@@ -719,8 +720,8 @@ const FileLinkTippyContent = forwardRef((props: FileLinkListProps & { editor?: E
         return true;
       }
 
-      // Enter: Insert selected item(s)
-      if (event.key === "Enter") {
+      // Enter or Tab: Insert selected item(s)
+      if (isSuggestionAcceptKey(event)) {
         if (multiSelectedItems.length > 0) {
           if (isBlockMode && selectedFile) {
             const blocksToInsert = multiSelectedItems.map((item) => ({

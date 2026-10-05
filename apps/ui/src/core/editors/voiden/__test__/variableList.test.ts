@@ -30,8 +30,8 @@ const renderWithItems = (items: Item[]) => {
   return { ref, command };
 };
 
-const keydown = (key: string) =>
-  ({ event: new KeyboardEvent("keydown", { key }) }) as {
+const keydown = (key: string, init: KeyboardEventInit = {}) =>
+  ({ event: new KeyboardEvent("keydown", { key, ...init }) }) as {
     event: KeyboardEvent;
   };
 
@@ -105,10 +105,30 @@ describe("VariableList.onKeyDown", () => {
       expect(command).toHaveBeenCalledWith(items[items.length - 1]);
     });
 
+    it("voiden test : selects the highlighted item on Tab, like Enter (#566)", () => {
+      const { ref, command } = renderWithItems(items);
+
+      act(() => {
+        ref.current!.onKeyDown(keydown("ArrowDown"));
+      });
+      const handled = ref.current!.onKeyDown(keydown("Tab"));
+
+      expect(handled).toBe(true);
+      expect(command).toHaveBeenCalledTimes(1);
+      expect(command).toHaveBeenCalledWith(items[1]);
+    });
+
+    it("voiden test : does not consume Shift+Tab", () => {
+      const { ref, command } = renderWithItems(items);
+
+      expect(ref.current!.onKeyDown(keydown("Tab", { shiftKey: true }))).toBe(false);
+      expect(command).not.toHaveBeenCalled();
+    });
+
     it("voiden test : returns false for unrelated keys when items is populated", () => {
       const { ref } = renderWithItems(items);
 
-      expect(ref.current!.onKeyDown(keydown("Tab"))).toBe(false);
+      expect(ref.current!.onKeyDown(keydown("a"))).toBe(false);
       expect(ref.current!.onKeyDown(keydown("Escape"))).toBe(false);
     });
   });
