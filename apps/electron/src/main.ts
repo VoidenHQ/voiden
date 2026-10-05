@@ -285,6 +285,7 @@ app.on("activate", async () => {
 // out from under them.
 let isQuittingAfterFlush = false;
 app.on("before-quit", (event) => {
+  windowManager.isQuitting = true;
   if (isQuittingAfterFlush) return;
   event.preventDefault();
   (async () => {
@@ -307,7 +308,10 @@ app.on("before-quit", (event) => {
         ? await dialog.showMessageBox(win, dialogOptions)
         : await dialog.showMessageBox(dialogOptions);
 
-      if (response === 2) return; // Cancel — abort quitting entirely
+      if (response === 2) {
+        windowManager.isQuitting = false;
+        return; // Cancel — abort quitting entirely
+      }
       if (response === 0) await flushRendererUnsavedForPaths([]); // Save All & Quit
       // response === 1 (Don't Save) — proceed without flushing
     }

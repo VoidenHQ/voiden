@@ -33,6 +33,7 @@ class WindowManager {
   private windows = new Map<string, AppState | null>();
   browserWindow: BrowserWindow | null = null;
   browserWindows = new Map<string, BrowserWindow>();
+  isQuitting = false;
 
   private stateDir = '';
   activeWindowId: string | null = null;
@@ -139,9 +140,13 @@ class WindowManager {
       win.close();
     })
     win.on("closed", () => {
-      // Clean up in-memory state only, preserve state file for session restore
+      // Clean up in-memory state
       that.windows.delete(id);
       this.browserWindows.delete(id);
+      // When closed by the user (not during app quit), remove the saved state file
+      if (!that.isQuitting) {
+        that.deleteWindowStateFile(id);
+      }
       // Clear stale reference so menu click handlers that do
       // `windowManager.browserWindow?.webContents.send(...)` see null
       // instead of a destroyed window, which throws "Object has been destroyed".
@@ -264,6 +269,15 @@ class WindowManager {
       const activeFilePath = path.join(this.activeStateDir, `active-state-${windowId}.json`);
       if (fs.existsSync(activeFilePath)) {
         fs.unlinkSync(activeFilePath);
+      }
+    } catch {
+      // Ignore deletion errors
+    }
+    // Also delete the window-bounds file
+    try {
+      const boundsFilePath = this.getBoundsFilePath(windowId);
+      if (fs.existsSync(boundsFilePath)) {
+        fs.unlinkSync(boundsFilePath);
       }
     } catch {
       // Ignore deletion errors
