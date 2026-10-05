@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, forwardRef, useImperativeHandle, ReactElement } from 'react'
+import { isSuggestionAcceptKey } from "@/core/editors/voiden/utils/suggestionKeys";
 
 interface SuggestionItem {
     label: string
@@ -53,7 +54,7 @@ const VariableList = forwardRef<VariableListHandle, VariableListProps>(
                 return true
             }
 
-            if (event.key === 'Enter') {
+            if (isSuggestionAcceptKey(event)) {
                 selectItem(selectedIndex)
                 return true
             }

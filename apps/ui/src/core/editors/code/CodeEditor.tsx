@@ -31,6 +31,7 @@ import { yaml } from "@codemirror/lang-yaml";
 import { langs } from "@uiw/codemirror-extensions-langs";
 import { useCodeEditorStore } from "./CodeEditorStore";
 import { lintYaml } from "@/core/editors/code/lib/extensions/lintYaml";
+import { tabAcceptsCompletion } from "@/core/editors/code/lib/extensions/tabAcceptsCompletion";
 import { createHiddenSearchPanel } from "./lib/createHiddenSearchPanel";
 
 interface CodeEditorProps {
@@ -1075,6 +1076,8 @@ export const CodeEditor = memo(({ tabId, content, source, panelId, isActive = tr
       EditorView.lineWrapping,
       lintCompartment.of(initialLint),
       search({ top: true, createPanel: createHiddenSearchPanel }),
+      // Tab accepts an open completion, like Enter
+      tabAcceptsCompletion,
       Prec.highest(keymap.of([
         {
           key: "Mod-f", preventDefault: true, run: () => {
