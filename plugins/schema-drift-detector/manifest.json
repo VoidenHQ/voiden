@@ -1,0 +1,43 @@
+{
+  "id": "schema-drift-detector",
+  "name": "Schema Drift Detector",
+  "description": "Detect and visualize structural changes, breaking regressions, and schema evolutions in API responses across executions with JSON and XML support.",
+  "version": "1.0.0",
+  "voidenVersion": ">=2.0.0",
+  "author": "Voiden Team",
+  "enabled": true,
+  "priority": 45,
+  "readme": "Detect API response schema drift across executions. Supports JSON & XML responses, breaking change detection (missing fields, type mutations, nullability changes), non-breaking additions, customizable wildcard/regex ignore rules, baseline schema pinning, response panel diff view, and report exports (Markdown, JSON, HTML).",
+  "capabilities": {
+    "ui": {
+      "buttons": [
+        {
+          "id": "schema-drift-detector-btn",
+          "location": "sidebar-left",
+          "icon": "GitCompare",
+          "tooltip": "Schema Drift Detector",
+          "description": "Opens Schema Drift Manager to review API baselines and drift history"
+        }
+      ],
+      "description": "Adds Schema Drift Detector to sidebar, response panel, and status bar"
+    },
+    "responsePanel": {
+      "id": "schema-drift",
+      "name": "Schema Drift"
+    }
+  },
+  "dependencies": {
+    "core": "^1.0.0",
+    "sdk": "^1.0.0"
+  },
+  "features": [
+    "Infer structural response schemas from JSON and XML payloads",
+    "Detect breaking schema changes (missing fields, incompatible types, nullability changes)",
+    "Track non-breaking changes (new fields, optional extensions)",
+    "Configurable field ignore rules with wildcard and regex matching (e.g. *.timestamp, data[].id)",
+    "Baseline schema manager with auto-record and manual pin/lock options",
+    "Integrated Response Panel view with visual diffs and status badges",
+    "Export comparison reports to Markdown, JSON, HTML, and Text formats",
+    "Optional CI / headless integration for automated drift testing"
+  ]
+}

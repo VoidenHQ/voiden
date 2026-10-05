@@ -1,0 +1,22 @@
+{
+  "name": "@voiden/plugin-schema-drift-detector",
+  "version": "1.0.0",
+  "description": "API Schema Drift Detector plugin for Voiden",
+  "main": "dist/schema-drift-detector.js",
+  "scripts": {
+    "build": "vite build",
+    "test": "vitest run"
+  },
+  "keywords": [
+    "voiden",
+    "plugin",
+    "schema",
+    "drift",
+    "api",
+    "diff",
+    "json",
+    "xml"
+  ],
+  "author": "Voiden Team",
+  "license": "MIT"
+}
