@@ -1,10 +1,9 @@
 import type { ExtensionData } from '../../shared/types';
 import { app } from 'electron';
-import * as https from 'node:https';
 import { join } from 'node:path';
 import { readFileSync, existsSync } from 'node:fs';
+import { fetchPluginRegistry } from '../extension/pluginRegistry';
 
-const CORE_REGISTRY_URL = 'https://raw.githubusercontent.com/VoidenHQ/plugin-registry/main/extensions.json';
 
 function mapPlugins(reg: any): ExtensionData[] {
   const entries: any[] = Array.isArray(reg)
@@ -31,20 +30,6 @@ function mapPlugins(reg: any): ExtensionData[] {
       mainProcess: p.mainProcess ?? false,
       voidenVersion: p.voidenVersion,
     }));
-}
-
-function httpsGet(url: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    https.get(url, { headers: { 'User-Agent': 'Voiden-App', 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' } }, (res) => {
-      if (res.statusCode !== 200) {
-        reject(new Error(`HTTP ${res.statusCode}`));
-        return;
-      }
-      let data = '';
-      res.on('data', (chunk) => data += chunk);
-      res.on('end', () => resolve(data));
-    }).on('error', reject);
-  });
 }
 
 /**
@@ -74,8 +59,7 @@ export const remoteNewPlugins: ExtensionData[] = [];
  */
 export async function fetchAndUpdateCoreRegistry(): Promise<void> {
   try {
-    const raw = await httpsGet(CORE_REGISTRY_URL);
-    const parsed = JSON.parse(raw);
+    const parsed = await fetchPluginRegistry();
     const entries: any[] = Array.isArray(parsed)
       ? parsed.filter((p: any) => p.type === 'core')
       : Object.values(parsed?.plugins ?? {});

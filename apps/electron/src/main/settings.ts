@@ -60,6 +60,12 @@ export type Settings = {
     enabled?: boolean;
     retention_days?: number;
   };
+  // Dates behind the activity flags on the plugin-registry request (see
+  // extension/activity.ts). They stay on this machine.
+  activity?: {
+    first_seen?: string; // UTC day of the first run; absent for installs older than activity counting
+    last_active?: string; // UTC day last reported to voiden.md
+  };
   ui?: {
     last_seen_version?: string;
     show_whats_new_after_update?: boolean;
@@ -129,7 +135,13 @@ export function loadSettings(): Settings {
   const defaults = readJSON<Settings>(defaultsFile);
   if (!defaults) throw new Error("default.settings.json missing or invalid");
 
-  const user = readJSON<Partial<Settings>>(userFile) ?? {};
+  const savedUser = readJSON<Partial<Settings>>(userFile);
+  const user = savedUser ?? {};
+
+  // No settings file yet means this is the first run of a fresh install.
+  if (!savedUser) {
+    user.activity = { first_seen: new Date().toISOString().slice(0, 10) };
+  }
 
   // Auto-detect beta channel BEFORE merging with defaults
   // If the app version contains "-beta" and the user hasn't explicitly set a channel,

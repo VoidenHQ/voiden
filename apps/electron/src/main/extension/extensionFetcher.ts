@@ -1,8 +1,7 @@
 import * as https from "https";
 import { app } from "electron";
 import { ExtensionData } from "src/shared/types";
-
-const COMMUNITY_REGISTRY_URL = "https://raw.githubusercontent.com/VoidenHQ/plugin-registry/main/extensions.json";
+import { fetchPluginRegistry } from "./pluginRegistry";
 
 const readmeCache = new Map<string, { content: string; timestamp: number }>();
 const changelogCache = new Map<string, { data: any[]; timestamp: number }>();
@@ -106,8 +105,7 @@ export async function fetchChangelog(repo: string): Promise<any[] | null> {
 
 export async function getRemoteExtensions(): Promise<ExtensionData[]> {
   try {
-    const raw = await httpsGet(COMMUNITY_REGISTRY_URL);
-    const parsed = JSON.parse(raw);
+    const parsed = await fetchPluginRegistry();
     const remoteExtensionsRaw: any[] = (Array.isArray(parsed) ? parsed : [])
       .filter((e: any) => e.type === 'community');
 
