@@ -17,6 +17,7 @@ Complete guide to all Voiden documentation.
 | [Fresh Install](getting-started/FRESH_INSTALL.md) | Complete setup for new repo clone |
 | [Development Workflow](build/DEVELOPMENT.md) | Daily development guide |
 | [Quick Reference](getting-started/QUICK_REFERENCE.md) | Command cheatsheet |
+| [Folder Environments](getting-started/FOLDER_ENVIRONMENTS.md) | Per-folder `.env` inheritance for requests |
 
 ### Architecture
 | Document | Description |

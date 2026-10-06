@@ -413,8 +413,9 @@ declare global {
           comment: string,
           variables: [{ key: string; value: Record<string, string> }],
         ) => Promise<void>;
-        replaceVariables: (text: string) => Promise<string>;
-        getKeys: () => Promise<string[]>;
+        replaceVariables: (text: string, requestFilePath?: string) => Promise<string>;
+        forRequest: (requestFilePath: string) => Promise<Record<string, string>>;
+        getKeys: (requestFilePath?: string) => Promise<string[]>;
         getYamlTrees: (profile?: string) => Promise<{
           public: Record<string, unknown>;
           private: Record<string, unknown>;

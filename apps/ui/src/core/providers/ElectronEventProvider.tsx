@@ -127,6 +127,8 @@ export const ElectronEventProvider: React.FC<{ children: React.ReactNode }> = ({
         if (fileTreeDebounceRef.current) clearTimeout(fileTreeDebounceRef.current);
         fileTreeDebounceRef.current = setTimeout(() => {
           queryClient.invalidateQueries({ queryKey: ['env'] });
+          queryClient.invalidateQueries({ queryKey: ["file-environment"] });
+          queryClient.invalidateQueries({ queryKey: ["environment-keys"] });
         }, 400);
       },
       "folder:opened": (data: any) => {
@@ -172,11 +174,16 @@ export const ElectronEventProvider: React.FC<{ children: React.ReactNode }> = ({
         queryClient.invalidateQueries({ queryKey: ["env"] });
         queryClient.invalidateQueries({ queryKey: ["environments"] });
         queryClient.invalidateQueries({ queryKey: ["environment-keys"] });
+        queryClient.invalidateQueries({ queryKey: ["file-environment"] });
         handleEvent("env:changed", data);
       },
       "file:changed": (_event: any, data: any) => {
         const changedPath = data?.path?.replace(/\\/g, "/");
         if (!changedPath) return;
+        if (changedPath.endsWith("/.env")) {
+          queryClient.invalidateQueries({ queryKey: ["file-environment"] });
+          queryClient.invalidateQueries({ queryKey: ["environment-keys"] });
+        }
         const panelQueries = queryClient.getQueriesData<any>({ queryKey: ["panel:tabs"] });
         for (const [, panelData] of panelQueries) {
           for (const tab of panelData?.tabs ?? []) {
@@ -259,6 +266,7 @@ export const ElectronEventProvider: React.FC<{ children: React.ReactNode }> = ({
         queryClient.invalidateQueries({ queryKey: ["environments"] });
         queryClient.invalidateQueries({ queryKey: ["env"] });
         queryClient.invalidateQueries({ queryKey: ["environment-keys"] });
+        queryClient.invalidateQueries({ queryKey: ["file-environment"] });
         queryClient.invalidateQueries({ queryKey: ["void-variable-keys"] });
         queryClient.invalidateQueries({ queryKey: ["void-variable-data"] });
       },
