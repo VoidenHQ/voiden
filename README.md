@@ -122,7 +122,7 @@ Direct downloads are available for Apple Silicon and Intel macOS, Windows `.exe`
 | Platform | Stable                              | Early access                        |
 | -------- | ----------------------------------- | ----------------------------------- |
 | macOS    | `brew install voiden`               | `brew install voiden@beta`          |
-| Windows  | `winget` and Chocolatey coming soon | `winget` and Chocolatey coming soon |
+| Windows  | `winget` and Chocolatey support | `winget` support |
 | Linux    | `apt` and `snap` support            | Beta `apt` and `snap` channels      |
 | Linux/macOS | `nix run github:VoidenHQ/voiden` (Flake) | Development shell with `nix develop` |
 
