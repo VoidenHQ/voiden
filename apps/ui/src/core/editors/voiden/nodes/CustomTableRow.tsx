@@ -425,9 +425,11 @@ export const CustomTableRow = TableRow.extend({
                     td.setAttribute("role", "checkbox");
                     td.setAttribute("aria-checked", String(required));
                     td.setAttribute("aria-label", "Require all variables in this row to resolve");
-                    td.tabIndex = 0;
+                    // A disabled row is never sent, so its Required state has no effect — lock the checkbox.
+                    td.setAttribute("aria-disabled", String(disabled));
+                    td.tabIndex = disabled ? -1 : 0;
                     td.style.cssText =
-                      "width:96px;min-width:96px;max-width:96px;padding:0;text-align:center;user-select:none;cursor:pointer;vertical-align:middle;border-right:1px solid var(--ui-line,#3a3a3a);";
+                      `width:96px;min-width:96px;max-width:96px;padding:0;text-align:center;user-select:none;cursor:${disabled ? "not-allowed" : "pointer"};vertical-align:middle;border-right:1px solid var(--ui-line,#3a3a3a);`;
 
                     const box = document.createElement("div");
                     box.style.cssText =
@@ -443,12 +445,17 @@ export const CustomTableRow = TableRow.extend({
                       box.style.backgroundColor = "transparent";
                     }
 
-                    td.title = required
-                      ? "Required: fail the request if a variable is unresolved"
-                      : "Optional: omit this row if a variable is unresolved";
+                    if (disabled) box.style.opacity = "0.4";
+
+                    td.title = disabled
+                      ? "Row is disabled — enable it to change Required"
+                      : required
+                        ? "Required: fail the request if a variable is unresolved"
+                        : "Optional: omit this row if a variable is unresolved";
                     td.appendChild(box);
 
                     const toggleRequired = () => {
+                      if (disabled) return;
                       const { state: s, dispatch } = view;
                       if (!dispatch) return;
 
