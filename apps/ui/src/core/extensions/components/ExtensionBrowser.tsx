@@ -571,6 +571,15 @@ export const ExtensionBrowser = () => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isUpdatingAll, setIsUpdatingAll] = useState(false);
 
+  const isUpdatableCore = (ext: Extension) =>
+    ext.type === "core" &&
+    ext.isLocallyAvailable !== false &&
+    !!coreUpdateInfo?.[ext.id]?.hasUpdate &&
+    !!coreUpdateInfo?.[ext.id]?.compatible;
+  // Same condition as the per-card Update button for community plugins.
+  const isUpdatableCommunity = (ext: Extension) =>
+    ext.type === "community" && !!ext.installedPath && !!(ext as any).latestVersion;
+
   const doFetchRegistry = async () => {
     const coreExt = (window as any).electron?.coreExtensions;
     const extApi = (window as any).electron?.extensions;
@@ -620,32 +629,58 @@ export const ExtensionBrowser = () => {
     return 0;
   };
 
+  // Community plugins are updated one at a time: each update rewrites the shared app
+  // state, so concurrent calls could overwrite each other.
+  const updateCommunityPlugins = async (ids: string[]): Promise<{ updated: string[]; failed: string[] }> => {
+    const extApi = (window as any).electron?.extensions;
+    const updated: string[] = [];
+    const failed: string[] = [];
+    for (const id of ids) {
+      try {
+        await extApi.update(id);
+        updated.push(id);
+      } catch {
+        failed.push(id);
+      }
+    }
+    if (updated.length > 0) {
+      queryClient.invalidateQueries({ queryKey: ["extensions"] });
+      queryClient.invalidateQueries({ queryKey: ["app:state"] });
+      queryClient.invalidateQueries({ queryKey: ["panel:tabs"], exact: false });
+      queryClient.invalidateQueries({ queryKey: ["sidebar:tabs"], exact: false });
+      queryClient.invalidateQueries({ queryKey: ["tab:content"], exact: false });
+    }
+    return { updated, failed };
+  };
+
   // Updates every core plugin in a single main-process call instead of one IPC round-trip
   // per plugin — checkAndUpdate() with no id does one read + one write of the shared
   // manifest, so it can't clobber itself the way N concurrent per-plugin calls could.
+  // Community plugins with an update follow.
   const handleUpdateAll = async () => {
     const coreExt = (window as any).electron?.coreExtensions;
-    if (!coreExt?.checkAndUpdate || isUpdatingAll) return;
+    if (isUpdatingAll) return;
 
     const attemptedIds = (extensions || [])
-      .filter((ext: Extension) =>
-        ext.type === "core" &&
-        ext.isLocallyAvailable !== false &&
-        coreUpdateInfo?.[ext.id]?.hasUpdate &&
-        coreUpdateInfo?.[ext.id]?.compatible
-      )
+      .filter(isUpdatableCore)
       .map((ext: Extension) => ext.id);
-    if (attemptedIds.length === 0) return;
+    const communityIds = (extensions || [])
+      .filter(isUpdatableCommunity)
+      .map((ext: Extension) => ext.id);
+    if (attemptedIds.length === 0 && communityIds.length === 0) return;
 
     setIsUpdatingAll(true);
     attemptedIds.forEach((id) => setInstallingPlugin(id, true));
     try {
-      const result = await coreExt.checkAndUpdate();
+      const result = attemptedIds.length > 0 && coreExt?.checkAndUpdate ? await coreExt.checkAndUpdate() : null;
       attemptedIds.forEach((id) => setInstallingPlugin(id, false));
 
+      // A failed core update shouldn't stop community plugins from updating.
+      const community = await updateCommunityPlugins(communityIds);
+
       if (result?.error) {
-        toast.error(`Update failed: ${result.error}`);
-        return;
+        toast.error(`Core plugin update failed: ${result.error}`);
+        if (community.updated.length === 0) return;
       }
 
       const updatedIds: string[] = result?.updated ?? [];
@@ -670,10 +705,14 @@ export const ExtensionBrowser = () => {
         window.dispatchEvent(new Event('voiden:reloadPlugins'));
       }
 
+      const updatedCount = updatedIds.length + community.updated.length;
       const parts: string[] = [];
-      if (updatedIds.length > 0) parts.push(`${updatedIds.length} updated`);
+      if (updatedCount > 0) parts.push(`${updatedCount} updated`);
       if (incompatibleIds.length > 0) parts.push(`${incompatibleIds.length} need a newer Voiden`);
-      if (parts.length === 0) {
+      if (community.failed.length > 0) parts.push(`${community.failed.length} failed`);
+      if (community.failed.length > 0 && updatedCount === 0) {
+        toast.error(parts.join(", ") + ".");
+      } else if (parts.length === 0) {
         toast.success("All plugins are already up to date.");
       } else {
         toast.success(parts.join(", ") + ".");
@@ -742,12 +781,10 @@ export const ExtensionBrowser = () => {
     );
   }, [extensions, search, category, coreUpdateInfo]);
 
-  const updatableCoreCount = useMemo(() => (extensions || []).filter((ext: Extension) =>
-    ext.type === "core" &&
-    ext.isLocallyAvailable !== false &&
-    coreUpdateInfo?.[ext.id]?.hasUpdate &&
-    coreUpdateInfo?.[ext.id]?.compatible
-  ).length, [extensions, coreUpdateInfo]);
+  const updatableCount = useMemo(
+    () => (extensions || []).filter((ext: Extension) => isUpdatableCore(ext) || isUpdatableCommunity(ext)).length,
+    [extensions, coreUpdateInfo],
+  );
 
   return (
     <div className="flex flex-col h-full">
@@ -761,15 +798,15 @@ export const ExtensionBrowser = () => {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
-          {updatableCoreCount > 0 && (
-            <Tip label="Update all core plugins with a compatible update" side="bottom">
+          {updatableCount > 0 && (
+            <Tip label="Update all plugins with a compatible update" side="bottom">
               <button
                 onClick={handleUpdateAll}
                 disabled={isUpdatingAll}
                 className="h-7 px-2 flex items-center gap-1 rounded-md bg-button-primary hover:bg-button-primary-hover text-bg text-[11px] font-medium whitespace-nowrap transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {isUpdatingAll ? <Loader2 size={12} className="animate-spin" /> : <ArrowUpCircle size={12} />}
-                {isUpdatingAll ? "Updating…" : `Update All (${updatableCoreCount})`}
+                {isUpdatingAll ? "Updating…" : `Update All (${updatableCount})`}
               </button>
             </Tip>
           )}
