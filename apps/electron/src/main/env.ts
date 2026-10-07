@@ -255,11 +255,14 @@ const NESTED_SCAN_MAX_RESULTS = 100;
  * empty one — the marker survives independent of whether it currently holds
  * env YAML) OR by having .void request files directly inside it (the actual
  * "this is a Voiden project" signal, present even before any env config was
- * ever touched). A bare, unmarked folder with a stray .env and neither
- * signal does NOT qualify, on purpose: this used to walk the entire tree
- * looking for any .env-prefixed file anywhere, which let an unrelated .env
- * in some nested app folder get silently merged into every request's
- * variable resolution. The project's own root is excluded — that's handled
+ * ever touched), OR by having its own .env / .env.<name> file: requests
+ * inherit the .env files of their folder and its parents (see folderEnv.ts),
+ * so a folder's .env belongs in the environment selector even before the
+ * folder holds a request of its own. A found .env is only ever listed as a
+ * choice here — nothing is merged into a request's variables unless it is
+ * the selected environment or sits on that request's own folder path. The
+ * walk still skips dependency, build and dot-directories (see below), where
+ * unrelated .env files usually live. The project's own root is excluded — that's handled
  * by the regular single-project code path elsewhere in this file. A .voiden/
  * folder is never recursed into (it can't contain further nested projects).
  * Returns absolute paths; classifying each as YAML vs. .env fallback happens
@@ -281,7 +284,8 @@ async function scanForNestedCandidateDirs(rootDir: string): Promise<string[]> {
 
     if (dir !== rootDir) {
       const isCandidate = entries.some((e) =>
-        (e.isDirectory() && e.name === VOIDEN_DIR) || (e.isFile() && e.name.endsWith(".void"))
+        (e.isDirectory() && e.name === VOIDEN_DIR) ||
+        (e.isFile() && (e.name.endsWith(".void") || e.name === ".env" || e.name.startsWith(".env.")))
       );
       if (isCandidate) results.push(dir);
     }
