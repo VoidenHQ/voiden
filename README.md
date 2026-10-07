@@ -118,24 +118,60 @@ Direct downloads are available for Apple Silicon and Intel macOS, Windows `.exe`
 
 ### Package managers
 
+| Platform | Stable | Early access |
+| -------- | ------ | ------------ |
+| macOS    | Homebrew, Nix | Homebrew (`voiden@beta`), Nix |
+| Windows  | winget, Chocolatey | winget (`Voiden.Voiden-Beta`) |
+| Linux    | Flatpak, Homebrew, `apt`, `snap`, Nix | Beta `apt` and `snap` channels, Nix |
 
-| Platform | Stable                              | Early access                        |
-| -------- | ----------------------------------- | ----------------------------------- |
-| macOS    | `brew install voiden`               | `brew install voiden@beta`          |
-| Windows  | `winget` and Chocolatey support | `winget` support |
-| Linux    | `apt` and `snap` support            | Beta `apt` and `snap` channels      |
-| Linux/macOS | `nix run github:VoidenHQ/voiden` (Flake) | Development shell with `nix develop` |
-
+#### macOS
 
 Homebrew
 
 ```bash
 brew install voiden
+```
+
+```bash
 # beta
 brew install voiden@beta
 ```
 
+#### Windows
 
+winget
+
+```powershell
+winget install Voiden
+```
+
+Chocolatey
+
+```powershell
+choco install voiden
+```
+
+```powershell
+# beta (winget)
+winget install Voiden.Voiden-Beta
+```
+
+#### Linux
+
+Flatpak (any distro)
+
+```bash
+flatpak remote-add --if-not-exists flatpark https://dl.flatpark.org/flatpark.flatpakrepo
+flatpak install flatpark md.voiden.Voiden
+```
+
+Homebrew on Linux
+
+```bash
+brew tap voidenhq/voiden
+brew trust voidenhq/voiden
+brew install voidenhq/voiden/voiden
+```
 
 APT (Ubuntu / Debian)
 
