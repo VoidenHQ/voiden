@@ -60,9 +60,10 @@ export type Settings = {
     enabled?: boolean;
     retention_days?: number;
   };
-  // Dates behind the activity flags on the plugin-registry request (see
-  // extension/activity.ts). They stay on this machine.
+  // The daily activity report on the plugin-registry request (see
+  // extension/activity.ts). The dates stay on this machine.
   activity?: {
+    install_code?: boolean; // false leaves the install code (extension/installCode.ts) out of the report
     first_seen?: string; // UTC day of the first run; absent for installs older than activity counting
     last_active?: string; // UTC day last reported to voiden.md
   };

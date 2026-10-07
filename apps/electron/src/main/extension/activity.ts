@@ -1,12 +1,14 @@
-// Activity flags for the plugin-registry request.
+// Activity report on the plugin-registry request.
 //
 // Voiden counts active installs without identifying any of them. The app keeps
-// two dates in its own settings (first run, last counted day) and, on the first
-// registry request of a day, tells voiden.md which periods this is the first
-// request of: day, week, month, ever. The server adds those up. No id is
-// generated, stored or sent, and the dates themselves never leave the machine:
-// only the period flags, a rough install-age bucket, and the month/week the
-// install was last active (so installs that stopped coming back can be counted).
+// two dates in its own settings (first run, last reported day) and, on its
+// first registry request of a day, tells voiden.md that it is active today and
+// which day it was last active before that. From those two facts the server
+// can count each install once in any date range: an install's first report
+// inside a range is the one whose previous active day falls before the range.
+// The report also carries an install code (installCode.ts), a one-way hash of
+// the machine id, so a machine whose app data was cleared is not counted as a
+// second install. Without it (turned off, or unreadable) the dates alone decide.
 
 export interface ActivityState {
   /** UTC day (YYYY-MM-DD) of the first run. Absent for installs that predate activity counting. */
@@ -17,16 +19,6 @@ export interface ActivityState {
 
 export function utcDay(date: Date): string {
   return date.toISOString().slice(0, 10);
-}
-
-// ISO 8601 week, e.g. "2026-W41". The week belongs to the year of its Thursday.
-export function isoWeek(day: string): string {
-  const d = new Date(`${day}T00:00:00Z`);
-  const weekday = d.getUTCDay() || 7;
-  d.setUTCDate(d.getUTCDate() + 4 - weekday);
-  const yearStart = Date.UTC(d.getUTCFullYear(), 0, 1);
-  const week = Math.ceil(((d.getTime() - yearStart) / 86_400_000 + 1) / 7);
-  return `${d.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
 }
 
 function ageBucket(firstSeen: string | undefined, today: string): string {
@@ -41,30 +33,22 @@ function ageBucket(firstSeen: string | undefined, today: string): string {
 
 /**
  * Headers for the registry request, or {} when today was already reported.
- *   X-Voiden-Active             periods this is the first request of: day[,week][,month][,ever]
- *   X-Voiden-Install-Age        lt7d | lt30d | lt180d | gte180d | unknown
- *   X-Voiden-Last-Active-Month  YYYY-MM of the previous report (absent on the first)
- *   X-Voiden-Last-Active-Week   YYYY-Www of the previous report (absent on the first)
+ *   X-Voiden-Active       day, or day,ever on a fresh install's first report
+ *   X-Voiden-Install-Age  lt7d | lt30d | lt180d | gte180d | unknown
+ *   X-Voiden-Last-Active  UTC day (YYYY-MM-DD) of the previous report; absent on the first
  */
 export function activityHeaders(state: ActivityState, now: Date): Record<string, string> {
   const today = utcDay(now);
   const last = state.last_active;
   if (last === today) return {};
 
-  const periods = ["day"];
-  if (!last || isoWeek(last) !== isoWeek(today)) periods.push("week");
-  if (!last || last.slice(0, 7) !== today.slice(0, 7)) periods.push("month");
-  // "ever" only for a fresh install: one that predates activity counting has
-  // no first_seen and is reported as an existing install of unknown age.
-  if (!last && state.first_seen) periods.push("ever");
-
   const headers: Record<string, string> = {
-    "X-Voiden-Active": periods.join(","),
+    // "ever" only for a fresh install: one that predates activity counting has
+    // no first_seen and is reported as an existing install of unknown age.
+    "X-Voiden-Active": !last && state.first_seen ? "day,ever" : "day",
     "X-Voiden-Install-Age": ageBucket(state.first_seen, today),
   };
-  if (last) {
-    headers["X-Voiden-Last-Active-Month"] = last.slice(0, 7);
-    headers["X-Voiden-Last-Active-Week"] = isoWeek(last);
-  }
+  // A last day after today means the clock moved back; it says nothing useful.
+  if (last && last < today) headers["X-Voiden-Last-Active"] = last;
   return headers;
 }

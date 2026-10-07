@@ -2,6 +2,7 @@ import * as https from "node:https";
 import { app } from "electron";
 import { getSettings, saveSettings } from "../settings";
 import { activityHeaders, utcDay } from "./activity";
+import { installCode } from "./installCode";
 
 // The plugin registry is served by voiden.md, which mirrors
 // VoidenHQ/plugin-registry. GitHub stays as a fallback so plugins keep working
@@ -48,6 +49,10 @@ function baseHeaders(): Record<string, string> {
 async function fetchRegistry(): Promise<any> {
   const today = utcDay(new Date());
   const activity = activityHeaders(getSettings().activity ?? {}, new Date());
+  if (activity["X-Voiden-Active"] && getSettings().activity?.install_code !== false) {
+    const code = await installCode();
+    if (code) activity["X-Voiden-Install"] = code;
+  }
   try {
     const parsed = JSON.parse(await httpsGet(REGISTRY_URL, { ...baseHeaders(), ...activity }));
     // Reported: remember the day so the rest of today's requests carry no flags.
