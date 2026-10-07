@@ -1,6 +1,6 @@
 import { Search, Settings, Loader2, Users, Upload, RefreshCw, Trash2, Cpu, Globe, RotateCw, HardDrive, ArrowUpCircle, ChevronDown, Check } from "lucide-react";
 import * as LucideIcons from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import {
   useGetExtensions,
   useInstallExtension,
@@ -24,6 +24,14 @@ import { revealPluginsTab } from "@/core/extensions/utils/revealPluginsTab";
 let _lastRegistryFetch = 0;
 let _lastUpdateCheck = 0;
 let _hasShownUpdateToast = false;
+// What the last toasts announced, so the hourly registry check only speaks up
+// when there is something new since then.
+let _announcedNewPluginCount = 0;
+let _announcedUpdateCount = 0;
+
+// How often the registry is re-read while the app stays open — the same cadence
+// as the app's own update check.
+const REGISTRY_REFRESH_MS = 60 * 60 * 1000;
 
 const ExtensionIcon = ({ extension, size = "md" }: { extension: Extension; size?: "sm" | "md" | "lg" }) => {
   const dim = size === "sm" ? "w-8 h-8" : size === "lg" ? "w-14 h-14" : "w-10 h-10";
@@ -580,7 +588,9 @@ export const ExtensionBrowser = () => {
   const isUpdatableCommunity = (ext: Extension) =>
     ext.type === "community" && !!ext.installedPath && !!(ext as any).latestVersion;
 
-  const doFetchRegistry = async () => {
+  // background: the hourly re-check. It only announces what is new since the
+  // last announcement, and never pulls the Plugin Manager into view by itself.
+  const doFetchRegistry = async (background = false) => {
     const coreExt = (window as any).electron?.coreExtensions;
     const extApi = (window as any).electron?.extensions;
     if (!coreExt?.fetchRegistry) return;
@@ -590,24 +600,27 @@ export const ExtensionBrowser = () => {
       const updated = await extApi?.getAll?.();
       if (updated) queryClient.setQueryData(["extensions"], updated);
       _lastRegistryFetch = Date.now();
-      if (result?.newPluginCount > 0) {
+      const newPluginCount = result?.newPluginCount ?? 0;
+      if (newPluginCount > 0 && (!background || newPluginCount > _announcedNewPluginCount)) {
         toast.success(
           result.newPluginCount === 1
             ? "1 new plugin available"
             : `${result.newPluginCount} new plugins available`
         );
       }
+      _announcedNewPluginCount = newPluginCount;
       const coreUpdateCount = await doCheckUpdates();
       const communityUpdateCount = updated?.filter((e: any) => e.type === 'community' && !!e.latestVersion).length ?? 0;
       const totalUpdates = coreUpdateCount + communityUpdateCount;
-      if (totalUpdates > 0 && !_hasShownUpdateToast) {
+      if (totalUpdates > 0 && (!_hasShownUpdateToast || (background && totalUpdates > _announcedUpdateCount))) {
         _hasShownUpdateToast = true;
-        revealPluginsTab();
+        if (!background) revealPluginsTab();
         toast.info(
           totalUpdates === 1 ? '1 plugin update available' : `${totalUpdates} plugin updates available`,
           { description: 'Switch to "Updates" in the Plugin Manager to install.', action: { label: 'View', onClick: () => { revealPluginsTab(); setCategory('updates'); } } }
         );
       }
+      _announcedUpdateCount = Math.max(_announcedUpdateCount, totalUpdates);
     } catch {
       // silently ignore — no network
     } finally {
@@ -738,6 +751,7 @@ export const ExtensionBrowser = () => {
     doCheckUpdates().then((count) => {
       if (count > 0 && !_hasShownUpdateToast) {
         _hasShownUpdateToast = true;
+        _announcedUpdateCount = Math.max(_announcedUpdateCount, count);
         revealPluginsTab();
         toast.info(
           count === 1 ? '1 plugin update available' : `${count} plugin updates available`,
@@ -745,6 +759,15 @@ export const ExtensionBrowser = () => {
         );
       }
     });
+  }, []);
+
+  // Re-read the registry every hour while the app stays open, so new plugins
+  // and plugin updates show up without a restart or a manual refresh.
+  const fetchRegistryRef = useRef(doFetchRegistry);
+  fetchRegistryRef.current = doFetchRegistry;
+  useEffect(() => {
+    const timer = setInterval(() => fetchRegistryRef.current(true), REGISTRY_REFRESH_MS);
+    return () => clearInterval(timer);
   }, []);
 
   useEffect(() => {
@@ -812,7 +835,7 @@ export const ExtensionBrowser = () => {
           )}
           <Tip label="Refresh plugin registry" side="bottom">
             <button
-              onClick={doFetchRegistry}
+              onClick={() => doFetchRegistry()}
               disabled={isRefreshing}
               className="h-7 w-7 flex items-center justify-center rounded-md hover:bg-active transition-colors text-comment disabled:opacity-40 disabled:cursor-not-allowed"
             >
