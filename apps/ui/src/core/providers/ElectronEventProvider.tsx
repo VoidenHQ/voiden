@@ -79,8 +79,12 @@ export const ElectronEventProvider: React.FC<{ children: React.ReactNode }> = ({
       },
       "file:delete": (event: any, data: any) => {
         // Per-event: handle .env side-effect and emit immediately
-        if (data.path.replace(/\\/g, "/").split("/").pop()?.startsWith(".env")) {
-          setActiveEnv(null);
+        const deletedPath = data.path.replace(/\\/g, "/");
+        if (deletedPath.split("/").pop()?.startsWith(".env")) {
+          // Only the selected environment's own file resets the selection: a
+          // folder-level .env further down the tree is not the selected one.
+          const activeEnv = queryClient.getQueryData<{ activeEnv?: string | null }>(["environments"])?.activeEnv;
+          if (!activeEnv || activeEnv.replace(/\\/g, "/") === deletedPath) setActiveEnv(null);
         }
         handleEvent("file:delete", data);
         // FileSystemList removes the node surgically via removeNodeByPath.
