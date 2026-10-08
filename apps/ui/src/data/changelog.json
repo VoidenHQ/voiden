@@ -1,5 +1,21 @@
 [
   {
+    "version": "v2.3.2",
+    "date": "08/10/2026",
+    "title": "Agent Skill Improvements",
+    "description": "Patch release that makes the Voiden skill for Claude and Codex easier for agents to read in full, and keeps it current after plugin updates.",
+    "icon": "Plug",
+    "iconColor": "text-teal-400",
+    "bgColor": "bg-gradient-to-br from-slate-900 to-teal-950",
+    "changes": {
+      "Improved": [
+        "The agent skill is installed as a short SKILL.md with an index, plus one guide per extension.",
+        "The agent skill is rebuilt as soon as a plugin update finishes, without restarting the app.",
+        "The agent skill explains when to use an OAuth 2.0 block and which grant to choose (voiden-advanced-auth 2.0.10)."
+      ]
+    }
+  },
+  {
     "version": "v2.3.1",
     "date": "01/10/2026",
     "title": "Security Updates & Editor Keyboard Fixes",
