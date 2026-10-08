@@ -236,6 +236,9 @@ export function registerGitIpcHandlers() {
         simpleGit({
           baseDir,
           ...(cloneEnv ? { env: cloneEnv } : {}),
+          // Token mode passes `-c credential.helper=` (see above), which simple-git
+          // rejects unless this is opted into.
+          ...(token ? { unsafe: { allowUnsafeCredentialHelper: true } } : {}),
           progress({ stage, progress }) {
             sendProgress(stage, progress);
           },
