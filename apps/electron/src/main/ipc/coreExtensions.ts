@@ -835,8 +835,12 @@ async function runCheckAndUpdate(pluginId?: string): Promise<{
         await writeLocalManifest(localManifest)
         // Sync core extensions state so isLocallyAvailable and version update immediately
         try {
-          const { extensionManager, getAppState } = await import('../state')
+          const { extensionManager, getAppState, maybeRecomposeSkills } = await import('../state')
           if (extensionManager) extensionManager.syncCoreExtensions()
+          // An update can bring a new skill.md. Rebuild the installed agent skill now,
+          // so it doesn't stay on the old text until the next app start.
+          const stateAfterUpdate = getAppState()
+          if (stateAfterUpdate) maybeRecomposeSkills(stateAfterUpdate)
           // Load (or reload) the main-process bundle for any plugin that was just downloaded.
           // reloadMainProcessExtension handles the hasMainProcess detection internally so
           // plugins whose registry entry lacks mainProcess:true are still covered.

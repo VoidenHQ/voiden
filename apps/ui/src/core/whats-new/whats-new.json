@@ -1,6 +1,27 @@
 {
   "releases": [
     {
+      "version": "2.3.2",
+      "date": "October 2026",
+      "whatsnew": [
+        {
+          "icon": "🤖",
+          "title": "A Skill Agents Read in Full",
+          "description": "The Voiden skill for Claude and Codex is now a short guide with an index, plus one file per extension. Agents open the parts a task needs, so guidance on auth, scripts, and importers no longer goes unread."
+        },
+        {
+          "icon": "🔄",
+          "title": "Skill Stays Current After Plugin Updates",
+          "description": "When a plugin update brings new guidance, the installed skill is rebuilt right away. No restart needed."
+        },
+        {
+          "icon": "🔐",
+          "title": "Better OAuth Guidance for Agents",
+          "description": "Agents now know when a request needs an OAuth 2.0 block, which grant to pick, and when a login uses cookies instead."
+        }
+      ]
+    },
+    {
       "version": "2.3.1",
       "date": "October 2026",
       "whatsnew": [
