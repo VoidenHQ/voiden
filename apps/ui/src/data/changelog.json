@@ -11,6 +11,7 @@
       "Improved": [
         "The agent skill is installed as a short SKILL.md with an index, plus one guide per extension.",
         "The agent skill is rebuilt as soon as a plugin update finishes, without restarting the app.",
+      "A Voiden skill that another tool copied into ~/.agents/skills is kept up to date, so agents no longer read a stale copy.",
         "The agent skill explains when to use an OAuth 2.0 block and which grant to choose (voiden-advanced-auth 2.0.10)."
       ]
     }
