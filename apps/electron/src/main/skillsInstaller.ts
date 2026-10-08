@@ -36,6 +36,52 @@ function writeSkill(skillDir: string, skill: ComposedSkill): void {
   } catch {}
 }
 
+// --- Shared ~/.agents/skills folder ---
+
+function getSharedAgentsSkillsDir(): string {
+  return path.join(app.getPath("home"), ".agents", "skills");
+}
+
+/** True when the folder holds a skill whose SKILL.md frontmatter names it `name`. */
+function isSkillNamed(skillDir: string, name: string): boolean {
+  try {
+    const head = fs.readFileSync(path.join(skillDir, "SKILL.md"), "utf-8").slice(0, 2000);
+    const frontmatter = head.match(/^---\r?\n([\s\S]*?)\r?\n---/)?.[1] ?? "";
+    return frontmatter.split(/\r?\n/).some((line) => {
+      const match = line.match(/^name:\s*(.+?)\s*$/);
+      return match !== null && match[1].replace(/^["']|["']$/g, "") === name;
+    });
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Keeps a Voiden skill that already exists in ~/.agents/skills in step with
+ * the one just installed.
+ *
+ * Voiden does not install into that folder, but Codex and other agents read
+ * it, and other tools copy skills into it. A copy made that way is never
+ * refreshed, so an agent can pick up a months-old Voiden skill in place of
+ * the current one. Only an existing copy is rewritten; none is ever created,
+ * and a folder that is not a Voiden skill is left alone.
+ */
+function syncSharedAgentsSkills(skill: ComposedSkill, mcpSkillMarkdown?: string): void {
+  const sharedDir = getSharedAgentsSkillsDir();
+
+  const voidenDir = path.join(sharedDir, "voiden");
+  if (isSkillNamed(voidenDir, "voiden")) writeSkill(voidenDir, skill);
+
+  if (mcpSkillMarkdown) {
+    const mcpDir = path.join(sharedDir, "voiden-mcp");
+    if (isSkillNamed(mcpDir, "voiden-mcp")) {
+      try {
+        fs.writeFileSync(path.join(mcpDir, "SKILL.md"), mcpSkillMarkdown, "utf-8");
+      } catch {}
+    }
+  }
+}
+
 // --- Claude Code ---
 
 function installClaude(skill: ComposedSkill): void {
@@ -95,6 +141,7 @@ export async function recomposeAndInstall(appState: AppState, targets: SkillTarg
     installCodex(skill);
     installMcpCodexSkill(MCP_SKILL_MARKDOWN);
   }
+  if (targets.claude || targets.codex) syncSharedAgentsSkills(skill, MCP_SKILL_MARKDOWN);
 }
 
 /**
@@ -121,4 +168,5 @@ export function updateComposedSkillOnly(appState: AppState, targets: SkillTarget
   const skill = composeSkill(appState);
   if (targets.claude) installClaude(skill);
   if (targets.codex) installCodex(skill);
+  if (targets.claude || targets.codex) syncSharedAgentsSkills(skill);
 }
