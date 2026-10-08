@@ -2,7 +2,7 @@ import { app } from "electron";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { AppState } from "src/shared/types";
-import { composeSkillMarkdown } from "./skillsComposer";
+import { composeSkill, EXTENSION_GUIDES_DIR, type ComposedSkill } from "./skillsComposer";
 import {
   installClaudeSkill as installMcpClaudeSkill,
   uninstallClaudeSkill as uninstallMcpClaudeSkill,
@@ -19,14 +19,27 @@ function getCodexSkillDir(): string {
   return path.join(app.getPath("home"), ".codex", "skills", "voiden");
 }
 
-// --- Claude Code ---
-
-function installClaude(markdown: string): void {
-  const skillDir = getClaudeSkillDir();
+/**
+ * Writes SKILL.md and the extension guides into a skill folder. The guides
+ * folder is cleared first so a disabled extension's guide doesn't linger.
+ */
+function writeSkill(skillDir: string, skill: ComposedSkill): void {
   try {
     fs.mkdirSync(skillDir, { recursive: true });
-    fs.writeFileSync(path.join(skillDir, "SKILL.md"), markdown, "utf-8");
+    fs.rmSync(path.join(skillDir, EXTENSION_GUIDES_DIR), { recursive: true, force: true });
+    for (const [relativePath, content] of Object.entries(skill.files)) {
+      const filePath = path.join(skillDir, relativePath);
+      fs.mkdirSync(path.dirname(filePath), { recursive: true });
+      fs.writeFileSync(filePath, content, "utf-8");
+    }
+    fs.writeFileSync(path.join(skillDir, "SKILL.md"), skill.skillMd, "utf-8");
   } catch {}
+}
+
+// --- Claude Code ---
+
+function installClaude(skill: ComposedSkill): void {
+  writeSkill(getClaudeSkillDir(), skill);
 }
 
 export function uninstallClaudeSkill(): void {
@@ -47,12 +60,8 @@ export function uninstallClaudeSkill(): void {
 
 // --- Codex ---
 
-function installCodex(markdown: string): void {
-  const skillDir = getCodexSkillDir();
-  try {
-    fs.mkdirSync(skillDir, { recursive: true });
-    fs.writeFileSync(path.join(skillDir, "SKILL.md"), markdown, "utf-8");
-  } catch {}
+function installCodex(skill: ComposedSkill): void {
+  writeSkill(getCodexSkillDir(), skill);
 }
 
 export function uninstallCodexSkill(): void {
@@ -69,21 +78,21 @@ export type SkillTargets = { claude: boolean; codex: boolean };
 
 /**
  * Installs two distinct skills per target, always kept in sync with each other:
- *   - ~/.claude|codex/skills/voiden/SKILL.md     — authoring, composed fresh from
- *     all enabled extensions' skill.md (this app's own content)
+ *   - ~/.claude|codex/skills/voiden/            — authoring: SKILL.md plus one guide
+ *     per enabled extension under extensions/, composed fresh from each skill.md
  *   - ~/.claude|codex/skills/voiden-mcp/SKILL.md — running/verifying via the MCP
  *     tools, sourced from @voiden/executors so the CLI and the app never drift apart
  * Both are fully regenerated and overwritten on every call — there's no partial/stale
  * state between them.
  */
 export async function recomposeAndInstall(appState: AppState, targets: SkillTargets): Promise<void> {
-  const markdown = composeSkillMarkdown(appState);
+  const skill = composeSkill(appState);
   if (targets.claude) {
-    installClaude(markdown);
+    installClaude(skill);
     installMcpClaudeSkill(MCP_SKILL_MARKDOWN);
   }
   if (targets.codex) {
-    installCodex(markdown);
+    installCodex(skill);
     installMcpCodexSkill(MCP_SKILL_MARKDOWN);
   }
 }
@@ -104,12 +113,12 @@ export function uninstallSkills(): void {
  * installing the standalone `voiden-mcp` skill alongside it would just be a
  * second, more minimal skill file duplicating what the composed skill
  * already documents (it already includes `voiden-mcp-tool`'s own skill.md
- * content whenever that plugin is enabled, via composeSkillMarkdown()'s
- * per-extension concatenation) — this refreshes that existing skill without
+ * content whenever that plugin is enabled, as its own guide file written by
+ * composeSkill()) — this refreshes that existing skill without
  * writing the duplicate.
  */
 export function updateComposedSkillOnly(appState: AppState, targets: SkillTargets): void {
-  const markdown = composeSkillMarkdown(appState);
-  if (targets.claude) installClaude(markdown);
-  if (targets.codex) installCodex(markdown);
+  const skill = composeSkill(appState);
+  if (targets.claude) installClaude(skill);
+  if (targets.codex) installCodex(skill);
 }
