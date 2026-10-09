@@ -315,7 +315,15 @@ export const CustomTableRow = TableRow.extend({
 
                   return td;
                 },
-                { side: -1 },
+                {
+                  side: -1,
+                  // Without a key, ProseMirror cannot tell that the widget built on
+                  // this pass is the same as the last one (each pass makes a new
+                  // toDOM closure), so it destroyed and recreated every row's
+                  // checkbox on every view update, visible as a flicker across all
+                  // tables. The key covers everything the DOM depends on.
+                  key: `row-toggle:${disabled ? "off" : "on"}:${accentColor}:${checkStrokeColor}`,
+                },
               );
 
               decorations.push(widget);
