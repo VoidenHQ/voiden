@@ -18375,13 +18375,13 @@ __metadata:
   languageName: node
   linkType: hard
 
-"postcss-selector-parser@npm:6.1.3":
-  version: 6.1.3
-  resolution: "postcss-selector-parser@npm:6.1.3"
+"postcss-selector-parser@npm:6.1.4":
+  version: 6.1.4
+  resolution: "postcss-selector-parser@npm:6.1.4"
   dependencies:
     cssesc: "npm:^3.0.0"
     util-deprecate: "npm:^1.0.2"
-  checksum: 10c0/ffe8e6e63f44f384b204eba61b10920845130332264aa11356213d740b6bdd1ffedcd6c909e5542ecb374940ba5b973e38c0efd2ffaa9f180e227ae15c85507f
+  checksum: 10c0/996f3290dee08ecb073d5f396d1134e619494cfd83140aec07a29618ee1e76d370769a8959d4c0cfefb24aa96dcffa4e7c4937dd881e03b735d50cba959ceb19
   languageName: node
   linkType: hard
 
