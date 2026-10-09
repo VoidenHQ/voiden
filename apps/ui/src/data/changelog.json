@@ -1,9 +1,9 @@
 [
   {
     "version": "v2.3.2",
-    "date": "08/10/2026",
-    "title": "Agent Skill Improvements",
-    "description": "Patch release that makes the Voiden skill for Claude and Codex easier for agents to read in full, and keeps it current after plugin updates.",
+    "date": "09/10/2026",
+    "title": "Agent Skill Improvements & Editor Fixes",
+    "description": "Patch release that makes the Voiden skill for Claude and Codex easier for agents to read in full, and fixes false unsaved markers, editor flicker, and the missing tab close icon.",
     "icon": "Plug",
     "iconColor": "text-teal-400",
     "bgColor": "bg-gradient-to-br from-slate-900 to-teal-950",
@@ -11,8 +11,14 @@
       "Improved": [
         "The agent skill is installed as a short SKILL.md with an index, plus one guide per extension.",
         "The agent skill is rebuilt as soon as a plugin update finishes, without restarting the app.",
-      "A Voiden skill that another tool copied into ~/.agents/skills is kept up to date, so agents no longer read a stale copy.",
+        "A Voiden skill that another tool copied into ~/.agents/skills is kept up to date, so agents no longer read a stale copy.",
         "The agent skill explains when to use an OAuth 2.0 block and which grant to choose (voiden-advanced-auth 2.0.10)."
+      ],
+      "Fixed": [
+        "Opening a .void file no longer marks it as unsaved when nothing was changed.",
+        "Code blocks no longer redraw when a tab's context menu, or any other menu or dialog, opens.",
+        "Table row checkboxes are no longer rebuilt on every editor update.",
+        "The close icon is back on tabs."
       ]
     }
   },
