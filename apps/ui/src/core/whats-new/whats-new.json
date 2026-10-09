@@ -18,6 +18,11 @@
           "icon": "🔐",
           "title": "Better OAuth Guidance for Agents",
           "description": "Agents now know when a request needs an OAuth 2.0 block, which grant to pick, and when a login uses cookies instead."
+        },
+        {
+          "icon": "🐛",
+          "title": "Editor Fixes",
+          "description": "Files no longer show as unsaved right after you open them, code blocks stop flickering when you right-click a tab, and the close icon is back on tabs."
         }
       ]
     },
