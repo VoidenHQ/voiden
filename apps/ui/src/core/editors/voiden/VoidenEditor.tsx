@@ -122,6 +122,26 @@ const stripUidAttrs = (node: unknown): unknown => {
   return result;
 };
 
+// The form of a document used for the unsaved-changes comparison: uids
+// stripped (see stripUidAttrs), and empty paragraphs at the very end dropped.
+// The editor appends an empty paragraph after a final block so there is
+// somewhere to put the cursor, so a file that ends on a block (anything not
+// last saved by the app) always gains one on open without the user editing.
+const toComparableJSON = (doc: unknown): string => {
+  const stripped = stripUidAttrs(doc) as { content?: unknown };
+  if (stripped && Array.isArray(stripped.content)) {
+    const content = [...stripped.content] as Array<Record<string, unknown>>;
+    while (content.length > 0) {
+      const last = content[content.length - 1];
+      const isEmptyParagraph = last?.type === "paragraph" && Object.keys(last).length === 1;
+      if (!isEmptyParagraph) break;
+      content.pop();
+    }
+    return JSON.stringify({ ...stripped, content });
+  }
+  return JSON.stringify(stripped);
+};
+
 interface VoidenEditorStore {
   editor: Editor | null;
   setEditor: (editor: Editor | null) => void;
@@ -660,6 +680,27 @@ const VoidenEditorInner = ({
   // detect when edits restore the document back to its saved state.
   // Updated whenever the `content` prop changes (e.g. after save + query re-fetch).
   const savedContentJSONRef = useRef<string | null>(null);
+
+  // Builds the saved-content snapshot in the same shape as a live document.
+  // A live node carries every schema default (e.g. method's `visible: true`,
+  // `importedFrom: ""`) and drops attrs the schema doesn't declare (the
+  // pluginId/pluginVersion stamps written on save); raw parsed-from-disk JSON
+  // has neither. Compared as-is, the two differ for any file with plugin
+  // blocks, so the first update event after opening marked the tab unsaved.
+  // Round-tripping through the schema applies exactly what setContent applies.
+  const toSavedSnapshot = useCallback(
+    (sanitizedDoc: unknown): string => {
+      let doc = sanitizedDoc;
+      try {
+        doc = memoizedSchema.nodeFromJSON(sanitizedDoc).toJSON();
+      } catch {
+        // Content the schema rejects: keep the raw shape, as before.
+      }
+      return toComparableJSON(doc);
+    },
+    [memoizedSchema],
+  );
+
   useEffect(() => {
     // Large files: skip the upfront parse here — handleEditorCreate populates
     // savedContentJSONRef after the deferred setContent completes.
@@ -667,11 +708,11 @@ const VoidenEditorInner = ({
     try {
       const parsed = parseMarkdown(content, memoizedSchema);
       const sanitized = sanitizeDoc(parsed);
-      savedContentJSONRef.current = JSON.stringify(stripUidAttrs(sanitized));
+      savedContentJSONRef.current = toSavedSnapshot(sanitized);
     } catch {
       savedContentJSONRef.current = null;
     }
-  }, [content, memoizedSchema]);
+  }, [content, memoizedSchema, toSavedSnapshot]);
 
   const handleEditorCreate = useCallback(
     ({ editor }: { editor: Editor }) => {
@@ -709,7 +750,7 @@ const VoidenEditorInner = ({
           }
 
           try {
-            savedContentJSONRef.current = JSON.stringify(stripUidAttrs(santizedContent));
+            savedContentJSONRef.current = toSavedSnapshot(santizedContent);
           } catch {  }
 
           // Rebuild env/variable/faker highlight decorations.
@@ -800,7 +841,7 @@ const VoidenEditorInner = ({
                 requestAnimationFrame(loadNextChunk);
               } else {
                 // All chunks inserted — finalise exactly like applyContent does.
-                try { savedContentJSONRef.current = JSON.stringify(stripUidAttrs(santizedContent)); } catch { /* ignore */ }
+                try { savedContentJSONRef.current = toSavedSnapshot(santizedContent); } catch { /* ignore */ }
                 // Rebuild highlight decorations now that the full document is in place.
                 if (!editor.isDestroyed) {
                   editor.view.dispatch(
@@ -852,7 +893,7 @@ const VoidenEditorInner = ({
         if (!editor.isDestroyed) editor.commands.setContent(fallbackContent, { emitUpdate: false });
       }
     },
-    [source, panelId, tabId, content, memoizedSchema, isActive],
+    [source, panelId, tabId, content, memoizedSchema, isActive, toSavedSnapshot],
   );
 
   const handleEditorUpdate = useCallback(
@@ -866,7 +907,7 @@ const VoidenEditorInner = ({
         // Strip uid attrs (and other normalization — see stripUidAttrs) before
         // comparing, since a live ProseMirror doc and the raw parsed-from-disk
         // JSON differ structurally in ways that don't reflect a real change.
-        const strippedString = JSON.stringify(stripUidAttrs(updatedContent));
+        const strippedString = toComparableJSON(updatedContent);
 
         if (savedContentJSONRef.current && strippedString === savedContentJSONRef.current) {
           clearUnsaved(tabId);
