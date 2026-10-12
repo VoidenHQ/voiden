@@ -20,10 +20,6 @@
         "The daily plugin registry request reports anonymous activity and a hashed install code so active installs can be counted"
       ],
       "Fixed": [
-        "gRPC calls work with proto files whose package name contains dots",
-        "WebSocket messages no longer appear inside a .void file that contains a messages block (voiden-sockets 1.1.9)",
-        "Project-relative and leading-slash proto paths load in gRPC blocks (voiden-sockets 1.1.9)",
-        "A gRPC block with a missing proto file says so and offers Choose proto file (voiden-sockets 1.1.9)",
         "Cloning a repository with an access token no longer fails",
         "Folder environments refresh when a .env file is added or removed",
         "A folder that only contains a .env file appears in the environment selector",
