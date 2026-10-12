@@ -54,23 +54,64 @@ function getCoreExtensionSkillPath(extensionId: string): string {
 // one (it has no other way to know what's actually installed).
 const VOIDEN_VERSION_TOKEN = "__VOIDEN_APP_VERSION__";
 
+// Placeholder in base.skill.md's "Read This First" section, replaced with the
+// list of per-extension guide files that were actually written.
+const EXTENSION_INDEX_TOKEN = "__VOIDEN_EXTENSION_INDEX__";
+
+/** Folder, inside the installed skill, that holds one guide per extension. */
+export const EXTENSION_GUIDES_DIR = "extensions";
+
+export interface ComposedSkill {
+  /** SKILL.md: the base format guide plus an index of the extension guides. */
+  skillMd: string;
+  /** Extension guides, keyed by path relative to the skill folder. */
+  files: Record<string, string>;
+}
+
 /**
- * Reads skill.md files from the base + all enabled extensions and concatenates them.
- * Missing skill.md files are silently skipped.
+ * Title and one-line summary for an extension guide's index entry. The summary
+ * is the guide's own "**Read this when:**" line if it has one, otherwise its
+ * first paragraph.
  */
-export function composeSkillMarkdown(appState: AppState): string {
-  const parts: string[] = [];
+function describeExtensionGuide(content: string, fallbackTitle: string): { title: string; summary: string } {
+  const title = content.match(/^##\s+Extension:\s*(.+)$/m)?.[1].trim() || fallbackTitle;
 
-  // 1. Base .void format overview
-  const basePath = path.join(getSkillsSourceDir(), "base.skill.md");
-  try {
-    const base = fs.readFileSync(basePath, "utf-8").trim();
-    if (base) parts.push(base);
-  } catch {
-    // Missing base — still compose extension content
+  const explicit = content.match(/^>?\s*\*\*Read this when:\*\*\s*(.+)$/m)?.[1];
+  let summary = explicit ? `Read this when: ${explicit}` : "";
+  if (!summary) {
+    const lines = content.split("\n");
+    const start = lines.findIndex((line) => /^##\s+Extension:/.test(line)) + 1;
+    const paragraph: string[] = [];
+    for (const line of lines.slice(start)) {
+      const trimmed = line.trim();
+      if (!trimmed) { if (paragraph.length) break; continue; }
+      if (/^(#|>|```|\||-\s)/.test(trimmed)) { if (paragraph.length) break; continue; }
+      paragraph.push(trimmed);
+    }
+    summary = paragraph.join(" ");
   }
+  summary = summary.replace(/\s+/g, " ").trim();
+  if (summary.length > 240) summary = `${summary.slice(0, 237).trimEnd()}...`;
+  return { title, summary };
+}
 
-  // 2. Each enabled extension in state order (core extensions come first per syncCoreExtensions)
+/**
+ * Builds the installed skill from the base guide and every enabled extension's
+ * skill.md. Missing skill.md files are silently skipped.
+ *
+ * The result is several files, not one: SKILL.md holds the base guide and an
+ * index, and each extension's guide is its own file under extensions/. A
+ * single concatenated file runs to thousands of lines, and agents that read
+ * it with an output limit only ever saw the start of it, so guidance in a
+ * later extension's section was never read. Split this way, an agent reads a
+ * short SKILL.md in full and then opens the guides for the blocks it needs.
+ */
+export function composeSkill(appState: AppState): ComposedSkill {
+  const withVersion = (text: string) => text.split(VOIDEN_VERSION_TOKEN).join(app.getVersion());
+  const files: Record<string, string> = {};
+  const index: string[] = [];
+
+  // Each enabled extension in state order (core extensions come first per syncCoreExtensions)
   const enabled = appState.extensions.filter((e) => e.enabled);
   for (const ext of enabled) {
     const skillPath =
@@ -78,13 +119,35 @@ export function composeSkillMarkdown(appState: AppState): string {
         ? getCoreExtensionSkillPath(ext.id)
         : path.join(ext.installedPath!, "skill.md");
 
+    let content = "";
     try {
-      const content = fs.readFileSync(skillPath, "utf-8").trim();
-      if (content) parts.push(content);
+      content = fs.readFileSync(skillPath, "utf-8").trim();
     } catch {
       // Extension has no skill.md — silently skip
     }
+    if (!content) continue;
+
+    const relativePath = `${EXTENSION_GUIDES_DIR}/${ext.id}.md`;
+    files[relativePath] = `${withVersion(content)}\n`;
+    const { title, summary } = describeExtensionGuide(content, ext.name || ext.id);
+    index.push(`- \`${relativePath}\` — **${title}.**${summary ? ` ${summary}` : ""}`);
   }
 
-  return parts.join("\n\n---\n\n").split(VOIDEN_VERSION_TOKEN).join(app.getVersion());
+  const indexMarkdown = index.length > 0 ? index.join("\n") : "_No extension guides are installed._";
+
+  let base = "";
+  try {
+    base = fs.readFileSync(path.join(getSkillsSourceDir(), "base.skill.md"), "utf-8").trim();
+  } catch {
+    // Missing base — still install the extension guides and their index
+  }
+
+  let skillMd: string;
+  if (base.includes(EXTENSION_INDEX_TOKEN)) {
+    skillMd = base.split(EXTENSION_INDEX_TOKEN).join(indexMarkdown);
+  } else {
+    skillMd = [base, "## Extension guides", indexMarkdown].filter(Boolean).join("\n\n");
+  }
+
+  return { skillMd: `${withVersion(skillMd)}\n`, files };
 }

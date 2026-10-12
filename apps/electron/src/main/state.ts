@@ -54,7 +54,7 @@ function hasVeryLongLine(content: string): boolean {
   return false;
 }
 
-function maybeRecomposeSkills(state: AppState): void {
+export function maybeRecomposeSkills(state: AppState): void {
   const skills = getSettings().skills;
   if (skills?.claude || skills?.codex) {
     recomposeAndInstall(state, { claude: skills.claude ?? false, codex: skills.codex ?? false }).catch(() => {});

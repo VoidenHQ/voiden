@@ -31,6 +31,7 @@ import { MissingPluginBlock } from "./extensions/MissingPluginBlock";
 import { TableCellAutocomplete, isTableCellAutocompleteOpen } from "./extensions/TableCellAutocomplete";
 import { isSlashMenuOpen } from "./SlashCommand";
 import { BlockMultiSelect } from "./extensions/BlockMultiSelect";
+import { IgnoreOverlayAttributes } from "./extensions/ignoreOverlayAttributes";
 
 // Extension to prevent markdown input rules in table cells and registered Voiden blocks.
 //
@@ -344,6 +345,7 @@ export const voidenExtensions: AnyExtension[] = [
   PreventTableGapClicks, // Prevent clicking in gaps around table blocks
   CustomCodeBlock, // Use our custom codeBlock with CodeEditor
 
+  IgnoreOverlayAttributes, // Don't redraw blocks when a menu or dialog opens
   CustomPlaceholder,
   SlashCommand,
   Image,

@@ -5,6 +5,21 @@ description: Create and edit Voiden .void files for API testing. Covers the .voi
 
 # Voiden .void File Format
 
+## Read This First
+
+This file covers what every `.void` file shares: the file structure, the rules, multi-request files, linking between files, and environment variables. **Each block type is documented in its own guide file**, listed below. The paths are relative to the folder this `SKILL.md` is in.
+
+Before you write a block, open the guide that documents it and read it in full. Do not write a block from memory, from an example in another guide, or by copying an existing `.void` file in the project.
+
+- **Any HTTP request:** read the Voiden REST API guide.
+- **An API that needs authentication of any kind** (a login, a token, an API key, OAuth, a session cookie): read the Voiden Advanced Auth guide **before writing the first request**. It decides which auth block applies, and when none does.
+- **Converting a Postman, Insomnia, Bruno, OpenAPI or HAR file:** read that importer's guide.
+- **Assertions, scripts, GraphQL, WebSocket/gRPC, MCP, batch runs:** read the matching guide.
+
+If the project has its own script that generates `.void` files, do not run it in place of writing the files yourself unless the user asks for that.
+
+__VOIDEN_EXTENSION_INDEX__
+
 ## Overview
 
 Voiden uses `.void` files for API testing. Each file uses a **hybrid format** combining:
@@ -79,7 +94,7 @@ content:
 - **Indentation**: 2 spaces for YAML and JSON
 - **Strings**: Quote values containing special characters, colons, or spaces
 - **Timestamps**: ISO 8601 format (`2025-01-15T10:30:00.000Z`)
-- **Block order inside `request`**: method → url → auth → headers-table → query-table → path-table → body → assertions → scripts
+- **Block order within a section**: request → auth → headers-table → query-table → path-table → body → assertions → scripts. Each of these is its own top-level ` ```void ` fence. A `request` block's `content` holds only `method` and `url`; never nest `auth`, a table, a body or a script inside it — the editor rejects a `request` with anything else in it.
 - **Singleton blocks**: several block types are allowed at most once per section — see "Singleton Blocks — One Per Section" below **before** inserting a block that might already exist in the current section. When in doubt, edit the existing block instead of adding a second one.
 - **Never write a table cell or text value as a literal empty string (`""`)**: the editor's ProseMirror engine rejects empty text nodes outright, and its fallback for that is to silently discard the *whole* block (or file) instead of just the empty field — the request/response still executes fine either way (execution never builds a live editor), but this specific block goes blank the moment someone opens it, or imports it elsewhere via `linkedBlock`/`linkedFile` and previews it there. If a column genuinely has nothing to say, use a short real placeholder (e.g. `"—"` or `"n/a"`) instead of `""`.
 
