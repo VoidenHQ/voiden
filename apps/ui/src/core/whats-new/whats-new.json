@@ -1,6 +1,32 @@
 {
   "releases": [
     {
+      "version": "2.3.3-beta.1",
+      "date": "October 2026",
+      "whatsnew": [
+        {
+          "icon": "📁",
+          "title": "Folder Environments",
+          "description": "Put a .env file in any folder and the requests inside it pick up those variables, on top of the ones from parent folders. Each service can keep its own values without switching environments."
+        },
+        {
+          "icon": "☑️",
+          "title": "Optional Request Fields",
+          "description": "Table rows now have a Required checkbox. Untick it and a row whose variable has no value is simply left out of the request instead of blocking it."
+        },
+        {
+          "icon": "⌨️",
+          "title": "Tab Accepts Suggestions",
+          "description": "Press Tab to take the highlighted suggestion in the slash menu, variable and file suggestions, and code completions."
+        },
+        {
+          "icon": "🐛",
+          "title": "gRPC, WebSocket & Git Fixes",
+          "description": "gRPC calls work with dotted package names and project-relative proto paths, WebSocket messages stay in the response panel, and cloning with an access token works again."
+        }
+      ]
+    },
+    {
       "version": "2.3.2",
       "date": "October 2026",
       "whatsnew": [
