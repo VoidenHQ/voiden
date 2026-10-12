@@ -2595,7 +2595,10 @@ function getGrpcTypes(
 
   const proto: grpc.GrpcObject | any = grpc.loadPackageDefinition(packageDefinition);
 
-  const svc = proto[packageName]?.[service];
+  // loadPackageDefinition nests a dotted package ("demo.greeter") as
+  // proto.demo.greeter, so walk it segment by segment.
+  const pkg = packageName.split('.').reduce((obj: any, part: string) => obj?.[part], proto);
+  const svc = pkg?.[service];
   if (!svc) {
     throw new Error(`Service "${packageName}.${service}" not found in proto file: "${protoFilePath}".`);
   }
