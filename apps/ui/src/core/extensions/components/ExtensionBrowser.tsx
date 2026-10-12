@@ -1,6 +1,6 @@
 import { Search, Settings, Loader2, Users, Upload, RefreshCw, Trash2, Cpu, Globe, RotateCw, HardDrive, ArrowUpCircle, ChevronDown, Check } from "lucide-react";
 import * as LucideIcons from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import {
   useGetExtensions,
   useInstallExtension,
@@ -24,6 +24,14 @@ import { revealPluginsTab } from "@/core/extensions/utils/revealPluginsTab";
 let _lastRegistryFetch = 0;
 let _lastUpdateCheck = 0;
 let _hasShownUpdateToast = false;
+// What the last toasts announced, so the hourly registry check only speaks up
+// when there is something new since then.
+let _announcedNewPluginCount = 0;
+let _announcedUpdateCount = 0;
+
+// How often the registry is re-read while the app stays open — the same cadence
+// as the app's own update check.
+const REGISTRY_REFRESH_MS = 60 * 60 * 1000;
 
 const ExtensionIcon = ({ extension, size = "md" }: { extension: Extension; size?: "sm" | "md" | "lg" }) => {
   const dim = size === "sm" ? "w-8 h-8" : size === "lg" ? "w-14 h-14" : "w-10 h-10";
@@ -571,7 +579,18 @@ export const ExtensionBrowser = () => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isUpdatingAll, setIsUpdatingAll] = useState(false);
 
-  const doFetchRegistry = async () => {
+  const isUpdatableCore = (ext: Extension) =>
+    ext.type === "core" &&
+    ext.isLocallyAvailable !== false &&
+    !!coreUpdateInfo?.[ext.id]?.hasUpdate &&
+    !!coreUpdateInfo?.[ext.id]?.compatible;
+  // Same condition as the per-card Update button for community plugins.
+  const isUpdatableCommunity = (ext: Extension) =>
+    ext.type === "community" && !!ext.installedPath && !!(ext as any).latestVersion;
+
+  // background: the hourly re-check. It only announces what is new since the
+  // last announcement, and never pulls the Plugin Manager into view by itself.
+  const doFetchRegistry = async (background = false) => {
     const coreExt = (window as any).electron?.coreExtensions;
     const extApi = (window as any).electron?.extensions;
     if (!coreExt?.fetchRegistry) return;
@@ -581,24 +600,27 @@ export const ExtensionBrowser = () => {
       const updated = await extApi?.getAll?.();
       if (updated) queryClient.setQueryData(["extensions"], updated);
       _lastRegistryFetch = Date.now();
-      if (result?.newPluginCount > 0) {
+      const newPluginCount = result?.newPluginCount ?? 0;
+      if (newPluginCount > 0 && (!background || newPluginCount > _announcedNewPluginCount)) {
         toast.success(
           result.newPluginCount === 1
             ? "1 new plugin available"
             : `${result.newPluginCount} new plugins available`
         );
       }
+      _announcedNewPluginCount = newPluginCount;
       const coreUpdateCount = await doCheckUpdates();
       const communityUpdateCount = updated?.filter((e: any) => e.type === 'community' && !!e.latestVersion).length ?? 0;
       const totalUpdates = coreUpdateCount + communityUpdateCount;
-      if (totalUpdates > 0 && !_hasShownUpdateToast) {
+      if (totalUpdates > 0 && (!_hasShownUpdateToast || (background && totalUpdates > _announcedUpdateCount))) {
         _hasShownUpdateToast = true;
-        revealPluginsTab();
+        if (!background) revealPluginsTab();
         toast.info(
           totalUpdates === 1 ? '1 plugin update available' : `${totalUpdates} plugin updates available`,
           { description: 'Switch to "Updates" in the Plugin Manager to install.', action: { label: 'View', onClick: () => { revealPluginsTab(); setCategory('updates'); } } }
         );
       }
+      _announcedUpdateCount = Math.max(_announcedUpdateCount, totalUpdates);
     } catch {
       // silently ignore — no network
     } finally {
@@ -620,32 +642,58 @@ export const ExtensionBrowser = () => {
     return 0;
   };
 
+  // Community plugins are updated one at a time: each update rewrites the shared app
+  // state, so concurrent calls could overwrite each other.
+  const updateCommunityPlugins = async (ids: string[]): Promise<{ updated: string[]; failed: string[] }> => {
+    const extApi = (window as any).electron?.extensions;
+    const updated: string[] = [];
+    const failed: string[] = [];
+    for (const id of ids) {
+      try {
+        await extApi.update(id);
+        updated.push(id);
+      } catch {
+        failed.push(id);
+      }
+    }
+    if (updated.length > 0) {
+      queryClient.invalidateQueries({ queryKey: ["extensions"] });
+      queryClient.invalidateQueries({ queryKey: ["app:state"] });
+      queryClient.invalidateQueries({ queryKey: ["panel:tabs"], exact: false });
+      queryClient.invalidateQueries({ queryKey: ["sidebar:tabs"], exact: false });
+      queryClient.invalidateQueries({ queryKey: ["tab:content"], exact: false });
+    }
+    return { updated, failed };
+  };
+
   // Updates every core plugin in a single main-process call instead of one IPC round-trip
   // per plugin — checkAndUpdate() with no id does one read + one write of the shared
   // manifest, so it can't clobber itself the way N concurrent per-plugin calls could.
+  // Community plugins with an update follow.
   const handleUpdateAll = async () => {
     const coreExt = (window as any).electron?.coreExtensions;
-    if (!coreExt?.checkAndUpdate || isUpdatingAll) return;
+    if (isUpdatingAll) return;
 
     const attemptedIds = (extensions || [])
-      .filter((ext: Extension) =>
-        ext.type === "core" &&
-        ext.isLocallyAvailable !== false &&
-        coreUpdateInfo?.[ext.id]?.hasUpdate &&
-        coreUpdateInfo?.[ext.id]?.compatible
-      )
+      .filter(isUpdatableCore)
       .map((ext: Extension) => ext.id);
-    if (attemptedIds.length === 0) return;
+    const communityIds = (extensions || [])
+      .filter(isUpdatableCommunity)
+      .map((ext: Extension) => ext.id);
+    if (attemptedIds.length === 0 && communityIds.length === 0) return;
 
     setIsUpdatingAll(true);
     attemptedIds.forEach((id) => setInstallingPlugin(id, true));
     try {
-      const result = await coreExt.checkAndUpdate();
+      const result = attemptedIds.length > 0 && coreExt?.checkAndUpdate ? await coreExt.checkAndUpdate() : null;
       attemptedIds.forEach((id) => setInstallingPlugin(id, false));
 
+      // A failed core update shouldn't stop community plugins from updating.
+      const community = await updateCommunityPlugins(communityIds);
+
       if (result?.error) {
-        toast.error(`Update failed: ${result.error}`);
-        return;
+        toast.error(`Core plugin update failed: ${result.error}`);
+        if (community.updated.length === 0) return;
       }
 
       const updatedIds: string[] = result?.updated ?? [];
@@ -670,10 +718,14 @@ export const ExtensionBrowser = () => {
         window.dispatchEvent(new Event('voiden:reloadPlugins'));
       }
 
+      const updatedCount = updatedIds.length + community.updated.length;
       const parts: string[] = [];
-      if (updatedIds.length > 0) parts.push(`${updatedIds.length} updated`);
+      if (updatedCount > 0) parts.push(`${updatedCount} updated`);
       if (incompatibleIds.length > 0) parts.push(`${incompatibleIds.length} need a newer Voiden`);
-      if (parts.length === 0) {
+      if (community.failed.length > 0) parts.push(`${community.failed.length} failed`);
+      if (community.failed.length > 0 && updatedCount === 0) {
+        toast.error(parts.join(", ") + ".");
+      } else if (parts.length === 0) {
         toast.success("All plugins are already up to date.");
       } else {
         toast.success(parts.join(", ") + ".");
@@ -699,6 +751,7 @@ export const ExtensionBrowser = () => {
     doCheckUpdates().then((count) => {
       if (count > 0 && !_hasShownUpdateToast) {
         _hasShownUpdateToast = true;
+        _announcedUpdateCount = Math.max(_announcedUpdateCount, count);
         revealPluginsTab();
         toast.info(
           count === 1 ? '1 plugin update available' : `${count} plugin updates available`,
@@ -706,6 +759,15 @@ export const ExtensionBrowser = () => {
         );
       }
     });
+  }, []);
+
+  // Re-read the registry every hour while the app stays open, so new plugins
+  // and plugin updates show up without a restart or a manual refresh.
+  const fetchRegistryRef = useRef(doFetchRegistry);
+  fetchRegistryRef.current = doFetchRegistry;
+  useEffect(() => {
+    const timer = setInterval(() => fetchRegistryRef.current(true), REGISTRY_REFRESH_MS);
+    return () => clearInterval(timer);
   }, []);
 
   useEffect(() => {
@@ -742,12 +804,10 @@ export const ExtensionBrowser = () => {
     );
   }, [extensions, search, category, coreUpdateInfo]);
 
-  const updatableCoreCount = useMemo(() => (extensions || []).filter((ext: Extension) =>
-    ext.type === "core" &&
-    ext.isLocallyAvailable !== false &&
-    coreUpdateInfo?.[ext.id]?.hasUpdate &&
-    coreUpdateInfo?.[ext.id]?.compatible
-  ).length, [extensions, coreUpdateInfo]);
+  const updatableCount = useMemo(
+    () => (extensions || []).filter((ext: Extension) => isUpdatableCore(ext) || isUpdatableCommunity(ext)).length,
+    [extensions, coreUpdateInfo],
+  );
 
   return (
     <div className="flex flex-col h-full">
@@ -761,21 +821,21 @@ export const ExtensionBrowser = () => {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
-          {updatableCoreCount > 0 && (
-            <Tip label="Update all core plugins with a compatible update" side="bottom">
+          {updatableCount > 0 && (
+            <Tip label="Update all plugins with a compatible update" side="bottom">
               <button
                 onClick={handleUpdateAll}
                 disabled={isUpdatingAll}
                 className="h-7 px-2 flex items-center gap-1 rounded-md bg-button-primary hover:bg-button-primary-hover text-bg text-[11px] font-medium whitespace-nowrap transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {isUpdatingAll ? <Loader2 size={12} className="animate-spin" /> : <ArrowUpCircle size={12} />}
-                {isUpdatingAll ? "Updating…" : `Update All (${updatableCoreCount})`}
+                {isUpdatingAll ? "Updating…" : `Update All (${updatableCount})`}
               </button>
             </Tip>
           )}
           <Tip label="Refresh plugin registry" side="bottom">
             <button
-              onClick={doFetchRegistry}
+              onClick={() => doFetchRegistry()}
               disabled={isRefreshing}
               className="h-7 w-7 flex items-center justify-center rounded-md hover:bg-active transition-colors text-comment disabled:opacity-40 disabled:cursor-not-allowed"
             >

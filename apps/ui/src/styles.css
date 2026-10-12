@@ -1209,3 +1209,9 @@ input[type="checkbox"]:disabled {
   50% { transform: scale(1.4); opacity: 0.6; }
   100% { transform: scale(1); opacity: 1; }
 }
+
+/* Native select dropdown options */
+select option {
+  background-color: var(--menu-bg);
+  color: var(--ui-fg);
+}

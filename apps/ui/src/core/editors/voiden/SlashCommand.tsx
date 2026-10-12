@@ -1,4 +1,5 @@
 import { Editor, Extension } from "@tiptap/core";
+import { isSuggestionAcceptKey } from "@/core/editors/voiden/utils/suggestionKeys";
 import { ReactRenderer } from "@tiptap/react";
 import Suggestion, { SuggestionProps, SuggestionKeyDownProps } from "@tiptap/suggestion";
 import { PluginKey, TextSelection } from "@tiptap/pm/state";
@@ -392,7 +393,7 @@ export const MenuList = React.forwardRef((props: MenuListProps, ref) => {
         return true;
       }
 
-      if (event.key === "Enter") {
+      if (isSuggestionAcceptKey(event)) {
         if (
           !props.items.length ||
           selectedGroupIndex === -1 ||

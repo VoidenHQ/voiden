@@ -89,6 +89,11 @@ class RequestOrchestratorImpl implements RequestOrchestrator {
   async executeRequest(editor: Editor, environment?: Record<string, string>, signal?: AbortSignal, options?: RequestExecuteOptions, onRequestBuilt?: () => void): Promise<any> {
     requestLogger.info("Starting request execution");
     this.currentRequestOptions = options || {};
+    // Resolve only the executing file's ancestor .env files, including when no
+    // workspace environment has been selected.
+    if (options?.filePath && window.electron?.env?.forRequest) {
+      environment = await window.electron.env.forRequest(options.filePath);
+    }
 
     // Step 1: Build request through plugin chain
     requestLogger.info(`Building request through ${this.requestHandlers.length} plugin handler(s)`);
@@ -295,7 +300,7 @@ class RequestOrchestratorImpl implements RequestOrchestrator {
     // Step 2: Send request through core pipeline
     // Pass handlerEditor (section-scoped) so pipeline hooks get scoped getJSON()
     import('@/plugins').then(({ emitPluginEvent }) => emitPluginEvent('request:sent', { request })).catch(() => {});
-    const response = await sendRequestHybrid(request, handlerEditor, signal, window.electron);
+    const response = await sendRequestHybrid(request, handlerEditor, signal, window.electron, options?.filePath);
 
     if (!response) {
       throw new Error("No response received from request pipeline");

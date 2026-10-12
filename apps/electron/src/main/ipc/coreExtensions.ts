@@ -1,10 +1,11 @@
-import { ipcMain, app, net, BrowserWindow } from 'electron'
+import { ipcMain, app, BrowserWindow } from 'electron'
 import path from 'node:path'
 import fs from 'node:fs/promises'
 import { existsSync, watch, readFileSync } from 'node:fs'
 import { coreExtensions, fetchAndUpdateCoreRegistry, remoteVersions, remoteVoidenVersions, remoteNewPlugins } from '../config/coreExtensions'
 import { getMainProcessExtensionResults } from '../extensionLoader'
 import { coreCacheDir, githubCachePath, coreUninstalledPath } from '../extension/paths'
+import { fetchPluginRegistry } from '../extension/pluginRegistry'
 
 // builtInRegistry reflects what's actually loaded (remote if fetched, otherwise local fallback)
 const builtInRegistry = {
@@ -14,7 +15,6 @@ const builtInRegistry = {
 }
 
 // Plugin registry — each plugin lives in its own VoidenHQ/plugin-* repo
-const REGISTRY_URL = 'https://raw.githubusercontent.com/VoidenHQ/plugin-registry/main/extensions.json'
 
 interface RegistryPlugin {
   id: string
@@ -421,13 +421,10 @@ async function fetchRegistry(): Promise<Record<string, RegistryPlugin>> {
 
   // Fallback: try remote fetch directly if coreExtensions is empty (shouldn't happen as it's seeded with snapshot)
   try {
-    const res = await net.fetch(REGISTRY_URL, { headers: { 'User-Agent': 'Voiden-App' } })
-    if (res.ok) {
-      const data = await res.json()
-      const entries: any[] = Array.isArray(data) ? data.filter((p: any) => p.type === 'core') : Object.values(data?.plugins ?? {})
-      cachedRegistry = Object.fromEntries(entries.map((p: any) => [p.id, p]))
-      return cachedRegistry!
-    }
+    const data = await fetchPluginRegistry()
+    const entries: any[] = Array.isArray(data) ? data.filter((p: any) => p.type === 'core') : Object.values(data?.plugins ?? {})
+    cachedRegistry = Object.fromEntries(entries.map((p: any) => [p.id, p]))
+    return cachedRegistry!
   } catch (err) {
     console.warn('[CoreExtensions] Failed to fetch remote registry directly:', err);
   }

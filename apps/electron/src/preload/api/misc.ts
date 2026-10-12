@@ -222,13 +222,15 @@ export const envApi = {
    * @param text - Text containing {{VARIABLE}} patterns
    * @returns Text with variables replaced
    */
-  replaceVariables: (text: string) =>
-    ipcRenderer.invoke("env:replaceVariables", text),
+  replaceVariables: (text: string, requestFilePath?: string) =>
+    ipcRenderer.invoke("env:replaceVariables", text, requestFilePath),
+  forRequest: (requestFilePath: string) =>
+    ipcRenderer.invoke("env:forRequest", requestFilePath) as Promise<Record<string, string>>,
   /**
    * Get environment variable keys (names only) for autocomplete.
    * @returns Array of variable names (no values)
    */
-  getKeys: () => ipcRenderer.invoke("env:getKeys"),
+  getKeys: (requestFilePath?: string) => ipcRenderer.invoke("env:getKeys", requestFilePath),
   extendEnvs: (comment: string, variables: [{ key: string; value: string }], envName?: string) =>
     ipcRenderer.invoke("env:extend-env-files", { comment, variables, envName }),
   getYamlTrees: (profile?: string) =>

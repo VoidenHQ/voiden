@@ -10,6 +10,7 @@ import { lintKeymap, linter, Diagnostic } from "@codemirror/lint";
 import { Extension } from "@codemirror/state";
 import { syntaxHighlighting, defaultHighlightStyle } from "@codemirror/language";
 import { highlightActiveLine, highlightActiveLineGutter, keymap, lineNumbers } from "@codemirror/view";
+import { tabAcceptsCompletion } from "./lib/extensions/tabAcceptsCompletion";
 import { parser as htmlParser } from "@lezer/html";
 import { parser as xmlParser } from "@lezer/xml";
 import { tags as t } from "@lezer/highlight";
@@ -208,8 +209,9 @@ const getBaseExtensions = (): Extension[] => [
   // History (undo/redo)
   history(),
 
-  // Autocompletion
+  // Autocompletion (Enter or Tab accepts)
   autocompletion(),
+  tabAcceptsCompletion,
 
   // Editor view configuration
   lineNumbers(),

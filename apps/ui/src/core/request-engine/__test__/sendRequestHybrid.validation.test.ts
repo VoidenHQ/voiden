@@ -84,6 +84,23 @@ describe("sendRequestHybrid unresolved variable handling", () => {
     expect(response?.statusCode).toBe(200);
   });
 
+  it("passes the request file path to auth substitution and secure execution", async () => {
+    const requestFilePath = "/project/services/api/request.void";
+    await sendRequestHybrid(
+      restRequest({
+        url: "https://example.com",
+        auth: { enabled: true, type: "basic-auth", config: { username: "{{USER}}", password: "{{PASS}}" } },
+      }),
+      createMockEditor(),
+      undefined,
+      mockElectron,
+      requestFilePath,
+    );
+
+    expect(mockElectron.env.replaceVariables).toHaveBeenCalledWith("{{USER}}", requestFilePath);
+    expect(sendSecure.mock.calls.at(-1)?.[0]?.metadata?.requestFilePath).toBe(requestFilePath);
+  });
+
   it("voiden test : throws when sendSecure reports unresolved variables after substitution", async () => {
     sendSecure.mockResolvedValueOnce({
       status: 0,
@@ -100,5 +117,42 @@ describe("sendRequestHybrid unresolved variable handling", () => {
         mockElectron,
       ),
     ).rejects.toBeInstanceOf(UnresolvedVariablesError);
+  });
+
+  it("voiden test : preserves required-row metadata for the secure executor", async () => {
+    const requestFilePath = "/project/services/api/request.void";
+    await sendRequestHybrid(
+      restRequest({
+        url: "https://api.example.com/items",
+        headers: [
+          { key: "X-Optional", value: "{{MISSING_HEADER}}", enabled: true, omitIfUnresolved: true },
+        ],
+        cookies: [
+          { key: "session", value: "{{MISSING_COOKIE}}", enabled: true, omitIfUnresolved: true },
+        ],
+        params: [
+          { key: "filter", value: "{{MISSING_QUERY}}", enabled: true, omitIfUnresolved: true },
+        ],
+        content_type: "application/x-www-form-urlencoded",
+        body_params: [
+          { key: "form", value: "{{MISSING_FORM}}", type: "text", enabled: true, omitIfUnresolved: true },
+        ],
+      }),
+      createMockEditor(),
+      undefined,
+      mockElectron,
+      requestFilePath,
+    );
+
+    expect(sendSecure).toHaveBeenCalledWith(
+      expect.objectContaining({
+        headers: [expect.objectContaining({ key: "X-Optional", omitIfUnresolved: true })],
+        cookies: [expect.objectContaining({ key: "session", omitIfUnresolved: true })],
+        queryParams: [expect.objectContaining({ key: "filter", omitIfUnresolved: true })],
+        bodyParams: [expect.objectContaining({ key: "form", omitIfUnresolved: true })],
+        metadata: expect.objectContaining({ requestFilePath }),
+      }),
+      undefined,
+    );
   });
 });

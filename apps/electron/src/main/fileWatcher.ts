@@ -154,6 +154,10 @@ function startWatching(projectPath: string, watcherId: string) {
       else {
         if (isGitignoreFile(filePath)) handleGitignoreChange(filePath);
         emit("file:new", { path: filePath, project: projectPath, watcherId });
+        // A .env that appears with its content already written (created outside
+        // the app, copied, or written atomically) is reported as "add" with no
+        // "change" after it on Linux and Windows, so say the env changed here too.
+        if (isEnvFile(filePath)) emit("env:changed", { path: filePath, project: projectPath, watcherId });
       }
     })
     .on("addDir", (dirPath) => {
@@ -188,6 +192,7 @@ function startWatching(projectPath: string, watcherId: string) {
       else {
         if (isGitignoreFile(filePath)) refreshGitignoreState(filePath);
         emit("file:delete", { path: filePath, project: projectPath, watcherId });
+        if (isEnvFile(filePath)) emit("env:changed", { path: filePath, project: projectPath, watcherId });
       }
     })
     .on("unlinkDir", (dirPath) => {

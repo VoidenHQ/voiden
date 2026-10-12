@@ -79,8 +79,12 @@ export const ElectronEventProvider: React.FC<{ children: React.ReactNode }> = ({
       },
       "file:delete": (event: any, data: any) => {
         // Per-event: handle .env side-effect and emit immediately
-        if (data.path.replace(/\\/g, "/").split("/").pop()?.startsWith(".env")) {
-          setActiveEnv(null);
+        const deletedPath = data.path.replace(/\\/g, "/");
+        if (deletedPath.split("/").pop()?.startsWith(".env")) {
+          // Only the selected environment's own file resets the selection: a
+          // folder-level .env further down the tree is not the selected one.
+          const activeEnv = queryClient.getQueryData<{ activeEnv?: string | null }>(["environments"])?.activeEnv;
+          if (!activeEnv || activeEnv.replace(/\\/g, "/") === deletedPath) setActiveEnv(null);
         }
         handleEvent("file:delete", data);
         // FileSystemList removes the node surgically via removeNodeByPath.
@@ -127,6 +131,8 @@ export const ElectronEventProvider: React.FC<{ children: React.ReactNode }> = ({
         if (fileTreeDebounceRef.current) clearTimeout(fileTreeDebounceRef.current);
         fileTreeDebounceRef.current = setTimeout(() => {
           queryClient.invalidateQueries({ queryKey: ['env'] });
+          queryClient.invalidateQueries({ queryKey: ["file-environment"] });
+          queryClient.invalidateQueries({ queryKey: ["environment-keys"] });
         }, 400);
       },
       "folder:opened": (data: any) => {
@@ -172,11 +178,16 @@ export const ElectronEventProvider: React.FC<{ children: React.ReactNode }> = ({
         queryClient.invalidateQueries({ queryKey: ["env"] });
         queryClient.invalidateQueries({ queryKey: ["environments"] });
         queryClient.invalidateQueries({ queryKey: ["environment-keys"] });
+        queryClient.invalidateQueries({ queryKey: ["file-environment"] });
         handleEvent("env:changed", data);
       },
       "file:changed": (_event: any, data: any) => {
         const changedPath = data?.path?.replace(/\\/g, "/");
         if (!changedPath) return;
+        if (changedPath.endsWith("/.env")) {
+          queryClient.invalidateQueries({ queryKey: ["file-environment"] });
+          queryClient.invalidateQueries({ queryKey: ["environment-keys"] });
+        }
         const panelQueries = queryClient.getQueriesData<any>({ queryKey: ["panel:tabs"] });
         for (const [, panelData] of panelQueries) {
           for (const tab of panelData?.tabs ?? []) {
@@ -259,6 +270,7 @@ export const ElectronEventProvider: React.FC<{ children: React.ReactNode }> = ({
         queryClient.invalidateQueries({ queryKey: ["environments"] });
         queryClient.invalidateQueries({ queryKey: ["env"] });
         queryClient.invalidateQueries({ queryKey: ["environment-keys"] });
+        queryClient.invalidateQueries({ queryKey: ["file-environment"] });
         queryClient.invalidateQueries({ queryKey: ["void-variable-keys"] });
         queryClient.invalidateQueries({ queryKey: ["void-variable-data"] });
       },

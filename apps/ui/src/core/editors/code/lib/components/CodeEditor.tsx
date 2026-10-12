@@ -4,6 +4,7 @@ import { isValidRegex } from "@/core/file-system/components/RegexHighlightOverla
 /** Editors rendered inside this context will not react to the global searchParamsStore. */
 export const NoGlobalSearchContext = createContext(false);
 import { defaultKeymap, toggleComment, } from "@codemirror/commands";
+import { tabAcceptsCompletion } from "../extensions/tabAcceptsCompletion";
 import {
   SearchQuery,
   setSearchQuery,
@@ -429,6 +430,8 @@ export const CodeEditor = ({
           }).filter(Boolean) as any[];
         }),
       ] : []),
+      // Tab accepts an open completion, like Enter
+      tabAcceptsCompletion,
       // Filter out Ctrl-w from defaultKeymap to allow browser tab closing
       keymap.of(defaultKeymap.filter(binding => {
         return binding.key !== "Ctrl-w" && binding.key !== "Mod-w";

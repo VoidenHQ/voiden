@@ -12,6 +12,7 @@ export { invalidateEnvQueries } from "./envQueryKeys";
 
 export { useEnvironments } from "./useEnvironments";
 export { useActiveEnvironment } from "./useActiveEnvironment";
+export { useFileEnvironment } from "./useFileEnvironment";
 export { useSetActiveEnvironment } from "./useSetActiveEnvironment";
 export { useEnvironmentKeys } from "./useEnvironmentKeys";
 export { useYamlEnvironments } from "./useYamlEnvironments.ts";

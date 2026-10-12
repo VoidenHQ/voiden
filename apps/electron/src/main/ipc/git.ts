@@ -728,7 +728,7 @@ export function registerGitIpcHandlers() {
         diffSummary = await git.diffSummary([`${commitHash}^`, commitHash]);
       } catch {
         // Initial commit — no parent ref; use diff-tree to list introduced files
-        const raw = await git.raw(['diff-tree', '--no-commit-id', '-r', '--numstat', commitHash]);
+        const raw = await git.raw(['diff-tree', '--no-commit-id', '-r', '--numstat', '--root', commitHash]);
         return raw.trim().split('\n').filter(Boolean).map(line => {
           const [ins, del, ...rest] = line.split('\t');
           return {
