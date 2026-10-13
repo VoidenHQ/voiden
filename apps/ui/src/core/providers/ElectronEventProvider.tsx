@@ -315,7 +315,16 @@ export const ElectronEventProvider: React.FC<{ children: React.ReactNode }> = ({
           const namedTabs = paths.length
             ? tabs.filter((t) => t.source && paths.includes(t.source))
             : tabs.filter((t) => t.source && isUnsaved(t.id));
-          const saved = await Promise.all(namedTabs.map((t) => saveTabById(t.id, { silent: true })));
+          // A save that throws is a save that failed: it must be reported, never
+          // mistaken for success because the others went through.
+          const saved = await Promise.all(
+            namedTabs.map((t) =>
+              saveTabById(t.id, { silent: true }).catch((error) => {
+                console.error("Failed to save tab:", t.title, error);
+                return false;
+              }),
+            ),
+          );
           saved.forEach((ok, i) => {
             if (!ok) result.failed.push(namedTabs[i].title);
           });
@@ -332,6 +341,14 @@ export const ElectronEventProvider: React.FC<{ children: React.ReactNode }> = ({
               }
               if (outcome === "failed") result.failed.push(tab.title);
             }
+          }
+        } catch (error) {
+          // Something unexpected went wrong part-way. Whatever is still unsaved
+          // was not saved; say so rather than letting the caller go ahead.
+          console.error("Failed to save unsaved tabs:", error);
+          const unsaved = useEditorStore.getState().unsaved;
+          for (const tab of tabs) {
+            if (tab.id in unsaved && !result.failed.includes(tab.title)) result.failed.push(tab.title);
           }
         } finally {
           window.electron?.files.acknowledgeUnsavedSaved(requestId, result);

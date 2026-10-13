@@ -586,14 +586,14 @@ function applyVoidFileReferenceUpdates(
   return { updatedSource, count };
 }
 
-/** Ask all renderer windows for the display titles of every currently-unsaved tab.
+/** Ask renderer windows (all of them unless `windows` is given) for the display titles of every currently-unsaved tab.
  *  Waits up to 3 seconds total, aggregating replies from every window so a second
  *  window's unsaved tabs are never missed just because another window replied
  *  first. A window that never replies (stuck/unresponsive) is simply excluded
  *  rather than blocking quitting indefinitely. */
-export function getUnsavedTabTitles(): Promise<string[]> {
+export function getUnsavedTabTitles(only?: BrowserWindow[]): Promise<string[]> {
   return new Promise<string[]>((resolve) => {
-    const windows = BrowserWindow.getAllWindows();
+    const windows = (only ?? BrowserWindow.getAllWindows()).filter((w) => !w.isDestroyed());
     if (windows.length === 0) {
       resolve([]);
       return;
@@ -657,13 +657,18 @@ const FLUSH_IDLE_TIMEOUT_MS = 3000;
  *
  *  With `includeUntitled`, untitled tabs are saved too: each one opens a save
  *  dialog, since it has no file yet. Without it they are left alone, as before.
+ *  `windows` limits the request to those windows (closing one window only
+ *  concerns that window's tabs).
  *
  *  A window that goes 3 seconds without making progress is given up on, so an
  *  unresponsive window cannot block the caller forever; time spent in an open save
  *  dialog does not count. */
-export function flushRendererUnsavedForPaths(paths: string[], options: { includeUntitled?: boolean } = {}): Promise<FlushUnsavedResult> {
+export function flushRendererUnsavedForPaths(
+  paths: string[],
+  options: { includeUntitled?: boolean; windows?: BrowserWindow[] } = {},
+): Promise<FlushUnsavedResult> {
   return new Promise<FlushUnsavedResult>((resolve) => {
-    const windows = BrowserWindow.getAllWindows();
+    const windows = (options.windows ?? BrowserWindow.getAllWindows()).filter((w) => !w.isDestroyed());
     const result: FlushUnsavedResult = { cancelled: false, failed: [] };
     if (windows.length === 0) {
       resolve(result);
@@ -701,7 +706,7 @@ export function flushRendererUnsavedForPaths(paths: string[], options: { include
 
     ipcMain.on(ackChannel, onAck);
     for (const w of windows) {
-      w.webContents.send("files:saveUnsavedForPaths", requestId, paths, options);
+      w.webContents.send("files:saveUnsavedForPaths", requestId, paths, { includeUntitled: options.includeUntitled });
     }
   });
 }

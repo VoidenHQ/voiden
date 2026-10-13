@@ -9,6 +9,7 @@ import { createFileTreeContextMenu, getFileTreeFocus } from "./menus";
 import { setActiveDirectory } from "./ipc/directory";
 import { handleDeeplink } from "./deeplink";
 import { windowManager } from "./windowManager";
+import { guardUnsavedOnClose } from "./unsavedGuard";
 
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string;
 declare const MAIN_WINDOW_VITE_NAME: string;
@@ -600,6 +601,11 @@ export async function createWindow(initialBounds?: InitialWindowBounds): Promise
   if (process.env.NODE_ENV === "development") {
     mainWindow.webContents.openDevTools();
   }
+
+  // Closing the window (title bar button, taskbar or dock menu, Alt+F4) asks
+  // about its unsaved tabs first. On Windows and Linux closing the last window
+  // quits the app, so without this the quit prompt never gets a chance.
+  guardUnsavedOnClose(mainWindow);
 
   // Match shortcuts against the OS-remapped logical key (input.key) rather
   // than the physical key code so that macOS key remapping tools (Karabiner,

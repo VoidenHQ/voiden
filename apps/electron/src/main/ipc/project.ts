@@ -12,9 +12,11 @@ export function registerProjectIpcHandlers() {
     return getProjectLocked(projectRoot);
   });
 
-  ipcMain.handle("project:isPathInsideLocked", async (_event, filePath: string) => {
+  ipcMain.handle("project:isPathInsideLocked", async (event, filePath: string) => {
     if (!filePath) return false;
-    const appState = getAppState();
+    // The project of the window that is asking, not of the focused one: when
+    // every window saves at once (Save All & Quit), each asks about its own files.
+    const appState = getAppState(event);
     const activeDirectory = appState?.activeDirectory ?? null;
     if (!activeDirectory) return false;
 

@@ -142,6 +142,13 @@ class WindowManager {
       // Clean up in-memory state only, preserve state file for session restore
       that.windows.delete(id);
       this.browserWindows.delete(id);
+      // Don't leave the "active window" pointing at a window that is gone:
+      // code that asks for the active window's state would throw until some
+      // other window happened to receive focus.
+      if (that.activeWindowId === id) {
+        const next = that.windows.keys().next();
+        if (!next.done) that.activeWindowId = next.value;
+      }
       // Clear stale reference so menu click handlers that do
       // `windowManager.browserWindow?.webContents.send(...)` see null
       // instead of a destroyed window, which throws "Object has been destroyed".

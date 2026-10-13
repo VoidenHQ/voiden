@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog } from "electron";
+import { app, BrowserWindow, ipcMain } from "electron";
 import path from "node:path";
 import { ipcStateHandlers } from "./main/state";
 import { registerSettingsIpc, getSettings } from "./main/settings";
@@ -30,7 +30,7 @@ import { registerPythonScriptIpcHandler } from "./main/ipc/pythonScript";
 import { registerNodeScriptIpcHandler } from "./main/ipc/nodeScript";
 import { registerCoreExtensionsIpcHandlers, watchBundledPluginsForDevReload, seedBundledPluginsToCache } from "./main/ipc/coreExtensions";
 import { loadMainProcessExtensions, unloadMainProcessExtensions } from "./main/extensionLoader";
-import { flushRendererUnsavedForPaths, getUnsavedTabTitles } from "./main/fileSystem";
+import { approveQuit, resolveUnsavedTabs } from "./main/unsavedGuard";
 import { recomposeAndInstall } from "./main/skillsInstaller";
 import { setupLoggerIPC, logger } from "./main/logger";
 import { initializeIntegratedLogging } from "./main/loggerIntegration";
@@ -288,58 +288,14 @@ app.on("before-quit", (event) => {
   if (isQuittingAfterFlush) return;
   event.preventDefault();
   (async () => {
-    const unsavedTitles = await getUnsavedTabTitles();
-
-    if (unsavedTitles.length > 0) {
-      const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
-      const dialogOptions = {
-        type: "warning" as const,
-        buttons: ["Save All & Quit", "Don't Save", "Cancel"],
-        defaultId: 0,
-        cancelId: 2,
-        title: "Unsaved Changes",
-        message: unsavedTitles.length === 1
-          ? `"${unsavedTitles[0]}" has unsaved changes.`
-          : `${unsavedTitles.length} tabs have unsaved changes.`,
-        detail: unsavedTitles.length > 1 ? unsavedTitles.map((t) => `• ${t}`).join("\n") : undefined,
-      };
-      const { response } = win
-        ? await dialog.showMessageBox(win, dialogOptions)
-        : await dialog.showMessageBox(dialogOptions);
-
-      if (response === 2) return; // Cancel — abort quitting entirely
-      if (response === 0) {
-        // Save All & Quit. Untitled files have no path yet, so each one asks
-        // where to save; cancelling one of those means "don't quit after all".
-        const saved = await flushRendererUnsavedForPaths([], { includeUntitled: true });
-        if (saved.cancelled) return;
-        if (saved.failed.length > 0) {
-          const failedOptions = {
-            type: "error" as const,
-            buttons: ["Quit Anyway", "Cancel"],
-            defaultId: 1,
-            cancelId: 1,
-            title: "Could Not Save",
-            message: saved.failed.length === 1
-              ? `"${saved.failed[0]}" could not be saved.`
-              : `${saved.failed.length} tabs could not be saved.`,
-            detail: [
-              saved.failed.length > 1 ? saved.failed.map((t) => `• ${t}`).join("\n") : "",
-              "Quitting now will lose those changes.",
-            ].filter(Boolean).join("\n\n"),
-          };
-          const { response: failedResponse } = win
-            ? await dialog.showMessageBox(win, failedOptions)
-            : await dialog.showMessageBox(failedOptions);
-          if (failedResponse === 1) return;
-        }
-      }
-      // response === 1 (Don't Save) — proceed without flushing
-    }
+    const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
+    if (!(await resolveUnsavedTabs(BrowserWindow.getAllWindows(), win, "quit"))) return; // Cancelled — abort quitting
 
     await unloadMainProcessExtensions();
     closeAllWatchers();
     isQuittingAfterFlush = true;
+    // The windows close next; they have been answered for already.
+    approveQuit();
     app.quit();
   })();
 });

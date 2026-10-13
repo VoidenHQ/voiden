@@ -9,6 +9,7 @@ import { execFile } from "child_process";
 import { windowManager } from "./windowManager";
 import { getSettings, saveSettings } from "./settings";
 import { flushRendererUnsavedForPaths } from "./fileSystem";
+import { approveQuit } from "./unsavedGuard";
 
 // ---------- Updater logger ----------
 
@@ -754,6 +755,9 @@ function setupAutoUpdaterListeners() {
           // discard in-memory drafts (issue: unsaved work lost on update).
           flushRendererUnsavedForPaths([]).then(() => {
             updaterLog("INFO", "quitAndInstall invoked");
+            // The user already chose to restart: the windows it closes must not
+            // stop to ask about unsaved tabs.
+            approveQuit();
             autoUpdater.quitAndInstall(true, true);
           });
         } else {
