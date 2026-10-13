@@ -16,6 +16,12 @@ import { setDeleting } from "./fileWatcher";
 
 let contextMenuHandlersRegistered = false;
 
+// "Reveal in ..." names the platform's own file manager, and its shortcut is
+// the one window.ts listens for on that platform.
+const REVEAL_LABEL =
+  process.platform === "darwin" ? "Reveal in Finder" : process.platform === "win32" ? "Reveal in File Explorer" : "Reveal Containing Folder";
+const REVEAL_ACCELERATOR = process.platform === "darwin" ? "Option+Cmd+R" : "Ctrl+Shift+R";
+
 /**
  * webContents.id → the file tree's currently focused/selected item in that
  * window, or null when the tree doesn't have keyboard focus. Kept here (main
@@ -95,8 +101,8 @@ export const createFileTreeContextMenu = (mainWindow: BrowserWindow) => {
           },
         },
         {
-          label: "Reveal in Finder",
-          accelerator: "Option+Cmd+R",
+          label: REVEAL_LABEL,
+          accelerator: REVEAL_ACCELERATOR,
           click: () => {
             shell.showItemInFolder(data.path);
           },
@@ -197,8 +203,8 @@ export const createFileTreeContextMenu = (mainWindow: BrowserWindow) => {
     } else {
       const fileMenuTemplate: MenuItemConstructorOptions[] = [
         {
-          label: process.platform==='darwin'?"Reveal in Finder":(process.platform==='win32'?"Reveal in Explorer":"Reveal Containing Folder"),
-          accelerator: "Option+Cmd+R",
+          label: REVEAL_LABEL,
+          accelerator: REVEAL_ACCELERATOR,
           click: () => {
             shell.showItemInFolder(data.path);
           },
