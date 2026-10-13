@@ -324,18 +324,25 @@ export function registerFileIpcHandlers() {
 
   ipcMain.handle(
     "files:write",
-    async (_event, filePath, content, tabId): Promise<string | null> => {
+    async (event, filePath, content, tabId): Promise<string | null> => {
       const wasUnsaved = !filePath;
+      // The tab belongs to the window that asked, which is not always the
+      // focused one: "Save All & Quit" saves every window's tabs. Look the tab
+      // up, and save its state, in that window; otherwise an untitled file
+      // from a background window is offered the wrong project folder and its
+      // tab is never marked as saved.
+      const senderWindow = BrowserWindow.fromWebContents(event.sender);
+      const senderWindowId: string | undefined = senderWindow?.windowInfo?.id;
 
     if (!filePath) {
-      let activeDirectory = await getActiveProject();
+      let activeDirectory = await getActiveProject(event);
       if (!activeDirectory) {
         const os = await import("node:os");
         activeDirectory = os.default.homedir();
       }
       let defaultName = "untitled.void";
       if (tabId) {
-        const appState = getAppState();
+        const appState = getAppState(event);
         const layout = appState.activeDirectory ? appState.directories[appState.activeDirectory]?.layout : appState.unsaved.layout;
         const tab = findTabById(layout, "main", tabId);
         if (tab?.title) {
@@ -343,12 +350,16 @@ export function registerFileIpcHandlers() {
         }
       }
       const defaultPath = path.join(activeDirectory, defaultName);
+      const saveDialogOptions = {
+        title: "Save File",
+        defaultPath,
+        filters: [{ name: "Voiden Files", extensions: ["void"] }],
+      };
+      // Attached to the window the file is in, so it is clear which one is being saved.
       const { canceled, filePath: chosenFilePath } = await trackSaveDialog(() =>
-        dialog.showSaveDialog({
-          title: "Save File",
-          defaultPath,
-          filters: [{ name: "Voiden Files", extensions: ["void"] }],
-        }),
+        senderWindow && !senderWindow.isDestroyed()
+          ? dialog.showSaveDialog(senderWindow, saveDialogOptions)
+          : dialog.showSaveDialog(saveDialogOptions),
       );
 
       if (canceled || !chosenFilePath) {
@@ -363,7 +374,7 @@ export function registerFileIpcHandlers() {
     treeResultCache.clear();
 
     if (tabId) {
-      const appState = getAppState();
+      const appState = getAppState(event);
       const layout = appState.activeDirectory
         ? appState.directories[appState.activeDirectory]?.layout
         : appState.unsaved.layout;
@@ -371,7 +382,7 @@ export function registerFileIpcHandlers() {
       if (tab) {
         tab.source = filePath;
         tab.title = path.basename(filePath);
-        await saveState(appState);
+        await saveState(appState, senderWindowId);
 
         // Clean up autosaved file if this was an unsaved document
         if (wasUnsaved) {
