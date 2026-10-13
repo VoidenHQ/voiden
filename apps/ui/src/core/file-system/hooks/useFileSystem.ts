@@ -632,6 +632,41 @@ export const saveTabById = async (tabId: string, options?: { silent?: boolean })
   return false;
 };
 
+/**
+ * Save an untitled tab (one with no file yet) by asking where to put it.
+ * The main process shows the save dialog when files.write gets no path.
+ * Used by "Save All & Quit"; an ordinary save of the active tab goes through
+ * globalSaveFile instead.
+ */
+export const saveUntitledTabById = async (tabId: string): Promise<"saved" | "cancelled" | "failed"> => {
+  const unsavedContent = useEditorStore.getState().unsaved[tabId];
+  if (!unsavedContent) return "saved"; // Nothing typed into it: nothing to keep.
+
+  try {
+    // The open editor has the latest content; other tabs have what they held
+    // when they were last active.
+    const voidenEditor = useVoidenEditorStore.getState().editor;
+    const isActive = !!voidenEditor && !voidenEditor.isDestroyed && voidenEditor.storage.tabId === tabId;
+    const schema = isActive
+      ? voidenEditor.schema
+      : getSchema([...voidenExtensions, ...useEditorEnhancementStore.getState().voidenExtensions]);
+    const content = isActive ? JSON.stringify(voidenEditor.getJSON()) : unsavedContent;
+    const markdown = prosemirrorToMarkdown(content, schema);
+
+    const filePath = await window.electron?.files.write(null, markdown, tabId);
+    if (!filePath) return "cancelled";
+
+    registerSelfSave(filePath);
+    invalidateOnFileSave("main", tabId, true);
+    useEditorStore.getState().clearUnsaved(tabId);
+    if (isActive) useVoidenEditorStore.getState().setFilePath(filePath);
+    return "saved";
+  } catch (error) {
+    console.error("Failed to save untitled tab:", error);
+    return "failed";
+  }
+};
+
 export const useFileExists = (filePath?: string) => {
   return useQuery({
     queryKey: ["files:exists", filePath],

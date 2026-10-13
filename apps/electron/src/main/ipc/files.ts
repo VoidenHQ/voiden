@@ -21,6 +21,7 @@ import {
   dropFolder,
 } from "../fileSystem";
 import type { MoveConflict } from "../fileSystem";
+import { trackSaveDialog } from "../fileSystem";
 import { createEmptyProject, createSampleProject } from "../projectUtils";
 import { getActiveStates, saveActiveStates } from "../tabs";
 import { getCachedGitStatus } from "../git";
@@ -342,11 +343,13 @@ export function registerFileIpcHandlers() {
         }
       }
       const defaultPath = path.join(activeDirectory, defaultName);
-      const { canceled, filePath: chosenFilePath } = await dialog.showSaveDialog({
-        title: "Save File",
-        defaultPath,
-        filters: [{ name: "Voiden Files", extensions: ["void"] }],
-      });
+      const { canceled, filePath: chosenFilePath } = await trackSaveDialog(() =>
+        dialog.showSaveDialog({
+          title: "Save File",
+          defaultPath,
+          filters: [{ name: "Voiden Files", extensions: ["void"] }],
+        }),
+      );
 
       if (canceled || !chosenFilePath) {
         return null;

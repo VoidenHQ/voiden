@@ -3,7 +3,7 @@ import React, { createContext, useContext, useEffect, useRef } from "react";
 import { EventEmitter } from "events";
 import { useQueryClient } from "@tanstack/react-query";
 
-import { globalSaveFile, saveTabById } from "@/core/file-system/hooks";
+import { globalSaveFile, saveTabById, saveUntitledTabById } from "@/core/file-system/hooks";
 import { useEditorStore } from "@/core/editors/voiden/VoidenEditor";
 import { useLoadEnv, useSetActiveEnv } from "@/core/environment/hooks";
 import { toast } from "@/core/components/ui/sonner";
@@ -304,16 +304,38 @@ export const ElectronEventProvider: React.FC<{ children: React.ReactNode }> = ({
           },
         });
       },
-      "files:saveUnsavedForPaths": async (_event: any, requestId: string, paths: string[]) => {
-        const panelTabs = queryClient.getQueryData<{ tabs: { id: string; source: string | null }[]; activeTabId: string }>(["panel:tabs", "main"]);
+      "files:saveUnsavedForPaths": async (_event: any, requestId: string, paths: string[], options?: { includeUntitled?: boolean }) => {
+        const panelTabs = queryClient.getQueryData<{ tabs: { id: string; title: string; source: string | null }[]; activeTabId: string }>(["panel:tabs", "main"]);
         const tabs = panelTabs?.tabs ?? [];
-        // Empty `paths` means "flush every unsaved tab" (used before app restarts,
-        // e.g. installing an update, where the caller doesn't know specific paths).
-        const matchingTabs = paths.length
-          ? tabs.filter((t) => t.source && paths.includes(t.source))
-          : tabs.filter((t) => t.id in useEditorStore.getState().unsaved);
-        await Promise.all(matchingTabs.map((t) => saveTabById(t.id, { silent: true })));
-        window.electron?.files.acknowledgeUnsavedSaved(requestId);
+        const result: { cancelled: boolean; failed: string[] } = { cancelled: false, failed: [] };
+        try {
+          const isUnsaved = (id: string) => id in useEditorStore.getState().unsaved;
+          // Empty `paths` means "flush every unsaved tab" (used before the app
+          // quits or restarts, where the caller doesn't know specific paths).
+          const namedTabs = paths.length
+            ? tabs.filter((t) => t.source && paths.includes(t.source))
+            : tabs.filter((t) => t.source && isUnsaved(t.id));
+          const saved = await Promise.all(namedTabs.map((t) => saveTabById(t.id, { silent: true })));
+          saved.forEach((ok, i) => {
+            if (!ok) result.failed.push(namedTabs[i].title);
+          });
+
+          // Untitled tabs have nowhere to be written, so each one asks where to
+          // save, one dialog at a time. Cancelling one stops the rest: the
+          // caller treats that as "don't go ahead".
+          if (options?.includeUntitled && !paths.length) {
+            for (const tab of tabs.filter((t) => !t.source && isUnsaved(t.id))) {
+              const outcome = await saveUntitledTabById(tab.id);
+              if (outcome === "cancelled") {
+                result.cancelled = true;
+                break;
+              }
+              if (outcome === "failed") result.failed.push(tab.title);
+            }
+          }
+        } finally {
+          window.electron?.files.acknowledgeUnsavedSaved(requestId, result);
+        }
       },
       "files:queryUnsavedTabs": (_event: any, requestId: string) => {
         const panelTabs = queryClient.getQueryData<{ tabs: { id: string; title: string }[]; activeTabId: string }>(["panel:tabs", "main"]);

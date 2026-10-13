@@ -626,28 +626,82 @@ export function getUnsavedTabTitles(): Promise<string[]> {
   });
 }
 
+// Save dialogs opened from the main process (files:write for an untitled
+// file). flushRendererUnsavedForPaths must not give up on a window while the
+// user is still choosing where to save.
+let openSaveDialogs = 0;
+let lastSaveDialogClosedAt = 0;
+
+/** Run a save dialog, recording that it is open for as long as it is. */
+export async function trackSaveDialog<T>(show: () => Promise<T>): Promise<T> {
+  openSaveDialogs += 1;
+  try {
+    return await show();
+  } finally {
+    openSaveDialogs -= 1;
+    lastSaveDialogClosedAt = Date.now();
+  }
+}
+
+export interface FlushUnsavedResult {
+  /** The user cancelled a save dialog for an untitled file. */
+  cancelled: boolean;
+  /** Titles of tabs that could not be written to disk. */
+  failed: string[];
+}
+
+const FLUSH_IDLE_TIMEOUT_MS = 3000;
+
 /** Ask all renderer windows to flush unsaved content for the given file paths to disk
- *  (or every unsaved tab, if `paths` is empty). Waits up to 3 seconds for acknowledgment
- *  before proceeding. */
-export function flushRendererUnsavedForPaths(paths: string[]): Promise<void> {
-  return new Promise<void>((resolve) => {
+ *  (or every unsaved tab, if `paths` is empty), and wait for every window to finish.
+ *
+ *  With `includeUntitled`, untitled tabs are saved too: each one opens a save
+ *  dialog, since it has no file yet. Without it they are left alone, as before.
+ *
+ *  A window that goes 3 seconds without making progress is given up on, so an
+ *  unresponsive window cannot block the caller forever; time spent in an open save
+ *  dialog does not count. */
+export function flushRendererUnsavedForPaths(paths: string[], options: { includeUntitled?: boolean } = {}): Promise<FlushUnsavedResult> {
+  return new Promise<FlushUnsavedResult>((resolve) => {
     const windows = BrowserWindow.getAllWindows();
+    const result: FlushUnsavedResult = { cancelled: false, failed: [] };
     if (windows.length === 0) {
-      resolve();
+      resolve(result);
       return;
     }
     const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const ackChannel = `files:unsavedSavedAck:${requestId}`;
-    const timeout = setTimeout(() => {
-      ipcMain.removeAllListeners(ackChannel);
-      resolve();
-    }, 3000);
-    ipcMain.once(ackChannel, () => {
-      clearTimeout(timeout);
-      resolve();
-    });
+    let remaining = windows.length;
+    let lastProgressAt = Date.now();
+    let settled = false;
+
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearInterval(watchdog);
+      ipcMain.removeListener(ackChannel, onAck);
+      resolve(result);
+    };
+
+    // Every window replies, so a window with nothing to save (which answers at
+    // once) must not end the wait for one that is still writing.
+    const onAck = (_event: Electron.IpcMainEvent, windowResult?: Partial<FlushUnsavedResult>) => {
+      if (windowResult?.cancelled) result.cancelled = true;
+      if (Array.isArray(windowResult?.failed)) result.failed.push(...windowResult.failed);
+      lastProgressAt = Date.now();
+      remaining -= 1;
+      if (remaining <= 0) finish();
+    };
+
+    const watchdog = setInterval(() => {
+      if (openSaveDialogs > 0) return;
+      const idleSince = Math.max(lastProgressAt, lastSaveDialogClosedAt);
+      if (Date.now() - idleSince >= FLUSH_IDLE_TIMEOUT_MS) finish();
+    }, 250);
+
+    ipcMain.on(ackChannel, onAck);
     for (const w of windows) {
-      w.webContents.send("files:saveUnsavedForPaths", requestId, paths);
+      w.webContents.send("files:saveUnsavedForPaths", requestId, paths, options);
     }
   });
 }

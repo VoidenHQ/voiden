@@ -308,7 +308,32 @@ app.on("before-quit", (event) => {
         : await dialog.showMessageBox(dialogOptions);
 
       if (response === 2) return; // Cancel — abort quitting entirely
-      if (response === 0) await flushRendererUnsavedForPaths([]); // Save All & Quit
+      if (response === 0) {
+        // Save All & Quit. Untitled files have no path yet, so each one asks
+        // where to save; cancelling one of those means "don't quit after all".
+        const saved = await flushRendererUnsavedForPaths([], { includeUntitled: true });
+        if (saved.cancelled) return;
+        if (saved.failed.length > 0) {
+          const failedOptions = {
+            type: "error" as const,
+            buttons: ["Quit Anyway", "Cancel"],
+            defaultId: 1,
+            cancelId: 1,
+            title: "Could Not Save",
+            message: saved.failed.length === 1
+              ? `"${saved.failed[0]}" could not be saved.`
+              : `${saved.failed.length} tabs could not be saved.`,
+            detail: [
+              saved.failed.length > 1 ? saved.failed.map((t) => `• ${t}`).join("\n") : "",
+              "Quitting now will lose those changes.",
+            ].filter(Boolean).join("\n\n"),
+          };
+          const { response: failedResponse } = win
+            ? await dialog.showMessageBox(win, failedOptions)
+            : await dialog.showMessageBox(failedOptions);
+          if (failedResponse === 1) return;
+        }
+      }
       // response === 1 (Don't Save) — proceed without flushing
     }
 

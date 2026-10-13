@@ -125,13 +125,13 @@ export const filesApi = {
     ipcRenderer.on("files:referencesUpdated", handler);
     return () => ipcRenderer.removeListener("files:referencesUpdated", handler);
   },
-  onSaveUnsavedForPaths: (callback: (requestId: string, paths: string[]) => void) => {
-    const handler = (_: unknown, requestId: string, paths: string[]) => callback(requestId, paths);
+  onSaveUnsavedForPaths: (callback: (requestId: string, paths: string[], options?: { includeUntitled?: boolean }) => void) => {
+    const handler = (_: unknown, requestId: string, paths: string[], options?: { includeUntitled?: boolean }) => callback(requestId, paths, options);
     ipcRenderer.on("files:saveUnsavedForPaths", handler);
     return () => ipcRenderer.removeListener("files:saveUnsavedForPaths", handler);
   },
-  acknowledgeUnsavedSaved: (requestId: string) => {
-    ipcRenderer.send(`files:unsavedSavedAck:${requestId}`);
+  acknowledgeUnsavedSaved: (requestId: string, result?: { cancelled: boolean; failed: string[] }) => {
+    ipcRenderer.send(`files:unsavedSavedAck:${requestId}`, result);
   },
   replyUnsavedTabs: (requestId: string, titles: string[]) => {
     ipcRenderer.send(`files:unsavedTabsReply:${requestId}`, titles);
