@@ -6,6 +6,7 @@ import { SidePanelTabs } from "./SidePanelTabs";
 import { SidePanelContent } from "./SidePanelContent";
 import { ResizeHandle } from "./ResizeHandle";
 import { useAddPanelTab, useGetPanelTabs, useActivateTab, useClosePanelTab } from "@/core/layout/hooks";
+import { BOTTOM_PANEL_MIN_PIXELS, RIGHT_PANEL_MIN_PIXELS, setPanelDragging, usePixelMinSize } from "@/core/layout/hooks/usePanels";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNewTerminalTab } from "@/core/terminal/hooks";
 import { Kbd } from "@/core/components/ui/kbd";
@@ -51,6 +52,12 @@ export const MainEditor = ({ bottomPanelProps, rightPanelProps }: MainEditorProp
   useEffect(() => {
     if (!blockOverviewEnabled) setShowBlockOverview(false);
   }, [blockOverviewEnabled]);
+
+  // The bottom and right panels have a smallest size in pixels; the resize
+  // library needs it as a share of the group each one sits in.
+  const { groupRef: bottomGroupRef, minSize: bottomMinSize } = usePixelMinSize(BOTTOM_PANEL_MIN_PIXELS, bottomPanelProps.minSize, "vertical");
+  const { groupRef: rightGroupRef, minSize: rightMinSize } = usePixelMinSize(RIGHT_PANEL_MIN_PIXELS, rightPanelProps.minSize, "horizontal");
+  const bottomHandle = <ResizeHandle orientation="horizontal" onDragging={(isDragging) => setPanelDragging("bottom", isDragging)} />;
 
   const prevPosition = useRef(responsePanelPosition);
   useEffect(() => {
@@ -164,6 +171,7 @@ export const MainEditor = ({ bottomPanelProps, rightPanelProps }: MainEditorProp
   if (responsePanelPosition === "bottom") {
     return (
       <Panel defaultSize={80} minSize={5} className="min-w-96">
+        <div ref={bottomGroupRef} className="h-full w-full">
         <PanelGroup direction="vertical" autoSaveId="per-bottom">
           {/* Editor - full width */}
           <Panel defaultSize={50} minSize={20}>
@@ -173,10 +181,10 @@ export const MainEditor = ({ bottomPanelProps, rightPanelProps }: MainEditorProp
             </div>
           </Panel>
 
-          <ResizeHandle orientation="horizontal" />
+          {bottomHandle}
 
           {/* Bottom panel — VS Code style: sidebar tabs + Terminal as peers */}
-          <Panel {...bottomPanelProps}>
+          <Panel {...bottomPanelProps} minSize={bottomMinSize}>
             <div className="h-full border-t border-border">
               <div className="h-8 flex bg-bg border-b border-border items-center">
                 {/* Sidebar tabs (Response, ScriptLogs, History…) */}
@@ -281,15 +289,18 @@ export const MainEditor = ({ bottomPanelProps, rightPanelProps }: MainEditorProp
             </div>
           </Panel>
         </PanelGroup>
+        </div>
       </Panel>
     );
   }
 
   return (
     <Panel defaultSize={80} minSize={5} className="min-w-96">
+      <div ref={rightGroupRef} className="h-full w-full">
       <PanelGroup direction="horizontal" autoSaveId="persist-3-h">
         {/* Left: Editor + Terminal stacked vertically */}
         <Panel defaultSize={60} minSize={20}>
+          <div ref={bottomGroupRef} className="h-full w-full">
           <PanelGroup direction="vertical" autoSaveId="persist-3-v">
             <Panel defaultSize={70} minSize={20}>
               <div className="h-full flex flex-col">
@@ -298,10 +309,10 @@ export const MainEditor = ({ bottomPanelProps, rightPanelProps }: MainEditorProp
               </div>
             </Panel>
 
-            <ResizeHandle orientation="horizontal" />
+            {bottomHandle}
 
             {/* Terminal Panel */}
-            <Panel {...bottomPanelProps}>
+            <Panel {...bottomPanelProps} minSize={bottomMinSize}>
               <div className="h-full border-t border-border flex flex-col">
                 <div className="relative flex-none h-8 flex justify-between bg-panel">
                   <PanelTabs panel="bottom" />
@@ -317,12 +328,13 @@ export const MainEditor = ({ bottomPanelProps, rightPanelProps }: MainEditorProp
               </div>
             </Panel>
           </PanelGroup>
+          </div>
         </Panel>
 
-        <ResizeHandle orientation="vertical" />
+        <ResizeHandle orientation="vertical" onDragging={(isDragging) => setPanelDragging("right", isDragging)} />
 
         {/* Right Panel - Response Preview — full height */}
-        <Panel {...rightPanelProps}>
+        <Panel {...rightPanelProps} minSize={rightMinSize}>
           <div className="h-full border-l border-border bg-panel">
             <SidePanelTabs side="right" />
             <div className="h-[calc(100%-2rem)]">
@@ -331,6 +343,7 @@ export const MainEditor = ({ bottomPanelProps, rightPanelProps }: MainEditorProp
           </div>
         </Panel>
       </PanelGroup>
+      </div>
     </Panel>
   );
 };
