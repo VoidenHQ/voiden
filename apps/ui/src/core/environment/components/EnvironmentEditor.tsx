@@ -3,6 +3,8 @@ import { cn } from "@/core/lib/utils";
 import { Plus, ChevronDown, Trash2, Check, Search, X, Globe, Lock, Eye, EyeOff, Copy, Clock, RefreshCw, Settings2, AlertTriangle, CornerDownRight, MoreHorizontal, Pencil, FolderOpen } from "lucide-react";
 import { MinusculeMatcher, MatchingMode } from "@voiden/fuzzy-search";
 import { useQueryClient } from "@tanstack/react-query";
+import * as ContextMenu from "@radix-ui/react-context-menu";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { useYamlEnvironments, useEnvironments } from "@/core/environment/hooks";
 import { useSaveYamlEnvironments } from "@/core/environment/hooks";
 import { useProfiles } from "../hooks/useProfiles.ts";
@@ -18,6 +20,8 @@ import {
   generateUniqueName,
   genVarId,
   renameKey,
+  insertAfterKey,
+  cloneEnvNode,
 } from "./envTreeUtils";
 import { useEditorStore } from "@/core/editors/voiden/VoidenEditor";
 import { toast } from "@/core/components/ui/sonner";
@@ -947,6 +951,7 @@ const EnvSidebarItem = ({
   onClick,
   onDelete,
   onRename,
+  onDuplicate,
   onAddChild,
   onToggleCollapse,
   onToggleEnvSelect,
@@ -960,12 +965,28 @@ const EnvSidebarItem = ({
   onClick: () => void;
   onDelete: () => void;
   onRename: () => void;
+  onDuplicate: () => void;
   onAddChild: () => void;
   onToggleCollapse: () => void;
   onToggleEnvSelect: () => void;
   onToggleIntermediate: () => void;
 }) => {
   const [confirming, setConfirming] = useState(false);
+  const [actionsOpen, setActionsOpen] = useState(false);
+  const menuContentClass = "z-[110] min-w-[180px] bg-bg border border-border rounded-sm shadow-lg py-1 text-sm text-text";
+  const menuItemClass = "flex items-center gap-2 px-3 py-1 hover:bg-active cursor-pointer focus:outline-none focus:bg-active";
+  const dangerStyle = { color: "var(--icon-danger)" };
+  // Shared by the "⋯" button menu and the right-click menu
+  const actions: { label: string; icon?: React.ReactNode; onSelect?: () => void; danger?: boolean; separator?: boolean }[] = [
+    { label: "Rename", icon: <Pencil size={12} className="text-comment" />, onSelect: onRename },
+    { label: "Duplicate", icon: <Copy size={12} className="text-comment" />, onSelect: onDuplicate },
+    { label: "Add child environment", icon: <Plus size={12} className="text-comment" />, onSelect: onAddChild },
+    entry.intermediate
+      ? { label: "Show in env picker", icon: <Eye size={12} className="text-comment" />, onSelect: onToggleIntermediate }
+      : { label: "Hide from env picker", icon: <EyeOff size={12} className="text-comment" />, onSelect: onToggleIntermediate },
+    { label: "separator", separator: true },
+    { label: "Delete", icon: <Trash2 size={12} />, onSelect: () => setConfirming(true), danger: true },
+  ];
 
   return (
     <>
@@ -976,6 +997,8 @@ const EnvSidebarItem = ({
           onCancel={() => setConfirming(false)}
         />
       )}
+      <ContextMenu.Root>
+      <ContextMenu.Trigger asChild>
       <div
         role="button"
         onClick={onClick}
@@ -1014,35 +1037,66 @@ const EnvSidebarItem = ({
             <span className="truncate text-[9px] text-comment">{entry.displayName}</span>
           )}
         </span>
-        {/* Toggle-intermediate button: always visible when hidden, hover-only when visible */}
-        <button
-          title={entry.intermediate ? "Show in env picker" : "Hide from env picker"}
-          onClick={(e) => { e.stopPropagation(); onToggleIntermediate(); }}
-          className={cn("p-0.5 rounded hover:bg-border transition-colors flex-shrink-0",
-            entry.intermediate ? "opacity-100" : "opacity-0 group-hover/item:opacity-100")}
-        >
-          {entry.intermediate
-            ? <EyeOff size={11} style={{ color: "var(--icon-warning)" }} />
-            : <Eye size={11} className="text-comment/60 hover:text-comment" />}
-        </button>
-        {/* Actions shown on hover */}
-        <span className="flex items-center gap-0.5 flex-shrink-0 opacity-0 group-hover/item:opacity-100 transition-opacity">
-          <span className="text-xs text-comment/60 tabular-nums">{entry.varCount}</span>
+        {/* Hidden-from-picker marker — only shown when hidden; the toggle itself lives in the menu */}
+        {entry.intermediate && (
           <button
-            title="Add child environment"
-            onClick={(e) => { e.stopPropagation(); onAddChild(); }}
-            className="p-0.5 rounded hover:bg-border transition-colors"
+            title="Hidden from env picker — click to show"
+            onClick={(e) => { e.stopPropagation(); onToggleIntermediate(); }}
+            className="p-0.5 rounded hover:bg-border transition-colors flex-shrink-0"
           >
-            <Plus size={11} className="text-comment/60 hover:text-comment" />
+            <EyeOff size={11} style={{ color: "var(--icon-warning)" }} />
           </button>
-          <button
-            onClick={(e) => { e.stopPropagation(); setConfirming(true); }}
-            className="p-0.5 rounded hover:bg-border transition-colors"
-          >
-            <Trash2 size={11} className="text-comment/60 hover:text-comment" />
-          </button>
-        </span>
+        )}
+        <span className="text-xs text-comment/60 tabular-nums flex-shrink-0 opacity-0 group-hover/item:opacity-100 transition-opacity">{entry.varCount}</span>
+        {/* All row actions live in this menu (same items as the right-click menu) */}
+        <DropdownMenu.Root open={actionsOpen} onOpenChange={setActionsOpen}>
+          <DropdownMenu.Trigger asChild>
+            <button
+              title="Environment actions"
+              onClick={(e) => e.stopPropagation()}
+              onDoubleClick={(e) => e.stopPropagation()}
+              className={cn("p-0.5 rounded hover:bg-border transition-colors flex-shrink-0",
+                actionsOpen ? "opacity-100 bg-border" : "opacity-0 group-hover/item:opacity-100")}
+            >
+              <MoreHorizontal size={12} className="text-comment/60 hover:text-comment" />
+            </button>
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Portal>
+            <DropdownMenu.Content
+              align="end"
+              sideOffset={4}
+              onCloseAutoFocus={(e) => e.preventDefault()}
+              onClick={(e) => e.stopPropagation()}
+              className={menuContentClass}
+            >
+              {actions.map((a) => a.separator
+                ? <DropdownMenu.Separator key={a.label} className="my-1 h-px bg-border" />
+                : (
+                  <DropdownMenu.Item key={a.label} onSelect={a.onSelect} className={menuItemClass} style={a.danger ? dangerStyle : undefined}>
+                    {a.icon} {a.label}
+                  </DropdownMenu.Item>
+                ))}
+            </DropdownMenu.Content>
+          </DropdownMenu.Portal>
+        </DropdownMenu.Root>
       </div>
+      </ContextMenu.Trigger>
+      <ContextMenu.Portal>
+        <ContextMenu.Content
+          // Rename/Duplicate open an autofocused input — don't let the menu pull focus back to the row and blur it
+          onCloseAutoFocus={(e) => e.preventDefault()}
+          className={menuContentClass}
+        >
+          {actions.map((a) => a.separator
+            ? <ContextMenu.Separator key={a.label} className="my-1 h-px bg-border" />
+            : (
+              <ContextMenu.Item key={a.label} onSelect={a.onSelect} className={menuItemClass} style={a.danger ? dangerStyle : undefined}>
+                {a.icon} {a.label}
+              </ContextMenu.Item>
+            ))}
+        </ContextMenu.Content>
+      </ContextMenu.Portal>
+      </ContextMenu.Root>
     </>
   );
 };
@@ -1666,6 +1720,31 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
     setRenameValue("");
   }, [tree, handleUpdateTree]);
 
+  // Duplicate an env (variables, private values and children) as a sibling
+  // placed right below it, then open rename so the copy can be named at once.
+  const handleDuplicate = useCallback((path: string) => {
+    const node = getNodeAtPath(tree, path);
+    if (!node) return;
+    const segments = path.split(".");
+    const name = segments[segments.length - 1];
+    const parentPath = segments.slice(0, -1).join(".");
+    const parentNode = parentPath ? getNodeAtPath(tree, parentPath) : null;
+    const siblings = parentNode ? parentNode.children : tree;
+    const copyName = generateUniqueName(siblings, `${name}-copy`);
+    const copy = cloneEnvNode(node);
+    if (copy.displayName) copy.displayName = `${copy.displayName} (copy)`;
+    const newSiblings = insertAfterKey(siblings, name, copyName, copy);
+    const newTree = parentNode
+      ? updateNodeAtPath(tree, parentPath, { ...parentNode, children: newSiblings })
+      : newSiblings;
+    handleUpdateTree(newTree);
+    const copyPath = parentPath ? `${parentPath}.${copyName}` : copyName;
+    setSelectedEnvPath(copyPath);
+    setSelectedOwner(null);
+    setRenamingPath(copyPath);
+    setRenameValue(copyName);
+  }, [tree, handleUpdateTree]);
+
   const flatEnvs = useMemo(() => {
     const all = flattenTree(tree);
     // Filter by sidebar search
@@ -1893,6 +1972,7 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
                       }}
                       style={{ paddingLeft: `${10 + entry.depth * 14}px` }}
                       className="w-full text-xs font-mono py-1.5 pr-2 bg-editor border border-border rounded-md text-text focus:outline-none focus:ring-1"
+                      onFocus={(e) => e.currentTarget.select()}
                       autoFocus
                     />
                   ) : (
@@ -1908,6 +1988,7 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
                         if (selectedEnvPath === entry.path) { setSelectedEnvPath(null); setSelectedOwner(null); }
                       }}
                       onRename={() => { setRenamingPath(entry.path); setRenameValue(entry.name); }}
+                      onDuplicate={() => handleDuplicate(entry.path)}
                       onAddChild={() => handleAddChild(entry.path)}
                       onToggleCollapse={() => toggleCollapsed(entry.path)}
                       onToggleEnvSelect={() => toggleEnvSelect(entry.path)}

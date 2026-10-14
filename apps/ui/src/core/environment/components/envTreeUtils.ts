@@ -33,6 +33,34 @@ export function renameKey<T>(record: Record<string, T>, oldKey: string, newKey: 
 }
 
 /**
+ * Insert a key directly after another key in a record, preserving the order of
+ * the rest. Appends when `afterKey` isn't present.
+ */
+export function insertAfterKey<T>(record: Record<string, T>, afterKey: string, newKey: string, value: T): Record<string, T> {
+  if (!(afterKey in record)) return { ...record, [newKey]: value };
+  const result: Record<string, T> = {};
+  for (const [key, val] of Object.entries(record)) {
+    result[key] = val;
+    if (key === afterKey) result[newKey] = value;
+  }
+  return result;
+}
+
+/**
+ * Deep-copy an env node (variables and all children), giving every variable a
+ * fresh id so the copy's rows don't share React keys / selection with the original.
+ */
+export function cloneEnvNode(node: EditableEnvNode): EditableEnvNode {
+  const children: Record<string, EditableEnvNode> = {};
+  for (const [ck, cn] of Object.entries(node.children)) children[ck] = cloneEnvNode(cn);
+  return {
+    ...node,
+    variables: node.variables.map((v) => ({ ...v, id: genVarId() })),
+    children,
+  };
+}
+
+/**
  * Merge public and private JSON trees into a single editable tree.
  * Public variables get isPrivate=false, private variables get isPrivate=true.
  */
