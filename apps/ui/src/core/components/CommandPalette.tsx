@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, startTransition } from 'react';
-import { Search, File, Folder, FilePlus, Terminal, Settings, FolderPlus, HelpCircle, Sparkles } from 'lucide-react';
+import { Search, File, Folder, FilePlus, Terminal, Settings, FolderPlus, HelpCircle, Sparkles, SlidersHorizontal } from 'lucide-react';
 import type { MatchedFragment } from '@voiden/fuzzy-search';
 import { highlightText } from '@/core/editors/voiden/extensions/MatchedFragment';
 import { useAddPanelTab } from '@/core/layout/hooks';
@@ -12,7 +12,12 @@ import { useCodeEditorStore } from '@/core/editors/code/CodeEditorStore';
 import { useDocumentStore } from '@/core/file-system/stores';
 import { prettifyJSONC } from '@/utils/jsonc';
 import { RuntimeVariablesHelp } from '@/core/editors/voiden/nodes/help';
+import {
+  shouldHideFromFileSearch,
+  type FileSearchFilterOptions,
+} from '@/core/components/fileSearchFilters';
 import { usePluginStore } from '@/plugins';
+import { useRevealInExplorerStore } from '@/core/stores/revealInExplorerStore';
 
 interface CommandPaletteProps {
   isFocused: boolean;
@@ -42,13 +47,16 @@ interface Command {
 
 export const CommandPalette: React.FC<CommandPaletteProps> = ({ isFocused, mode, onFocus, onBlur, onShowHelp }) => {
   const [searchQuery, setSearchQuery] = useState('');
-  const [filteredFiles, setFilteredFiles] = useState<FileItem[]>([]);
+  const [fileMask, setFileMask] = useState('');
+  const [showFileFilters, setShowFileFilters] = useState(false);
+  const [rawFileList, setRawFileList] = useState<FileItem[]>([]);
   const [isLoadingFiles, setIsLoadingFiles] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [showDropdown, setShowDropdown] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const { mutate: addPanelTab } = useAddPanelTab();
+  const requestRevealInExplorer = useRevealInExplorerStore((s) => s.requestReveal);
   const queryClient = useQueryClient();
   const { openBottomPanel, bottomPanelRef } = usePanelStore();
   const { data: activeFilePath } = useGetActiveDocument();
@@ -163,6 +171,21 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isFocused, mode,
     return () => clearTimeout(t);
   }, [searchQuery]);
 
+  const fileSearchFilters = useMemo<FileSearchFilterOptions>(
+    () => ({
+      fileMask: fileMask.trim() || undefined,
+    }),
+    [fileMask],
+  );
+
+  const filteredFiles = useMemo(
+    () =>
+      rawFileList.filter(
+        (f) => !shouldHideFromFileSearch(f.name, fileSearchFilters),
+      ),
+    [rawFileList, fileSearchFilters],
+  );
+
   // Session id regenerated each time the files picker opens so the main-process
   // cache knows when to reload vs. reuse the previously-collected file list.
   // Cleanup closes the server-side session so it can release its cached paths.
@@ -212,7 +235,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isFocused, mode,
               filenameFragments: f.filenameFragments,
             };
           });
-          startTransition(() => setFilteredFiles(incoming));
+          startTransition(() => setRawFileList(incoming));
 
           // Update folder suggestions
           const folderSet = new Set<string>();
@@ -578,6 +601,11 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isFocused, mode,
     try {
       const content = await window.electron?.files?.read(file.path);
 
+      // Deliberate navigation via Quick Open — reveal it in the explorer.
+      // See revealInExplorerStore's doc comment for why this is opt-in
+      // rather than something the tree does for every active-tab change.
+      requestRevealInExplorer(file.path);
+
       addPanelTab({
         panelId: 'main',
         tab: {
@@ -705,7 +733,9 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isFocused, mode,
       await queryClient.invalidateQueries({ queryKey: ['files:tree'] });
 
       if (result?.path) {
-        // Open the newly created file
+        // Open the newly created file — also a deliberate navigation, so
+        // reveal where it landed in the explorer.
+        requestRevealInExplorer(result.path);
         addPanelTab({
           panelId: 'main',
           tab: {
@@ -878,6 +908,39 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isFocused, mode,
           />
           <span className="text-xs text-comment">ESC to close</span>
         </div>
+
+        {mode === 'files' && (
+          <div className="flex items-center gap-2 px-4 py-2 bg-editor border-x border-border text-xs">
+            <button
+              type="button"
+              className={cn(
+                'rounded p-1.5 border transition-colors',
+                showFileFilters || fileMask
+                  ? 'border-accent bg-accent/15 text-text'
+                  : 'border-border text-comment hover:text-text',
+              )}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                setShowFileFilters((v) => !v);
+              }}
+              aria-label="Toggle file mask filter"
+              aria-expanded={showFileFilters}
+            >
+              <SlidersHorizontal size={14} />
+            </button>
+            {showFileFilters && (
+              <input
+                type="text"
+                value={fileMask}
+                onChange={(e) => setFileMask(e.target.value)}
+                onMouseDown={(e) => e.stopPropagation()}
+                placeholder="File mask (e.g. *.ts, !*.json, !*.void)"
+                className="min-w-[12rem] flex-1 rounded px-2 py-1 bg-bg border border-border text-text placeholder:text-comment outline-none"
+                aria-label="File mask filter"
+              />
+            )}
+          </div>
+        )}
 
         {/* Dropdown Results */}
         <div className="bg-editor border-x border-b border-border rounded-b-lg shadow-lg max-h-[400px] overflow-hidden">

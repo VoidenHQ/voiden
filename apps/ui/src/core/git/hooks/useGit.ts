@@ -218,8 +218,20 @@ export const useInitializeGit = () => {
 
 export const useCloneRepo = () => {
   return useMutation({
-    mutationFn: async ({ repoUrl, token }: { repoUrl: string; token?: string }) => {
-      return window.electron?.git.clone(repoUrl, token);
+    mutationFn: async ({
+      repoUrl,
+      token,
+      sshKeyPath,
+      sshPassphrase,
+      useSshAgent,
+    }: {
+      repoUrl: string;
+      token?: string;
+      sshKeyPath?: string;
+      sshPassphrase?: string;
+      useSshAgent?: boolean;
+    }) => {
+      return window.electron?.git.clone(repoUrl, { token, sshKeyPath, sshPassphrase, useSshAgent });
     },
   });
 }

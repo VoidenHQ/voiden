@@ -17,6 +17,11 @@
 import { hookRegistry, PipelineStage, requestOrchestrator, executeWebSocket, executeGrpc } from '@voiden/executors'
 import type { RequestBuildHandler, ResponseProcessHandler } from '@voiden/executors'
 import { registerBlockSchema, type BlockSchemaDef } from './blockSchemaRegistry.js'
+import { registerRequestContainer as registerContainerDef, type RequestContainerDef } from './requestContainerRegistry.js'
+import { registerToolProvider as registerToolProviderFn, type ToolExtractFn } from './toolRegistry.js'
+import { registerMcpToolCapabilityProvider as registerMcpToolCapabilityProviderFn, type McpToolCapabilityProvider } from './mcpToolCapability.js'
+import { collectVoidFiles } from './discovery.js'
+import { runVoidFile, getRequestPreview, type RunOptions } from './runner.js'
 import type { RunnerContext, RunnerRequestHandler, RunnerResponseHandler } from '@voiden/sdk/runner'
 
 export function createHeadlessPluginContext(
@@ -74,6 +79,21 @@ export function createHeadlessPluginContext(
     // ── Verbosity ────────────────────────────────────────────────────────
     verbose,
 
+    // ── Runner primitives (for the plugin owning the /tool block) ─────────
+    // A plugin's runner bundle can't `import` from @voiden/runner itself —
+    // it's the host loading the plugin, not an externalized dependency, and
+    // the standalone-installed plugin copy has no node_modules to resolve it
+    // from anyway. So the handful of core-internal functions the /tool
+    // capability's relocated discover/verify/serve logic needs are handed
+    // over as already-bound closures here instead, the same way
+    // `protocols.executeWebSocket` already exposes a core-internal
+    // implementation to socket plugins without them importing it.
+    runnerPrimitives: {
+      collectVoidFiles: (inputPath: string) => collectVoidFiles(inputPath),
+      runVoidFile: (filePath: string, options?: RunOptions) => runVoidFile(filePath, options),
+      getRequestPreview: (blocks: any[]) => getRequestPreview(blocks),
+    },
+
     // ── Reporting ────────────────────────────────────────────────────────
     report: {
       add: (_entry: any) => {
@@ -94,6 +114,33 @@ export function createHeadlessPluginContext(
       exposeHelpers:               () => {},
       paste: { registerBlockOwner: () => {} },
       project: { openFile: () => {} },
+
+      // Host capability not yet in the published @voiden/sdk RunnerContext
+      // type — lets a protocol plugin (REST, GraphQL, sockets/gRPC, or a
+      // third-party protocol plugin) declare its own request-container block
+      // shape, so list_requests/write_result work for it without voiden-runner's
+      // core needing to hardcode knowledge of every plugin's block types.
+      registerRequestContainer: (def: RequestContainerDef) => {
+        registerContainerDef(def)
+      },
+
+      // Host capability not yet in the published @voiden/sdk RunnerContext
+      // type, same treatment as registerRequestContainer above — lets the
+      // plugin owning the /tool block declare its own block→tool-declaration
+      // extraction function, so voiden-runner's tool discovery/verification
+      // works without hardcoding knowledge of that block's shape.
+      registerToolProvider: (extractFn: ToolExtractFn) => {
+        registerToolProviderFn(extractFn)
+      },
+
+      // Host capability not yet in the published @voiden/sdk RunnerContext
+      // type, same treatment as registerToolProvider above — lets the plugin
+      // owning the /tool block hand back its discover/validate/verify/serve
+      // implementation (mcpToolCapability.ts's McpToolCapabilityProvider),
+      // so voiden-runner core never hardcodes that block's own semantics.
+      registerMcpToolCapabilityProvider: (p: McpToolCapabilityProvider) => {
+        registerMcpToolCapabilityProviderFn(p)
+      },
     } as any),
   }
 }

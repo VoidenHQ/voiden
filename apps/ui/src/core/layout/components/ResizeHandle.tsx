@@ -3,13 +3,17 @@ import { cn } from "@/core/lib/utils";
 
 interface ResizeHandleProps {
   orientation: "horizontal" | "vertical";
+  /** Called with true when the user starts dragging the handle and false when they let go. */
+  onDragging?: (isDragging: boolean) => void;
 }
 
-export const ResizeHandle = ({ orientation }: ResizeHandleProps) => {
+export const ResizeHandle = ({ orientation, onDragging }: ResizeHandleProps) => {
   return (
     <PanelResizeHandle
+      onDragging={onDragging}
       className={cn(
         "relative before:absolute before:left-1/2 before:-translate-x-1/2 before:bg-line z-10",
+        "before:transition-all before:duration-150 before:ease-out",
         orientation === "horizontal"
           ? [
               "before:w-full before:h-[1px]",

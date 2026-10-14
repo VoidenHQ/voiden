@@ -2,15 +2,25 @@ import React, { useCallback, useMemo, useRef, useEffect, useState } from "react"
 import { Button } from "@/core/components/ui/button";
 import { Popover, PopoverTrigger, PopoverContent, PopoverPortal, PopoverClose } from "@radix-ui/react-popover";
 import { Editor } from "@tiptap/core";
-import { Node } from "@tiptap/pm/model";
+import { Node, Fragment } from "@tiptap/pm/model";
 import { NodeSelection } from "@tiptap/pm/state";
+import { getSelectedBlockUids, clearBlockSelection } from "@/core/editors/voiden/extensions/BlockMultiSelect";
 import { useHotkeys } from "react-hotkeys-hook";
 import { LuGripVertical } from "react-icons/lu";
 import { useGetActiveDocument } from "@/core/documents/hooks";
 import { useQueryClient } from "@tanstack/react-query";
 import { createPortal } from "react-dom";
 import { Kbd } from "@/core/components/ui/kbd";
-import { getContextMenuItems, type PluginContextMenuItem } from "@/plugins";
+import { ExternalLink } from "lucide-react";
+import { getContextMenuItems, getBlockDocsUrl, type PluginContextMenuItem } from "@/plugins";
+
+function openExternalUrl(url: string) {
+  try {
+    (window as any).electron?.utils?.openExternalUrl(url);
+  } catch {
+    (window as any).electron?.ipc?.invoke("open-external", url);
+  }
+}
 
 // ────────────────────────────────────────────────
 // Memoized DragMenuItem Component
@@ -19,9 +29,10 @@ interface DragMenuItemProps {
   label: string;
   shortcut?: React.ReactNode;
   disabled?: boolean;
+  icon?: React.ComponentType<any>;
 }
 
-export const DragMenuItem: React.FC<DragMenuItemProps> = React.memo(({ onClick, label, shortcut, disabled }: DragMenuItemProps) => {
+export const DragMenuItem: React.FC<DragMenuItemProps> = React.memo(({ onClick, label, shortcut, disabled, icon: Icon }: DragMenuItemProps) => {
   return (
     <PopoverClose asChild>
       <button
@@ -33,7 +44,10 @@ export const DragMenuItem: React.FC<DragMenuItemProps> = React.memo(({ onClick, 
         disabled={disabled}
       >
         <div className="flex items-center justify-between w-full">
-          <span className="text-sm">{label}</span>
+          <span className="flex items-center gap-2 text-sm">
+            {Icon && <Icon size={14} className="text-comment flex-shrink-0" />}
+            {label}
+          </span>
           {shortcut && <div className="text-xs text-comment ml-4">{shortcut}</div>}
         </div>
       </button>
@@ -392,6 +406,145 @@ export const useActions = (editor: Editor) => {
     }
   }, [getSectionNodes, activeDocument, queryClient]);
 
+  // Moves whatever top-level content sits in [srcPos, srcPos + srcSize) to
+  // insertPos in one transaction (one undo step). Works identically for a
+  // single block or a multi-block range — slicing at exact sibling
+  // boundaries always yields a closed Slice (openStart/openEnd 0), so
+  // re-inserting its Fragment reproduces however many nodes were in it.
+  const moveNode = useCallback((srcPos: number, srcSize: number, insertPos: number) => {
+    const { state } = editor;
+    const slice = state.doc.slice(srcPos, srcPos + srcSize);
+    if (slice.content.size === 0) return;
+
+    // When deleting before inserting, positions after srcPos shift by -srcSize
+    const adjustedInsertPos = insertPos > srcPos ? insertPos - srcSize : insertPos;
+
+    try {
+      const tr = state.tr.delete(srcPos, srcPos + srcSize);
+      tr.insert(adjustedInsertPos, slice.content);
+      editor.view.dispatch(tr);
+      setTimeout(() => safeFocusEditor(adjustedInsertPos + 1), 0);
+    } catch (e) {
+      console.error('Error moving block(s):', e);
+    }
+  }, [editor, safeFocusEditor]);
+
+  // When the grip is grabbed while a plain (non-cell, non-empty) selection
+  // spans more than one top-level sibling — and the grip's own node falls
+  // inside that span — drag the WHOLE covered range together instead of
+  // just the single node the grip happens to be anchored to. Falls back to
+  // the existing single-node behavior for every other case.
+  const resolveDragRange = useCallback((): { pos: number; size: number } | null => {
+    if (!currentNode || currentNodePos === -1) return null;
+    const single = { pos: currentNodePos, size: currentNode.nodeSize };
+
+    const { state } = editor;
+    const { selection } = state;
+    // CellSelection (and similar) carry multiple ranges — not a block range.
+    if (selection.empty || (selection as any).ranges?.length > 1) return single;
+
+    const doc = state.doc;
+    let blockRange;
+    try {
+      blockRange = state.selection.$from.blockRange(state.selection.$to);
+    } catch {
+      return single;
+    }
+    // Only a range whose shared parent IS the doc (top-level siblings) counts.
+    if (!blockRange || blockRange.parent !== doc) return single;
+
+    const rangeFrom = blockRange.start;
+    const rangeTo = blockRange.end;
+    if (currentNodePos < rangeFrom || currentNodePos >= rangeTo) return single;
+
+    let siblingCount = 0;
+    let crossesSeparator = false;
+    doc.nodesBetween(rangeFrom, rangeTo, (node, pos, parent) => {
+      if (parent !== doc) return false;
+      siblingCount++;
+      if (node.type.name === 'request-separator' && pos > rangeFrom) crossesSeparator = true;
+      return false;
+    });
+
+    // A single covered sibling, or a span crossing into another request's
+    // section, isn't a multi-block drag — fall back to the normal single-node path.
+    if (siblingCount < 2 || crossesSeparator) return single;
+
+    return { pos: rangeFrom, size: rangeTo - rangeFrom };
+  }, [editor, currentNode, currentNodePos]);
+
+  // Moves a set of possibly NON-adjacent top-level blocks (the ctrl/shift
+  // multi-select) together in one transaction: pulls each one out, in
+  // document order, and drops them back in as a single consecutive group at
+  // insertPos — same as moveNode, just generalized to N disjoint ranges
+  // instead of one contiguous one.
+  const moveMultiple = useCallback((entries: { pos: number; size: number }[], insertPos: number) => {
+    if (entries.length === 0) return;
+    const { state } = editor;
+    const sorted = [...entries].sort((a, b) => a.pos - b.pos);
+
+    let combined = Fragment.empty;
+    for (const e of sorted) {
+      const slice = state.doc.slice(e.pos, e.pos + e.size);
+      if (slice.content.size > 0) combined = combined.append(slice.content);
+    }
+    if (combined.size === 0) return;
+
+    // Deleting shifts every position after it left by that entry's size —
+    // account for every entry that sits before the drop point.
+    let adjustedInsertPos = insertPos;
+    for (const e of sorted) {
+      if (e.pos < insertPos) adjustedInsertPos -= e.size;
+    }
+
+    try {
+      let tr = state.tr;
+      for (let i = sorted.length - 1; i >= 0; i--) {
+        tr = tr.delete(sorted[i].pos, sorted[i].pos + sorted[i].size);
+      }
+      tr.insert(adjustedInsertPos, combined);
+      editor.view.dispatch(tr);
+      setTimeout(() => safeFocusEditor(adjustedInsertPos + 1), 0);
+    } catch (e) {
+      console.error('Error moving blocks:', e);
+    }
+  }, [editor, safeFocusEditor]);
+
+  // Ctrl/Cmd+Click and Shift+Click multi-select (BlockMultiSelect extension)
+  // — resolves the currently selected uids to live positions. Requires 2+
+  // still-existing selected blocks and never spans across a
+  // request-separator boundary (each request's blocks stay confined to
+  // their own section).
+  const resolveCheckedSelection = useCallback((): { pos: number; size: number; entries: { pos: number; size: number }[] } | null => {
+    const selectedUids = getSelectedBlockUids(editor.state);
+    if (selectedUids.size < 2) return null;
+
+    const { doc } = editor.state;
+    const entries: { pos: number; size: number }[] = [];
+    let pos = 0;
+    for (let i = 0; i < doc.childCount; i++) {
+      const node = doc.child(i);
+      if (node.attrs?.uid && selectedUids.has(node.attrs.uid)) {
+        entries.push({ pos, size: node.nodeSize });
+      }
+      pos += node.nodeSize;
+    }
+    if (entries.length < 2) return null;
+
+    const hullFrom = entries[0].pos;
+    const hullTo = entries[entries.length - 1].pos + entries[entries.length - 1].size;
+
+    let crossesSeparator = false;
+    doc.nodesBetween(hullFrom, hullTo, (node, p, parent) => {
+      if (parent !== doc) return false;
+      if (node.type.name === 'request-separator' && p > hullFrom) crossesSeparator = true;
+      return false;
+    });
+    if (crossesSeparator) return null;
+
+    return { pos: hullFrom, size: hullTo - hullFrom, entries };
+  }, [editor]);
+
   return {
     currentNode,
     currentNodePos,
@@ -408,6 +561,10 @@ export const useActions = (editor: Editor) => {
     cutSectionBlock,
     deleteSectionBlock,
     linkSectionBlock,
+    moveNode,
+    moveMultiple,
+    resolveDragRange,
+    resolveCheckedSelection,
   };
 };
 
@@ -433,10 +590,11 @@ interface DragPopoverContentProps {
   linkSectionBlock?: () => void;
   pluginBlockItems: PluginContextMenuItem[];
   pluginBlockTarget: { node: Node | null; nodeType: string; pos: number };
+  docsUrl?: string;
 }
 
 const DragPopoverContent: React.FC<DragPopoverContentProps> = React.memo(
-  ({ duplicateNode, handleAddBlockAbove, handleAddBlockBelow, deleteNode, duplicateShortcut, deleteShortcut, copyNode, cutNode, linkNode, copyDisabled, showLinkBlock, onKeyDown, isSectionSeparator, copySectionBlock, cutSectionBlock, deleteSectionBlock, linkSectionBlock, pluginBlockItems, pluginBlockTarget }: DragPopoverContentProps) => {
+  ({ duplicateNode, handleAddBlockAbove, handleAddBlockBelow, deleteNode, duplicateShortcut, deleteShortcut, copyNode, cutNode, linkNode, copyDisabled, showLinkBlock, onKeyDown, isSectionSeparator, copySectionBlock, cutSectionBlock, deleteSectionBlock, linkSectionBlock, pluginBlockItems, pluginBlockTarget, docsUrl }: DragPopoverContentProps) => {
     const isMac = navigator.userAgent.includes("Mac");
     const modKey = isMac ? "⌘" : "Ctrl";
     const contentRef = useRef<HTMLDivElement>(null);
@@ -498,6 +656,12 @@ const DragPopoverContent: React.FC<DragPopoverContentProps> = React.memo(
               ))}
             </>
           )}
+          {docsUrl && (
+            <>
+              <div className="h-px bg-border my-1" />
+              <DragMenuItem onClick={() => openExternalUrl(docsUrl)} label="Open Documentation" icon={ExternalLink} />
+            </>
+          )}
         </PopoverContent>
       </PopoverPortal>
     );
@@ -512,10 +676,17 @@ export const VoidenDragMenu = React.memo(({ editor }: { editor: Editor }) => {
   const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
   const [editorContainer, setEditorContainer] = useState<HTMLElement | null>(null);
   const [isOpen, setIsOpen] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [dropIndicator, setDropIndicator] = useState<{ top: number; insertPos: number } | null>(null);
   const menuOpenRef = useRef(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const lastMouseNodePos = useRef<number>(-1);
   const updateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  // `entries` is set only when dragging a ctrl/shift multi-select covering
+  // more than one (possibly non-adjacent) block — see resolveCheckedSelection.
+  const dragSourceRef = useRef<{ pos: number; size: number; entries?: { pos: number; size: number }[] } | null>(null);
+  const isScrollingRef = useRef(false);
+  const scrollEndTimerRef = useRef<number | null>(null);
 
   // Use the actions hook
   const {
@@ -534,15 +705,141 @@ export const VoidenDragMenu = React.memo(({ editor }: { editor: Editor }) => {
     cutSectionBlock,
     deleteSectionBlock,
     linkSectionBlock,
+    moveNode,
+    moveMultiple,
+    resolveDragRange,
+    resolveCheckedSelection,
   } = useActions(editor);
+
+  // Suppress the popover click after a drag so the menu doesn't open on mouseup
+  const suppressNextClickRef = useRef(false);
 
   const handleOpenChange = useCallback(
     (open: boolean) => {
+      if (open && suppressNextClickRef.current) {
+        suppressNextClickRef.current = false;
+        return;
+      }
       menuOpenRef.current = open;
       setIsOpen(open);
     },
     []
   );
+
+  // Compute which ProseMirror block is under mouseY and where to insert relative to it
+  const getDropInfo = useCallback((mouseY: number): { insertPos: number; top: number } | null => {
+    if (!editorContainer) return null;
+    const { state, view } = editor;
+    const containerRect = editorContainer.getBoundingClientRect();
+    let currentPos = 0;
+    let lastBottom = containerRect.top;
+
+    for (let i = 0; i < state.doc.childCount; i++) {
+      const node = state.doc.child(i);
+      const nodePos = currentPos;
+
+      let domEl: HTMLElement | null = null;
+      try {
+        const d = view.nodeDOM(nodePos);
+        if (d instanceof HTMLElement) domEl = d;
+      } catch { /* skip */ }
+
+      if (domEl) {
+        const rect = domEl.getBoundingClientRect();
+        const midY = (rect.top + rect.bottom) / 2;
+        if (mouseY <= midY) {
+          return { insertPos: nodePos, top: rect.top - containerRect.top };
+        }
+        lastBottom = rect.bottom;
+      }
+
+      currentPos += node.nodeSize;
+    }
+
+    return { insertPos: currentPos, top: lastBottom - containerRect.top };
+  }, [editor, editorContainer]);
+
+  // Mouse-based drag: avoids conflicts with ProseMirror's own HTML5 drag handling
+  const handleGripMouseDown = useCallback((e: React.MouseEvent) => {
+    if (!currentNode || currentNodePos === -1) return;
+    // Stop propagation so TipTap doesn't create a selection at this position
+    e.stopPropagation();
+    e.preventDefault();
+
+    const startX = e.clientX;
+    const startY = e.clientY;
+    // If a multi-block selection currently covers the grip's node, drag the
+    // whole selection together; otherwise this is just the one node. The
+    // ctrl/shift multi-select (possibly non-adjacent blocks) takes priority
+    // over a plain multi-sibling text selection when both would apply.
+    const checked = resolveCheckedSelection();
+    const checkedCoversGrip = checked && checked.entries.some((en) => currentNodePos >= en.pos && currentNodePos < en.pos + en.size);
+    dragSourceRef.current = (checkedCoversGrip ? checked : null) ?? resolveDragRange() ?? { pos: currentNodePos, size: currentNode.nodeSize };
+
+    let dragging = false;
+
+    const onMouseMove = (moveE: MouseEvent) => {
+      const dx = moveE.clientX - startX;
+      const dy = moveE.clientY - startY;
+
+      // Require at least 5px movement before entering drag mode
+      if (!dragging && Math.sqrt(dx * dx + dy * dy) > 5) {
+        dragging = true;
+        menuOpenRef.current = false;
+        setIsOpen(false);
+        setIsDragging(true);
+        document.dispatchEvent(new CustomEvent('voiden:block-drag-start'));
+      }
+
+      if (!dragging) return;
+
+      const info = getDropInfo(moveE.clientY);
+      if (!info || !dragSourceRef.current) { setDropIndicator(null); return; }
+
+      const { pos: srcPos, size: srcSize } = dragSourceRef.current;
+      // For a single-node source, getDropInfo can only ever land exactly on
+      // srcPos or srcPos + srcSize (it snaps to top-level node boundaries),
+      // so an equality check was enough. A multi-block RANGE has boundaries
+      // *between* its own covered siblings too — mouseY over the gap between
+      // two blocks that are both part of the drag would satisfy the old
+      // equality check while still being inside the source, showing a bogus
+      // "valid" drop line in the middle of the blocks being dragged. Exclude
+      // the whole span instead of just its two ends.
+      if (info.insertPos >= srcPos && info.insertPos <= srcPos + srcSize) {
+        setDropIndicator(null);
+      } else {
+        setDropIndicator(info);
+      }
+    };
+
+    const onMouseUp = (upE: MouseEvent) => {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+
+      if (dragging) {
+        suppressNextClickRef.current = true;
+        const source = dragSourceRef.current;
+        const info = getDropInfo(upE.clientY);
+        if (source && info && (info.insertPos < source.pos || info.insertPos > source.pos + source.size)) {
+          if (source.entries) {
+            moveMultiple(source.entries, info.insertPos);
+            clearBlockSelection(editor);
+          } else {
+            moveNode(source.pos, source.size, info.insertPos);
+          }
+        }
+      }
+
+      dragging = false;
+      dragSourceRef.current = null;
+      setIsDragging(false);
+      setDropIndicator(null);
+      document.dispatchEvent(new CustomEvent('voiden:block-drag-end'));
+    };
+
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  }, [currentNode, currentNodePos, getDropInfo, editor, moveNode, moveMultiple, resolveDragRange, resolveCheckedSelection]);
 
   // Find the editor container
   useEffect(() => {
@@ -556,13 +853,52 @@ export const VoidenDragMenu = React.memo(({ editor }: { editor: Editor }) => {
     }
   }, [editor]);
 
+  // Hide grip during scroll to prevent flickering from rapid node-under-cursor changes
+  useEffect(() => {
+    const scrollContainer = document.getElementById("code-editor-container");
+    if (!scrollContainer) return;
+
+    const onScroll = () => {
+      isScrollingRef.current = true;
+      if (scrollEndTimerRef.current !== null) clearTimeout(scrollEndTimerRef.current);
+      scrollEndTimerRef.current = window.setTimeout(() => {
+        isScrollingRef.current = false;
+        scrollEndTimerRef.current = null;
+      }, 150);
+    };
+
+    scrollContainer.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      scrollContainer.removeEventListener('scroll', onScroll);
+      if (scrollEndTimerRef.current !== null) clearTimeout(scrollEndTimerRef.current);
+    };
+  }, []);
+
   const resolveTopLevelNodeFromSelection = useCallback(() => {
-    const { state } = editor;
+    const { state, view } = editor;
     const { selection } = state;
 
-    const anchorPos = typeof (selection as any)?.$anchorCell?.pos === "number"
+    let anchorPos = typeof (selection as any)?.$anchorCell?.pos === "number"
       ? (selection as any).$anchorCell.pos
       : selection.from;
+
+    // Atom-node NodeViews (e.g. the embedded CodeMirror editors backing
+    // gqlbody/gqlvariables) own their DOM focus and selection — ProseMirror
+    // never sees keystrokes typed inside them, so state.selection stays
+    // stale at wherever it was before focus moved there. When that's the
+    // case, derive the position from the actual focused DOM node instead so
+    // this resolves to the block the user is really in, not a leftover one.
+    const active = document.activeElement;
+    if (active && active !== view.dom && view.dom.contains(active)) {
+      try {
+        const domPos = view.posAtDOM(active, 0);
+        if (typeof domPos === "number" && domPos >= 0) {
+          anchorPos = domPos;
+        }
+      } catch {
+        // Fall back to selection-based anchorPos
+      }
+    }
 
     let currentPos = 0;
     for (let i = 0; i < state.doc.childCount; i++) {
@@ -637,7 +973,7 @@ export const VoidenDragMenu = React.memo(({ editor }: { editor: Editor }) => {
     if (!editorContainer) return;
 
     const handleMouseMove = (e: MouseEvent) => {
-      if (menuOpenRef.current) return;
+      if (menuOpenRef.current || isScrollingRef.current) return;
 
       const { view, state } = editor;
       const editorRect = view.dom.getBoundingClientRect();
@@ -861,6 +1197,10 @@ export const VoidenDragMenu = React.memo(({ editor }: { editor: Editor }) => {
     () => getContextMenuItems('block', pluginBlockTarget),
     [pluginBlockTarget],
   );
+  const docsUrl = useMemo(
+    () => getBlockDocsUrl(pluginBlockTarget.nodeType, currentNode?.attrs, currentNode),
+    [pluginBlockTarget.nodeType, currentNode],
+  );
 
   // Hide menu for certain node types or when not editable
   const hideMenu =
@@ -872,11 +1212,18 @@ export const VoidenDragMenu = React.memo(({ editor }: { editor: Editor }) => {
     currentNode.type.name === "method" ||
     currentNode.type.name === "url";
 
-  if (hideMenu) {
+  // When dragging, always render the portal (for the drop indicator) even if
+  // the menu is hidden — as long as there's actually somewhere to portal into.
+  // (Block selection highlighting is now a ProseMirror decoration rendered
+  // by BlockMultiSelect directly, not something this component tracks.)
+  if (!editorContainer) {
+    return null;
+  }
+  if (hideMenu && !isDragging) {
     return null;
   }
 
-  const menuContent = (
+  const gripHandle = position && !isDragging && (
     <div
       ref={menuRef}
       className="absolute pointer-events-auto"
@@ -892,8 +1239,8 @@ export const VoidenDragMenu = React.memo(({ editor }: { editor: Editor }) => {
             <Button
               variant="ghost"
               size="xs"
-              className="p-0.5 cursor-pointer text-comment hover:bg-active hover:text-text"
-              onPointerDown={(e) => e.stopPropagation()}
+              className="p-0.5 cursor-grab active:cursor-grabbing text-comment hover:bg-active hover:text-text"
+              onMouseDown={handleGripMouseDown}
             >
               <LuGripVertical size={16} />
             </Button>
@@ -918,13 +1265,24 @@ export const VoidenDragMenu = React.memo(({ editor }: { editor: Editor }) => {
             linkSectionBlock={linkSectionBlock}
             pluginBlockItems={pluginBlockItems}
             pluginBlockTarget={pluginBlockTarget}
+            docsUrl={docsUrl}
           />
         </Popover>
       </div>
     </div>
   );
 
-  return createPortal(menuContent, editorContainer);
+  const dropIndicatorEl = isDragging && dropIndicator && (
+    <div
+      className="absolute left-0 right-0 pointer-events-none"
+      style={{ top: `${dropIndicator.top}px`, zIndex: 20 }}
+    >
+      <div className="h-0.5 bg-accent w-full" />
+      <div className="absolute left-0 -top-1 h-2.5 w-2.5 rounded-full bg-accent" style={{ transform: 'translateY(-1px)' }} />
+    </div>
+  );
+
+  return createPortal(<>{gripHandle}{dropIndicatorEl}</>, editorContainer!);
 });
 
 

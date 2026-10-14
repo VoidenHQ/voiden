@@ -22,6 +22,7 @@ function httpsGetText(url: string, maxRedirects = 5): Promise<string> {
           doGet(res.headers.location, redirects - 1);
           return;
         }
+        if (res.statusCode === 404) { reject(new Error(`Release not found (HTTP 404). The registry may reference a version that hasn't been published to GitHub yet.`)); return; }
         if (res.statusCode && res.statusCode >= 400) { reject(new Error(`HTTP ${res.statusCode}`)); return; }
         let data = '';
         res.on('data', (c) => (data += c));

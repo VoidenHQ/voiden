@@ -12,6 +12,7 @@ import { RestApiRequestState, RestApiResponseState } from "./pipeline/types";
 import { hookRegistry, PipelineStage } from "./pipeline";
 import { Buffer } from "buffer";
 import { preSendProcessHook, replaceProcessVariablesInText, saveRuntimeVariables } from "./runtimeVariables";
+import { UnresolvedVariablesError } from "./utils/collectUnresolvedVariables";
 import { get } from "http";
 import { getRuntimeVariablesMap } from "./getRequestFromJson";
 import { expandLinkedBlocksInDoc } from "../editors/voiden/utils/expandLinkedBlocks";
@@ -37,7 +38,14 @@ function parseNumberSafe(value: string): number | LosslessNumber {
 /**
  * Get headers with auth merged
  */
-async function getHeaders(headers: any[], auth?: any): Promise<Record<string, string>> {
+type RequestFieldRow = {
+  key: string;
+  value: string;
+  enabled?: boolean;
+  omitIfUnresolved?: boolean;
+};
+
+async function getHeaders(headers: any[], auth?: any, requestFilePath?: string): Promise<RequestFieldRow[]> {
   const authHeaders: Record<string, string> = {};
 
   if (auth && auth.enabled && auth.config) {
@@ -46,13 +54,13 @@ async function getHeaders(headers: any[], auth?: any): Promise<Record<string, st
         let username = auth.config.username;
         let password = auth.config.password;
          try {
-          username = await window.electron?.env?.replaceVariables(username);
+          username = await window.electron?.env?.replaceVariables(username, requestFilePath);
         } catch (e) { console.warn("[auth] Failed to resolve env variables in username:", e); }
         try{
           username = await replaceProcessVariablesInText(username);
         } catch (e) { console.warn("[auth] Failed to resolve process variables in username:", e); }
         try {
-          password = await window.electron?.env?.replaceVariables(password);
+          password = await window.electron?.env?.replaceVariables(password, requestFilePath);
         } catch (e) { console.warn("[auth] Failed to resolve env variables in password:", e); }
         try{
           password = await replaceProcessVariablesInText(password);
@@ -70,9 +78,9 @@ async function getHeaders(headers: any[], auth?: any): Promise<Record<string, st
         let headerPrefix = auth.config.headerPrefix || auth.config.tokenType || "Bearer";
         let accessToken = auth.config.accessToken;
         // Resolve env and process variables in token values
-        try { accessToken = await window.electron?.env?.replaceVariables(accessToken); } catch (e) { console.warn("[auth] Failed to resolve env variables in accessToken:", e); }
+        try { accessToken = await window.electron?.env?.replaceVariables(accessToken, requestFilePath); } catch (e) { console.warn("[auth] Failed to resolve env variables in accessToken:", e); }
         try { accessToken = await replaceProcessVariablesInText(accessToken); } catch (e) { console.warn("[auth] Failed to resolve process variables in accessToken:", e); }
-        try { headerPrefix = await window.electron?.env?.replaceVariables(headerPrefix); } catch (e) { console.warn("[auth] Failed to resolve env variables in headerPrefix:", e); }
+        try { headerPrefix = await window.electron?.env?.replaceVariables(headerPrefix, requestFilePath); } catch (e) { console.warn("[auth] Failed to resolve env variables in headerPrefix:", e); }
         try { headerPrefix = await replaceProcessVariablesInText(headerPrefix); } catch (e) { console.warn("[auth] Failed to resolve process variables in headerPrefix:", e); }
         // addTokenTo defaults to "header"; query param handled in getParameters
         if (auth.config.addTokenTo !== "query") {
@@ -90,7 +98,7 @@ async function getHeaders(headers: any[], auth?: any): Promise<Record<string, st
         parts.push('oauth_signature_method="PLAINTEXT"');
         let signature = `${auth.config.consumerSecret || ""}&${auth.config.tokenSecret || ""}`;
         try {
-          signature = await window.electron?.env?.replaceVariables(signature);
+          signature = (await window.electron?.env?.replaceVariables(signature, requestFilePath)) ?? signature;
         } catch (e) { console.warn("[auth] Failed to resolve env variables in oauth1 signature:", e); }
           try {
           signature = await replaceProcessVariablesInText(signature);
@@ -116,77 +124,50 @@ async function getHeaders(headers: any[], auth?: any): Promise<Record<string, st
     }
   }
 
-  const finalHeaders: Record<string, string> = headers
+  const finalHeaders: RequestFieldRow[] = Object.entries(authHeaders).map(([key, value]) => ({
+    key,
+    value,
+    enabled: true,
+  }));
+
+  headers
     .filter((header) => header.enabled)
-    .reduce((acc: Record<string, string>, header) => {
+    .forEach((header) => {
       const key = header.key;
       const value = header.value;
 
-      if (key.toLowerCase() === "content-type" && value === "multipart/form-data") {
-        return acc;
+      // Strip any user-set multipart/form-data content-type (regardless of
+      // casing, whitespace, or a stray/stale boundary param) — the boundary
+      // must come from the actual FormData we build, or the server can't
+      // find the real part delimiter and multipart parsing breaks.
+      if (key.trim().toLowerCase() === "content-type" && value.trim().toLowerCase().startsWith("multipart/form-data")) {
+        return;
       }
 
       if (key && value) {
-        acc[key] = value;
+        const next = {
+          key,
+          value,
+          enabled: true,
+          omitIfUnresolved: header.omitIfUnresolved === true,
+        };
+        const existingIndex = finalHeaders.findIndex((candidate) => candidate.key === key);
+        if (existingIndex >= 0) finalHeaders[existingIndex] = next;
+        else finalHeaders.push(next);
       }
-
-      return acc;
-    }, authHeaders);
+    });
 
   return finalHeaders;
-}
-
-/**
- * Get query parameters with auth merged
- */
-function getParameters(parameters: any[], auth?: any): string {
-  let authQuery = "";
-  if (auth && auth.config && auth.enabled) {
-    if (auth.type === "api-key" && auth.config.in === "query") {
-      authQuery = `${auth.config.key}=${auth.config.value}`;
-    } else if (auth.type === "oauth2" && auth.config.addTokenTo === "query" && auth.config.accessToken) {
-      authQuery = `access_token=${encodeURIComponent(auth.config.accessToken)}`;
-    }
-  }
-
-  const filteredParameters = parameters.filter((parameter) => parameter.enabled && (parameter.key || parameter.value));
-
-  const queryString = filteredParameters
-    .map((obj) => {
-      const key = obj.key;
-      const value = obj.value;
-      return `${key}=${value}`;
-    })
-    .join("&");
-
-  if (authQuery && queryString) {
-    return `?${authQuery}&${queryString}`;
-  } else if (authQuery) {
-    return `?${authQuery}`;
-  } else if (queryString) {
-    return `?${queryString}`;
-  }
-
-  return "";
 }
 
 /**
  * Convert Request object to RestApiRequestState
  * Merges auth into headers/queryParams
  */
-async function convertToRestApiRequestState(data: Request): Promise<RestApiRequestState> {
+async function convertToRestApiRequestState(data: Request, requestFilePath?: string): Promise<RestApiRequestState> {
 
   // Merge auth into headers and query params
-  const mergedHeaders = await getHeaders(data.headers, data.auth);
-
-  const parameters = getParameters(data.params, data.auth);
-
-  // Convert headers object back to array format
-  const headersArray = Object.entries(mergedHeaders).map(([key, value]) => ({
-    key,
-    value,
-    enabled: true,
-  }));
+  const mergedHeaders = await getHeaders(data.headers, data.auth, requestFilePath);
 
   // Parse query params
   const queryParamsArray = data.params
@@ -195,6 +176,7 @@ async function convertToRestApiRequestState(data: Request): Promise<RestApiReque
       key: p.key,
       value: p.value,
       enabled: p.enabled,
+      omitIfUnresolved: p.omitIfUnresolved === true,
     }));
 
   // Add auth query params if present
@@ -204,12 +186,14 @@ async function convertToRestApiRequestState(data: Request): Promise<RestApiReque
         key: data.auth.config.key,
         value: data.auth.config.value || '',
         enabled: true,
+        omitIfUnresolved: false,
       });
     } else if (data.auth.type === 'oauth2' && data.auth.config.addTokenTo === 'query' && data.auth.config.accessToken) {
       queryParamsArray.push({
         key: 'access_token',
         value: data.auth.config.accessToken,
         enabled: true,
+        omitIfUnresolved: false,
       });
     }
   }
@@ -224,7 +208,15 @@ async function convertToRestApiRequestState(data: Request): Promise<RestApiReque
   const result = {
     method: data.method,
     url: data.url,
-    headers: headersArray,
+    headers: mergedHeaders,
+    cookies: (data.cookies || [])
+      .filter((cookie) => cookie.enabled)
+      .map((cookie) => ({
+        key: cookie.key,
+        value: cookie.value,
+        enabled: true,
+        omitIfUnresolved: cookie.omitIfUnresolved === true,
+      })),
     queryParams: queryParamsArray,
     pathParams: (data.path_params || [])
       .filter((p) => p.enabled)
@@ -235,11 +227,12 @@ async function convertToRestApiRequestState(data: Request): Promise<RestApiReque
       })),
     body: normalizedBody,
     contentType: data.content_type,
-    bodyParams: data.body_params?.map((p) => ({
+    bodyParams: data.body_params?.filter((p) => p.value !== null).map((p) => ({
       key: p.key,
-      value: p.value,
+      value: p.value as string | File,
       type: p.type,
       enabled: p.enabled,
+      omitIfUnresolved: p.omitIfUnresolved === true,
     })),
     binary: data.binary,
     authProfile: undefined, // TODO: Auth profile reference
@@ -298,7 +291,8 @@ export async function sendRequestHybrid(
   request: any,
   editor: Editor,
   signal?: AbortSignal,
-  electron?: any
+  electron?: any,
+  requestFilePath?: string
 ): Promise<BaseResponse | undefined> {
   if (!electron || !window.electron?.request?.sendSecure) {
     throw new Error("Hybrid pipeline requires Electron secure request API");
@@ -312,15 +306,49 @@ export async function sendRequestHybrid(
     console.log('[sendRequestHybrid] input method:', request.method, 'protocolType:', request.protocolType);
     // Convert Request to RestApiRequestState
     if (request.protocolType === 'rest') {
-      requestState = await convertToRestApiRequestState(request);
+      requestState = await convertToRestApiRequestState(request, requestFilePath);
       console.log('[sendRequestHybrid] after convert method:', requestState.method);
-    } else if (request.protocolType === 'graphql') {
-      // Merge auth into headers for GraphQL (same logic as REST via getHeaders)
-      const mergedHeaders = await getHeaders(request.headers || [], request.auth);
-      const headersArray = Object.entries(mergedHeaders).map(([key, value]) => ({
-        key, value, enabled: true,
-      }));
-      requestState = { ...request, headers: headersArray };
+    } else if (request.protocolType === 'graphql' || request.protocolType === 'mcp') {
+      // Merge auth into headers (same logic as REST via getHeaders) — every
+      // protocol besides REST (which gets this via convertToRestApiRequestState)
+      // builds `headers` as a plain array already, so this merge is identical
+      // regardless of which one it is.
+      const mergedHeaders = await getHeaders(request.headers || [], request.auth, requestFilePath);
+      // REST gets `params`→`queryParams` / `path_params`→`pathParams` renamed
+      // by convertToRestApiRequestState above; GraphQL/MCP skip that function
+      // entirely, so without this, requestState.queryParams stays undefined
+      // and secureRequest.ts's `requestState.queryParams ?? []` silently
+      // treats any query-table/path-table block in the doc as empty.
+      const queryParamsArray = (request.params || [])
+        .filter((p: any) => p.enabled)
+        .map((p: any) => ({
+          key: p.key,
+          value: p.value,
+          enabled: p.enabled,
+          omitIfUnresolved: p.omitIfUnresolved === true,
+        }));
+      if (request.auth?.enabled && request.auth?.config) {
+        if (request.auth.type === 'api-key' && request.auth.config.in === 'query' && request.auth.config.key) {
+          queryParamsArray.push({
+            key: request.auth.config.key,
+            value: request.auth.config.value || '',
+            enabled: true,
+            omitIfUnresolved: false,
+          });
+        } else if (request.auth.type === 'oauth2' && request.auth.config.addTokenTo === 'query' && request.auth.config.accessToken) {
+          queryParamsArray.push({
+            key: 'access_token',
+            value: request.auth.config.accessToken,
+            enabled: true,
+            omitIfUnresolved: false,
+          });
+        }
+      }
+      const pathParamsArray = (request.path_params || [])
+        .filter((p: any) => p.enabled)
+        .map((p: any) => ({ key: p.key, value: p.value, enabled: p.enabled }));
+
+      requestState = { ...request, headers: mergedHeaders, queryParams: queryParamsArray, pathParams: pathParamsArray };
     }
 
     const url = requestState.url.toLowerCase();
@@ -390,10 +418,21 @@ export async function sendRequestHybrid(
     console.log('[sendRequestHybrid] method before Electron:', requestState.method, 'url:', requestState.url);
 
     // Send to Electron for secure processing
+    if (requestFilePath) {
+      requestState.metadata = { ...requestState.metadata, requestFilePath };
+    }
     const electronResponse = await window.electron.request.sendSecure(
       requestState,
       signal ? { aborted: signal.aborted } : undefined
     );
+
+    if (
+      electronResponse?.error &&
+      typeof electronResponse.error === "string" &&
+      electronResponse.error.startsWith("Cannot send request: unresolved")
+    ) {
+      throw new UnresolvedVariablesError(electronResponse.error, []);
+    }
 
     // Check if request failed
     if (!electronResponse.status && electronResponse.statusText) {
@@ -528,23 +567,30 @@ export async function sendRequestHybrid(
     // ========================================
     // UI PROCESS - Stage 8: Post-processing
     // ========================================
-    await hookRegistry.executeHooks(PipelineStage.PostProcessing, {
-      requestState,
-      responseState,
-      metadata,
-    });
+    // Capture runtime variables BEFORE running post-processing hooks so that
+    // post_script can read the current response's captured values via voiden.variables.get().
     const state = await window.electron?.state.get();
     const path = state.activeDirectory || '';
     let editorJson: JSONContent | undefined = editor?.getJSON();
     editorJson = await expandLinkedBlocksInDoc(editorJson, { forceRefresh: true });
     const captureArray = await getRuntimeVariablesMap(editorJson, undefined);
-    if (captureArray || [].length > 0) {
+    if (captureArray?.length > 0) {
       await saveRuntimeVariables(requestState, responseState, captureArray, path);
     }
+
+    await hookRegistry.executeHooks(PipelineStage.PostProcessing, {
+      requestState,
+      responseState,
+      metadata,
+    });
 
     // Build final response
     return buildBaseResponseFromPipeline(responseState, request.preRequestResult);
   } catch (error) {
+    if (error instanceof UnresolvedVariablesError) {
+      throw error;
+    }
+
     const errorResponse: BaseResponse = {
       statusCode: 0,
       statusMessage: "",

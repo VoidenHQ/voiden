@@ -5,6 +5,7 @@ export const useGetExtensions = () => {
   return useQuery({
     queryKey: ["extensions"],
     queryFn: async () => window.electron?.extensions.getAll(),
+    refetchInterval: false,
   });
 };
 
@@ -96,7 +97,10 @@ export const useInstallExtensionFromZip = () => {
 export const useUpdateExtension = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (extensionId: string) => window.electron?.extensions.update(extensionId),
+    mutationFn: async (extensionId: string) => {
+      const result = await window.electron?.extensions.update(extensionId);
+      return result;
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["extensions"] });
       queryClient.invalidateQueries({ queryKey: ["app:state"] });

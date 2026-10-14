@@ -1,8 +1,8 @@
 {
   "appearance": {
-    "theme": "voiden",
+    "theme": "cursor-dark",
     "font_size": 14,
-    "font_family": "Inconsolata",
+    "font_family": "System Default",
     "ui_font_size": 13,
     "cursor_type": "text",
     "code_wrap": true,
@@ -11,7 +11,8 @@
   },
   "editor": {
     "auto_save": false,
-    "auto_save_delay": 10
+    "auto_save_delay": 10,
+    "block_overview": false
   },
   "requests": {
     "disable_tls_verification": false,
@@ -41,5 +42,9 @@
   },
   "projects": {
     "default_directory": ""
+  },
+  "history": {
+    "enabled": true,
+    "retention_days": 7
   }
 }

@@ -640,7 +640,7 @@ export function registerRequestIpcHandler() {
    */
   ipcMain.handle("send-secure-request", async (_event, { requestState, signalState }) => {
     const settings = getSettings();
-    const activeProject = await getActiveProject();
+    const activeProject = await getActiveProject(_event);
 
     if (signalState?.aborted) return { ok: false, status: 0, statusText: "aborted", error: "Request aborted" };
 
@@ -650,7 +650,7 @@ export function registerRequestIpcHandler() {
 
     const adapter: SecureRequestAdapter = {
       replaceVar: activeProject
-        ? (text: string) => replaceVariablesSecure(text, activeProject)
+        ? (text: string) => replaceVariablesSecure(text, activeProject, requestState.metadata?.requestFilePath, _event)
         : (text: string) => Promise.resolve(text),
 
       readFile: async (filePath: string) => {
@@ -771,7 +771,12 @@ export function registerRequestIpcHandler() {
         };
       }
     } catch (error: any) {
-      const errorMessage = error?.message || "Request failed";
+      // Node's fetch() wraps TLS/connection failures in a generic TypeError("fetch failed")
+      // and puts the actual reason (e.g. "self-signed certificate", ERR_TLS_CERT_ALTNAME_INVALID)
+      // on error.cause — surface it, or users just see "fetch failed" with no clue it's a cert issue.
+      const errorMessage = error?.cause?.message
+        ? `${error.message}: ${error.cause.message}`
+        : (error?.message || "Request failed");
       const protocolType: string = requestState.protocolType || "";
 
       if (protocolType.toLowerCase() === "graphql") {
@@ -2107,7 +2112,32 @@ async function handleGrpcRequest(
       try {
         await fs.access(protoFilePath);
       } catch {
-        resolvedProtoPath = path.join(activeProject, protoFilePath);
+        // Legacy .void files may store a project-relative path with a stray
+        // leading slash (e.g. "/hello.proto"). Only use the project-joined
+        // candidate if it actually exists — otherwise keep the original path
+        // so a genuinely missing/external file reports its real path instead
+        // of a nonsensical path doubled under the project root.
+        const candidate = path.join(activeProject, protoFilePath);
+        try {
+          await fs.access(candidate);
+          resolvedProtoPath = candidate;
+        } catch {
+          // The stored path is an absolute reference to a file outside the
+          // project (e.g. picked via "Import proto file" from elsewhere on
+          // disk). Absolute paths aren't portable — if this .void file was
+          // shared from or synced from a different machine, the path simply
+          // won't exist here. Surface that clearly instead of letting it
+          // fall through to a generic ENOENT later.
+          return {
+            status: 0,
+            statusText: "grpc-proto-not-found",
+            error:
+              `Proto file not found: "${protoFilePath}". ` +
+              `This is an absolute path to a file outside the project, so it only works on the system it was selected on. ` +
+              `If you're opening this project on a different machine, re-select the proto file ("Remove" then "Import proto file") on this system.`,
+            protocol: 'grpc',
+          };
+        }
       }
     }
 
@@ -2565,7 +2595,10 @@ function getGrpcTypes(
 
   const proto: grpc.GrpcObject | any = grpc.loadPackageDefinition(packageDefinition);
 
-  const svc = proto[packageName]?.[service];
+  // loadPackageDefinition nests a dotted package ("demo.greeter") as
+  // proto.demo.greeter, so walk it segment by segment.
+  const pkg = packageName.split('.').reduce((obj: any, part: string) => obj?.[part], proto);
+  const svc = pkg?.[service];
   if (!svc) {
     throw new Error(`Service "${packageName}.${service}" not found in proto file: "${protoFilePath}".`);
   }

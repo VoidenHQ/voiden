@@ -62,7 +62,7 @@ const FileAtCommitViewer = ({ branch, filePath }: { branch: string; filePath: st
   return (
     <div className="flex-1 overflow-auto">
       <pre className="p-4 text-xs font-mono text-text whitespace-pre leading-5">
-        {content ?? <span className="text-comment italic">File not found at this commit</span>}
+        {content ?? <span className="text-comment">File not found at this commit</span>}
       </pre>
     </div>
   );

@@ -22,12 +22,16 @@ import { registerSearchIpcHandler } from "./main/ipc/search";
 import { registerContextMenuIpcHandlers } from "./main/ipc/contextMenus";
 import { registerThemeIpcHandlers } from "./main/ipc/themes";
 import { registerCliIpcHandlers } from "./main/ipc/cli";
+import { reconcileCliInstall } from "./main/cliInstaller";
 import { registerSkillsIpcHandlers } from "./main/ipc/skills";
+import { registerMcpIpcHandlers } from "./main/ipc/mcp";
+import { registerPathIpcHandlers } from "./main/ipc/path";
 import { registerPythonScriptIpcHandler } from "./main/ipc/pythonScript";
 import { registerNodeScriptIpcHandler } from "./main/ipc/nodeScript";
 import { registerCoreExtensionsIpcHandlers, watchBundledPluginsForDevReload, seedBundledPluginsToCache } from "./main/ipc/coreExtensions";
 import { loadMainProcessExtensions, unloadMainProcessExtensions } from "./main/extensionLoader";
 import { clearDevPlugins } from "./main/extension/paths";
+import { approveQuit, resolveUnsavedTabs } from "./main/unsavedGuard";
 import { recomposeAndInstall } from "./main/skillsInstaller";
 import { setupLoggerIPC, logger } from "./main/logger";
 import { initializeIntegratedLogging } from "./main/loggerIntegration";
@@ -187,7 +191,15 @@ app.on("ready", async () => {
   registerContextMenuIpcHandlers();
   registerThemeIpcHandlers();
   registerCliIpcHandlers();
+  // Fire-and-forget — silently repairs a stale `voiden` CLI symlink left
+  // over from a previous install location, only if one was already
+  // installed (never installs fresh for someone who hasn't opted in via
+  // the Settings button). Not awaited: the rare repair path can show a
+  // native sudo/password dialog, which must never hold up window creation.
+  void reconcileCliInstall();
   registerSkillsIpcHandlers();
+  registerMcpIpcHandlers();
+  registerPathIpcHandlers();
   registerPythonScriptIpcHandler();
   registerNodeScriptIpcHandler();
   registerCoreExtensionsIpcHandlers();
@@ -237,7 +249,9 @@ app.on("ready", async () => {
     if (appState?.extensions) {
       await loadMainProcessExtensions(appState.extensions);
     }
-    // Recompose skills now that state (extensions list) is available
+    // Recompose skills now that state (extensions list) is available. Skill
+    // text install only — MCP registration is a separate, explicit action
+    // (the status bar's Initialize MCP button), never auto-fired here.
     const skills = settings.skills;
     if (appState && (skills?.claude || skills?.codex)) {
       recomposeAndInstall(appState, { claude: skills.claude ?? false, codex: skills.codex ?? false }).catch(() => {});
@@ -269,10 +283,26 @@ app.on("activate", async () => {
 });
 
 // Cleanup on quit
-app.on("before-quit", async () => {
-  await unloadMainProcessExtensions();
-  await clearDevPlugins();
-  closeAllWatchers();
+// Every quit path (Cmd+Q, menu Quit, app.quit() elsewhere) fires "before-quit" first.
+// We intercept it once to check for unsaved tabs — if any exist, ask the user
+// whether to save, discard, or cancel instead of quitting (or silently saving)
+// out from under them.
+let isQuittingAfterFlush = false;
+app.on("before-quit", (event) => {
+  if (isQuittingAfterFlush) return;
+  event.preventDefault();
+  (async () => {
+    const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
+    if (!(await resolveUnsavedTabs(BrowserWindow.getAllWindows(), win, "quit"))) return; // Cancelled — abort quitting
+
+    await unloadMainProcessExtensions();
+    await clearDevPlugins();
+    closeAllWatchers();
+    isQuittingAfterFlush = true;
+    // The windows close next; they have been answered for already.
+    approveQuit();
+    app.quit();
+  })();
 });
 
 

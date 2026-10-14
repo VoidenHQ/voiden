@@ -85,6 +85,14 @@ export interface RestApiRequestState {
     key: string;
     value: string;
     enabled?: boolean;
+    omitIfUnresolved?: boolean;
+  }>;
+
+  cookies?: Array<{
+    key: string;
+    value: string;
+    enabled?: boolean;
+    omitIfUnresolved?: boolean;
   }>;
 
   // Query parameters
@@ -92,6 +100,7 @@ export interface RestApiRequestState {
     key: string;
     value: string;
     enabled?: boolean;
+    omitIfUnresolved?: boolean;
   }>;
 
   // Path parameters (for URL templates like /users/{id})
@@ -111,8 +120,9 @@ export interface RestApiRequestState {
     value: string | File;
     type?: string;
     enabled?: boolean;
+    omitIfUnresolved?: boolean;
   }>;
-  binary?: File | string; // File object or file path string
+  binary?: File | string | string[]; // File object, file path string, or multiple file paths
 
   // Auth profile reference (not the actual credentials)
   authProfile?: string;

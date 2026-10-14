@@ -21,6 +21,7 @@ import {
   dropFolder,
 } from "../fileSystem";
 import type { MoveConflict } from "../fileSystem";
+import { trackSaveDialog } from "../fileSystem";
 import { createEmptyProject, createSampleProject } from "../projectUtils";
 import { getActiveStates, saveActiveStates } from "../tabs";
 import { getCachedGitStatus } from "../git";
@@ -130,7 +131,7 @@ function startFlatListSession(sessionId: string, rootDir: string, topN: number):
         try { entries = await fs.promises.readdir(dir, { withFileTypes: true }); }
         catch { continue; }
         for (const entry of entries) {
-          if (entry.name.startsWith(".") && !entry.name.startsWith(".env")) continue;
+          // No dotfile filtering — every entry (hidden or not) is searchable.
           const full = path.join(dir, entry.name);
           if (entry.isDirectory()) {
             if (!SKIP.has(entry.name)) queue.push(full);
@@ -160,6 +161,36 @@ function startFlatListSession(sessionId: string, rootDir: string, topN: number):
       resolveFirstBatch();
     },
   };
+}
+
+// Given a buffer that may end mid-way through a multi-byte UTF-8 sequence,
+// returns the number of trailing bytes that belong to that incomplete
+// sequence (0 if the buffer already ends on a code-point boundary).
+// Exported for unit testing.
+export function trailingIncompleteUtf8Length(buf: Buffer): number {
+  const len = buf.length;
+  // A UTF-8 sequence is at most 4 bytes, so its leading byte can be at most
+  // 4 bytes back from the end. Scan back up to 4 bytes to find it.
+  const maxLookback = Math.min(4, len);
+  for (let back = 1; back <= maxLookback; back++) {
+    const byte = buf[len - back];
+    if ((byte & 0b1100_0000) === 0b1000_0000) {
+      // Continuation byte (10xxxxxx) — keep scanning further back.
+      continue;
+    }
+    // Leading byte. Determine how many bytes this code point needs.
+    let expectedLen: number;
+    if ((byte & 0b1000_0000) === 0) expectedLen = 1; // 0xxxxxxx
+    else if ((byte & 0b1110_0000) === 0b1100_0000) expectedLen = 2; // 110xxxxx
+    else if ((byte & 0b1111_0000) === 0b1110_0000) expectedLen = 3; // 1110xxxx
+    else if ((byte & 0b1111_1000) === 0b1111_0000) expectedLen = 4; // 11110xxx
+    else expectedLen = 1; // Invalid leading byte; don't hold it back.
+
+    return expectedLen > back ? back : 0;
+  }
+  // 4 consecutive continuation bytes with no leading byte is not valid
+  // UTF-8 (max sequence length is 4); nothing to hold back.
+  return 0;
 }
 
 export function registerFileIpcHandlers() {
@@ -236,14 +267,25 @@ export function registerFileIpcHandlers() {
 
         const buf = Buffer.alloc(actualSize);
         const { bytesRead } = await fd.read(buf, 0, actualSize, offset);
-        const nextOffset = offset + bytesRead;
+        const isLastRead = offset + bytesRead >= stat.size;
 
-        // Convert to UTF-8. buf.toString handles multi-byte chars correctly
-        // as long as we started on a codepoint boundary (we always read from 0
-        // for the first chunk and use nextOffset as the start for subsequent
-        // ones, so boundaries are preserved).
-        const content = buf.slice(0, bytesRead).toString("utf8");
-        return { content, bytesRead, nextOffset, done: nextOffset >= stat.size, totalSize: stat.size };
+        // A fixed-size chunk boundary can land in the middle of a multi-byte
+        // UTF-8 code point. Trim any incomplete trailing sequence off this
+        // chunk (unless it's the final chunk, where a trailing partial
+        // sequence just means the file itself is invalid UTF-8) and leave it
+        // for the next call by only advancing nextOffset past the bytes we
+        // actually decoded. This keeps chunk boundaries aligned to code-point
+        // boundaries regardless of where the fixed byte size falls.
+        //
+        // Guard against pathologically small chunk sizes: never hold back
+        // the entire chunk, or the read offset would never advance.
+        const rawHeldBack = isLastRead ? 0 : trailingIncompleteUtf8Length(buf.slice(0, bytesRead));
+        const heldBack = rawHeldBack < bytesRead ? rawHeldBack : 0;
+        const decodableLength = bytesRead - heldBack;
+        const nextOffset = offset + decodableLength;
+
+        const content = buf.slice(0, decodableLength).toString("utf8");
+        return { content, bytesRead: decodableLength, nextOffset, done: nextOffset >= stat.size, totalSize: stat.size };
       } finally {
         await fd.close();
       }
@@ -282,18 +324,25 @@ export function registerFileIpcHandlers() {
 
   ipcMain.handle(
     "files:write",
-    async (_event, filePath, content, tabId): Promise<string | null> => {
+    async (event, filePath, content, tabId): Promise<string | null> => {
       const wasUnsaved = !filePath;
+      // The tab belongs to the window that asked, which is not always the
+      // focused one: "Save All & Quit" saves every window's tabs. Look the tab
+      // up, and save its state, in that window; otherwise an untitled file
+      // from a background window is offered the wrong project folder and its
+      // tab is never marked as saved.
+      const senderWindow = BrowserWindow.fromWebContents(event.sender);
+      const senderWindowId: string | undefined = senderWindow?.windowInfo?.id;
 
     if (!filePath) {
-      let activeDirectory = await getActiveProject();
+      let activeDirectory = await getActiveProject(event);
       if (!activeDirectory) {
         const os = await import("node:os");
         activeDirectory = os.default.homedir();
       }
       let defaultName = "untitled.void";
       if (tabId) {
-        const appState = getAppState();
+        const appState = getAppState(event);
         const layout = appState.activeDirectory ? appState.directories[appState.activeDirectory]?.layout : appState.unsaved.layout;
         const tab = findTabById(layout, "main", tabId);
         if (tab?.title) {
@@ -301,11 +350,17 @@ export function registerFileIpcHandlers() {
         }
       }
       const defaultPath = path.join(activeDirectory, defaultName);
-      const { canceled, filePath: chosenFilePath } = await dialog.showSaveDialog({
+      const saveDialogOptions = {
         title: "Save File",
         defaultPath,
         filters: [{ name: "Voiden Files", extensions: ["void"] }],
-      });
+      };
+      // Attached to the window the file is in, so it is clear which one is being saved.
+      const { canceled, filePath: chosenFilePath } = await trackSaveDialog(() =>
+        senderWindow && !senderWindow.isDestroyed()
+          ? dialog.showSaveDialog(senderWindow, saveDialogOptions)
+          : dialog.showSaveDialog(saveDialogOptions),
+      );
 
       if (canceled || !chosenFilePath) {
         return null;
@@ -319,7 +374,7 @@ export function registerFileIpcHandlers() {
     treeResultCache.clear();
 
     if (tabId) {
-      const appState = getAppState();
+      const appState = getAppState(event);
       const layout = appState.activeDirectory
         ? appState.directories[appState.activeDirectory]?.layout
         : appState.unsaved.layout;
@@ -327,7 +382,7 @@ export function registerFileIpcHandlers() {
       if (tab) {
         tab.source = filePath;
         tab.title = path.basename(filePath);
-        await saveState(appState);
+        await saveState(appState, senderWindowId);
 
         // Clean up autosaved file if this was an unsaved document
         if (wasUnsaved) {
@@ -642,19 +697,9 @@ export function registerFileIpcHandlers() {
 
       const items = await fs.promises.readdir(dirPath, { withFileTypes: true });
 
-      const filtered = items.filter((item) => {
-        if (!item.name.startsWith(".")) return true;
-        if (
-          item.isFile() &&
-          (item.name === ".gitignore" ||
-            item.name === ".env" ||
-            item.name.startsWith(".env") ||
-            item.name.endsWith(".env"))
-        ) return true;
-        return false;
-      });
+      // No dotfile filtering — every entry (hidden or not) stays in the tree.
 
-      const children = filtered.map((item) => {
+      const children = items.map((item) => {
         const fullPath = path.join(dirPath, item.name);
         if (item.isDirectory()) {
           return { name: item.name, path: fullPath, type: "folder" as const, children: [], lazy: true };
@@ -704,19 +749,10 @@ export function registerFileIpcHandlers() {
 
       const readDir = async (currentPath: string) => {
         const items = await fs.promises.readdir(currentPath, { withFileTypes: true });
-        const filtered = items.filter((item) => {
-          if (!item.name.startsWith(".")) return true;
-          if (
-            item.isFile() &&
-            (item.name === ".gitignore" ||
-              item.name === ".env" ||
-              item.name.startsWith(".env") ||
-              item.name.endsWith(".env"))
-          ) return true;
-          return false;
-        });
 
-        const children = filtered.map((item) => {
+        // No dotfile filtering — every entry (hidden or not) stays in the tree.
+
+        const children = items.map((item) => {
           const fullPath = path.join(currentPath, item.name);
           if (item.isDirectory()) {
             return { name: item.name, path: fullPath, type: "folder" as const, children: [], lazy: true };
@@ -843,6 +879,66 @@ export function registerFileIpcHandlers() {
     activeFlatListSession.cancel();
     activeFlatListSession = null;
   });
+
+  ipcMain.handle(
+    "files:resolveInheritedChain",
+    async (_event, filePath: string, workspaceRoot: string): Promise<string[]> => {
+      const INHERITED_FILENAME = ".voiden-inherited.void";
+      const chain: string[] = [];
+
+      let dir = path.dirname(filePath);
+      const normalizedRoot = path.resolve(workspaceRoot);
+
+      // Collect directories from the file's parent up to (and including) workspace root.
+      const dirs: string[] = [];
+      while (true) {
+        dirs.push(dir);
+        if (path.resolve(dir) === normalizedRoot) break;
+        const parent = path.dirname(dir);
+        if (parent === dir) break; // filesystem root — stop
+        dir = parent;
+      }
+
+      // Reverse so workspace-root comes first (lowest precedence).
+      dirs.reverse();
+
+      for (const d of dirs) {
+        const candidate = path.join(d, INHERITED_FILENAME);
+        try {
+          await fs.promises.access(candidate);
+          chain.push(candidate);
+        } catch {
+          // file doesn't exist in this dir — skip
+        }
+      }
+
+      return chain;
+    },
+  );
+
+  ipcMain.handle(
+    "files:createInheritedConfig",
+    async (_event, folderPath: string): Promise<{ path: string; created: boolean }> => {
+      const INHERITED_FILENAME = ".voiden-inherited.void";
+      const fullPath = path.join(folderPath, INHERITED_FILENAME);
+      let created = false;
+      try {
+        await fs.promises.access(fullPath);
+      } catch {
+        await fs.promises.writeFile(fullPath, "");
+        treeResultCache.clear();
+        created = true;
+      }
+      // Inherited config is local-only — never meant to be committed/shared —
+      // so make sure the project's .gitignore excludes it.
+      try {
+        const { ensureVoidenGitignore } = await import("../git");
+        const activeProject = await getActiveProject();
+        if (activeProject) await ensureVoidenGitignore(activeProject);
+      } catch { /* git module may not be available in all contexts */ }
+      return { path: fullPath, created };
+    },
+  );
 
   ipcMain.handle("files:listDir", async (_event, dirPath: string) => {
     try {

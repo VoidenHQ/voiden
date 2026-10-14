@@ -1,4 +1,5 @@
 import { Editor, Extension } from "@tiptap/core";
+import { isSuggestionAcceptKey } from "@/core/editors/voiden/utils/suggestionKeys";
 import { ReactRenderer } from "@tiptap/react";
 import Suggestion, { SuggestionProps, SuggestionKeyDownProps } from "@tiptap/suggestion";
 import { PluginKey, TextSelection } from "@tiptap/pm/state";
@@ -238,7 +239,8 @@ const GROUPS: Group[] = [
             .insertTable({
               type: tableType,
               rows: 1,
-              cols: 2,
+              // Key, Value, Description (issue #261).
+              cols: 3,
               withHeaderRow: false,
             })
             .focus(editor.state.doc.resolve(range.from + 1).pos)
@@ -391,7 +393,7 @@ export const MenuList = React.forwardRef((props: MenuListProps, ref) => {
         return true;
       }
 
-      if (event.key === "Enter") {
+      if (isSuggestionAcceptKey(event)) {
         if (
           !props.items.length ||
           selectedGroupIndex === -1 ||
@@ -476,6 +478,8 @@ let popup: any;
 export const hideSlashMenu = () => {
   popup?.[0]?.hide();
 };
+
+export const isSlashMenuOpen = () => !!popup?.[0]?.state?.isVisible;
 
 export const SlashCommand = Extension.create({
   name: extensionName,
@@ -721,7 +725,7 @@ export const SlashCommand = Extension.create({
                 return true;
               }
 
-              if (!popup?.[0].state.isShown) {
+              if (!popup?.[0].state.isVisible) {
                 popup?.[0].show();
               }
 

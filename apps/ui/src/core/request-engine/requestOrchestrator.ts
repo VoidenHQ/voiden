@@ -9,8 +9,10 @@ import { Editor } from "@tiptap/core";
 import { sendRequestHybrid } from "./sendRequestHybrid";
 import type { RequestBuildHandler, ResponseProcessHandler, ResponseSection } from "@voiden/sdk/ui";
 import { requestLogger } from "@/core/lib/logger";
+import { useResponseStore } from "./stores/responseStore";
 import { getFirstSectionLabel } from "@/core/editors/voiden/extensions/sectionIndicator";
 import { expandLinkedBlocksInDoc, expandLinkedFilesInDoc } from "@/core/editors/voiden/utils/expandLinkedBlocks";
+import { injectInheritedBlocks } from "./utils/injectInheritedBlocks";
 
 interface RequestOrchestrator {
   /** Registered request build handlers from plugins */
@@ -38,11 +40,27 @@ interface RequestOrchestrator {
   clear: () => void;
 }
 
+/**
+ * Thrown when no registered plugin (core or community) recognized any block
+ * in the targeted section as the start of a request — e.g. a section that
+ * only contains markdown documentation. Distinct from a request that was
+ * built but failed to send, so callers can skip it instead of surfacing
+ * a generic pipeline error.
+ */
+export class NotARequestError extends Error {
+  constructor() {
+    super("No request blocks found in this section");
+    this.name = "NotARequestError";
+  }
+}
+
 export interface RequestExecuteOptions {
   /** ProseMirror position of the request section to execute (for multi-request docs) */
   sectionPos?: number;
   /** Direct section index (0-based), used when DOM-based detection is available */
   sectionIndex?: number;
+  /** Absolute path of the .void file being executed — used to resolve inherited configs */
+  filePath?: string;
 }
 
 class RequestOrchestratorImpl implements RequestOrchestrator {
@@ -68,14 +86,20 @@ class RequestOrchestratorImpl implements RequestOrchestrator {
     this.responseSections.push(section);
   }
 
-  async executeRequest(editor: Editor, environment?: Record<string, string>, signal?: AbortSignal, options?: RequestExecuteOptions): Promise<any> {
+  async executeRequest(editor: Editor, environment?: Record<string, string>, signal?: AbortSignal, options?: RequestExecuteOptions, onRequestBuilt?: () => void): Promise<any> {
     requestLogger.info("Starting request execution");
     this.currentRequestOptions = options || {};
+    // Resolve only the executing file's ancestor .env files, including when no
+    // workspace environment has been selected.
+    if (options?.filePath && window.electron?.env?.forRequest) {
+      environment = await window.electron.env.forRequest(options.filePath);
+    }
 
     // Step 1: Build request through plugin chain
     requestLogger.info(`Building request through ${this.requestHandlers.length} plugin handler(s)`);
     let request: any = {
       __sectionPos: options?.sectionPos,
+      ...(environment && Object.keys(environment).length > 0 ? { __envOverride: environment } : {}),
     };
 
     // For multi-request documents, create a scoped editor proxy so all handlers
@@ -163,12 +187,6 @@ class RequestOrchestratorImpl implements RequestOrchestrator {
           }
         }
 
-        console.log('[orchestrator] sectionPos:', sectionPos,
-          'sectionIndex:', sectionIndex,
-          'totalSections:', sections.length,
-          'allTypes:', fullJson.content.map((n: any) => n.type),
-          'scopedTypes:', (sections[sectionIndex] || []).map((n: any) => n.type));
-
         return { type: "doc", content: sections[sectionIndex] || [] };
       };
     }
@@ -184,6 +202,12 @@ class RequestOrchestratorImpl implements RequestOrchestrator {
       if (expandedJson.content?.some((n: any) => n.type === "linkedFile")) {
         expandedJson = await expandLinkedFilesInDoc(expandedJson, (editor as any).schema);
       }
+      // Append blocks from ancestor .voiden-inherited.void files. These are appended
+      // after the request's own blocks so local values always take precedence via
+      // the existing importedFrom-aware merge logic in getTable and parseAuthNode.
+      if (options?.filePath) {
+        expandedJson = await injectInheritedBlocks(expandedJson, options.filePath, (editor as any).schema);
+      }
       expandedJsonCache = expandedJson;
       // Override getJSON to return the expanded version
       handlerEditor.getJSON = () => expandedJsonCache;
@@ -194,10 +218,15 @@ class RequestOrchestratorImpl implements RequestOrchestrator {
 
     for (const handler of this.requestHandlers) {
       try {
+        const prevEnvOverride = request?.__envOverride;
         request = await handler(request, handlerEditor);
-        // Preserve __sectionPos across handler chain
+        // Preserve internal metadata across handler chain — handlers that return
+        // a fresh object (e.g. voiden-rest-api) must not silently drop these.
         if (sectionPos !== undefined && request) {
           request.__sectionPos = sectionPos;
+        }
+        if (prevEnvOverride && request && !request.__envOverride) {
+          request.__envOverride = prevEnvOverride;
         }
       } catch (error) {
         requestLogger.error("Error in plugin request handler:", error);
@@ -205,10 +234,73 @@ class RequestOrchestratorImpl implements RequestOrchestrator {
       }
     }
 
+    // Apply __envOverride substitutions to the built request before sending.
+    // Scenario env vars ({{VAR}}) are resolved here so they work even when no
+    // active environment is selected in the UI.
+    if (request?.__envOverride && Object.keys(request.__envOverride).length > 0) {
+      const env: Record<string, string> = request.__envOverride;
+      const substitute = (text: string): string =>
+        text.replace(/\{\{([^}]+)\}\}/g, (match, varName) => {
+          const key = varName.trim();
+          return Object.prototype.hasOwnProperty.call(env, key) ? env[key] : match;
+        });
+      if (typeof request.url === 'string') request.url = substitute(request.url);
+      if (typeof request.body === 'string') request.body = substitute(request.body);
+      if (Array.isArray(request.headers)) {
+        request.headers = request.headers.map((h: any) => ({ ...h, value: substitute(String(h.value ?? '')) }));
+      }
+      if (Array.isArray(request.params)) {
+        request.params = request.params.map((p: any) => ({ ...p, value: substitute(String(p.value ?? '')) }));
+      }
+      if (Array.isArray(request.path_params)) {
+        request.path_params = request.path_params.map((p: any) => ({ ...p, value: substitute(String(p.value ?? '')) }));
+      }
+      // Binary file path (restFile / fileLink) — file path can be a {{VAR}} reference
+      if (typeof request.binary === 'string') {
+        request.binary = substitute(request.binary);
+      } else if (Array.isArray(request.binary)) {
+        request.binary = request.binary.map((b: any) => typeof b === 'string' ? substitute(b) : b);
+      }
+      // Multipart body params — substitute values for both text and file entries
+      if (Array.isArray(request.body_params)) {
+        request.body_params = request.body_params.map((p: any) => ({
+          ...p,
+          value: typeof p.value === 'string' ? substitute(p.value) : p.value,
+        }));
+      }
+    }
+
+    // No registered plugin recognized a request-shaped block in this section
+    // (e.g. it's just markdown documentation) — every onBuildRequest handler
+    // is expected to leave `request` unchanged when its marker block is absent,
+    // so the absence of a url here is a generic, plugin-agnostic "not a request"
+    // signal rather than a build failure.
+    if (!request?.url) {
+      // A section resolved via a linkedFile (sectionIndex path) that hits this
+      // is ambiguous from the "Nothing to run" toast alone: it could genuinely
+      // be a documentation-only section, or the linked section could have
+      // failed to expand (see expandLinkedFilesInDoc's own logging for why).
+      // Logging what actually reached the handlers here is the fastest way to
+      // tell those two apart without re-instrumenting on the next report.
+      if (hasSectionInfo) {
+        requestLogger.warn(
+          `No request block found for section ${resolvedSectionIndex}` +
+          (resolvedSectionLabel ? ` ("${resolvedSectionLabel}")` : "") +
+          `. Resolved content: ${JSON.stringify(handlerEditor.getJSON()?.content?.map((n: any) => n.type))}`,
+        );
+      }
+      throw new NotARequestError();
+    }
+
+    // Only now do we know this section is an actual request — let the caller
+    // open the response panel. Deferred to here (instead of before building)
+    // so empty/documentation-only sections never flash the panel open.
+    onRequestBuilt?.();
+
     // Step 2: Send request through core pipeline
     // Pass handlerEditor (section-scoped) so pipeline hooks get scoped getJSON()
     import('@/plugins').then(({ emitPluginEvent }) => emitPluginEvent('request:sent', { request })).catch(() => {});
-    const response = await sendRequestHybrid(request, handlerEditor, signal, window.electron);
+    const response = await sendRequestHybrid(request, handlerEditor, signal, window.electron, options?.filePath);
 
     if (!response) {
       throw new Error("No response received from request pipeline");
@@ -232,13 +324,25 @@ class RequestOrchestratorImpl implements RequestOrchestrator {
 
     // Step 3: Process response through plugin chain
     requestLogger.info(`Processing response through ${this.responseHandlers.length} plugin handler(s)`);
+    let handlerError: unknown = null;
     for (const handler of this.responseHandlers) {
       try {
         await handler(response);
       } catch (error) {
         requestLogger.error("Error in plugin response handler:", error);
+        handlerError = error;
         // Don't throw - let other handlers execute
       }
+    }
+
+    // A handler throwing before it renders anything (e.g. onProcessResponse in
+    // voiden-rest-api) leaves isLoading stuck true forever — onRequestBuilt already
+    // flipped it on, and nothing else clears it. Surface the error instead of leaving
+    // the UI on an infinite spinner with no feedback at all.
+    if (handlerError && useResponseStore.getState().isLoading) {
+      const tabId = useResponseStore.getState().currentRequestTabId;
+      const message = handlerError instanceof Error ? handlerError.message : String(handlerError);
+      useResponseStore.getState().setError(tabId, `Failed to display response: ${message}`);
     }
 
     import('@/plugins').then(({ emitPluginEvent }) => emitPluginEvent('response:received', { response })).catch(() => {});

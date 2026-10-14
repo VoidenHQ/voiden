@@ -14,16 +14,23 @@ export const TabHandler = Extension.create({
 
         // Check if we're at the start of a list item
         if (editor.isActive("listItem")) {
-          // Attempt to sink the list item
-          const sinkResult = editor.chain().sinkListItem("listItem").run();
+          // Prevent accidental deep nesting by limiting indent depth
+          const { $from } = editor.state.selection;
+          let listDepth = 0;
+          for (let d = $from.depth; d > 0; d--) {
+            if ($from.node(d).type.name === 'listItem') {
+              listDepth++;
+            }
+          }
 
-          // If sinking was successful, return true
-          // If sinking failed, we do nothing
-          if (sinkResult) {
-            return true;
-          } else {
+          // Cap nesting at 3 levels to avoid runaway indentation
+          if (listDepth >= 3) {
             return true;
           }
+
+          // Attempt to sink the list item (indent one level)
+          editor.chain().sinkListItem("listItem").run();
+          return true;
         }
 
         editor

@@ -133,7 +133,7 @@ export const useClosePanelTabs = () => {
     mutationFn: async ({ panelId, tabs }: { panelId: string; tabs: Array<{ tabId: string; unsavedContent?: string }> }) => {
       return window.electron?.state.closePanelTabs(panelId, tabs);
     },
-    onSuccess: (result: { panelId: string, closedTabs: Array<{ tabId: string, panelId: string }>, canceledTabs: [], allClosed: boolean } | undefined) => {
+    onSuccess: (result: { panelId: string, closedTabs: Array<{ tabId: string, panelId: string }>, canceledTabs: Array<{ tabId: string, panelId: string }>, allClosed: boolean } | undefined) => {
       // If the user cancelled the close operation, do not update the UI.
       if (result?.closedTabs.length === 0) return;
       if (result?.panelId === 'main') {
@@ -245,6 +245,34 @@ export const useSetTabsOrder = () => {
       if (!result) return;
       queryClient.invalidateQueries({ queryKey: ["panel:tabs"], exact: false });
       queryClient.invalidateQueries({ queryKey: ["tab:content"], exact: false });
+    },
+  });
+}
+
+export const usePromotePendingTab = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ panelId, tabId }: { panelId: string; tabId: string }) =>
+      window.electron?.state.promotePendingTab(panelId, tabId),
+    onMutate: async ({ panelId, tabId }) => {
+      await queryClient.cancelQueries({ queryKey: ["panel:tabs", panelId] });
+      const prev = queryClient.getQueryData(["panel:tabs", panelId]);
+      queryClient.setQueryData(["panel:tabs", panelId], (old: any) => {
+        if (!old) return old;
+        return {
+          ...old,
+          tabs: old.tabs.map((t: Tab) => t.id === tabId ? { ...t, pending: false } : t),
+        };
+      });
+      return { prev, panelId };
+    },
+    onError: (_err: any, _vars: any, context: any) => {
+      if (context?.prev !== undefined) {
+        queryClient.setQueryData(["panel:tabs", context.panelId], context.prev);
+      }
+    },
+    onSuccess: (_result, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["panel:tabs", variables.panelId] });
     },
   });
 }

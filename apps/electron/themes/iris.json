@@ -12,6 +12,7 @@
     "--fg-secondary": "#57606a",
     "--border": "#c8d1da",
     "--selection": "rgba(91, 33, 182, 0.13)",
+    "--selection-bg": "rgba(91, 33, 182, 0.40)",
     "--hover": "rgba(0, 0, 0, 0.04)",
 
     "_section_semantic": "=== SEMANTIC COLORS (13) ===",

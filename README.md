@@ -52,23 +52,12 @@
   </a>
 </p>
 
-<h2 align="center">Main Contributors</h2>
+<h2 align="center">Contributors</h2>
 
 <p align="center">
-  <img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/github/github-original.svg" width="14" />
-  <a href="https://github.com/lbenedetto">Lars Benedetto</a> ·
-  <a href="https://github.com/kaluvuri">kaluvuri</a> ·
-  <a href="https://github.com/jameesbrown">James Brown</a> ·
-  <a href="https://github.com/phurpa-tsering">Phurpa Tsering</a> ·
-  <a href="https://github.com/KrawMire">Anton Gavrilov</a>
-</p>
-
-<p align="center">
-  <img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/github/github-original.svg" width="14" />
-  <a href="https://github.com/edymusajev">Edy Musajev</a> ·
-  <a href="https://github.com/nikolasdimitr">nikolasdimitr</a> ·
-  <a href="https://github.com/dp1620">Dhruv</a> ·
-  <a href="https://github.com/davinder-sudo">davinder-sudo</a>
+  <a href="https://github.com/VoidenHQ/voiden/graphs/contributors">
+    <img src="https://contrib.rocks/image?repo=VoidenHQ/voiden" alt="Contributors" />
+  </a>
 </p>
 
 
@@ -76,16 +65,16 @@
 
 ## Why Voiden
 
-Voiden is an offline API client that helps developers build, test, collaborate and document APIs in one place. With a programmable interface (/slash commands) and an agent-friendly CLI, Voiden adapts to how engineers already work. Voiden is built with [Electron](https://www.electronjs.org/), Typescript and Javascript, and it doesnt require an account to use it. 
+Voiden is an offline API client that helps developers, QA and technical writers build, test, collaborate and document APIs in one place. With a programmable interface (/slash commands) and an agent-friendly CLI, Voiden adapts to how engineers already work. Voiden is built with [Electron](https://www.electronjs.org/), Typescript and Javascript, and it doesnt require an account to use it. 
 
 No telemetry, no VC funding, and no cloud lock-in.
 
 ✨ Features:
 
-All Major API Protocols:
+Voiden supports all major API protocols:
 
 - Supports REST, GraphQL, Grpc, Web-Sockets. All these are plugins that you can install or uninstall according to your needs. Community plugins available: https://voiden.md/plugins
-- Import collections from Postman and OpenAPI.
+- Import collections from Postman, Insomnia and Swagger/ OpenAPI.
 
 Single Source of truth for all API work in the same file:
 
@@ -107,35 +96,82 @@ Collaboration:
 AI Friendly:
 
 - No proprietary workspace. No binary exports. Pure text all the way down, diffable like code, greppable, AI-editable, and merge-friendly.
-- Supports Voiden skills for Claude and Codex agents. 
+- Supports Voiden skills for Claude and Codex agents.
+- MCP support — connect Claude Code or Codex directly to a project so they can run your `.void` requests themselves, or serve your own requests as tools other agents can call. See the [MCP docs](https://docs.voiden.md/docs/mcp/overview).
 
+[Voiden Runner](https://github.com/VoidenHQ/voiden/tree/beta/packages/voiden-runner): A headless CLI for running those .void files outside the desktop app, directly in the terminal.
+
+- runs on Node.js 18+
+- works in terminal, CI/CD, Docker, and cron jobs
+- supports REST, WebSocket, gRPC, and GraphQL
+- supports request chaining through runtime variables
+- works with core Voiden plugins like scripting, assertions, faker, advanced auth, + more.
 
 ## Install
 
-**Current version:** `1.6.3`
+**Current version:** `2.3.2` (stable)
 
 Download installers for macOS, Windows, and Linux from [voiden.md/download](https://voiden.md/download).
 Direct downloads are available for Apple Silicon and Intel macOS, Windows `.exe`, and Linux `.deb`, `.rpm`, and `.AppImage` builds.
 
+> **Windows note (starting v2.1.1):** the Windows installer is now signed via Azure Trusted Signing instead of our previous certificate provider. Because of this change, you may see a "Windows protected your PC" SmartScreen dialog during install — the installer is signed and verified, this is expected while the app builds up download reputation with Microsoft. Click "More info" → "Run anyway" to proceed.
+
 ### Package managers
 
+| Platform | Stable | Early access |
+| -------- | ------ | ------------ |
+| macOS    | Homebrew, Nix | Homebrew (`voiden@beta`), Nix |
+| Windows  | winget, Chocolatey | winget (`Voiden.Voiden-Beta`) |
+| Linux    | Flatpak, Homebrew, `apt`, `snap`, Nix | Beta `apt` and `snap` channels, Nix |
 
-| Platform | Stable                              | Early access                        |
-| -------- | ----------------------------------- | ----------------------------------- |
-| macOS    | `brew install voiden`               | `brew install voiden@beta`          |
-| Windows  | `winget` and Chocolatey coming soon | `winget` and Chocolatey coming soon |
-| Linux    | `apt` and `snap` support            | Beta `apt` and `snap` channels      |
-
+#### macOS
 
 Homebrew
 
 ```bash
 brew install voiden
+```
+
+```bash
 # beta
 brew install voiden@beta
 ```
 
+#### Windows
 
+winget
+
+```powershell
+winget install Voiden
+```
+
+Chocolatey
+
+```powershell
+choco install voiden
+```
+
+```powershell
+# beta (winget)
+winget install Voiden.Voiden-Beta
+```
+
+#### Linux
+
+Flatpak (any distro)
+
+```bash
+flatpak remote-add --if-not-exists flatpark https://dl.flatpark.org/flatpark.flatpakrepo
+flatpak install flatpark md.voiden.Voiden
+```
+
+Homebrew on Linux
+
+```bash
+brew tap voidenhq/voiden
+brew trust voidenhq/voiden
+brew install voidenhq/voiden/voiden
+```
 
 APT (Ubuntu / Debian)
 
@@ -164,6 +200,27 @@ sudo snap install voiden --channel=beta
 
 
 
+Nix (Linux / macOS)
+
+One-time setup — trust the `voiden` Cachix binary cache so Nix fetches a prebuilt
+result instead of compiling Electron and native modules from source (the default
+multi-user Nix install won't honor a flake's own substituter config without this):
+
+```bash
+nix run nixpkgs#cachix -- use voiden
+```
+
+Then run Voiden directly using Nix Flakes:
+
+```bash
+nix run github:VoidenHQ/voiden
+```
+
+If you skip the `cachix use` step, `nix run` still works — Nix just falls back to
+building from source, which is slower.
+
+
+
 Looking for newer builds? Check the early access section on [voiden.md/download](https://voiden.md/download).
 
 ## Get started with Voiden
@@ -174,7 +231,7 @@ Looking for newer builds? Check the early access section on [voiden.md/download]
 
 For a guided first run, see the [Voiden quick start](https://docs.voiden.md/docs/getting-started-section/getting-started/quick-start).
 
-### Coming from Postman
+### Coming from Postman and other tools?
 
 If you already use Postman, you can bring your existing collections with you:
 
@@ -182,7 +239,11 @@ If you already use Postman, you can bring your existing collections with you:
 2. Drag the exported JSON file into the Voiden file list on the left panel.
 3. Open the imported file and click **Generate Voiden Files** to create a folder of native `.void` files — one per request, with headers, auth, query params, path variables, bodies, and response examples preserved.
 
-Full walkthrough: [Postman Imports](https://docs.voiden.md/docs/getting-started-section/getting-started/postman-import). OpenAPI specs work the same way via [OpenAPI Imports](https://docs.voiden.md/docs/getting-started-section/getting-started/openapi-imports).
+Full walkthrough: [Postman Imports](https://docs.voiden.md/docs/getting-started-section/getting-started/postman-import). 
+
+Using Swagger or Insomnia? 
+
+[OpenAPI Imports](https://docs.voiden.md/docs/getting-started-section/getting-started/openapi-imports). [Insomnia Imports](https://docs.voiden.md/docs/getting-started-section/getting-started/insomnia-imports)
 
 ## What you can do
 
@@ -265,6 +326,21 @@ yarn set version 4.3.1
 yarn install
 yarn workspace @voiden/core-extensions build
 cd apps/electron && yarn start
+```
+
+### Build with Nix
+
+If you have Nix installed, you can manage the development environment or build Voiden natively:
+
+```bash
+# 1. Enter the reproducible development shell (sets up Node, Corepack/Yarn, Git)
+nix develop
+
+# 2. Build the Nix package (compiles source and creates sandboxed wrapper)
+nix build
+
+# 3. Run the compiled executable binary
+./result/bin/voiden
 ```
 
 If you hit Windows build issues, see [Build Errors](docs/troubleshooting/BUILD_ERRORS.md).

@@ -1,4 +1,4 @@
-import { Plus, Terminal, X, PanelRight } from "lucide-react";
+import { Plus, Terminal, X, PanelRight, LayoutList } from "lucide-react";
 import { Panel, PanelGroup } from "react-resizable-panels";
 import { PanelTabs } from "./PanelTabs";
 import { PanelContent } from "./PanelContent";
@@ -6,6 +6,7 @@ import { SidePanelTabs } from "./SidePanelTabs";
 import { SidePanelContent } from "./SidePanelContent";
 import { ResizeHandle } from "./ResizeHandle";
 import { useAddPanelTab, useGetPanelTabs, useActivateTab, useClosePanelTab } from "@/core/layout/hooks";
+import { BOTTOM_PANEL_MIN_PIXELS, RIGHT_PANEL_MIN_PIXELS, setPanelDragging, usePixelMinSize } from "@/core/layout/hooks/usePanels";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNewTerminalTab } from "@/core/terminal/hooks";
 import { Kbd } from "@/core/components/ui/kbd";
@@ -13,7 +14,10 @@ import { Tip } from "@/core/components/ui/Tip";
 import { usePanelStore } from "@/core/stores/panelStore";
 import { useResponsePanelPosition } from "@/core/stores/responsePanelPosition";
 import { cn } from "@/core/lib/utils";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { BlockOverviewPanel } from "@/core/layout/panels/BlockOverviewPanel";
+import { useVoidenEditorStore } from "@/core/editors/voiden/VoidenEditor";
+import { useSettings } from "@/core/settings/hooks";
 
 interface MainEditorProps {
   bottomPanelProps: any;
@@ -40,6 +44,21 @@ export const MainEditor = ({ bottomPanelProps, rightPanelProps }: MainEditorProp
   // When switching bottom → right the horizontal PanelGroup re-mounts and
   // restores its persisted size (which may be 0 / tiny). After the layout
   // settles we force the right panel to a sensible default width.
+  const voidenEditor = useVoidenEditorStore((s) => s.editor);
+  const [showBlockOverview, setShowBlockOverview] = useState(false);
+  const { settings } = useSettings();
+  const blockOverviewEnabled = settings?.editor?.block_overview ?? false;
+
+  useEffect(() => {
+    if (!blockOverviewEnabled) setShowBlockOverview(false);
+  }, [blockOverviewEnabled]);
+
+  // The bottom and right panels have a smallest size in pixels; the resize
+  // library needs it as a share of the group each one sits in.
+  const { groupRef: bottomGroupRef, minSize: bottomMinSize } = usePixelMinSize(BOTTOM_PANEL_MIN_PIXELS, bottomPanelProps.minSize, "vertical");
+  const { groupRef: rightGroupRef, minSize: rightMinSize } = usePixelMinSize(RIGHT_PANEL_MIN_PIXELS, rightPanelProps.minSize, "horizontal");
+  const bottomHandle = <ResizeHandle orientation="horizontal" onDragging={(isDragging) => setPanelDragging("bottom", isDragging)} />;
+
   const prevPosition = useRef(responsePanelPosition);
   useEffect(() => {
     if (prevPosition.current === "bottom" && responsePanelPosition === "right") {
@@ -93,7 +112,17 @@ export const MainEditor = ({ bottomPanelProps, rightPanelProps }: MainEditorProp
     <div className="relative h-8 flex justify-between bg-bg">
       <div className="flex flex-none"></div>
       <PanelTabs panel="main" />
-      <div className=" flex border-l border-b border-border">
+      <div className="flex border-l border-b border-border">
+        {blockOverviewEnabled && voidenEditor && (
+          <Tip label="Block Overview" side="bottom">
+            <button
+              className={cn("px-2 hover:bg-active text-comment", showBlockOverview && "bg-active text-text")}
+              onClick={() => setShowBlockOverview((v) => !v)}
+            >
+              <LayoutList size={14} />
+            </button>
+          </Tip>
+        )}
         <Tip label={<span className="flex items-center gap-2"><span>New Voiden File</span><Kbd keys="⌘N" size="sm" /></span>} side="bottom">
           <button className="px-2 hover:bg-active text-comment" onClick={handleNewDocument}>
             <Plus size={14} />
@@ -104,10 +133,17 @@ export const MainEditor = ({ bottomPanelProps, rightPanelProps }: MainEditorProp
   );
 
   const editorContent = (
-    <div id="main-editor" className="relative flex-1 bg-editor">
-      <div className="absolute inset-0 ">
-        <PanelContent panelId="main" />
+    <div id="main-editor" className="relative flex-1 overflow-hidden flex">
+      <div className="flex-1 bg-editor relative overflow-hidden">
+        <div className="absolute inset-0 overflow-hidden">
+          <PanelContent panelId="main" />
+        </div>
       </div>
+      {blockOverviewEnabled && showBlockOverview && voidenEditor && (
+        <div className="w-60 border-l border-border bg-bg flex-shrink-0 overflow-hidden">
+          <BlockOverviewPanel />
+        </div>
+      )}
     </div>
   );
 
@@ -135,6 +171,7 @@ export const MainEditor = ({ bottomPanelProps, rightPanelProps }: MainEditorProp
   if (responsePanelPosition === "bottom") {
     return (
       <Panel defaultSize={80} minSize={5} className="min-w-96">
+        <div ref={bottomGroupRef} className="h-full w-full">
         <PanelGroup direction="vertical" autoSaveId="per-bottom">
           {/* Editor - full width */}
           <Panel defaultSize={50} minSize={20}>
@@ -144,10 +181,10 @@ export const MainEditor = ({ bottomPanelProps, rightPanelProps }: MainEditorProp
             </div>
           </Panel>
 
-          <ResizeHandle orientation="horizontal" />
+          {bottomHandle}
 
           {/* Bottom panel — VS Code style: sidebar tabs + Terminal as peers */}
-          <Panel {...bottomPanelProps}>
+          <Panel {...bottomPanelProps} minSize={bottomMinSize}>
             <div className="h-full border-t border-border">
               <div className="h-8 flex bg-bg border-b border-border items-center">
                 {/* Sidebar tabs (Response, ScriptLogs, History…) */}
@@ -252,15 +289,18 @@ export const MainEditor = ({ bottomPanelProps, rightPanelProps }: MainEditorProp
             </div>
           </Panel>
         </PanelGroup>
+        </div>
       </Panel>
     );
   }
 
   return (
     <Panel defaultSize={80} minSize={5} className="min-w-96">
+      <div ref={rightGroupRef} className="h-full w-full">
       <PanelGroup direction="horizontal" autoSaveId="persist-3-h">
         {/* Left: Editor + Terminal stacked vertically */}
         <Panel defaultSize={60} minSize={20}>
+          <div ref={bottomGroupRef} className="h-full w-full">
           <PanelGroup direction="vertical" autoSaveId="persist-3-v">
             <Panel defaultSize={70} minSize={20}>
               <div className="h-full flex flex-col">
@@ -269,10 +309,10 @@ export const MainEditor = ({ bottomPanelProps, rightPanelProps }: MainEditorProp
               </div>
             </Panel>
 
-            <ResizeHandle orientation="horizontal" />
+            {bottomHandle}
 
             {/* Terminal Panel */}
-            <Panel {...bottomPanelProps}>
+            <Panel {...bottomPanelProps} minSize={bottomMinSize}>
               <div className="h-full border-t border-border flex flex-col">
                 <div className="relative flex-none h-8 flex justify-between bg-panel">
                   <PanelTabs panel="bottom" />
@@ -288,12 +328,13 @@ export const MainEditor = ({ bottomPanelProps, rightPanelProps }: MainEditorProp
               </div>
             </Panel>
           </PanelGroup>
+          </div>
         </Panel>
 
-        <ResizeHandle orientation="vertical" />
+        <ResizeHandle orientation="vertical" onDragging={(isDragging) => setPanelDragging("right", isDragging)} />
 
         {/* Right Panel - Response Preview — full height */}
-        <Panel {...rightPanelProps}>
+        <Panel {...rightPanelProps} minSize={rightMinSize}>
           <div className="h-full border-l border-border bg-panel">
             <SidePanelTabs side="right" />
             <div className="h-[calc(100%-2rem)]">
@@ -302,6 +343,7 @@ export const MainEditor = ({ bottomPanelProps, rightPanelProps }: MainEditorProp
           </div>
         </Panel>
       </PanelGroup>
+      </div>
     </Panel>
   );
 };

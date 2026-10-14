@@ -13,10 +13,12 @@ import { usePanelStore } from "@/core/stores/panelStore";
 import { getResponsePanelPosition } from "@/core/stores/responsePanelPosition";
 import { useResponseStore } from "../stores/responseStore";
 import { mapErrorToMessage } from "../utils/errorMessages";
-import { requestOrchestrator } from "../requestOrchestrator";
+import { requestOrchestrator, NotARequestError } from "../requestOrchestrator";
 import { toast } from "@/core/components/ui/sonner";
 import { useVoidenEditorStore } from "@/core/editors/voiden/VoidenEditor";
 import { expandLinkedFilesInDoc } from "@/core/editors/voiden/utils/expandLinkedBlocks";
+import { UnresolvedVariablesError } from "../utils/collectUnresolvedVariables";
+import { getSectionLabelAndColorByIndex } from "@/core/editors/voiden/extensions/sectionIndicator";
 
 export const useSendRestRequest = (_editor: Editor) => {
   // Always use the main VoidenEditor, not the passed editor.
@@ -29,6 +31,23 @@ export const useSendRestRequest = (_editor: Editor) => {
   const abortControllerRef = useRef<AbortController | null>(null);
   const sectionIndexOverrideRef = useRef<number | undefined>(undefined);
   const queryClient = useQueryClient();
+
+  const handleSendError = (
+    error: unknown,
+    meta?: { sectionLabel?: string; sectionColorIndex?: number }
+  ) => {
+    if (error instanceof UnresolvedVariablesError) {
+      useResponseStore.getState().setError(activeDocument?.id || null, error.message, meta);
+      return;
+    }
+
+    if (error instanceof Error && error.name === "AbortError") {
+      return;
+    }
+
+    const friendlyMessage = mapErrorToMessage(error);
+    useResponseStore.getState().setError(activeDocument?.id || null, friendlyMessage, meta);
+  };
 
   /** Open the response panel and activate the response tab. */
   const showResponsePanel = async () => {
@@ -61,12 +80,20 @@ export const useSendRestRequest = (_editor: Editor) => {
   const context = useQuery({
     queryKey: ["request", activeDocument?.id],
     queryFn: async () => {
-      await showResponsePanel();
-      if (activeDocument?.id) {
-        useResponseStore.getState().setActiveResponseNodeForTab(activeDocument.id, "response-body");
-      }
-      useResponseStore.getState().setLoading(true, activeDocument?.id);
       abortControllerRef.current = new AbortController();
+      // Deferred until executeRequest confirms this section actually built a
+      // request — an empty/documentation-only section should never open the
+      // response panel.
+      const onRequestBuilt = async () => {
+        await showResponsePanel();
+        if (activeDocument?.id) {
+          useResponseStore.getState().setActiveResponseNodeForTab(activeDocument.id, "response-body");
+        }
+        useResponseStore.getState().setLoading(true, activeDocument?.id);
+      };
+      // Declared outside the try block (not just inside it) so the catch block
+      // below can also read it, to attribute an error to the right section.
+      let sectionIndex: number | undefined;
       try {
         const showScriptToastIfNeeded = (message: string) => {
           const isScriptCancel = message.includes("Request cancelled by pre-request script");
@@ -93,7 +120,7 @@ export const useSendRestRequest = (_editor: Editor) => {
         // Determine which section to execute.
         // If an override was set (e.g., from a play button click via refetchFromElement),
         // use it directly. Otherwise detect from DOM or ProseMirror selection.
-        let sectionIndex: number | undefined = sectionIndexOverrideRef.current;
+        sectionIndex = sectionIndexOverrideRef.current;
         sectionIndexOverrideRef.current = undefined; // Clear after reading
 
         if (sectionIndex === undefined) {
@@ -108,11 +135,22 @@ export const useSendRestRequest = (_editor: Editor) => {
         // Fallback to ProseMirror selection
         const cursorPos = sectionIndex !== undefined ? undefined : editor.state.selection.$from.pos;
         console.log('[useSendRequest] sectionIndex:', sectionIndex, 'cursorPos:', cursorPos);
+
+        // Record which section is actually executing so a failure raised before
+        // any response comes back (e.g. an unresolved-variable error, thrown
+        // during variable resolution — before a request is even built) gets
+        // attributed to this section by handleSendError/setError, not section 0.
+        useResponseStore.getState().setCurrentRequestSectionIndex(sectionIndex ?? null);
+
+        const filePath = activeDocument?.source ?? undefined;
         const response = await requestOrchestrator.executeRequest(
           editor,
           activeEnv,
           abortControllerRef.current.signal,
-          sectionIndex !== undefined ? { sectionIndex } : { sectionPos: cursorPos }
+          sectionIndex !== undefined
+            ? { sectionIndex, filePath }
+            : { sectionPos: cursorPos, filePath },
+          onRequestBuilt
         );
 
         // sendRequestHybrid returns error responses instead of throwing.
@@ -125,8 +163,22 @@ export const useSendRestRequest = (_editor: Editor) => {
         queryClient.invalidateQueries({ queryKey: ["void-variable-data"] });
         return response;
       } catch (error) {
-        const friendlyMessage = mapErrorToMessage(error);
-        useResponseStore.getState().setError(activeDocument?.id || null, friendlyMessage);
+        if (error instanceof NotARequestError) {
+          toast.info("Nothing to run", {
+            description: "This section has no request blocks.",
+            duration: 4000,
+          });
+          return;
+        }
+
+        const sectionMeta = sectionIndex !== undefined
+          ? getSectionLabelAndColorByIndex(editor.state.doc, sectionIndex)
+          : undefined;
+
+        if (error instanceof UnresolvedVariablesError) {
+          handleSendError(error, sectionMeta);
+          return;
+        }
 
         const rawMessage = error instanceof Error ? error.message : String(error);
         const isScriptCancel = rawMessage.includes("Request cancelled by pre-request script");
@@ -149,6 +201,8 @@ export const useSendRestRequest = (_editor: Editor) => {
           });
         }
 
+        handleSendError(error, sectionMeta);
+
         if (error instanceof Error && error.name === "AbortError") {
           throw new Error("Request was cancelled");
         }
@@ -165,7 +219,14 @@ export const useSendRestRequest = (_editor: Editor) => {
     if (!editor || runAllRef.current) return;
     runAllRef.current = true;
 
-    await showResponsePanel();
+    // Opened lazily the first time a section actually builds a request — if
+    // every section in the file is documentation-only, the panel never opens.
+    let panelOpened = false;
+    const onRequestBuilt = async () => {
+      if (panelOpened) return;
+      panelOpened = true;
+      await showResponsePanel();
+    };
 
     // Count total sections from the expanded document (linkedFile nodes are inlined so
     // their request-separator nodes are included in the count).
@@ -173,7 +234,7 @@ export const useSendRestRequest = (_editor: Editor) => {
     const hasLinkedFiles = docForCounting.content?.some((n: any) => n.type === "linkedFile");
     if (hasLinkedFiles) {
       try {
-        docForCounting = await expandLinkedFilesInDoc(docForCounting, (editor as any).schema);
+        docForCounting = (await expandLinkedFilesInDoc(docForCounting, (editor as any).schema)) as typeof docForCounting;
       } catch {
         toast.error("Could not load linked files. Fix any broken file links and try again.");
         return;
@@ -198,28 +259,50 @@ export const useSendRestRequest = (_editor: Editor) => {
     try {
       for (let sectionIdx = startSection; sectionIdx < sectionCount; sectionIdx++) {
         if (abortControllerRef.current?.signal.aborted) break;
-        // Re-set currentRequestTabId before each section so the response handler
-        // can find the correct tab (it gets cleared after each response)
+        // Re-set currentRequestTabId/SectionIndex before each section so the
+        // response handler finds the right tab, and so a failure raised before
+        // any response comes back (e.g. an unresolved-variable error, thrown
+        // during variable resolution — before a request is even built) gets
+        // attributed to *this* section instead of always falling back to
+        // section 0 (both get cleared after each response/error).
         useResponseStore.getState().setCurrentRequestTabId(activeDocument?.id ?? null);
+        useResponseStore.getState().setCurrentRequestSectionIndex(sectionIdx);
         try {
           await requestOrchestrator.executeRequest(
             editor,
             activeEnv,
             abortControllerRef.current.signal,
-            { sectionIndex: sectionIdx }
+            { sectionIndex: sectionIdx, filePath: activeDocument?.source ?? undefined },
+            onRequestBuilt
           );
         } catch (err) {
-          // Continue to next section on individual failure (unless aborted)
           if (err instanceof Error && err.name === "AbortError") break;
+          if (err instanceof NotARequestError) {
+            // Section has no request blocks (e.g. documentation-only) — skip
+            // it silently, leave no entry in the response panel.
+            continue;
+          }
+          // The section's request-separator label/color, so the error card
+          // shows the real request name instead of falling back to "Request N".
+          const sectionMeta = getSectionLabelAndColorByIndex(editor.state.doc, sectionIdx);
+          if (err instanceof UnresolvedVariablesError) {
+            // Record the error against *this* section (now correctly attributed,
+            // see setCurrentRequestSectionIndex above) and move on — an
+            // unresolved placeholder in one section shouldn't prevent every
+            // later section in the file from running.
+            handleSendError(err, sectionMeta);
+            continue;
+          }
+          // Continue to next section on individual failure
           console.warn(`[runAll] Section ${sectionIdx} failed:`, err);
+          handleSendError(err, sectionMeta);
         }
       }
       queryClient.invalidateQueries({ queryKey: ["void-variable-keys"] });
       queryClient.invalidateQueries({ queryKey: ["void-variable-data"] });
     } catch (error) {
       if (!(error instanceof Error && error.name === "AbortError")) {
-        const friendlyMessage = mapErrorToMessage(error);
-        useResponseStore.getState().setError(activeDocument?.id || null, friendlyMessage);
+        handleSendError(error);
       }
     } finally {
       runAllRef.current = false;
@@ -237,26 +320,35 @@ export const useSendRestRequest = (_editor: Editor) => {
     },
     runSection: async (sectionIndex: number) => {
       if (!editor) return;
-      await showResponsePanel();
-      if (activeDocument?.id) {
-        useResponseStore.getState().setActiveResponseNodeForTab(activeDocument.id, "response-body");
-      }
-      useResponseStore.getState().setLoading(true, activeDocument?.id);
-      useResponseStore.getState().setCurrentRequestTabId(activeDocument?.id ?? null);
+      const onRequestBuilt = async () => {
+        await showResponsePanel();
+        if (activeDocument?.id) {
+          useResponseStore.getState().setActiveResponseNodeForTab(activeDocument.id, "response-body");
+        }
+        useResponseStore.getState().setLoading(true, activeDocument?.id);
+        useResponseStore.getState().setCurrentRequestTabId(activeDocument?.id ?? null);
+      };
       abortControllerRef.current = new AbortController();
       try {
         await requestOrchestrator.executeRequest(
           editor,
           activeEnv,
           abortControllerRef.current.signal,
-          { sectionIndex }
+          { sectionIndex, filePath: activeDocument?.source ?? undefined },
+          onRequestBuilt
         );
         queryClient.invalidateQueries({ queryKey: ["void-variable-keys"] });
         queryClient.invalidateQueries({ queryKey: ["void-variable-data"] });
       } catch (error) {
+        if (error instanceof NotARequestError) {
+          toast.info("Nothing to run", {
+            description: "This section has no request blocks.",
+            duration: 4000,
+          });
+          return;
+        }
         if (!(error instanceof Error && error.name === "AbortError")) {
-          const friendlyMessage = mapErrorToMessage(error);
-          useResponseStore.getState().setError(activeDocument?.id || null, friendlyMessage);
+          handleSendError(error);
         }
       }
     },

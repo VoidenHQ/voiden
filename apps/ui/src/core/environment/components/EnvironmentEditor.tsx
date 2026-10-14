@@ -1,13 +1,17 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from "react";
 import { cn } from "@/core/lib/utils";
-import { Plus, ChevronDown, Trash2, Check, Search, X, Globe, Lock, Eye, EyeOff, Copy, Clock, RefreshCw, Settings2, AlertTriangle, CornerDownRight, MoreHorizontal, Pencil } from "lucide-react";
+import { Plus, ChevronDown, Trash2, Check, Search, X, Globe, Lock, Eye, EyeOff, Copy, Clock, RefreshCw, Settings2, AlertTriangle, CornerDownRight, MoreHorizontal, Pencil, FolderOpen } from "lucide-react";
 import { MinusculeMatcher, MatchingMode } from "@voiden/fuzzy-search";
 import { useQueryClient } from "@tanstack/react-query";
+import * as ContextMenu from "@radix-ui/react-context-menu";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { useYamlEnvironments, useEnvironments } from "@/core/environment/hooks";
 import { useSaveYamlEnvironments } from "@/core/environment/hooks";
 import { useProfiles } from "../hooks/useProfiles.ts";
 import { useCreateProfile } from "@/core/environment/hooks";
 import { useDeleteProfile } from "@/core/environment/hooks";
+import { useRenameProfile } from "@/core/environment/hooks";
+import { useNestedEnvSources } from "@/core/environment/hooks";
 import type { EditableEnvNode, EditableVariable } from "./EnvironmentNode";
 import {
   type EditableEnvTree,
@@ -16,8 +20,11 @@ import {
   generateUniqueName,
   genVarId,
   renameKey,
+  insertAfterKey,
+  cloneEnvNode,
 } from "./envTreeUtils";
 import { useEditorStore } from "@/core/editors/voiden/VoidenEditor";
+import { toast } from "@/core/components/ui/sonner";
 import { useGetAppState } from "@/core/state/hooks";
 
 const DEBOUNCE_MS = 800;
@@ -69,6 +76,22 @@ function flattenTree(tree: EditableEnvTree, parentPath = "", depth = 0): FlatEnv
     }
   }
   return entries;
+}
+
+// A discovered nested source's (projectPath, profile) pair, folded into one
+// string key for React state/keys — a folder can have more than one
+// profile (e.g. a legacy root-level profile alongside its own .voiden/
+// default profile), so projectPath alone can't uniquely key it. "\0" can't
+// occur in either half, so the split back apart is unambiguous.
+const NESTED_OWNER_SEP = "\u0000";
+function nestedOwnerKey(projectPath: string, profile: string): string {
+  return `${projectPath}${NESTED_OWNER_SEP}${profile}`;
+}
+function parseNestedOwnerKey(ownerKey: string): { projectPath: string; profile: string } {
+  const idx = ownerKey.indexOf(NESTED_OWNER_SEP);
+  return idx === -1
+    ? { projectPath: ownerKey, profile: "default" }
+    : { projectPath: ownerKey.slice(0, idx), profile: ownerKey.slice(idx + 1) };
 }
 
 function getNodeAtPath(tree: EditableEnvTree, path: string): EditableEnvNode | null {
@@ -434,16 +457,25 @@ const VariableTableRow = ({
 
 // ─── Add variable row ─────────────────────────────────────────────────────────
 
-const AddVariableRow = ({ onAdd }: { onAdd: (key: string, value: string, isPrivate: boolean) => void }) => {
-  const [key, setKey] = useState("");
-  const [value, setValue] = useState("");
-  const [isPrivate, setIsPrivate] = useState(false);
+const AddVariableRow = ({
+  onAdd,
+  draft,
+  onDraftChange,
+}: {
+  onAdd: (key: string, value: string, isPrivate: boolean) => void;
+  draft: { key: string; value: string; isPrivate: boolean };
+  onDraftChange: (draft: { key: string; value: string; isPrivate: boolean }) => void;
+}) => {
+  const { key, value, isPrivate } = draft;
+  const setKey = (k: string) => onDraftChange({ key: k, value, isPrivate });
+  const setValue = (v: string) => onDraftChange({ key, value: v, isPrivate });
+  const setIsPrivate = (p: boolean) => onDraftChange({ key, value, isPrivate: p });
   const keyRef = useRef<HTMLInputElement>(null);
 
   const handleAdd = () => {
     if (!key.trim()) { keyRef.current?.focus(); return; }
     onAdd(key.trim(), value, isPrivate);
-    setKey(""); setValue(""); setIsPrivate(false);
+    onDraftChange({ key: "", value: "", isPrivate: false });
     keyRef.current?.focus();
   };
 
@@ -496,6 +528,8 @@ const VariablesPanel = ({
   onUpdateNode,
   selectedIds,
   onSelectionChange,
+  addDraft,
+  onAddDraftChange,
 }: {
   node: EditableEnvNode;
   envPath: string;
@@ -504,6 +538,8 @@ const VariablesPanel = ({
   onUpdateNode: (updated: EditableEnvNode) => void;
   selectedIds: Set<string>;
   onSelectionChange: (ids: Set<string>) => void;
+  addDraft: { key: string; value: string; isPrivate: boolean };
+  onAddDraftChange: (draft: { key: string; value: string; isPrivate: boolean }) => void;
 }) => {
   const [search, setSearch] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
@@ -619,7 +655,7 @@ const VariablesPanel = ({
       </div>
 
       {/* Add row */}
-      <AddVariableRow onAdd={handleAddVariable} />
+      <AddVariableRow onAdd={handleAddVariable} draft={addDraft} onDraftChange={onAddDraftChange} />
 
       {/* Bulk action bar */}
       {someSelected && (
@@ -728,7 +764,7 @@ const RuntimePanel = ({
 }: {
   vars: Record<string, any>;
   onRefresh: () => void;
-  onDelete: (key: string) => void;
+  onDelete: (key: string) => Promise<boolean>;
   selectedKeys: Set<string>;
   onSelectionChange: (keys: Set<string>) => void;
 }) => {
@@ -750,10 +786,28 @@ const RuntimePanel = ({
   const allSelected = entries.length > 0 && entries.every(([k]) => selectedKeys.has(k));
   const toggleAll = () =>
     onSelectionChange(allSelected ? new Set() : new Set(entries.map(([k]) => k)));
-  const handleBulkDelete = () => {
-    selectedKeys.forEach((k) => onDelete(k));
-    onSelectionChange(new Set());
+  const handleBulkDelete = async () => {
+    const keys = Array.from(selectedKeys);
     setConfirmBulkDelete(false);
+
+    const results = await Promise.all(keys.map(async (k) => ({ key: k, ok: await onDelete(k) })));
+    const failed = results.filter((r) => !r.ok).map((r) => r.key);
+    const succeededCount = results.length - failed.length;
+
+    // Keep failed keys selected so the user can see and retry them.
+    onSelectionChange(new Set(failed));
+
+    if (failed.length === 0) {
+      toast.success(`Deleted ${succeededCount} variable${succeededCount === 1 ? "" : "s"}`);
+    } else if (succeededCount === 0) {
+      toast.error(`Couldn't delete ${failed.length} variable${failed.length === 1 ? "" : "s"}`, {
+        description: failed.join(", "),
+      });
+    } else {
+      toast.warning(`Deleted ${succeededCount} of ${keys.length} variables`, {
+        description: `Couldn't delete: ${failed.join(", ")}`,
+      });
+    }
   };
 
   return (
@@ -897,6 +951,7 @@ const EnvSidebarItem = ({
   onClick,
   onDelete,
   onRename,
+  onDuplicate,
   onAddChild,
   onToggleCollapse,
   onToggleEnvSelect,
@@ -910,12 +965,28 @@ const EnvSidebarItem = ({
   onClick: () => void;
   onDelete: () => void;
   onRename: () => void;
+  onDuplicate: () => void;
   onAddChild: () => void;
   onToggleCollapse: () => void;
   onToggleEnvSelect: () => void;
   onToggleIntermediate: () => void;
 }) => {
   const [confirming, setConfirming] = useState(false);
+  const [actionsOpen, setActionsOpen] = useState(false);
+  const menuContentClass = "z-[110] min-w-[180px] bg-bg border border-border rounded-sm shadow-lg py-1 text-sm text-text";
+  const menuItemClass = "flex items-center gap-2 px-3 py-1 hover:bg-active cursor-pointer focus:outline-none focus:bg-active";
+  const dangerStyle = { color: "var(--icon-danger)" };
+  // Shared by the "⋯" button menu and the right-click menu
+  const actions: { label: string; icon?: React.ReactNode; onSelect?: () => void; danger?: boolean; separator?: boolean }[] = [
+    { label: "Rename", icon: <Pencil size={12} className="text-comment" />, onSelect: onRename },
+    { label: "Duplicate", icon: <Copy size={12} className="text-comment" />, onSelect: onDuplicate },
+    { label: "Add child environment", icon: <Plus size={12} className="text-comment" />, onSelect: onAddChild },
+    entry.intermediate
+      ? { label: "Show in env picker", icon: <Eye size={12} className="text-comment" />, onSelect: onToggleIntermediate }
+      : { label: "Hide from env picker", icon: <EyeOff size={12} className="text-comment" />, onSelect: onToggleIntermediate },
+    { label: "separator", separator: true },
+    { label: "Delete", icon: <Trash2 size={12} />, onSelect: () => setConfirming(true), danger: true },
+  ];
 
   return (
     <>
@@ -926,6 +997,8 @@ const EnvSidebarItem = ({
           onCancel={() => setConfirming(false)}
         />
       )}
+      <ContextMenu.Root>
+      <ContextMenu.Trigger asChild>
       <div
         role="button"
         onClick={onClick}
@@ -964,38 +1037,123 @@ const EnvSidebarItem = ({
             <span className="truncate text-[9px] text-comment">{entry.displayName}</span>
           )}
         </span>
-        {/* Toggle-intermediate button: always visible when hidden, hover-only when visible */}
-        <button
-          title={entry.intermediate ? "Show in env picker" : "Hide from env picker"}
-          onClick={(e) => { e.stopPropagation(); onToggleIntermediate(); }}
-          className={cn("p-0.5 rounded hover:bg-border transition-colors flex-shrink-0",
-            entry.intermediate ? "opacity-100" : "opacity-0 group-hover/item:opacity-100")}
-        >
-          {entry.intermediate
-            ? <EyeOff size={11} style={{ color: "var(--icon-warning)" }} />
-            : <Eye size={11} className="text-comment/60 hover:text-comment" />}
-        </button>
-        {/* Actions shown on hover */}
-        <span className="flex items-center gap-0.5 flex-shrink-0 opacity-0 group-hover/item:opacity-100 transition-opacity">
-          <span className="text-xs text-comment/60 tabular-nums">{entry.varCount}</span>
+        {/* Hidden-from-picker marker — only shown when hidden; the toggle itself lives in the menu */}
+        {entry.intermediate && (
           <button
-            title="Add child environment"
-            onClick={(e) => { e.stopPropagation(); onAddChild(); }}
-            className="p-0.5 rounded hover:bg-border transition-colors"
+            title="Hidden from env picker — click to show"
+            onClick={(e) => { e.stopPropagation(); onToggleIntermediate(); }}
+            className="p-0.5 rounded hover:bg-border transition-colors flex-shrink-0"
           >
-            <Plus size={11} className="text-comment/60 hover:text-comment" />
+            <EyeOff size={11} style={{ color: "var(--icon-warning)" }} />
           </button>
-          <button
-            onClick={(e) => { e.stopPropagation(); setConfirming(true); }}
-            className="p-0.5 rounded hover:bg-border transition-colors"
-          >
-            <Trash2 size={11} className="text-comment/60 hover:text-comment" />
-          </button>
-        </span>
+        )}
+        <span className="text-xs text-comment/60 tabular-nums flex-shrink-0 opacity-0 group-hover/item:opacity-100 transition-opacity">{entry.varCount}</span>
+        {/* All row actions live in this menu (same items as the right-click menu) */}
+        <DropdownMenu.Root open={actionsOpen} onOpenChange={setActionsOpen}>
+          <DropdownMenu.Trigger asChild>
+            <button
+              title="Environment actions"
+              onClick={(e) => e.stopPropagation()}
+              onDoubleClick={(e) => e.stopPropagation()}
+              className={cn("p-0.5 rounded hover:bg-border transition-colors flex-shrink-0",
+                actionsOpen ? "opacity-100 bg-border" : "opacity-0 group-hover/item:opacity-100")}
+            >
+              <MoreHorizontal size={12} className="text-comment/60 hover:text-comment" />
+            </button>
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Portal>
+            <DropdownMenu.Content
+              align="end"
+              sideOffset={4}
+              onCloseAutoFocus={(e) => e.preventDefault()}
+              onClick={(e) => e.stopPropagation()}
+              className={menuContentClass}
+            >
+              {actions.map((a) => a.separator
+                ? <DropdownMenu.Separator key={a.label} className="my-1 h-px bg-border" />
+                : (
+                  <DropdownMenu.Item key={a.label} onSelect={a.onSelect} className={menuItemClass} style={a.danger ? dangerStyle : undefined}>
+                    {a.icon} {a.label}
+                  </DropdownMenu.Item>
+                ))}
+            </DropdownMenu.Content>
+          </DropdownMenu.Portal>
+        </DropdownMenu.Root>
       </div>
+      </ContextMenu.Trigger>
+      <ContextMenu.Portal>
+        <ContextMenu.Content
+          // Rename/Duplicate open an autofocused input — don't let the menu pull focus back to the row and blur it
+          onCloseAutoFocus={(e) => e.preventDefault()}
+          className={menuContentClass}
+        >
+          {actions.map((a) => a.separator
+            ? <ContextMenu.Separator key={a.label} className="my-1 h-px bg-border" />
+            : (
+              <ContextMenu.Item key={a.label} onSelect={a.onSelect} className={menuItemClass} style={a.danger ? dangerStyle : undefined}>
+                {a.icon} {a.label}
+              </ContextMenu.Item>
+            ))}
+        </ContextMenu.Content>
+      </ContextMenu.Portal>
+      </ContextMenu.Root>
     </>
   );
 };
+
+// ─── Nested (discovered) env sidebar item ──────────────────────────────────────
+// A read-only-structure entry for an environment defined in another
+// .voiden/ found deeper in the project (a monorepo sub-project). Unlike
+// EnvSidebarItem, the source folder is always shown below the name — that's
+// how these are told apart from the active project's own environments —
+// and there's no rename/delete/add-child, since those mutate the *tree*
+// shape, which isn't wired up per discovered project. Variables themselves
+// are still editable once selected.
+
+const NestedEnvSidebarItem = ({
+  entry,
+  isSelected,
+  isCollapsed,
+  onClick,
+  onToggleCollapse,
+}: {
+  entry: FlatEnvEntry & { sourcePath: string; profile: string };
+  isSelected: boolean;
+  isCollapsed: boolean;
+  onClick: () => void;
+  onToggleCollapse: () => void;
+}) => (
+  <div
+    role="button"
+    onClick={onClick}
+    className={cn("w-full flex items-center gap-1 py-1.5 text-sm text-left transition-colors rounded-md cursor-pointer group/item",
+      isSelected ? "bg-accent/10 text-text" : "text-comment hover:bg-active/50 hover:text-text"
+    )}
+    style={{ paddingLeft: `${6 + entry.depth * 14}px`, paddingRight: "6px" }}
+  >
+    <button
+      onClick={(e) => { e.stopPropagation(); if (entry.hasChildren) onToggleCollapse(); }}
+      className={cn("p-0.5 rounded flex-shrink-0 transition-colors", entry.hasChildren ? "hover:bg-border" : "opacity-0 pointer-events-none")}
+    >
+      <ChevronDown
+        size={11}
+        className={cn("text-comment/60 transition-transform", isCollapsed && entry.hasChildren ? "-rotate-90" : "")}
+      />
+    </button>
+    <span className="flex-1 min-w-0 flex flex-col">
+      <span className="truncate font-mono text-md">{entry.name}</span>
+      <span className="flex items-center gap-1 text-[9px] text-comment/70 truncate">
+        <FolderOpen size={9} className="flex-shrink-0" />
+        {entry.sourcePath}
+        {/* A folder can hold more than one profile (e.g. a legacy
+            root-level profile next to its own .voiden/ default profile) —
+            disambiguate those instead of showing two identical-looking rows. */}
+        {entry.profile !== "default" && <span className="text-comment/50">· {entry.profile}</span>}
+      </span>
+    </span>
+    <span className="text-xs text-comment/60 tabular-nums flex-shrink-0">{entry.varCount}</span>
+  </div>
+);
 
 // ─── Main EnvironmentEditor ───────────────────────────────────────────────────
 
@@ -1010,12 +1168,139 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
   const profileParam = selectedProfile === "default" ? undefined : selectedProfile;
   const { data, isLoading } = useYamlEnvironments(profileParam);
   const { mutate: save } = useSaveYamlEnvironments(profileParam);
+  const { data: profiles } = useProfiles();
+  const { mutate: renameProfile } = useRenameProfile();
+  // Sub-project .voiden/ directories discovered deeper in a monorepo (see
+  // findNestedVoidenDirs in the main process) — always their "default"
+  // profile, saved via its own mutation instance bound to that profile
+  // regardless of which profile is selected above for the active project.
+  const { data: nestedSources } = useNestedEnvSources();
+  const { mutate: saveNested } = useSaveYamlEnvironments(undefined);
+  const [editingProfileName, setEditingProfileName] = useState(false);
+  const [profileNameValue, setProfileNameValue] = useState("");
+  const [profileNameError, setProfileNameError] = useState<string | null>(null);
+  const profileNameInputRef = useRef<HTMLInputElement>(null);
 
-  const [tree, setTree] = useState<EditableEnvTree>({});
+  useEffect(() => { if (editingProfileName) profileNameInputRef.current?.focus(); }, [editingProfileName]);
+
+  const handleProfileRenameCommit = () => {
+    const t = profileNameValue.trim();
+    if (!t || t === selectedProfile) { setEditingProfileName(false); setProfileNameError(null); return; }
+    if (!PROFILE_NAME_REGEX.test(t)) { setProfileNameError("Lowercase letters, numbers, hyphens only"); return; }
+    if (t === "default" || (profiles?.includes(t) && t !== selectedProfile)) { setProfileNameError("Profile already exists"); return; }
+    renameProfile({ oldName: selectedProfile, newName: t }, {
+      onSuccess: () => {
+        // Seed the new profile's cache key with existing data so useYamlEnvironments
+        // finds it immediately and skips the loading state (no flicker).
+        const existing = queryClient.getQueryData(["yaml-environments", activeProject, selectedProfile]);
+        if (existing) {
+          queryClient.setQueryData(["yaml-environments", activeProject, t], existing);
+        }
+        setSelectedProfile(t);
+        setEditingProfileName(false);
+        setProfileNameError(null);
+      },
+    });
+  };
+
+  const [tree, setTree] = useState<EditableEnvTree>(() => {
+    const draft = useEditorStore.getState().unsaved[tabId];
+    return draft ? JSON.parse(draft) : {};
+  });
   const [selectedEnvPath, setSelectedEnvPath] = useState<string | null>(null);
+  // null when selectedEnvPath is in the active project's own `tree`;
+  // otherwise the nested source's absolute projectPath, keying into
+  // `nestedTrees` below.
+  const [selectedOwner, setSelectedOwner] = useState<string | null>(null);
   const [selectedVarIds, setSelectedVarIds] = useState<Set<string>>(new Set());
   const [selectedRuntimeKeys, setSelectedRuntimeKeys] = useState<Set<string>>(new Set());
-  const [pendingNav, setPendingNav] = useState<{ path: string | null } | null>(null);
+  const [pendingNav, setPendingNav] = useState<{ path: string | null; owner: string | null } | null>(null);
+
+  // Editable trees for discovered nested sources, keyed by an "owner key" —
+  // a folder can have more than one profile (e.g. a not-yet-migrated legacy
+  // root-level profile sitting alongside its own .voiden/ default profile),
+  // so projectPath alone isn't a unique key; nestedOwnerKey folds in the
+  // profile too. Seeded once per source from useNestedEnvSources and edited
+  // locally the same way the active project's own `tree` is, just persisted
+  // through a per-owner debounce instead of the shared `save`/scheduleSave
+  // above — each owner key's save targets its own (projectPath, profile).
+  const [nestedTrees, setNestedTrees] = useState<Record<string, EditableEnvTree>>({});
+  const nestedTreesRef = useRef<Record<string, EditableEnvTree>>({});
+  useEffect(() => { nestedTreesRef.current = nestedTrees; }, [nestedTrees]);
+  useEffect(() => {
+    if (!nestedSources) return;
+    setNestedTrees((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const src of nestedSources) {
+        const key = nestedOwnerKey(src.projectPath, src.profile);
+        if (!next[key]) {
+          next[key] = mergeToEditable(src.public, src.private);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [nestedSources]);
+
+  const saveNestedRef = useRef(saveNested);
+  useEffect(() => { saveNestedRef.current = saveNested; }, [saveNested]);
+  const nestedTimersRef = useRef<Record<string, ReturnType<typeof setTimeout> | null>>({});
+
+  const scheduleNestedSave = useCallback((ownerKey: string, newTree: EditableEnvTree) => {
+    const { projectPath, profile } = parseNestedOwnerKey(ownerKey);
+    const timers = nestedTimersRef.current;
+    if (timers[ownerKey]) clearTimeout(timers[ownerKey]!);
+    timers[ownerKey] = setTimeout(() => {
+      timers[ownerKey] = null;
+      const { publicTree, privateTree } = splitFromEditable(newTree);
+      saveNestedRef.current({ publicTree, privateTree, projectPath, profile });
+    }, DEBOUNCE_MS);
+  }, []);
+
+  // Flush any pending nested saves on unmount, same as the active project's tree below.
+  useEffect(() => {
+    return () => {
+      const timers = nestedTimersRef.current;
+      for (const ownerKey of Object.keys(timers)) {
+        if (!timers[ownerKey]) continue;
+        clearTimeout(timers[ownerKey]!);
+        timers[ownerKey] = null;
+        const ownerTree = nestedTreesRef.current[ownerKey];
+        if (ownerTree) {
+          const { projectPath, profile } = parseNestedOwnerKey(ownerKey);
+          const { publicTree, privateTree } = splitFromEditable(ownerTree);
+          saveNestedRef.current({ publicTree, privateTree, projectPath, profile });
+        }
+      }
+    };
+  }, []);
+
+  const updateNestedNode = useCallback((ownerKey: string, path: string, updated: EditableEnvNode) => {
+    const ownerTree = nestedTreesRef.current[ownerKey] ?? {};
+    const newOwnerTree = updateNodeAtPath(ownerTree, path, updated);
+    nestedTreesRef.current = { ...nestedTreesRef.current, [ownerKey]: newOwnerTree };
+    setNestedTrees((prev) => ({ ...prev, [ownerKey]: newOwnerTree }));
+    scheduleNestedSave(ownerKey, newOwnerTree);
+  }, [scheduleNestedSave]);
+
+  // Unconfirmed "add variable" row text — persisted so it survives a tab switch
+  // even though it hasn't been committed to the tree yet (no Enter/Add click).
+  const setUnsavedDraft = useEditorStore((s) => s.setUnsaved);
+  const clearUnsavedDraft = useEditorStore((s) => s.clearUnsaved);
+  const addDraftKey = `${tabId}:addrow`;
+  const [addDraft, setAddDraftState] = useState<{ key: string; value: string; isPrivate: boolean }>(() => {
+    const raw = useEditorStore.getState().unsaved[addDraftKey];
+    return raw ? JSON.parse(raw) : { key: "", value: "", isPrivate: false };
+  });
+  const setAddDraft = useCallback((draft: { key: string; value: string; isPrivate: boolean }) => {
+    setAddDraftState(draft);
+    if (!draft.key && !draft.value && !draft.isPrivate) {
+      clearUnsavedDraft(addDraftKey);
+    } else {
+      setUnsavedDraft(addDraftKey, JSON.stringify(draft));
+    }
+  }, [addDraftKey, clearUnsavedDraft, setUnsavedDraft]);
 
   // Clear variable selections whenever the active env changes
   useEffect(() => {
@@ -1023,12 +1308,15 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
     setSelectedRuntimeKeys(new Set());
   }, [selectedEnvPath]);
 
-  // Navigate to an env, prompting if there are unsaved selections
-  const navigateToEnv = useCallback((path: string | null) => {
+  // Navigate to an env, prompting if there are unsaved selections. `owner`
+  // is the nested source's projectPath when navigating to a discovered
+  // environment, or null for the active project's own tree / Global Runtime.
+  const navigateToEnv = useCallback((path: string | null, owner: string | null = null) => {
     if (selectedVarIds.size > 0 || selectedRuntimeKeys.size > 0) {
-      setPendingNav({ path });
+      setPendingNav({ path, owner });
     } else {
       setSelectedEnvPath(path);
+      setSelectedOwner(owner);
     }
   }, [selectedVarIds.size, selectedRuntimeKeys.size]);
 
@@ -1067,9 +1355,9 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
 
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const selectedProfileRef = useRef(selectedProfile);
-  const dirtyRef = useRef(false);
+  const dirtyRef = useRef(!!useEditorStore.getState().unsaved[tabId]);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const treeDataRef = useRef<EditableEnvTree>({});
+  const treeDataRef = useRef<EditableEnvTree>(tree);
   const treeProjectRef = useRef<string | null>(null);
   const editorRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -1123,8 +1411,15 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
   useEffect(() => { rememberedProfile = selectedProfile; selectedProfileRef.current = selectedProfile; }, [selectedProfile]);
   // Invalidate on mount
   useEffect(() => { queryClient.invalidateQueries({ queryKey: ["yaml-environments"] }); }, [queryClient]);
-  // Reset dirty on profile switch
-  useEffect(() => { dirtyRef.current = false; }, [selectedProfile]);
+  // Reset dirty on profile switch (skip the initial mount — only an actual switch should discard a restored draft)
+  const prevProfileRef = useRef(selectedProfile);
+  useEffect(() => {
+    if (prevProfileRef.current !== selectedProfile) {
+      prevProfileRef.current = selectedProfile;
+      dirtyRef.current = false;
+      clearUnsavedDraft(tabId);
+    }
+  }, [selectedProfile, tabId, clearUnsavedDraft]);
   // Reset on project switch
   useEffect(() => {
     if (treeProjectRef.current !== null && treeProjectRef.current !== activeProject) {
@@ -1137,25 +1432,35 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
       treeDataRef.current = {};
       treeProjectRef.current = null;
       setSelectedEnvPath(null);
+      setSelectedOwner(null);
+      setNestedTrees({});
+      nestedTreesRef.current = {};
+      clearUnsavedDraft(tabId);
     }
-  }, [activeProject]);
+  }, [activeProject, tabId, clearUnsavedDraft]);
 
-  // Initialize tree from fetched data
+  // Initialize tree from fetched data. treeProjectRef must be set even when a
+  // dirty/restored draft blocks the merge, so pending saves know the project path.
   useEffect(() => {
-    if (data && !dirtyRef.current) {
-      const merged = mergeToEditable(data.public, data.private);
-      setTree(merged);
-      treeDataRef.current = merged;
+    if (data) {
       treeProjectRef.current = activeProject;
+      if (!dirtyRef.current) {
+        const merged = mergeToEditable(data.public, data.private);
+        setTree(merged);
+        treeDataRef.current = merged;
+      }
     }
   }, [data, activeProject]);
 
-  // Auto-select first env when tree loads
+  // Auto-select the environment that's active in the main dropdown when the tree
+  // loads, so opening the editor doesn't silently land on an unrelated environment.
+  // Falls back to the first env if there's no active one (or it's not in this tree).
   useEffect(() => {
     if (!selectedEnvPath && Object.keys(tree).length > 0) {
-      setSelectedEnvPath(Object.keys(tree)[0]);
+      const activeEnv = envData?.activeEnv;
+      setSelectedEnvPath(activeEnv && getNodeAtPath(tree, activeEnv) ? activeEnv : Object.keys(tree)[0]);
     }
-  }, [tree, selectedEnvPath]);
+  }, [tree, selectedEnvPath, envData]);
 
   // Load runtime vars for the currently selected env (bucket-only, not merged).
   // Falls back to "__global__" when no env is selected so users can still view/manage global vars.
@@ -1187,10 +1492,12 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
         const projectAtFlush = treeProjectRef.current;
         if (!projectAtFlush) return;
         const { publicTree, privateTree } = splitFromEditable(treeDataRef.current);
-        saveRef.current({ publicTree, privateTree, projectPath: projectAtFlush });
+        saveRef.current({ publicTree, privateTree, projectPath: projectAtFlush }, {
+          onSuccess: () => clearUnsavedDraft(tabId),
+        });
       }
     };
-  }, []);
+  }, [tabId, clearUnsavedDraft]);
 
   const scheduleSave = useCallback((newTree: EditableEnvTree) => {
     if (timerRef.current) clearTimeout(timerRef.current);
@@ -1199,16 +1506,19 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
       timerRef.current = null;
       if (!projectAtSchedule) return;
       const { publicTree, privateTree } = splitFromEditable(newTree);
-      save({ publicTree, privateTree, projectPath: projectAtSchedule });
+      save({ publicTree, privateTree, projectPath: projectAtSchedule }, {
+        onSuccess: () => clearUnsavedDraft(tabId),
+      });
     }, DEBOUNCE_MS);
-  }, [save]);
+  }, [save, clearUnsavedDraft, tabId]);
 
   const handleUpdateTree = useCallback((newTree: EditableEnvTree) => {
     dirtyRef.current = true;
     setTree(newTree);
     treeDataRef.current = newTree;
+    setUnsavedDraft(tabId, JSON.stringify(newTree));
     scheduleSave(newTree);
-  }, [scheduleSave]);
+  }, [scheduleSave, setUnsavedDraft, tabId]);
 
   // Jump target handling
   const consumeJumpTarget = useCallback((currentTree: EditableEnvTree) => {
@@ -1228,6 +1538,7 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
     const foundPath = findVarInLineage(currentTree, envPath, varKey);
     if (foundPath) {
       setSelectedEnvPath(foundPath);
+      setSelectedOwner(null);
       setHighlightTarget({ varKey, envPath: foundPath });
       if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
       highlightTimerRef.current = setTimeout(() => setHighlightTarget(null), 2500);
@@ -1240,6 +1551,7 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
         node.variables.push({ id: genVarId(), key: varKey, value: "", isPrivate: false });
         handleUpdateTree(newTree);
         setSelectedEnvPath(envPath);
+        setSelectedOwner(null);
         setHighlightTarget({ varKey, envPath });
         if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
         highlightTimerRef.current = setTimeout(() => setHighlightTarget(null), 2500);
@@ -1262,25 +1574,42 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
     const newTree = { ...tree, [envName]: { variables: [], children: {} } };
     handleUpdateTree(newTree);
     setSelectedEnvPath(envName);
+    setSelectedOwner(null);
     setRenamingPath(envName);
     setRenameValue("");
   };
 
-  // Update selected node
+  // Update selected node — routes to the nested source's own tree when the
+  // current selection came from a discovered .voiden/ elsewhere in the
+  // monorepo, otherwise the active project's tree as before.
   const handleUpdateSelectedNode = useCallback((updated: EditableEnvNode) => {
     if (!selectedEnvPath) return;
+    if (selectedOwner) {
+      updateNestedNode(selectedOwner, selectedEnvPath, updated);
+      return;
+    }
     handleUpdateTree(updateNodeAtPath(tree, selectedEnvPath, updated));
-  }, [selectedEnvPath, tree, handleUpdateTree]);
+  }, [selectedEnvPath, selectedOwner, tree, handleUpdateTree, updateNestedNode]);
 
-  // Delete a single runtime variable from the selected env bucket
-  const handleDeleteRuntimeVar = async (key: string) => {
+  // Delete a single runtime variable from the selected env bucket.
+  // Returns whether the delete actually succeeded so bulk delete can report
+  // partial failures back to the user.
+  const handleDeleteRuntimeVar = async (key: string): Promise<boolean> => {
+    const envKey = selectedEnvPath || "__global__";
+    try {
+      await (window as any).electron?.variables?.deleteKey?.(key, envKey);
+    } catch (error) {
+      toast.error(`Couldn't delete "${key}"`, {
+        description: error instanceof Error ? error.message : String(error),
+      });
+      return false;
+    }
     setRuntimeVars((prev) => {
       const updated = { ...prev };
       delete updated[key];
       return updated;
     });
-    const envKey = selectedEnvPath || "__global__";
-    await (window as any).electron?.variables?.deleteKey?.(key, envKey);
+    return true;
   };
 
   // Clear all runtime variables for the currently viewed bucket
@@ -1299,7 +1628,7 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
       const node = getNodeAtPath(tree, path);
       if (node && node.variables.length === 0 && Object.keys(node.children).length === 0) {
         handleUpdateTree(deleteNodeAtPath(tree, path));
-        if (selectedEnvPath === path) setSelectedEnvPath(null);
+        if (selectedEnvPath === path) { setSelectedEnvPath(null); setSelectedOwner(null); }
       }
     } else if (trimmed !== lastSegment) {
       const segments = path.split(".");
@@ -1317,7 +1646,7 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
       const newPath = path.includes(".")
         ? path.split(".").slice(0, -1).join(".") + "." + effectiveName
         : effectiveName;
-      if (selectedEnvPath === path) setSelectedEnvPath(newPath);
+      if (selectedEnvPath === path) { setSelectedEnvPath(newPath); setSelectedOwner(null); }
     }
     setRenamingPath(null);
     setRenameValue("");
@@ -1358,7 +1687,7 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
     let newTree = tree;
     for (const p of toDelete) newTree = deleteNodeAtPath(newTree, p);
     handleUpdateTree(newTree);
-    if (selectedEnvPath && selectedEnvPaths.has(selectedEnvPath)) setSelectedEnvPath(null);
+    if (selectedEnvPath && selectedEnvPaths.has(selectedEnvPath)) { setSelectedEnvPath(null); setSelectedOwner(null); }
     setSelectedEnvPaths(new Set());
     setConfirmBulkDeleteEnvs(false);
   }, [selectedEnvPaths, tree, handleUpdateTree, selectedEnvPath]);
@@ -1386,8 +1715,34 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
     // Auto-expand parent and open rename for child
     setCollapsedPaths((prev) => { const next = new Set(prev); next.delete(parentPath); return next; });
     setSelectedEnvPath(childPath);
+    setSelectedOwner(null);
     setRenamingPath(childPath);
     setRenameValue("");
+  }, [tree, handleUpdateTree]);
+
+  // Duplicate an env (variables, private values and children) as a sibling
+  // placed right below it, then open rename so the copy can be named at once.
+  const handleDuplicate = useCallback((path: string) => {
+    const node = getNodeAtPath(tree, path);
+    if (!node) return;
+    const segments = path.split(".");
+    const name = segments[segments.length - 1];
+    const parentPath = segments.slice(0, -1).join(".");
+    const parentNode = parentPath ? getNodeAtPath(tree, parentPath) : null;
+    const siblings = parentNode ? parentNode.children : tree;
+    const copyName = generateUniqueName(siblings, `${name}-copy`);
+    const copy = cloneEnvNode(node);
+    if (copy.displayName) copy.displayName = `${copy.displayName} (copy)`;
+    const newSiblings = insertAfterKey(siblings, name, copyName, copy);
+    const newTree = parentNode
+      ? updateNodeAtPath(tree, parentPath, { ...parentNode, children: newSiblings })
+      : newSiblings;
+    handleUpdateTree(newTree);
+    const copyPath = parentPath ? `${parentPath}.${copyName}` : copyName;
+    setSelectedEnvPath(copyPath);
+    setSelectedOwner(null);
+    setRenamingPath(copyPath);
+    setRenameValue(copyName);
   }, [tree, handleUpdateTree]);
 
   const flatEnvs = useMemo(() => {
@@ -1409,7 +1764,40 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
     });
   }, [tree, sidebarSearch, collapsedPaths]);
 
-  const selectedNode = selectedEnvPath ? getNodeAtPath(tree, selectedEnvPath) : null;
+  // Collapse state for nested entries is namespaced by owner so a discovered
+  // env's path (e.g. "staging") can't collide with the active project's own.
+  const nestedCollapseKey = (owner: string, path: string) => `${owner} ${path}`;
+
+  const nestedFlatEnvs = useMemo(() => {
+    if (!nestedSources || nestedSources.length === 0) return [];
+    const all: (FlatEnvEntry & { owner: string; sourcePath: string; profile: string })[] = [];
+    for (const src of nestedSources) {
+      const owner = nestedOwnerKey(src.projectPath, src.profile);
+      const ownerTree = nestedTrees[owner];
+      if (!ownerTree) continue;
+      for (const entry of flattenTree(ownerTree)) {
+        all.push({ ...entry, owner, sourcePath: src.relPath, profile: src.profile });
+      }
+    }
+    const searched = sidebarSearch.trim()
+      ? (() => {
+        const matcher = new MinusculeMatcher("* " + sidebarSearch, MatchingMode.IGNORE_CASE, "");
+        return all.filter((e) => matcher.match(e.displayName || e.name) || matcher.match(e.sourcePath) || matcher.match(e.profile));
+      })()
+      : all;
+    return searched.filter((entry) => {
+      const segments = entry.path.split(".");
+      for (let i = 1; i < segments.length; i++) {
+        if (collapsedPaths.has(nestedCollapseKey(entry.owner, segments.slice(0, i).join(".")))) return false;
+      }
+      return true;
+    });
+  }, [nestedSources, nestedTrees, sidebarSearch, collapsedPaths]);
+
+  const selectedNode = !selectedEnvPath ? null
+    : selectedOwner
+      ? getNodeAtPath(nestedTrees[selectedOwner] ?? {}, selectedEnvPath)
+      : getNodeAtPath(tree, selectedEnvPath);
   const runtimeCount = Object.keys(runtimeVars).length;
 
   // Reload YAML when external file changes detected (git pull, external editor, etc.)
@@ -1443,6 +1831,7 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
             setSelectedVarIds(new Set());
             setSelectedRuntimeKeys(new Set());
             setSelectedEnvPath(pendingNav.path);
+            setSelectedOwner(pendingNav.owner);
             setPendingNav(null);
           }}
           onCancel={() => setPendingNav(null)}
@@ -1450,12 +1839,45 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
       )}
       {/* Top toolbar */}
       <div className="flex items-center justify-between px-5 py-3 border-b border-border flex-shrink-0">
-        <div className="flex items-center gap-2">
-          <Settings2 size={15} style={{ color: "var(--icon-primary)" }} />
+        <div className="flex items-baseline gap-2">
+          <Settings2 size={15} style={{ color: "var(--icon-primary)" }} className="self-center" />
           <h2 className="text-sm font-semibold">Environments</h2>
+          {selectedProfile !== "default" && (
+            <div className="relative flex flex-col self-center">
+              <span className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-md border border-border text-comment select-none hover:bg-active transition-colors"
+                style={editingProfileName ? { borderColor: "var(--icon-primary)" } : undefined}
+              >
+                <span className="text-comment/50">profile:</span>
+                {editingProfileName ? (
+                  <input
+                    ref={profileNameInputRef}
+                    value={profileNameValue}
+                    size={Math.max(profileNameValue.length, 1)}
+                    onChange={(e) => { setProfileNameValue(e.target.value); setProfileNameError(null); }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleProfileRenameCommit();
+                      if (e.key === "Escape") { setEditingProfileName(false); setProfileNameError(null); }
+                    }}
+                    onBlur={handleProfileRenameCommit}
+                    className="bg-transparent outline-none text-text font-medium text-xs"
+                  />
+                ) : (
+                  <span
+                    className="text-text font-medium cursor-pointer"
+                    onDoubleClick={() => { setProfileNameValue(selectedProfile); setEditingProfileName(true); }}
+                  >
+                    {selectedProfile}
+                  </span>
+                )}
+              </span>
+              {profileNameError && (
+                <span className="absolute top-full left-0 mt-1 text-xs px-2 py-0.5 rounded-md bg-panel border border-border whitespace-nowrap z-50" style={{ color: "var(--icon-danger)" }}>{profileNameError}</span>
+              )}
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-2">
-          <ProfileSelector selectedProfile={selectedProfile} onSelectProfile={(p) => { setSelectedProfile(p); setSelectedEnvPath(null); }} />
+          <ProfileSelector selectedProfile={selectedProfile} onSelectProfile={(p) => { setSelectedProfile(p); setSelectedEnvPath(null); setSelectedOwner(null); setEditingProfileName(false); }} />
         </div>
       </div>
 
@@ -1550,21 +1972,23 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
                       }}
                       style={{ paddingLeft: `${10 + entry.depth * 14}px` }}
                       className="w-full text-xs font-mono py-1.5 pr-2 bg-editor border border-border rounded-md text-text focus:outline-none focus:ring-1"
+                      onFocus={(e) => e.currentTarget.select()}
                       autoFocus
                     />
                   ) : (
                     <EnvSidebarItem
                       entry={entry}
-                      isSelected={selectedEnvPath === entry.path}
+                      isSelected={!selectedOwner && selectedEnvPath === entry.path}
                       isEnvSelected={selectedEnvPaths.has(entry.path)}
                       isCollapsed={collapsedPaths.has(entry.path)}
                       selectMode={envSelectMode}
                       onClick={() => { navigateToEnv(entry.path); }}
                       onDelete={() => {
                         handleUpdateTree(deleteNodeAtPath(tree, entry.path));
-                        if (selectedEnvPath === entry.path) setSelectedEnvPath(null);
+                        if (selectedEnvPath === entry.path) { setSelectedEnvPath(null); setSelectedOwner(null); }
                       }}
                       onRename={() => { setRenamingPath(entry.path); setRenameValue(entry.name); }}
+                      onDuplicate={() => handleDuplicate(entry.path)}
                       onAddChild={() => handleAddChild(entry.path)}
                       onToggleCollapse={() => toggleCollapsed(entry.path)}
                       onToggleEnvSelect={() => toggleEnvSelect(entry.path)}
@@ -1573,6 +1997,24 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
                   )}
                 </div>
               ))
+            )}
+            {nestedFlatEnvs.length > 0 && (
+              <>
+                <div className="flex items-center gap-1.5 px-1 pt-3 pb-1 text-[10px] font-medium uppercase tracking-wider text-comment/60">
+                  <FolderOpen size={10} />
+                  Other projects in this workspace
+                </div>
+                {nestedFlatEnvs.map((entry) => (
+                  <NestedEnvSidebarItem
+                    key={`${entry.owner}:${entry.path}`}
+                    entry={entry}
+                    isSelected={selectedOwner === entry.owner && selectedEnvPath === entry.path}
+                    isCollapsed={collapsedPaths.has(nestedCollapseKey(entry.owner, entry.path))}
+                    onClick={() => navigateToEnv(entry.path, entry.owner)}
+                    onToggleCollapse={() => toggleCollapsed(nestedCollapseKey(entry.owner, entry.path))}
+                  />
+                ))}
+              </>
             )}
           </div>
           {/* Env bulk delete bar */}
@@ -1629,6 +2071,17 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
               <div className="flex items-center gap-3 px-5 py-3 border-b border-border flex-shrink-0">
                 <div className="flex flex-col min-w-0">
                   <h2 className="text-sm font-semibold font-mono truncate">{selectedEnvPath.split(".").pop()}</h2>
+                  {selectedOwner && (() => {
+                    const src = nestedSources?.find((s) => nestedOwnerKey(s.projectPath, s.profile) === selectedOwner);
+                    if (!src) return null;
+                    return (
+                      <span className="flex items-center gap-1 text-[10px] text-comment/70 truncate mt-0.5">
+                        <FolderOpen size={9} className="flex-shrink-0" />
+                        {src.relPath}
+                        {src.profile !== "default" && <span className="text-comment/50">· {src.profile}</span>}
+                      </span>
+                    );
+                  })()}
                   {editingDisplayName ? (
                     <input
                       autoFocus
@@ -1646,7 +2099,7 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
                       title="Edit display name"
                     >
                       <span className="text-xs text-comment/60 truncate">
-                        {selectedNode.displayName || <span className="text-comment/30 italic">Add display name</span>}
+                        {selectedNode.displayName || <span className="text-comment/30">Add display name</span>}
                       </span>
                       <Pencil size={10} className="flex-shrink-0 text-comment/20 group-hover/dn:text-comment/60 transition-colors" />
                     </button>
@@ -1667,22 +2120,26 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
                       {selectedNode.variables.filter((v) => v.isPrivate).length} private
                     </span>
                   )}
-                  <button
-                    onClick={() => handleToggleIntermediate(selectedEnvPath)}
-                    title={selectedNode.intermediate ? "Show in env picker (currently hidden)" : "Hide from env picker"}
-                    className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-md border transition-colors"
-                    style={selectedNode.intermediate ? {
-                      backgroundColor: "color-mix(in srgb, var(--icon-warning) 10%, transparent)",
-                      borderColor: "color-mix(in srgb, var(--icon-warning) 30%, transparent)",
-                      color: "var(--icon-warning)",
-                    } : {
-                      borderColor: "var(--ui-line)",
-                      color: "var(--syntax-comment)",
-                    }}
-                  >
-                    {selectedNode.intermediate ? <EyeOff size={11} /> : <Eye size={11} />}
-                    {selectedNode.intermediate ? "hidden" : "visible"}
-                  </button>
+                  {/* Env-picker visibility is a structural (tree-shape) edit — not
+                      wired up for discovered nested environments, see NestedEnvSidebarItem. */}
+                  {!selectedOwner && (
+                    <button
+                      onClick={() => handleToggleIntermediate(selectedEnvPath)}
+                      title={selectedNode.intermediate ? "Show in env picker (currently hidden)" : "Hide from env picker"}
+                      className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-md border transition-colors"
+                      style={selectedNode.intermediate ? {
+                        backgroundColor: "color-mix(in srgb, var(--icon-warning) 10%, transparent)",
+                        borderColor: "color-mix(in srgb, var(--icon-warning) 30%, transparent)",
+                        color: "var(--icon-warning)",
+                      } : {
+                        borderColor: "var(--ui-line)",
+                        color: "var(--syntax-comment)",
+                      }}
+                    >
+                      {selectedNode.intermediate ? <EyeOff size={11} /> : <Eye size={11} />}
+                      {selectedNode.intermediate ? "hidden" : "visible"}
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -1716,11 +2173,13 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
                 <VariablesPanel
                   node={selectedNode}
                   envPath={selectedEnvPath}
-                  tree={tree}
+                  tree={selectedOwner ? (nestedTrees[selectedOwner] ?? {}) : tree}
                   highlightTarget={highlightTarget}
                   onUpdateNode={handleUpdateSelectedNode}
                   selectedIds={selectedVarIds}
                   onSelectionChange={setSelectedVarIds}
+                  addDraft={addDraft}
+                  onAddDraftChange={setAddDraft}
                 />
               ) : (
                 <RuntimePanel

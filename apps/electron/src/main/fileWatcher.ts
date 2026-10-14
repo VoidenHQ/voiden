@@ -1,9 +1,10 @@
 import chokidar from "chokidar";
 import path from "node:path";
 import eventBus from "./eventBus";
-import { invalidateGitCache, ensureVoidenGitignore } from "./git";
+import { invalidateGitCache, ensureVoidenGitignore, getCachedIsRepo } from "./git";
 import { clearTreeResultCache } from "./ipc/files";
 import { logger } from "./logger";
+import { validateVoidFile } from "./voidValidator";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface WatcherEntry {
@@ -33,6 +34,24 @@ function isDeletingActive(filePath: string): boolean {
 
 function isWritingActive(filePath: string): boolean {
   return writingPaths.has(filePath);
+}
+
+// Gives an externally-written (e.g. agent-written) .void file the same
+// immediate feedback a person gets while typing in the editor — instead of
+// silently accepting whatever landed on disk. Only structural parse-validity
+// is checked (see voidValidator.ts); this is not a full schema/lint pass.
+function validateExternalVoidChange(filePath: string): void {
+  try {
+    const { valid, totalFences, parsedBlocks } = validateVoidFile(filePath);
+    if (valid) return;
+    logger.warn("system", "FileWatcher: external .void change failed validation", { filePath, totalFences, parsedBlocks });
+    eventBus.emitEvent("toast:warning", {
+      title: "This .void file has parse issues",
+      description: `${path.basename(filePath)} — ${totalFences - parsedBlocks} of ${totalFences} block(s) failed to parse after an external change`,
+    });
+  } catch (error: any) {
+    logger.warn("system", `FileWatcher: validation error — ${error?.message}`, { filePath });
+  }
 }
 
 function debounce(func: (...args: any[]) => void, wait: number) {
@@ -81,6 +100,14 @@ function startWatching(projectPath: string, watcherId: string) {
   watcher.on("ready", () => {
     logger.info("system", "FileWatcher: ready — adding git/env paths", { projectPath, watcherId });
     watcher.add(gitPaths);
+
+    // Project may already be (or have become, e.g. via move/clone/git init outside
+    // the app) a git repo — make sure .voiden/* is ignored from the start. Any
+    // resulting write to .gitignore is picked up by the watcher's own handlers,
+    // which invalidate the git/tree caches.
+    getCachedIsRepo(projectPath)
+      .then((isRepo) => { if (isRepo) return ensureVoidenGitignore(projectPath); })
+      .catch(() => {});
   });
 
   watcher.on("error", (error: any) => {
@@ -106,6 +133,18 @@ function startWatching(projectPath: string, watcherId: string) {
   const isGitRelated = (f: string) => f.includes(`${path.sep}.git${path.sep}`);
   const isVoidFile = (f: string) => f.endsWith(".void");
   const isVoidenYaml = (f: string) => f.includes(`${path.sep}.voiden${path.sep}`) && f.endsWith(".yaml");
+  const isGitignoreFile = (f: string) => path.basename(f) === ".gitignore" && path.dirname(f) === projectPath;
+
+  const refreshGitignoreState = (filePath: string) => {
+    invalidateGitCache(projectPath);
+    clearTreeResultCache();
+    emit("git:changed", { path: filePath, project: projectPath, watcherId });
+  };
+
+  const handleGitignoreChange = (filePath: string) => {
+    ensureVoidenGitignore(projectPath).catch(() => {});
+    refreshGitignoreState(filePath);
+  };
 
   watcher
     .on("add", (filePath) => {
@@ -113,10 +152,12 @@ function startWatching(projectPath: string, watcherId: string) {
       if (isCloningActive(filePath)) return;
       if (isGitRelated(filePath)) emitGitChangedDebounced({ path: filePath });
       else {
-        if (path.basename(filePath) === ".gitignore" && path.dirname(filePath) === projectPath) {
-          ensureVoidenGitignore(projectPath).catch(() => {});
-        }
+        if (isGitignoreFile(filePath)) handleGitignoreChange(filePath);
         emit("file:new", { path: filePath, project: projectPath, watcherId });
+        // A .env that appears with its content already written (created outside
+        // the app, copied, or written atomically) is reported as "add" with no
+        // "change" after it on Linux and Windows, so say the env changed here too.
+        if (isEnvFile(filePath)) emit("env:changed", { path: filePath, project: projectPath, watcherId });
       }
     })
     .on("addDir", (dirPath) => {
@@ -130,12 +171,16 @@ function startWatching(projectPath: string, watcherId: string) {
       if (isVoidFile(filePath)) {
         if (isWritingActive(filePath)) { writingPaths.delete(filePath); return; }
         emit("apy:changed", { path: filePath, project: projectPath, watcherId });
+        validateExternalVoidChange(filePath);
       } else if (isVoidenYaml(filePath)) {
         emit("voiden:yaml-changed", { path: filePath, project: projectPath, watcherId });
       } else if (isEnvFile(filePath)) {
         emit("env:changed", { path: filePath, project: projectPath, watcherId });
       } else if (isGitRelated(filePath)) {
         emitGitChangedDebounced({ path: filePath });
+      } else if (isGitignoreFile(filePath)) {
+        handleGitignoreChange(filePath);
+        emit("file:changed", { path: filePath, project: projectPath, watcherId });
       } else {
         emit("file:changed", { path: filePath, project: projectPath, watcherId });
       }
@@ -144,7 +189,11 @@ function startWatching(projectPath: string, watcherId: string) {
       logger.info("system", "FileWatcher: unlink", { filePath });
       if (isDeletingActive(filePath)) return;
       if (isGitRelated(filePath)) emitGitChangedDebounced({ path: filePath });
-      else emit("file:delete", { path: filePath, project: projectPath, watcherId });
+      else {
+        if (isGitignoreFile(filePath)) refreshGitignoreState(filePath);
+        emit("file:delete", { path: filePath, project: projectPath, watcherId });
+        if (isEnvFile(filePath)) emit("env:changed", { path: filePath, project: projectPath, watcherId });
+      }
     })
     .on("unlinkDir", (dirPath) => {
       logger.info("system", "FileWatcher: unlinkDir", { dirPath });

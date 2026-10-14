@@ -24,6 +24,7 @@ export default defineConfig({
     alias: {
       '@': path.resolve(__dirname, './src'),
       '@voiden/shared': path.resolve(__dirname, '../../packages/shared/src'),
+      '@voiden/executors': path.resolve(__dirname, '../../packages/executors/src/index.ts'),
     },
   },
   css: {

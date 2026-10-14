@@ -10,7 +10,6 @@
 import { FileAttachmentMeta, HistoryEntry } from './types';
 import { useHistoryStore } from './historyStore';
 import { appendToHistory } from './historyManager';
-import { useResponseStore } from '@/core/request-engine/stores/responseStore';
 import { historyAdapterRegistry } from './adapterRegistry';
 import { stringifyJsonSafe } from '@/core/request-engine/parseJsonSafe';
 
@@ -45,14 +44,11 @@ export async function preProcessingHistoryHook(_context: any): Promise<void> {
   cachedProjectPath = null;
 
   try {
-    const tabId = useResponseStore.getState().currentRequestTabId;
-    if (!tabId) return;
-
-    const panelData = await (window as any).electron?.state?.getPanelTabs('main');
-    if (panelData?.tabs) {
-      const tab = (panelData.tabs as any[]).find((t) => t.id === tabId && t.type === 'document');
-      cachedFilePath = tab?.source ?? null;
-    }
+    // editor.storage.source is set when the editor mounts and is always
+    // available here — unlike currentRequestTabId which is set inside the
+    // onRequestBuilt callback that fires *after* pre-processing completes.
+    const source: string | null = _context?.editor?.storage?.source ?? null;
+    cachedFilePath = source;
 
     if (getProjectPathFn) {
       cachedProjectPath = await getProjectPathFn();

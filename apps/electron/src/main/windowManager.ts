@@ -1,11 +1,11 @@
 // file: apps/electron/src/main/windowManager.ts
 
-import { BrowserWindow, app } from "electron";
+import { BrowserWindow, app, screen } from "electron";
 import * as path from "path";
 import * as fs from "fs";
 import { randomUUID } from "crypto";
 import EventBus from "./eventBus";
-import { createWindow, initializeWelcomeTabs } from "./window";
+import { createWindow, initializeWelcomeTabs, type InitialWindowBounds } from "./window";
 
 import { AppState } from "../shared/types";
 import { getDefaultLayout, saveState, loadState } from "./persistState";
@@ -15,6 +15,15 @@ import { setActiveDirectory } from "./ipc/directory";
 
 interface WindowInfo {
   id: string;
+}
+
+interface WindowBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  isMaximized?: boolean;
+  isFullScreen?: boolean;
 }
 
 // Extend Electron's BrowserWindow type
@@ -61,7 +70,62 @@ class WindowManager {
     return path.join(this.activeStateDir, `active-state-${id}.json`);
   }
 
-  register(win: BrowserWindow, id: string) {
+  private getBoundsFilePath(windowId: string): string {
+    this.ensureInitialized();
+    return path.join(this.stateDir, `window-bounds-${windowId}.json`);
+  }
+
+  private writeBounds(windowId: string, bounds: WindowBounds) {
+    try {
+      fs.writeFileSync(this.getBoundsFilePath(windowId), JSON.stringify(bounds));
+    } catch {
+      // Ignore write errors
+    }
+  }
+
+  private loadBounds(windowId: string): WindowBounds | null {
+    try {
+      const filePath = this.getBoundsFilePath(windowId);
+      if (!fs.existsSync(filePath)) return null;
+      const data = JSON.parse(fs.readFileSync(filePath, 'utf-8')) as WindowBounds;
+      if (typeof data.x !== 'number' || typeof data.y !== 'number' ||
+          typeof data.width !== 'number' || typeof data.height !== 'number') return null;
+      return data;
+    } catch {
+      return null;
+    }
+  }
+
+  // Returns true when the window's bounds fill the nearest display's work area.
+  // Used to detect macOS native zoom (performZoom:) which may not update
+  // Electron's isMaximized() flag before our debounce fires.
+  private isNativeZoom(win: BrowserWindow): boolean {
+    if (win.isDestroyed()) return false;
+    try {
+      const b = win.getBounds();
+      const wa = screen.getDisplayNearestPoint({
+        x: b.x + Math.floor(b.width / 2),
+        y: b.y + Math.floor(b.height / 2),
+      }).workArea;
+      return (
+        Math.abs(b.x - wa.x) <= 4 &&
+        Math.abs(b.y - wa.y) <= 4 &&
+        Math.abs(b.width - wa.width) <= 4 &&
+        Math.abs(b.height - wa.height) <= 4
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  private isNormalState(win: BrowserWindow): boolean {
+    if (!win || win.isDestroyed()) return false;
+    if (win.isMaximized() || win.isMinimized() || win.isFullScreen()) return false;
+    if (process.platform === 'darwin' && this.isNativeZoom(win)) return false;
+    return true;
+  }
+
+  register(win: BrowserWindow, id: string, initialNormalBounds?: WindowBounds) {
     const that = this;
     win.on("focus", () => {
       that.setActiveWindowId(id);
@@ -78,6 +142,82 @@ class WindowManager {
       // Clean up in-memory state only, preserve state file for session restore
       that.windows.delete(id);
       this.browserWindows.delete(id);
+      // Don't leave the "active window" pointing at a window that is gone:
+      // code that asks for the active window's state would throw until some
+      // other window happened to receive focus.
+      if (that.activeWindowId === id) {
+        const next = that.windows.keys().next();
+        if (!next.done) that.activeWindowId = next.value;
+      }
+      // Clear stale reference so menu click handlers that do
+      // `windowManager.browserWindow?.webContents.send(...)` see null
+      // instead of a destroyed window, which throws "Object has been destroyed".
+      if (that.browserWindow === win) that.browserWindow = null;
+    });
+
+    // The last known "normal" (non-zoomed, non-fullscreen) bounds.
+    // Seeded from the explicit initialNormalBounds passed by the caller —
+    // this avoids a race where ready-to-show has already called maximize()
+    // before register() runs, making getBounds() return zoomed dimensions.
+    let lastNormalBounds: WindowBounds | null =
+      initialNormalBounds ??
+      (that.isNormalState(win) ? (win.getBounds() as WindowBounds) : null);
+
+    let boundsTimer: ReturnType<typeof setTimeout> | null = null;
+
+    // On macOS, will-resize fires before manual-resize animation starts —
+    // at that moment the window is still at its pre-drag size.  This is a
+    // belt-and-suspenders capture; the debounced captureAndSave below also
+    // updates after the drag settles.
+    // NOTE: will-resize does NOT fire for native zoom (performZoom:), so this
+    // only helps for manual drags, not for double-click-title-bar zoom.
+    let willResizeSequenceActive = false;
+    if (process.platform === 'darwin') {
+      win.on('will-resize', () => {
+        if (!win.isDestroyed() && !willResizeSequenceActive && that.isNormalState(win)) {
+          lastNormalBounds = win.getBounds() as WindowBounds;
+          willResizeSequenceActive = true;
+        }
+      });
+    }
+
+    const captureAndSave = () => {
+      willResizeSequenceActive = false;
+      if (win.isDestroyed()) return;
+      if (that.isNormalState(win)) {
+        // Normal state after resize: persist the final manual-resize dimensions.
+        lastNormalBounds = win.getBounds() as WindowBounds;
+        that.writeBounds(id, { ...lastNormalBounds });
+      }
+      // If in zoom/fullscreen state: keep lastNormalBounds in memory only.
+      // The close handler below writes the full state (with flags) on exit.
+    };
+
+    const scheduleSave = () => {
+      if (boundsTimer) clearTimeout(boundsTimer);
+      boundsTimer = setTimeout(captureAndSave, 500);
+    };
+
+    win.on('resize', scheduleSave);
+    win.on('move', scheduleSave);
+    win.on('close', () => {
+      if (boundsTimer) clearTimeout(boundsTimer);
+      if (win.isDestroyed()) return;
+
+      // Determine the true window state at close time.
+      // isNativeZoom() catches macOS zoom that may not set isMaximized().
+      const isFull = win.isFullScreen();
+      const isMax = !isFull &&
+        (win.isMaximized() || (process.platform === 'darwin' && that.isNativeZoom(win)));
+
+      // Use the last known normal (pre-zoom) bounds as the physical dimensions so
+      // that unzoom on the next launch lands at the correct user-set size.
+      const base = lastNormalBounds ?? (win.getBounds() as WindowBounds);
+      that.writeBounds(id, {
+        x: base.x, y: base.y, width: base.width, height: base.height,
+        ...(isMax ? { isMaximized: true } : {}),
+        ...(isFull ? { isFullScreen: true } : {}),
+      });
     });
   }
 
@@ -186,7 +326,26 @@ class WindowManager {
   }
 
   async createWindow(windowId?: string,skipDefault?:boolean): Promise<BrowserWindow> {
-    const win = await createWindow();
+    // Load saved bounds before creating the BrowserWindow so the correct
+    // size/position is baked into the constructor — avoids a visible resize
+    // flash that would occur if we called win.setBounds() after show().
+    const earlyId = windowId;
+    const savedBounds: WindowBounds | null = earlyId ? this.loadBounds(earlyId) : null;
+
+    // Pass normal (pre-zoom) dimensions to the constructor plus optional state
+    // flags so createWindow() can restore maximize/fullscreen after show().
+    const initialBounds: InitialWindowBounds | undefined = savedBounds
+      ? {
+          x: savedBounds.x,
+          y: savedBounds.y,
+          width: savedBounds.width,
+          height: savedBounds.height,
+          isMaximized: savedBounds.isMaximized,
+          isFullScreen: savedBounds.isFullScreen,
+        }
+      : undefined;
+
+    const win = await createWindow(initialBounds);
 
     // Generate a UUID for the window if not provided
     const id = windowId || randomUUID();
@@ -247,7 +406,12 @@ class WindowManager {
         removeFileWatcher(id); // unregister BEFORE removing reference
       });
 
-      this.register(win, id);
+      // Pass the normal (pre-zoom) bounds as the initial baseline so
+      // lastNormalBounds is always valid even when the window opens maximized.
+      const normalBounds: WindowBounds | undefined = savedBounds
+        ? { x: savedBounds.x, y: savedBounds.y, width: savedBounds.width, height: savedBounds.height }
+        : undefined;
+      this.register(win, id, normalBounds);
     } catch (e) {
       console.error("Failed to initialize window:", e);
       // If state was never set (still the null placeholder from above), attempt

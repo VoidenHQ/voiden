@@ -92,15 +92,15 @@ export async function getAvailableThemes(): Promise<ThemeMetadata[]> {
 }
 
 // Load theme by ID
-export async function loadThemeById(themeId: string = 'voiden') {
+export async function loadThemeById(themeId: string = 'cursor-dark') {
   if (window.electron?.themes) {
     try {
       const theme = await window.electron.themes.load(themeId);
       if (theme) {
         loadTheme(theme);
       } else {
-        // Try to load voiden as fallback
-        const fallback = await window.electron.themes.load('voiden');
+        // Try to load cursor-dark as fallback
+        const fallback = await window.electron.themes.load('cursor-dark');
         if (fallback) {
           loadTheme(fallback);
         }
@@ -115,12 +115,12 @@ export async function getThemeFromSettings(): Promise<string> {
   if (window.electron?.userSettings) {
     try {
       const settings = await window.electron.userSettings.get();
-      return settings?.appearance?.theme || 'voiden';
+      return settings?.appearance?.theme || 'cursor-dark';
     } catch (error) {
-      return 'voiden';
+      return 'cursor-dark';
     }
   }
-  return 'voiden';
+  return 'cursor-dark';
 }
 
 // Initialize theme on app start

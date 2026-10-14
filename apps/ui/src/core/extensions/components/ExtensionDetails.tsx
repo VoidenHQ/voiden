@@ -29,12 +29,18 @@ export const CustomLink = ({ href, children }: CustomLinkProps) => (
 
 const ExtensionIcon = ({ extension }: { extension: any }) => {
   const icon: string | undefined = extension.icon;
+  const [imgFailed, setImgFailed] = useState(false);
 
   if (icon) {
-    if (icon.startsWith("http") || icon.startsWith("data:")) {
+    if ((icon.startsWith("http") || icon.startsWith("data:")) && !imgFailed) {
       return (
         <div className="w-14 h-14 rounded-xl bg-active/30 flex items-center justify-center overflow-hidden border border-border flex-shrink-0">
-          <img src={icon} className="w-full h-full object-cover" alt={extension.name} />
+          <img
+            src={icon}
+            className="w-full h-full object-cover"
+            alt={extension.name}
+            onError={() => setImgFailed(true)}
+          />
         </div>
       );
     }
@@ -288,8 +294,8 @@ export const ExtensionDetails = ({
     setInstallingPlugin(extensionData.id, true);
     try {
       const result = await coreExtApi()?.checkAndUpdate?.(extensionData.id);
+      setInstallingPlugin(extensionData.id, false);
       if (result?.updated?.length > 0) {
-        setInstallingPlugin(extensionData.id, false);
         const allInfo = Object.values(usePluginStore.getState().coreUpdateInfo);
         setCoreUpdateInfo(allInfo.map(info =>
           info.pluginId === extensionData.id ? { ...info, hasUpdate: false } : info
@@ -297,10 +303,16 @@ export const ExtensionDetails = ({
         toast.success(`${extensionData.name} updated.`);
         window.dispatchEvent(new Event('voiden:reloadPlugins'));
       } else if (result?.error) {
-        setInstallingPlugin(extensionData.id, false);
         toast.error(`Update failed: ${result.error}`);
+      } else if (result?.upToDate) {
+        // checkAndUpdate always checks the plugin's real latest GitHub release, so if it
+        // says up to date, trust that over a (possibly stale) registry-driven badge.
+        const allInfo = Object.values(usePluginStore.getState().coreUpdateInfo);
+        setCoreUpdateInfo(allInfo.map(info =>
+          info.pluginId === extensionData.id ? { ...info, hasUpdate: false } : info
+        ));
+        toast.success(`${extensionData.name} is already up to date.`);
       } else {
-        setInstallingPlugin(extensionData.id, false);
         toast.error("Could not download update. Check your connection.");
       }
     } catch {

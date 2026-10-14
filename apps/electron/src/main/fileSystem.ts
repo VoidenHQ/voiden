@@ -43,6 +43,10 @@ class IOSemaphore {
   }
 }
 
+// Name of the .voiden config dir — still referenced by env.ts's nested-project
+// scan and by files.ts, even though the tree no longer filters dotfiles.
+export const VOIDEN_DIR_NAME = ".voiden";
+
 // Directories whose contents are too large to eagerly walk.
 // Defined once outside the recursive function so the Set is not recreated
 // on every directory level (buildFileTree can be called thousands of times).
@@ -84,24 +88,12 @@ export const buildFileTree = async (
     sem.release();
   }
 
-  const filtered = items.filter((item) => {
-    if (!item.name.startsWith(".")) return true;
-    if (
-      item.isFile() &&
-      (item.name === ".gitignore" ||
-        item.name === ".env" ||
-        item.name.startsWith(".env") ||
-        item.name.endsWith(".env"))
-    ) {
-      return true;
-    }
-    return false;
-  });
+  // No dotfile filtering — every entry (hidden or not) stays in the tree.
 
   // Process all siblings in parallel, bounded by the shared semaphore.
   // This replaces the previous sequential for...of loop — same OOM safety
   // (semaphore caps concurrency at 16) but much faster for wide trees.
-  const nodes = await Promise.all(filtered.map(async (item) => {
+  const nodes = await Promise.all(items.map(async (item) => {
     const fullPath = path.join(dir, item.name);
     if (item.isDirectory()) {
       // All subdirectories are lazy — never recurse at startup.
@@ -166,12 +158,18 @@ export async function createVoidFile(
   // Allow callers to pass nested/new paths by ensuring parent folders exist.
   await fs.promises.mkdir(filePath, { recursive: true });
 
-  let finalName = fileName.endsWith(".void") ? fileName : fileName + ".void";
+  // Derive baseName/ext once, from the target extension — not by re-deriving
+  // from the caller's original (always extensionless) fileName on each loop
+  // iteration, which previously computed an empty ext and silently dropped
+  // .void from every duplicate past the first (e.g. "Get User 1" with no
+  // extension), making the file invisible to the editor's file tree.
+  const baseName = fileName.endsWith(".void") ? fileName.slice(0, -".void".length) : fileName;
+  const ext = ".void";
+
+  let finalName = `${baseName}${ext}`;
   let counter = 1;
 
   while (fs.existsSync(path.join(filePath, finalName))) {
-    const ext = path.extname(fileName);
-    const baseName = path.basename(fileName, ext);
     finalName = `${baseName} ${counter}${ext}`;
     counter++;
   }
@@ -588,27 +586,127 @@ function applyVoidFileReferenceUpdates(
   return { updatedSource, count };
 }
 
-/** Ask all renderer windows to flush unsaved content for the given file paths to disk.
- *  Waits up to 3 seconds for acknowledgment before proceeding. */
-function flushRendererUnsavedForPaths(paths: string[]): Promise<void> {
-  return new Promise<void>((resolve) => {
-    const windows = BrowserWindow.getAllWindows();
+/** Ask renderer windows (all of them unless `windows` is given) for the display titles of every currently-unsaved tab.
+ *  Waits up to 3 seconds total, aggregating replies from every window so a second
+ *  window's unsaved tabs are never missed just because another window replied
+ *  first. A window that never replies (stuck/unresponsive) is simply excluded
+ *  rather than blocking quitting indefinitely. */
+export function getUnsavedTabTitles(only?: BrowserWindow[]): Promise<string[]> {
+  return new Promise<string[]>((resolve) => {
+    const windows = (only ?? BrowserWindow.getAllWindows()).filter((w) => !w.isDestroyed());
     if (windows.length === 0) {
-      resolve();
+      resolve([]);
+      return;
+    }
+    const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const replyChannel = `files:unsavedTabsReply:${requestId}`;
+    const titles: string[] = [];
+    let remaining = windows.length;
+    let settled = false;
+
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      ipcMain.removeListener(replyChannel, onReply);
+      resolve(titles);
+    };
+
+    const timeout = setTimeout(finish, 3000);
+    const onReply = (_event: Electron.IpcMainEvent, windowTitles: string[]) => {
+      titles.push(...windowTitles);
+      remaining -= 1;
+      if (remaining <= 0) finish();
+    };
+
+    ipcMain.on(replyChannel, onReply);
+    for (const w of windows) {
+      w.webContents.send("files:queryUnsavedTabs", requestId);
+    }
+  });
+}
+
+// Save dialogs opened from the main process (files:write for an untitled
+// file). flushRendererUnsavedForPaths must not give up on a window while the
+// user is still choosing where to save.
+let openSaveDialogs = 0;
+let lastSaveDialogClosedAt = 0;
+
+/** Run a save dialog, recording that it is open for as long as it is. */
+export async function trackSaveDialog<T>(show: () => Promise<T>): Promise<T> {
+  openSaveDialogs += 1;
+  try {
+    return await show();
+  } finally {
+    openSaveDialogs -= 1;
+    lastSaveDialogClosedAt = Date.now();
+  }
+}
+
+export interface FlushUnsavedResult {
+  /** The user cancelled a save dialog for an untitled file. */
+  cancelled: boolean;
+  /** Titles of tabs that could not be written to disk. */
+  failed: string[];
+}
+
+const FLUSH_IDLE_TIMEOUT_MS = 3000;
+
+/** Ask all renderer windows to flush unsaved content for the given file paths to disk
+ *  (or every unsaved tab, if `paths` is empty), and wait for every window to finish.
+ *
+ *  With `includeUntitled`, untitled tabs are saved too: each one opens a save
+ *  dialog, since it has no file yet. Without it they are left alone, as before.
+ *  `windows` limits the request to those windows (closing one window only
+ *  concerns that window's tabs).
+ *
+ *  A window that goes 3 seconds without making progress is given up on, so an
+ *  unresponsive window cannot block the caller forever; time spent in an open save
+ *  dialog does not count. */
+export function flushRendererUnsavedForPaths(
+  paths: string[],
+  options: { includeUntitled?: boolean; windows?: BrowserWindow[] } = {},
+): Promise<FlushUnsavedResult> {
+  return new Promise<FlushUnsavedResult>((resolve) => {
+    const windows = (options.windows ?? BrowserWindow.getAllWindows()).filter((w) => !w.isDestroyed());
+    const result: FlushUnsavedResult = { cancelled: false, failed: [] };
+    if (windows.length === 0) {
+      resolve(result);
       return;
     }
     const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const ackChannel = `files:unsavedSavedAck:${requestId}`;
-    const timeout = setTimeout(() => {
-      ipcMain.removeAllListeners(ackChannel);
-      resolve();
-    }, 3000);
-    ipcMain.once(ackChannel, () => {
-      clearTimeout(timeout);
-      resolve();
-    });
+    let remaining = windows.length;
+    let lastProgressAt = Date.now();
+    let settled = false;
+
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearInterval(watchdog);
+      ipcMain.removeListener(ackChannel, onAck);
+      resolve(result);
+    };
+
+    // Every window replies, so a window with nothing to save (which answers at
+    // once) must not end the wait for one that is still writing.
+    const onAck = (_event: Electron.IpcMainEvent, windowResult?: Partial<FlushUnsavedResult>) => {
+      if (windowResult?.cancelled) result.cancelled = true;
+      if (Array.isArray(windowResult?.failed)) result.failed.push(...windowResult.failed);
+      lastProgressAt = Date.now();
+      remaining -= 1;
+      if (remaining <= 0) finish();
+    };
+
+    const watchdog = setInterval(() => {
+      if (openSaveDialogs > 0) return;
+      const idleSince = Math.max(lastProgressAt, lastSaveDialogClosedAt);
+      if (Date.now() - idleSince >= FLUSH_IDLE_TIMEOUT_MS) finish();
+    }, 250);
+
+    ipcMain.on(ackChannel, onAck);
     for (const w of windows) {
-      w.webContents.send("files:saveUnsavedForPaths", requestId, paths);
+      w.webContents.send("files:saveUnsavedForPaths", requestId, paths, { includeUntitled: options.includeUntitled });
     }
   });
 }

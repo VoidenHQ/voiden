@@ -38,7 +38,23 @@ import { recomposeAndInstall } from "./skillsInstaller";
 import { reloadMainProcessExtension } from "./extensionLoader";
 import { logger } from "./logger";
 
-function maybeRecomposeSkills(state: AppState): void {
+// Mirrors CodeEditor.tsx's LONG_LINE_THRESHOLD/hasVeryLongLine — a single line
+// this long is its own layout/perf cliff for the editor regardless of total
+// file size, so both sides of the IPC boundary need to agree on what counts
+// as "needs the streamed loading path".
+const LONG_LINE_THRESHOLD = 20_000;
+function hasVeryLongLine(content: string): boolean {
+  let lineStart = 0;
+  for (let i = 0; i <= content.length; i++) {
+    if (i === content.length || content.charCodeAt(i) === 10) {
+      if (i - lineStart > LONG_LINE_THRESHOLD) return true;
+      lineStart = i + 1;
+    }
+  }
+  return false;
+}
+
+export function maybeRecomposeSkills(state: AppState): void {
   const skills = getSettings().skills;
   if (skills?.claude || skills?.codex) {
     recomposeAndInstall(state, { claude: skills.claude ?? false, codex: skills.codex ?? false }).catch(() => {});
@@ -85,6 +101,12 @@ export const initializeState = async (
   const hasGlobalHistoryTab = appState.sidebars.left.tabs.some((t: any) => t.type === "globalHistory");
   if (!hasGlobalHistoryTab) {
     appState.sidebars.left.tabs.push({ id: crypto.randomUUID(), type: "globalHistory" });
+  }
+
+  // Migration: remove blockOverview from right sidebar (panel moved into editor area)
+  appState.sidebars.right.tabs = appState.sidebars.right.tabs.filter((t: any) => t.type !== "blockOverview");
+  if (!appState.sidebars.right.tabs.some((t: any) => t.id === appState.sidebars.right.activeTabId)) {
+    appState.sidebars.right.activeTabId = appState.sidebars.right.tabs[0]?.id ?? null;
   }
 
   const t1 = Date.now();
@@ -292,6 +314,25 @@ export function addTabToPanel(
   return false;
 }
 
+// Finds and removes the pending tab from the panel, returns true if one was removed.
+function removePendingTabFromPanel(layout: PanelElement, panelId: string): boolean {
+  if (layout.type === "panel") {
+    if (layout.id !== panelId) return false;
+    const pendingIndex = layout.tabs.findIndex((tab) => tab.pending);
+    if (pendingIndex === -1) return false;
+    const [removed] = layout.tabs.splice(pendingIndex, 1);
+    if (layout.activeTabId === removed.id) {
+      const next = layout.tabs[pendingIndex] || layout.tabs[pendingIndex - 1];
+      layout.activeTabId = next?.id || null;
+    }
+    return true;
+  }
+  for (const child of layout.children) {
+    if (removePendingTabFromPanel(child, panelId)) return true;
+  }
+  return false;
+}
+
 export function reorderTabs(
   layout: PanelElement,
   panelId: string,
@@ -427,9 +468,41 @@ async function isClosingTabInLockedProject(
   return await getProjectLocked(matchingRoot);
 }
 
+/**
+ * Windows-only: after a native dialog closes, win.focus() alone can leave the
+ * webContents' internal focus/input-method state stuck — the window is the
+ * foreground window (clicks land, mouse events work) but keyboard input never
+ * reaches the DOM. Confirmed by reproduction: clicking anywhere in the app
+ * does nothing, but alt-tabbing away and back (a real OS-level blur→focus
+ * transition) fixes it immediately. A plain focus() call is a no-op if
+ * Windows already considers the window focused, since no new transition
+ * fires for Chromium to react to — so we simulate the alt-tab transition
+ * ourselves with an explicit blur() before focus(), and defer it a tick so
+ * it doesn't race the OS's own focus handoff as the dialog's window is torn
+ * down. The always-on-top toggle stays as a second nudge for the (separate)
+ * foreground-lock/SetForegroundWindow restriction on top of that.
+ */
+export function forceRefocusWindow(win: BrowserWindow | null): void {
+  if (!win) return;
+  if (process.platform === "win32") {
+    setImmediate(() => {
+      if (win.isDestroyed()) return;
+      win.blur();
+      win.setAlwaysOnTop(true);
+      win.setAlwaysOnTop(false);
+      win.focus();
+      win.webContents.focus();
+    });
+    return;
+  }
+  win.focus();
+  win.webContents.focus();
+}
+
 async function saveDocument(
   closingTab: any,
   unsavedContent: string,
+  parentWindow: BrowserWindow | null,
 ): Promise<boolean> {
   if (closingTab.source) {
     try {
@@ -439,10 +512,13 @@ async function saveDocument(
       return false;
     }
   } else {
-    const { canceled, filePath } = await dialog.showSaveDialog({
+    const saveDialogOptions = {
       title: "Save Document",
       defaultPath: closingTab.title,
-    });
+    };
+    const { canceled, filePath } = parentWindow
+      ? await dialog.showSaveDialog(parentWindow, saveDialogOptions)
+      : await dialog.showSaveDialog(saveDialogOptions);
     if (!canceled && filePath) {
       try {
         await fs.writeFile(filePath, unsavedContent, "utf8");
@@ -583,7 +659,17 @@ export async function addPanelTab(
 
   const existingTab = findTabInPanel(layout, panelId, tab);
   if (existingTab) {
+    // If the existing tab is pending and the incoming tab is not, promote it
+    if (existingTab.pending && !tab.pending) {
+      existingTab.pending = false;
+      await saveState(state);
+    }
     return { tabId: existingTab.id, alreadyExists: true };
+  }
+
+  // When adding a pending tab, remove any existing pending tab to replace it
+  if (tab.pending) {
+    removePendingTabFromPanel(layout, panelId);
   }
 
   const added = addTabToPanel(layout, panelId, tab);
@@ -698,12 +784,34 @@ export const ipcStateHandlers = () => {
         }
 
         try {
-          const STREAM_THRESHOLD = 1 * 1024 * 1024;
+          // .void files have no chunked-streaming equivalent — VoidenEditor
+          // must parse the whole file as one ProseMirror doc (blocks can't be
+          // reconstructed from an arbitrary byte-offset slice the way plain
+          // text can), and never reads content.streamable/fullSize at all.
+          // Routing one through the streamable path below would silently hand
+          // VoidenEditor `content: null` (rendered as an empty document)
+          // instead of the file's real content, so always do a full read here.
+          const isVoidenFile = fileExt === "void";
+
+          // Matches the renderer's MEDIUM_FILE_THRESHOLD (CodeEditor.tsx) so any
+          // file that would get the "medium file" treatment there also gets
+          // streamed in here — one consistent line for "big enough to need a
+          // loading indicator instead of a single blocking payload".
+          const STREAM_THRESHOLD = 512 * 1024;
           const stat = await fs.stat(source);
-          if (stat.size > STREAM_THRESHOLD) {
+          if (!isVoidenFile && stat.size > STREAM_THRESHOLD) {
             return { type: "document", tabId, title, content: null, source, streamable: true, fullSize: stat.size };
           }
           const content = await fs.readFile(source, "utf8");
+          // A file can be small in total bytes yet contain one pathologically
+          // long line (e.g. a minified blob or an escaped JSON payload on a
+          // single line) — that alone is expensive for the editor to lay out.
+          // Route it through the same streamed/opt-in-highlighting path as a
+          // genuinely large file instead of handing it over as one synchronous
+          // payload that forces an expensive initial render.
+          if (!isVoidenFile && hasVeryLongLine(content)) {
+            return { type: "document", tabId, title, content: null, source, streamable: true, fullSize: stat.size };
+          }
           return { type: "document", tabId, title, content, source };
         } catch (error) {
           return { type: "document", tabId, title, content: null, source };
@@ -1768,7 +1876,7 @@ console.log(\`Built \${pluginId} → dist/\${pluginId}.js\`);
   ipcMain.handle(
     "state:closePanelTab",
     async (
-      _,
+      event: IpcMainInvokeEvent,
       panelId: string,
       tabId: string,
       unsavedContent?: string, // passed from the renderer if the document is "dirty"
@@ -1788,43 +1896,70 @@ console.log(\`Built \${pluginId} → dist/\${pluginId}.js\`);
         throw new Error(`Tab with id ${tabId} not found in panel ${panelId}.`);
       }
 
+      // Parentless message/save dialogs are their own top-level OS window on
+      // Windows/Linux — closing them doesn't reliably hand keyboard focus back
+      // to the renderer's webContents (unlike macOS, where an unowned NSAlert
+      // still integrates with the app's key window). Anchoring every dialog in
+      // this flow to the window, and explicitly refocusing its webContents once
+      // we're done with them, is what keeps the newly-activated tab typable.
+      const win =
+        BrowserWindow.fromWebContents(event.sender) ??
+        BrowserWindow.getFocusedWindow();
+
       if (closingTab.type === "document" && unsavedContent) {
         const locked = await isClosingTabInLockedProject(appState, closingTab);
         if (locked) {
           const cancelId = 1;
-          const result = await dialog.showMessageBox({
-            type: "warning",
-            buttons: ["Discard", "Cancel"],
-            defaultId: 0,
-            cancelId,
-            title: "Project Locked",
-            message: `Discard unsaved changes to ${closingTab.title}?`,
-            detail:
-              "The project is locked, so these changes can't be saved. Closing the tab will discard them.",
-          });
+          const result = win
+            ? await dialog.showMessageBox(win, {
+                type: "warning",
+                buttons: ["Discard", "Cancel"],
+                defaultId: 0,
+                cancelId,
+                title: "Project Locked",
+                message: `Discard unsaved changes to ${closingTab.title}?`,
+                detail:
+                  "The project is locked, so these changes can't be saved. Closing the tab will discard them.",
+              })
+            : await dialog.showMessageBox({
+                type: "warning",
+                buttons: ["Discard", "Cancel"],
+                defaultId: 0,
+                cancelId,
+                title: "Project Locked",
+                message: `Discard unsaved changes to ${closingTab.title}?`,
+                detail:
+                  "The project is locked, so these changes can't be saved. Closing the tab will discard them.",
+              });
           if (result.response === cancelId) {
+            forceRefocusWindow(win);
             return { canceled: true };
           }
         } else {
           const cancelId = 2;
           const defaultId = 0;
-          const result = await dialog.showMessageBox({
-            type: "warning",
+          const dialogOptions = {
+            type: "warning" as const,
             buttons: ["Save", "Don't Save", "Cancel"],
             defaultId,
             cancelId,
             title: "Unsaved Changes",
             message: `Do you want to save changes made to ${closingTab.title}?`,
             detail: "Your changes will be lost if you don't save them.",
-          });
+          };
+          const result = win
+            ? await dialog.showMessageBox(win, dialogOptions)
+            : await dialog.showMessageBox(dialogOptions);
 
           if (result.response === cancelId) {
+            forceRefocusWindow(win);
             return { canceled: true };
           }
 
           if (result.response === defaultId) {
-            const success = await saveDocument(closingTab, unsavedContent);
+            const success = await saveDocument(closingTab, unsavedContent, win);
             if (!success) {
+              forceRefocusWindow(win);
               return { canceled: true };
             }
           }
@@ -1846,13 +1981,14 @@ console.log(\`Built \${pluginId} → dist/\${pluginId}.js\`);
         );
       }
       await saveState(appState);
+      forceRefocusWindow(win);
       return { panelId, tabId };
     },
   );
   ipcMain.handle(
     "state:closePanelTabs",
     async (
-      _,
+      event: IpcMainInvokeEvent,
       panelId: string,
       tabs: Array<{ tabId: string; unsavedContent?: string }>,
     ) => {
@@ -1865,6 +2001,12 @@ console.log(\`Built \${pluginId} → dist/\${pluginId}.js\`);
       if (!layout) {
         throw new Error("No layout found to close tabs.");
       }
+
+      // See the matching comment in state:closePanelTab — parentless dialogs
+      // don't reliably hand keyboard focus back to the renderer on Windows/Linux.
+      const win =
+        BrowserWindow.fromWebContents(event.sender) ??
+        BrowserWindow.getFocusedWindow();
 
       const closedTabs: Array<{ panelId: string; tabId: string }> = [];
       const canceledTabs: Array<{ panelId: string; tabId: string }> = [];
@@ -1883,8 +2025,8 @@ console.log(\`Built \${pluginId} → dist/\${pluginId}.js\`);
         if (closingTab.type === "document" && unsavedContent) {
           const locked = await isClosingTabInLockedProject(appState, closingTab);
           if (locked) {
-            const result = await dialog.showMessageBox({
-              type: "warning",
+            const lockedDialogOptions = {
+              type: "warning" as const,
               buttons: ["Discard", "Cancel"],
               defaultId: 0,
               cancelId: 1,
@@ -1892,22 +2034,28 @@ console.log(\`Built \${pluginId} → dist/\${pluginId}.js\`);
               message: `Discard unsaved changes to ${closingTab.title}?`,
               detail:
                 "The project is locked, so these changes can't be saved. Closing the tab will discard them.",
-            });
+            };
+            const result = win
+              ? await dialog.showMessageBox(win, lockedDialogOptions)
+              : await dialog.showMessageBox(lockedDialogOptions);
             if (result.response === 1) {
               canceledTabs.push({ panelId, tabId });
               shouldClose = false;
               continue;
             }
           } else {
-            const result = await dialog.showMessageBox({
-              type: "warning",
+            const dialogOptions = {
+              type: "warning" as const,
               buttons: ["Save", "Don't Save", "Cancel"],
               defaultId: 0,
               cancelId: 2,
               title: "Unsaved Changes",
               message: `Do you want to save changes made to ${closingTab.title}?`,
               detail: "Your changes will be lost if you don't save them.",
-            });
+            };
+            const result = win
+              ? await dialog.showMessageBox(win, dialogOptions)
+              : await dialog.showMessageBox(dialogOptions);
 
             if (result.response === 2) {
               canceledTabs.push({ panelId, tabId });
@@ -1916,7 +2064,7 @@ console.log(\`Built \${pluginId} → dist/\${pluginId}.js\`);
             }
 
             if (result.response === 0) {
-              const success = await saveDocument(closingTab, unsavedContent);
+              const success = await saveDocument(closingTab, unsavedContent, win);
               if (!success) {
                 canceledTabs.push({ panelId, tabId });
                 shouldClose = false;
@@ -1949,6 +2097,7 @@ console.log(\`Built \${pluginId} → dist/\${pluginId}.js\`);
         await saveState(appState);
       }
 
+      forceRefocusWindow(win);
       return {
         panelId,
         closedTabs,
@@ -2018,6 +2167,23 @@ console.log(\`Built \${pluginId} → dist/\${pluginId}.js\`);
   ipcMain.handle(
     "state:reloadPanelTab",
     async (_event, panelId: string, tabId: string) => {
+      return { panelId, tabId };
+    },
+  );
+
+  ipcMain.handle(
+    "state:promotePendingTab",
+    async (_event, panelId: string, tabId: string) => {
+      const appState = getAppState();
+      const layout = appState.activeDirectory
+        ? appState.directories[appState.activeDirectory]?.layout
+        : appState.unsaved.layout;
+      if (!layout) throw new Error("No layout found.");
+      const tab = findTabById(layout, panelId, tabId);
+      if (tab && tab.pending) {
+        tab.pending = false;
+        await saveState(appState);
+      }
       return { panelId, tabId };
     },
   );

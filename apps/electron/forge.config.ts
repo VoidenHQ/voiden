@@ -11,6 +11,7 @@ import dotenv from "dotenv";
 import * as fs from "fs";
 import * as path from "path";
 import * as crypto from "crypto";
+import * as os from "os";
 import { execSync } from "child_process";
 
 dotenv.config({ path: "../../.env" });
@@ -68,8 +69,22 @@ releaseDate: '${releaseDate}'
 const releaseChannel = process.env.RELEASE_CHANNEL || (isBetaBuild ? "beta" : "stable");
 const s3BucketName = releaseChannel === "beta"
   ? process.env.S3_BUCKET_NAME_BETA || "voiden-beta-releases"
+  : releaseChannel === "development"
+  ? process.env.S3_BUCKET_NAME_DEV || "voiden-dev-releases"
   : process.env.S3_BUCKET_NAME_STABLE || "voiden-releases";
 const s3Region = process.env.S3_REGION || "eu-west-1";
+
+// Each channel publishes through its own IAM credentials, scoped to its own bucket.
+const s3AccessKeyId = releaseChannel === "beta"
+  ? process.env.S3_ACCESS_KEY_ID_BETA
+  : releaseChannel === "development"
+  ? process.env.S3_ACCESS_KEY_ID_DEV
+  : process.env.S3_ACCESS_KEY_ID_STABLE;
+const s3SecretAccessKey = releaseChannel === "beta"
+  ? process.env.S3_SECRET_ACCESS_KEY_BETA
+  : releaseChannel === "development"
+  ? process.env.S3_SECRET_ACCESS_KEY_DEV
+  : process.env.S3_SECRET_ACCESS_KEY_STABLE;
 
 const makers = [];
 
@@ -102,7 +117,6 @@ if (isMac) {
   makers.push({
     name: "@felixrieseberg/electron-forge-maker-nsis",
     config: {
-      // Code signing is handled by sign.js (referenced in package.json build.win.sign)
       // updater config removed: it generated a latest.yml with pre-signing hash that
       // conflicted with the postMake hook's latest.yml (computed after signing).
       // app-update.yml is now generated in packageAfterCopy for Windows.
@@ -110,6 +124,62 @@ if (isMac) {
       // Register file associations via app-builder-lib so "Open with Voiden"
       // appears in Windows Explorer for .void and common text/code files.
       getAppBuilderConfig: async () => ({
+        win: {
+          // Signs via Azure Artifact Signing (formerly "Trusted Signing") using
+          // SignTool + the Azure.CodeSigning.Dlib plugin — not AzureSignTool,
+          // which is for Key Vault-based signing, a different Azure service.
+          // SIGNTOOL_PATH / SIGNING_DLIB_PATH are set by the CI workflow after
+          // downloading Microsoft.Windows.SDK.BuildTools / Microsoft.ArtifactSigning.Client
+          // via nuget.exe (neither ships as a dotnet global tool). Falls back to
+          // "signtool" on PATH and the default local install location for local builds.
+          // Auth comes from AZURE_CLIENT_ID/AZURE_CLIENT_SECRET/AZURE_TENANT_ID
+          // (a service principal), picked up automatically by DefaultAzureCredential.
+          // Required env vars: AZURE_CODE_SIGNING_ENDPOINT, AZURE_CODE_SIGNING_ACCOUNT_NAME,
+          // AZURE_CODE_SIGNING_CERT_PROFILE, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_TENANT_ID
+          sign: async (config: { path: string }) => {
+            const endpoint     = process.env.AZURE_CODE_SIGNING_ENDPOINT;
+            const accountName  = process.env.AZURE_CODE_SIGNING_ACCOUNT_NAME;
+            const certProfile  = process.env.AZURE_CODE_SIGNING_CERT_PROFILE;
+
+            if (!endpoint || !accountName || !certProfile) {
+              throw new Error(
+                "Missing Azure Trusted Signing env vars. Required: " +
+                "AZURE_CODE_SIGNING_ENDPOINT, AZURE_CODE_SIGNING_ACCOUNT_NAME, " +
+                "AZURE_CODE_SIGNING_CERT_PROFILE"
+              );
+            }
+
+            const signtoolPath = process.env.SIGNTOOL_PATH || "signtool";
+            const dlibPath = process.env.SIGNING_DLIB_PATH
+              || `${process.env.ProgramFiles}\\Trusted Signing Client\\bin\\x64\\Azure.CodeSigning.Dlib.dll`;
+
+            const metadata = {
+              Endpoint: endpoint,
+              CodeSigningAccountName: accountName,
+              CertificateProfileName: certProfile,
+              CorrelationId: crypto.randomUUID(),
+            };
+            const metadataPath = path.join(os.tmpdir(), `trusted-signing-metadata-${crypto.randomUUID()}.json`);
+            fs.writeFileSync(metadataPath, JSON.stringify(metadata, null, 2));
+
+            try {
+              const cmd = [
+                `"${signtoolPath}" sign`,
+                `/v /fd SHA256`,
+                `/tr http://timestamp.acs.microsoft.com`,
+                `/td SHA256`,
+                `/dlib "${dlibPath}"`,
+                `/dmdf "${metadataPath}"`,
+                `"${config.path}"`,
+              ].join(" ");
+
+              execSync(cmd, { stdio: "inherit" });
+              console.log(`Signed: ${path.basename(config.path)}`);
+            } finally {
+              fs.unlinkSync(metadataPath);
+            }
+          },
+        },
         fileAssociations: [
           {
             ext: "void",
@@ -391,6 +461,12 @@ const config: ForgeConfig = {
         }
       }
 
+      // The `voiden agent`/`run`/`mcp-stdio` CLI bundle (src/voiden-cli.ts)
+      // no longer needs a bespoke build step here — it's a normal VitePlugin
+      // build entry now (see forge.config.ts's `plugins` array +
+      // vite.cli.config.ts), built by Forge itself alongside main.js/
+      // preload.js into .vite/build/voiden-cli.js, inside app.asar.
+
       const binDir = path.join(__dirname, "bin");
 
       // Replace VOIDEN_VERSION="<any value>" with the current version in bash script
@@ -490,10 +566,9 @@ const config: ForgeConfig = {
       config: {
         bucket: s3BucketName,
         region: s3Region,
-        folder: "voiden", 
-        public: true,
-        accessKeyId: process.env.S3_ACCESS_KEY_ID,
-        secretAccessKey: process.env.S3_SECRET_ACCESS_KEY,
+        folder: "voiden",
+        accessKeyId: s3AccessKeyId,
+        secretAccessKey: s3SecretAccessKey,
       },
     },
   ],
@@ -503,12 +578,25 @@ const config: ForgeConfig = {
       build: [
         { entry: "src/main.ts", config: "vite.main.config.ts" },
         { entry: "src/preload.ts", config: "vite.preload.config.ts" },
+        // `voiden agent`/`run`/`mcp-stdio` — built alongside main/preload so
+        // it lands at .vite/build/voiden-cli.js, inside app.asar next to
+        // main.js, instead of as a separate extraResource outside the
+        // archive (which couldn't safely resolve its own node_modules — see
+        // vite.cli.config.ts's header comment).
+        { entry: "src/voiden-cli.ts", config: "vite.cli.config.ts" },
       ],
       renderer: [{ name: "main_window", config: "vite.renderer.config.ts" }],
     }),
     new FusesPlugin({
       version: FuseVersion.V1,
-      [FuseV1Options.RunAsNode]: false,
+      // true (not the hardened-default false) — required so `bin/voiden`'s
+      // `ELECTRON_RUN_AS_NODE=1 <electron binary> <voiden-cli.js>` dispatch
+      // (agent/run/mcp-stdio) works in a packaged build at all; the fuse
+      // otherwise makes the signed binary ignore that env var entirely.
+      // Trade-off, made deliberately: this reopens the specific thing the
+      // fuse blocks — arbitrary Node execution via that env var against the
+      // signed binary, if something else can control how it's launched.
+      [FuseV1Options.RunAsNode]: true,
       [FuseV1Options.EnableCookieEncryption]: true,
       [FuseV1Options.EnableNodeOptionsEnvironmentVariable]: false,
       [FuseV1Options.EnableNodeCliInspectArguments]: false,

@@ -4,6 +4,11 @@ import { ImperativePanelHandle } from "react-resizable-panels";
 export type BottomActiveView = "terminal" | "sidebar";
 
 type PanelStore = {
+  leftPanelOpen: boolean;
+  openLeftPanel: () => void;
+  closeLeftPanel: () => void;
+  leftPanelRef: React.RefObject<ImperativePanelHandle> | null;
+  setLeftPanelRef: (ref: React.RefObject<ImperativePanelHandle>) => void;
   rightPanelOpen: boolean;
   openRightPanel: () => void;
   closeRightPanel: () => void;
@@ -22,6 +27,11 @@ type PanelStore = {
 };
 
 export const usePanelStore = create<PanelStore>((set) => ({
+  leftPanelOpen: false,
+  openLeftPanel: () => set({ leftPanelOpen: true }),
+  closeLeftPanel: () => set({ leftPanelOpen: false }),
+  leftPanelRef: null,
+  setLeftPanelRef: (ref) => set({ leftPanelRef: ref }),
   rightPanelOpen: false,
   openRightPanel: () => set({ rightPanelOpen: true }),
   closeRightPanel: () => set({ rightPanelOpen: false }),

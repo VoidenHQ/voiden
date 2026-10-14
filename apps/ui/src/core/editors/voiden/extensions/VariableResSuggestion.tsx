@@ -7,6 +7,10 @@ import VariableList from './VariableList';
 
 export const ResSuggestionPluginKey = new PluginKey('resSuggestion');
 
+let activePopup: Instance<Props>[] | undefined;
+
+export const isResSuggestionOpen = () => !!activePopup?.[0]?.state?.isVisible;
+
 interface SuggestionItem {
   label: string
   description?: string
@@ -91,6 +95,7 @@ export const ResSuggestion = Extension.create({
                 trigger: 'manual',
                 placement: 'bottom-start',
               })
+              activePopup = popup
             },
 
             onUpdate(props: any) {
@@ -117,6 +122,9 @@ export const ResSuggestion = Extension.create({
             onExit() {
               popup[0].destroy()
               component.destroy()
+              if (activePopup === popup) {
+                activePopup = undefined
+              }
             },
           }
         },

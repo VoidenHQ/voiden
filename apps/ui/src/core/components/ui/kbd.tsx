@@ -6,90 +6,87 @@ interface KbdProps {
   size?: "sm" | "md" | "lg";
 }
 
+const MAC_MODIFIER_LABELS: Record<string, string> = {
+  "⌘": "Ctrl",
+  "⌥": "Alt",
+  "⇧": "Shift",
+  "⌃": "Ctrl",
+};
+
+const MAC_KEY_LABELS: Record<string, string> = {
+  "↵": "Enter",
+  "⌫": "Backspace",
+  "⌦": "Delete",
+  "⇥": "Tab",
+};
+
+const MAC_SYMBOLS = new Set([...Object.keys(MAC_MODIFIER_LABELS), ...Object.keys(MAC_KEY_LABELS)]);
+
 /**
- * Keyboard shortcut display component
- * Automatically converts Mac shortcuts to Windows/Linux equivalents
+ * Split a shortcut string into individual key tokens so each key can be
+ * rendered as its own separate box, e.g. "⌘⇧P" -> ["⌘", "⇧", "P"].
+ *
+ * Handles both Mac-symbol shortcuts ("⌘⇧P", the raw form used throughout the
+ * app) and pre-converted word shortcuts ("Shift+Ctrl+P", as produced by
+ * getShortcutLabel() on non-Mac) — the latter already has "+" separators, so
+ * it's just split on that.
+ */
+const splitIntoTokens = (keys: string): string[] => {
+  if (keys.includes("+")) {
+    return keys.split("+").filter(Boolean);
+  }
+
+  // Mac-symbol form: modifiers are always single characters (⌘⌥⇧⌃), so peel
+  // them off one at a time. Whatever's left (could be multi-char, e.g.
+  // "ENTER") is the final key and isn't split further.
+  const tokens: string[] = [];
+  let rest = keys;
+  while (rest.length > 0 && MAC_SYMBOLS.has(rest[0])) {
+    tokens.push(rest[0]);
+    rest = rest.slice(1);
+  }
+  if (rest) tokens.push(rest);
+  return tokens;
+};
+
+/**
+ * Keyboard shortcut display component. Renders each key in its own separate
+ * box (⌘ ⇧ P), matching Cursor/VS Code's shortcut hint style, instead of one
+ * box containing the whole combination.
  *
  * @example
- * <Kbd keys="⌘N" /> // Shows Command+N on Mac, Ctrl+N on Windows/Linux
- * <Kbd keys="⌘⇧P" /> // Shows Command+Shift+P on Mac, Ctrl+Shift+P on Windows/Linux
+ * <Kbd keys="⌘N" />   // [⌘] [N] on Mac, [Ctrl] [N] on Windows/Linux
+ * <Kbd keys="⌘⇧P" />  // [⌘] [⇧] [P] on Mac, [Ctrl] [Shift] [P] on Windows/Linux
  */
 export const Kbd = ({ keys, className, size = "md" }: KbdProps) => {
   const isMac = navigator?.userAgent?.toLowerCase().includes("mac") ?? false;
 
-  // Convert Mac symbols to readable format for all platforms
-  const convertKeys = (macKeys: string): string => {
-    let converted = macKeys
-      .replace(/⌘/g,  "Ctrl")
-      .replace(/⌥/g,  "Alt")
-      .replace(/⇧/g, "Shift")
-      .replace(/⌃/g, "Ctrl")
-      .replace(/↵/g, "Enter")
-      .replace(/⌫/g, "Backspace")
-      .replace(/⌦/g, "Delete")
-      .replace(/⇥/g, "Tab");
-
-    // Split into individual keys and join with +
-    // This handles cases like "CommandN" -> "Command+N" and "CommandShiftP" -> "Command+Shift+P"
-    const parts: string[] = [];
-    let currentPart = "";
-
-    for (let i = 0; i < converted.length; i++) {
-      const char = converted[i];
-
-      // Check if this starts a known modifier
-      if (converted.substring(i).startsWith("Command")) {
-        if (currentPart) parts.push(currentPart);
-        parts.push("Command");
-        currentPart = "";
-        i += 6; // Skip "Command"
-      } else if (converted.substring(i).startsWith("Option")) {
-        if (currentPart) parts.push(currentPart);
-        parts.push("Option");
-        currentPart = "";
-        i += 5; // Skip "Option"
-      } else if (converted.substring(i).startsWith("Ctrl")) {
-        if (currentPart) parts.push(currentPart);
-        parts.push("Ctrl");
-        currentPart = "";
-        i += 3; // Skip "Ctrl"
-      } else if (converted.substring(i).startsWith("Alt")) {
-        if (currentPart) parts.push(currentPart);
-        parts.push("Alt");
-        currentPart = "";
-        i += 2; // Skip "Alt"
-      } else if (converted.substring(i).startsWith("Shift")) {
-        if (currentPart) parts.push(currentPart);
-        parts.push("Shift");
-        currentPart = "";
-        i += 4; // Skip "Shift"
-      } else {
-        currentPart += char;
-      }
-    }
-
-    if (currentPart) parts.push(currentPart);
-
-    return parts.join("+");
+  const toDisplayToken = (token: string): string => {
+    if (isMac) return token;
+    return MAC_MODIFIER_LABELS[token] ?? MAC_KEY_LABELS[token] ?? token;
   };
 
-  const displayKeys = !isMac ? convertKeys(keys):keys.split('').join(" ");
+  const tokens = splitIntoTokens(keys).map(toDisplayToken);
 
   const sizeClasses = {
-    sm: "text-xs px-1.5 py-0.5",
-    md: "text-sm px-2 py-1",
-    lg: "text-base px-2.5 py-1.5",
+    sm: "text-[10px] px-1 py-0.5 min-w-[16px]",
+    md: "text-xs px-1.5 py-0.5 min-w-[18px]",
+    lg: "text-sm px-2 py-1 min-w-[22px]",
   };
 
   return (
-    <kbd
-      className={cn(
-        "font-mono bg-panel border border-border rounded inline-flex items-center justify-center",
-        sizeClasses[size],
-        className
-      )}
-    >
-      {displayKeys}
-    </kbd>
+    <span className={cn("inline-flex items-center gap-0.5", className)}>
+      {tokens.map((token, i) => (
+        <kbd
+          key={i}
+          className={cn(
+            "font-mono bg-panel border border-border rounded-[3px] inline-flex items-center justify-center leading-none",
+            sizeClasses[size]
+          )}
+        >
+          {token}
+        </kbd>
+      ))}
+    </span>
   );
 };

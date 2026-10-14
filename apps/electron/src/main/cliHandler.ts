@@ -15,9 +15,7 @@ export async function handleCliArguments(
   const userArgs = args.filter(arg =>
     !arg.includes('electron') &&
     !arg.endsWith('.js') &&
-    !arg.startsWith('--updated') &&
-    !arg.startsWith('--force-run') &&
-    !arg.startsWith('--squirrel') &&
+    !arg.startsWith('--') &&
     arg !== ''
   );
 
@@ -169,15 +167,12 @@ export function getCliArguments(): string[] {
     args = process.argv.slice(1);
   }
 
-  // Filter out installer/updater flags that are not real user arguments.
-  // NSIS adds --updated and --force-run after a Windows update; Squirrel
-  // adds --squirrel-* flags. If these are the only args present, the app
-  // should go through the normal loadAllWindows() path, not the CLI path.
-  return args.filter(arg =>
-    !arg.startsWith('--updated') &&
-    !arg.startsWith('--force-run') &&
-    !arg.startsWith('--squirrel')
-  );
+  // Filter out installer/updater/Electron/Chromium flags that are not real
+  // user arguments (e.g. NSIS --updated/--force-run, Squirrel --squirrel-*,
+  // or switches like --no-sandbox injected by packaging). If these are the
+  // only args present, the app should go through the normal loadAllWindows()
+  // path, not the CLI path.
+  return args.filter(arg => !arg.startsWith('--'));
 }
 
 /**

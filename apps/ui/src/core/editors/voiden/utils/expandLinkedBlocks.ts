@@ -155,7 +155,10 @@ export async function expandLinkedFilesInDoc(
   return { ...doc, content: expandedContent };
 }
 
-async function fetchLinkedFileBlocks(node: JSONContent, schema?: any): Promise<JSONContent[]> {
+async function fetchLinkedFileBlocks(node: JSONContent, schema?: any, depth: number = 0): Promise<JSONContent[]> {
+  // Safety check to prevent infinite recursion (mirrors expandLinkedBlocks).
+  if (depth > 10) return [];
+
   const originalFile = node.attrs?.originalFile;
   const sectionUid: string | null = node.attrs?.sectionUid ?? null;
   if (!originalFile || !schema) return [];
@@ -183,19 +186,48 @@ async function fetchLinkedFileBlocks(node: JSONContent, schema?: any): Promise<J
       ...(n.content && { content: n.content.map(markImported) }),
     });
 
-    if (sectionUid !== null) {
+    const blocks = sectionUid !== null
       // Section-specific import: return only the blocks for that section.
       // The parent document already provides the separator before this linkedFile.
-      return getBlocksForSection(parsedDoc.content, sectionUid).map(markImported);
+      ? getBlocksForSection(parsedDoc.content, sectionUid)
+      // Whole-file import: drop a leading request-separator (parent provides it).
+      : (parsedDoc.content[0]?.type === "request-separator" ? parsedDoc.content.slice(1) : parsedDoc.content);
+
+    // A section-specific import whose target uid no longer matches any
+    // separator in the (freshly re-read) source file — e.g. that section was
+    // renamed/deleted/reordered since the link was created — silently resolves
+    // to zero blocks here. That's indistinguishable downstream from "this really
+    // is an empty section", which is exactly what surfaces to the user as the
+    // generic "Nothing to run" toast instead of a real "link is broken" signal.
+    // Logging it is the only way to tell the two apart when debugging.
+    if (blocks.length === 0 && sectionUid !== null) {
+      console.warn(
+        `[expandLinkedFilesInDoc] Section "${sectionUid}" not found in linked file "${originalFile}" — ` +
+        `the source section may have been renamed, deleted, or reordered since this link was created.`,
+      );
     }
 
-    // Whole-file import: drop a leading request-separator (parent provides it).
-    const blocks = parsedDoc.content[0]?.type === "request-separator"
-      ? parsedDoc.content.slice(1)
-      : parsedDoc.content;
-
-    return blocks.map(markImported);
-  } catch {
+    // Recursively resolve any linkedFile nested inside this file's blocks, so a
+    // linkedFile-of-a-linkedFile chain resolves fully instead of leaving an
+    // unexpanded reference. Nested blocks are marked with their own immediate
+    // source by their own recursive call, not overwritten by this level.
+    const expandedBlocks: JSONContent[] = [];
+    for (const block of blocks) {
+      if (block.type === "linkedFile") {
+        expandedBlocks.push(...(await fetchLinkedFileBlocks(block, schema, depth + 1)));
+      } else {
+        expandedBlocks.push(markImported(block));
+      }
+    }
+    return expandedBlocks;
+  } catch (err) {
+    // Previously a bare `catch { return []; }` — any failure (bad path, IPC
+    // rejection, parse error) was indistinguishable from "this file/section is
+    // legitimately empty", which is exactly what silently turns into the
+    // generic "Nothing to run" toast a user sees when running a linked section
+    // that's actually failing to load. Logging the real error is the only way
+    // to tell those two cases apart.
+    console.error(`[expandLinkedFilesInDoc] Failed to load linked file blocks for "${originalFile}":`, err);
     return [];
   }
 }

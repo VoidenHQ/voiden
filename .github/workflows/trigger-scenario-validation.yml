@@ -1,0 +1,34 @@
+# Pings VoidenHQ/voiden-scenarios on every push to main or beta so its
+# "Validate .void files" workflow re-runs against @voiden/runner@beta.
+#
+# A plain `push` trigger can't cross repos, so this fires a
+# repository_dispatch event at voiden-scenarios instead, which listens for
+# the "voiden-push" event type (see its validate-void.yml).
+#
+# Requires a repo secret SCENARIOS_DISPATCH_TOKEN: a PAT (classic, `repo`
+# scope, or fine-grained with contents:read + actions:write on
+# VoidenHQ/voiden-scenarios) — the default GITHUB_TOKEN can't trigger
+# workflows in another repository.
+#
+# Note: this only re-runs the existing scenario suite against whatever
+# @voiden/runner@beta currently resolves to on npm — pushing here doesn't
+# republish that package (still a manual release-runner.yml dispatch).
+
+name: Trigger scenario validation
+
+on:
+  push:
+    branches: [main, beta]
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Repository Dispatch to voiden-scenarios
+        env:
+          GH_TOKEN: ${{ secrets.SCENARIOS_DISPATCH_TOKEN }}
+        run: |
+          gh api repos/VoidenHQ/voiden-scenarios/dispatches \
+            -f event_type=voiden-push \
+            -f "client_payload[branch]=${{ github.ref_name }}" \
+            -f "client_payload[sha]=${{ github.sha }}"

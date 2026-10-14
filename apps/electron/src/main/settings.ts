@@ -25,6 +25,7 @@ export type Settings = {
   editor: {
     auto_save: boolean;
     auto_save_delay: number; // seconds
+    block_overview: boolean;
   };
   requests: {
     disable_tls_verification: boolean;
@@ -42,9 +43,11 @@ export type Settings = {
   };
   updates: {
     channel: "stable" | "early-access";
+    last_run_version?: string; // app.getVersion() as of the last update check that reached voiden.md — detects a completed update (see updates.ts)
   };
   cli: {
     installed: boolean; // Whether CLI is currently installed in PATH
+    installedVersion?: string; // app.getVersion() as of the last successful (re)install — drives reconcileCliInstall()'s staleness check
   };
   skills: {
     claude: boolean;
@@ -56,6 +59,17 @@ export type Settings = {
   history?: {
     enabled?: boolean;
     retention_days?: number;
+  };
+  // The daily activity report on the plugin-registry request (see
+  // extension/activity.ts). The dates stay on this machine.
+  activity?: {
+    install_code?: boolean; // false leaves the install code (extension/installCode.ts) out of the report
+    first_seen?: string; // UTC day of the first run; absent for installs older than activity counting
+    last_active?: string; // UTC day last reported to voiden.md
+  };
+  ui?: {
+    last_seen_version?: string;
+    show_whats_new_after_update?: boolean;
   };
 };
 
@@ -122,7 +136,13 @@ export function loadSettings(): Settings {
   const defaults = readJSON<Settings>(defaultsFile);
   if (!defaults) throw new Error("default.settings.json missing or invalid");
 
-  const user = readJSON<Partial<Settings>>(userFile) ?? {};
+  const savedUser = readJSON<Partial<Settings>>(userFile);
+  const user = savedUser ?? {};
+
+  // No settings file yet means this is the first run of a fresh install.
+  if (!savedUser) {
+    user.activity = { first_seen: new Date().toISOString().slice(0, 10) };
+  }
 
   // Auto-detect beta channel BEFORE merging with defaults
   // If the app version contains "-beta" and the user hasn't explicitly set a channel,

@@ -10,13 +10,18 @@
  *   node publish-apt.js [beta|stable]
  *
  * Required env vars (loaded from ../../.env):
- *   S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY
+ *   S3_ACCESS_KEY_ID_BETA / S3_SECRET_ACCESS_KEY_BETA   (beta channel)
+ *   S3_ACCESS_KEY_ID_STABLE / S3_SECRET_ACCESS_KEY_STABLE (stable channel)
  *   S3_BUCKET_NAME_BETA or S3_BUCKET_NAME_STABLE
  *   S3_REGION (default: eu-west-1)
  *
  * Optional env vars:
- *   VOIDEN_GPG_KEY_ID  — GPG key ID for signing InRelease / Release.gpg
- *                        If not set, repo is published unsigned (users need trusted=yes)
+ *   VOIDEN_GPG_KEY_ID     — GPG key ID for signing InRelease / Release.gpg
+ *                           If not set, repo is published unsigned (users need trusted=yes)
+ *   VOIDEN_GPG_PASSPHRASE — passphrase for the above key, for non-interactive signing
+ *                           (CI). The key itself must already be imported into the
+ *                           runner's keyring (gpg --batch --import) before running this.
+ *                           If unset, gpg falls back to an interactive pinentry prompt.
  */
 
 const fs = require('fs');
@@ -45,7 +50,15 @@ const bucket = channel === 'beta'
   ? process.env.S3_BUCKET_NAME_BETA || 'voiden-beta-releases'
   : process.env.S3_BUCKET_NAME_STABLE || 'voiden-releases';
 const region = process.env.S3_REGION || 'eu-west-1';
+// Each channel publishes through its own IAM credentials, scoped to its own bucket.
+const s3AccessKeyId = channel === 'beta'
+  ? process.env.S3_ACCESS_KEY_ID_BETA
+  : process.env.S3_ACCESS_KEY_ID_STABLE;
+const s3SecretAccessKey = channel === 'beta'
+  ? process.env.S3_SECRET_ACCESS_KEY_BETA
+  : process.env.S3_SECRET_ACCESS_KEY_STABLE;
 const gpgKeyId = process.env.VOIDEN_GPG_KEY_ID;
+const gpgPassphrase = process.env.VOIDEN_GPG_PASSPHRASE;
 
 // ─── Find .deb ───────────────────────────────────────────────────────────────
 
@@ -153,15 +166,24 @@ if (gpgKeyId) {
   const tmpRelease = path.join('/tmp', `voiden-apt-Release-${Date.now()}`);
   fs.writeFileSync(tmpRelease, releaseContent);
 
+  // With a passphrase set (CI), sign non-interactively via loopback pinentry instead
+  // of popping a pinentry prompt that a headless runner can never answer.
+  const passphraseArgs = gpgPassphrase
+    ? ['--batch', '--yes', '--pinentry-mode', 'loopback', '--passphrase-fd', '0']
+    : [];
+  const gpgInput = gpgPassphrase ? gpgPassphrase : undefined;
+
   const inReleaseResult = spawnSync('gpg', [
+    ...passphraseArgs,
     '--default-key', gpgKeyId,
     '--clearsign', '--armor', '-o', '-', tmpRelease,
-  ], { encoding: 'utf-8' });
+  ], { encoding: 'utf-8', input: gpgInput });
 
   const releaseGpgResult = spawnSync('gpg', [
+    ...passphraseArgs,
     '--default-key', gpgKeyId,
     '--armor', '--detach-sign', '-o', '-', tmpRelease,
-  ], { encoding: 'utf-8' });
+  ], { encoding: 'utf-8', input: gpgInput });
 
   fs.unlinkSync(tmpRelease);
 
@@ -198,8 +220,8 @@ if (gpgKeyId) {
 
 // ─── Upload to S3 ────────────────────────────────────────────────────────────
 
-if (!process.env.S3_ACCESS_KEY_ID || !process.env.S3_SECRET_ACCESS_KEY) {
-  console.error('❌ Missing S3_ACCESS_KEY_ID or S3_SECRET_ACCESS_KEY in .env');
+if (!s3AccessKeyId || !s3SecretAccessKey) {
+  console.error(`❌ Missing S3 credentials for the ${channel} channel. Set S3_ACCESS_KEY_ID_${channel.toUpperCase()} and S3_SECRET_ACCESS_KEY_${channel.toUpperCase()}.`);
   process.exit(1);
 }
 
@@ -208,8 +230,8 @@ process.env.AWS_SDK_JS_SUPPRESS_MAINTENANCE_MODE_MESSAGE = '1';
 const AWS = require('aws-sdk');
 
 const s3 = new AWS.S3({
-  accessKeyId: process.env.S3_ACCESS_KEY_ID,
-  secretAccessKey: process.env.S3_SECRET_ACCESS_KEY,
+  accessKeyId: s3AccessKeyId,
+  secretAccessKey: s3SecretAccessKey,
   region,
 });
 

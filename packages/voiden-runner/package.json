@@ -1,9 +1,14 @@
 {
   "name": "@voiden/runner",
-  "version": "0.1.0-beta.6",
+  "version": "2.3.0",
   "description": "CLI runner for .void files — execute REST, WebSocket, and gRPC requests headlessly",
   "type": "module",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/VoidenHQ/voiden",
+    "directory": "packages/voiden-runner"
+  },
   "engines": {
     "node": ">=18"
   },
@@ -13,31 +18,48 @@
   "bin": {
     "voiden-runner": "./dist/index.js"
   },
+  "main": "./dist/lib.js",
+  "types": "./dist/lib.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/lib.d.ts",
+      "import": "./dist/lib.js"
+    },
+    "./package.json": "./package.json"
+  },
   "files": [
-    "dist/**"
+    "dist/**",
+    "bundled-runners/**",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "prebuild": "cd ../../packages/executors && tsc",
-    "build": "tsc",
-    "postbuild": "chmod +x dist/index.js && node ../../scripts/build-runners.mjs",
+    "build": "tsc && chmod +x dist/index.js && node ../../scripts/build-runners.mjs",
     "build:runners": "node ../../scripts/build-runners.mjs",
     "dev": "tsx --tsconfig tsconfig.dev.json src/index.ts",
     "start": "node dist/index.js"
   },
   "dependencies": {
     "@grpc/proto-loader": "^0.7.13",
-    "@voiden/executors": "latest",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@voiden/executors": "*",
     "@voiden/sdk": "*",
     "chalk": "^5.3.0",
     "commander": "^12.0.0",
-    "nodemailer": "^8.0.7",
-    "yaml": "^2.4.2"
+    "nodemailer": "^9.1.1",
+    "yaml": "^2.4.2",
+    "zod": "^3.23.8"
   },
   "devDependencies": {
     "@types/node": "^20.14.10",
     "@types/nodemailer": "^8.0.0",
     "@types/ws": "^8.5.10",
-    "tsx": "^4.15.0",
+    "tsx": "^4.23.15",
     "typescript": "^5.5.3"
+  },
+  "overrides": {
+    "protobufjs": ">=7.6.1 <8.0.0",
+    "@grpc/grpc-js": ">=1.14.4",
+    "ws": ">=8.21.0"
   }
 }

@@ -1,7 +1,7 @@
 {
   "name": "voiden",
   "productName": "Voiden",
-  "version": "2.0.1-beta.1",
+  "version": "2.3.3-beta.1",
   "private": true,
   "author": {
     "name": "Voiden",
@@ -13,6 +13,7 @@
   "scripts": {
     "start": "electron-forge start",
     "package": "electron-forge package",
+    "build:nix": "npx esbuild build-assets.ts --bundle --platform=node --format=cjs --outfile=build-assets.js --packages=external && node build-assets.js",
     "make": "NODE_OPTIONS='--max-old-space-size=4096' electron-forge make",
     "publish": "electron-forge publish",
     "version:bump:beta-patch": "node version-bump.js beta patch",
@@ -47,21 +48,24 @@
     "@types/js-yaml": "^4",
     "@types/mime-types": "^2",
     "@types/selfsigned": "^2.1.0",
+    "@voiden/executors": "*",
+    "@voiden/runner": "workspace:*",
     "aws-sdk": "2.1692.0",
+    "commander": "^12.0.0",
     "dotenv": "^16.4.5",
-    "electron": "39.8.8",
+    "electron": "39.8.10",
     "electron-updater": "^6.3.9",
     "electron-updater-yaml": "^1.0.0",
     "semver": "^7.6.0",
     "ts-node": "^10.0.0",
     "typescript": "~4.5.4",
-    "undici": "^7.24.0",
-    "vite": "^5.4.21"
+    "undici": "^7.28.0",
+    "vite": "^6.4.3"
   },
   "keywords": [],
   "dependencies": {
-    "@grpc/grpc-js": "1.14.1",
-    "adm-zip": "^0.5.16",
+    "@grpc/grpc-js": "^1.14.4",
+    "adm-zip": "^0.6.0",
     "fast-glob": "^3.3.3",
     "graphql": "^16.12.0",
     "graphql-ws": "^6.0.6",
@@ -70,7 +74,7 @@
     "node-pty": "1.0.0",
     "remove-markdown": "^0.6.2",
     "selfsigned": "^5.5.0",
-    "simple-git": "^3.32.3",
+    "simple-git": "^3.36.0",
     "sudo-prompt": "^9.2.1"
   },
   "build": {
@@ -82,8 +86,7 @@
         "nsis"
       ],
       "icon": "src/images/icon.ico",
-      "artifactName": "Voiden Setup ${version}.${ext}",
-      "sign": "./sign.js"
+      "artifactName": "Voiden Setup ${version}.${ext}"
     },
     "nsis": {
       "oneClick": true,

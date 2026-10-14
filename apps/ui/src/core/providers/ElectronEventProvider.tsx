@@ -3,8 +3,8 @@ import React, { createContext, useContext, useEffect, useRef } from "react";
 import { EventEmitter } from "events";
 import { useQueryClient } from "@tanstack/react-query";
 
-import { globalSaveFile, saveTabById } from "@/core/file-system/hooks";
-import { reloadVoidenEditor, useEditorStore } from "@/core/editors/voiden/VoidenEditor";
+import { globalSaveFile, saveTabById, saveUntitledTabById } from "@/core/file-system/hooks";
+import { useEditorStore } from "@/core/editors/voiden/VoidenEditor";
 import { useLoadEnv, useSetActiveEnv } from "@/core/environment/hooks";
 import { toast } from "@/core/components/ui/sonner";
 import { useFocusStore } from "@/core/stores/focusStore";
@@ -79,8 +79,12 @@ export const ElectronEventProvider: React.FC<{ children: React.ReactNode }> = ({
       },
       "file:delete": (event: any, data: any) => {
         // Per-event: handle .env side-effect and emit immediately
-        if (data.path.replace(/\\/g, "/").split("/").pop()?.startsWith(".env")) {
-          setActiveEnv(null);
+        const deletedPath = data.path.replace(/\\/g, "/");
+        if (deletedPath.split("/").pop()?.startsWith(".env")) {
+          // Only the selected environment's own file resets the selection: a
+          // folder-level .env further down the tree is not the selected one.
+          const activeEnv = queryClient.getQueryData<{ activeEnv?: string | null }>(["environments"])?.activeEnv;
+          if (!activeEnv || activeEnv.replace(/\\/g, "/") === deletedPath) setActiveEnv(null);
         }
         handleEvent("file:delete", data);
         // FileSystemList removes the node surgically via removeNodeByPath.
@@ -97,6 +101,9 @@ export const ElectronEventProvider: React.FC<{ children: React.ReactNode }> = ({
       },
       "file:create-void": (event: any, data: any) => {
         handleEvent("file:create-void", data);
+      },
+      "file:create-inherited-config": (event: any, data: any) => {
+        handleEvent("file:create-inherited-config", data);
       },
       "directory:create": (event: any, data: any) => {
         handleEvent("directory:create", data);
@@ -124,6 +131,8 @@ export const ElectronEventProvider: React.FC<{ children: React.ReactNode }> = ({
         if (fileTreeDebounceRef.current) clearTimeout(fileTreeDebounceRef.current);
         fileTreeDebounceRef.current = setTimeout(() => {
           queryClient.invalidateQueries({ queryKey: ['env'] });
+          queryClient.invalidateQueries({ queryKey: ["file-environment"] });
+          queryClient.invalidateQueries({ queryKey: ["environment-keys"] });
         }, 400);
       },
       "folder:opened": (data: any) => {
@@ -169,11 +178,16 @@ export const ElectronEventProvider: React.FC<{ children: React.ReactNode }> = ({
         queryClient.invalidateQueries({ queryKey: ["env"] });
         queryClient.invalidateQueries({ queryKey: ["environments"] });
         queryClient.invalidateQueries({ queryKey: ["environment-keys"] });
+        queryClient.invalidateQueries({ queryKey: ["file-environment"] });
         handleEvent("env:changed", data);
       },
       "file:changed": (_event: any, data: any) => {
         const changedPath = data?.path?.replace(/\\/g, "/");
         if (!changedPath) return;
+        if (changedPath.endsWith("/.env")) {
+          queryClient.invalidateQueries({ queryKey: ["file-environment"] });
+          queryClient.invalidateQueries({ queryKey: ["environment-keys"] });
+        }
         const panelQueries = queryClient.getQueriesData<any>({ queryKey: ["panel:tabs"] });
         for (const [, panelData] of panelQueries) {
           for (const tab of panelData?.tabs ?? []) {
@@ -189,33 +203,13 @@ export const ElectronEventProvider: React.FC<{ children: React.ReactNode }> = ({
       "apy:changed": (_event: any, data: any) => {
         const changedPath = data?.path?.replace(/\\/g, "/");
 
+        // Always refresh block-link embeds — other files that embed this one
+        // should pick up the new content regardless of who triggered the write.
         queryClient.invalidateQueries({ queryKey: ["voiden-wrapper:blockContent", data?.path], exact: false });
-        handleEvent("apy:changed", data);
 
         if (!changedPath) return;
 
-        const panelQueries = queryClient.getQueriesData<any>({ queryKey: ["panel:tabs"] });
-        for (const [, panelData] of panelQueries) {
-          for (const tab of panelData?.tabs ?? []) {
-            if (tab.source?.replace(/\\/g, "/") !== changedPath) continue;
-            const isDirty = !!useEditorStore.getState().unsaved[tab.id];
-            if (isDirty) {
-              toast.warning(`${tab.title} was modified on disk`, {
-                description: "You have unsaved changes. Overwrite with disk version?",
-                action: {
-                  label: "Overwrite",
-                  onClick: () => {
-                    const forceReload = useEditorStore.getState().forceReloadFunctions[tab.id];
-                    if (forceReload) forceReload();
-                  },
-                },
-                duration: 10000,
-              });
-            } else {
-              reloadVoidenEditor(tab.id);
-            }
-          }
-        }
+        handleEvent("apy:changed", data);
       },
       "file:delete-complete":(_event: any, data: any) => {
         handleEvent("file:delete-complete", data);
@@ -276,6 +270,7 @@ export const ElectronEventProvider: React.FC<{ children: React.ReactNode }> = ({
         queryClient.invalidateQueries({ queryKey: ["environments"] });
         queryClient.invalidateQueries({ queryKey: ["env"] });
         queryClient.invalidateQueries({ queryKey: ["environment-keys"] });
+        queryClient.invalidateQueries({ queryKey: ["file-environment"] });
         queryClient.invalidateQueries({ queryKey: ["void-variable-keys"] });
         queryClient.invalidateQueries({ queryKey: ["void-variable-data"] });
       },
@@ -297,12 +292,74 @@ export const ElectronEventProvider: React.FC<{ children: React.ReactNode }> = ({
       "toast:info": (event: any, data: any) => {
         toast.info(data.title, { description: data.description || undefined,duration: data.duration || 4000 ,closeButton:true} );
       },
-      "files:saveUnsavedForPaths": async (_event: any, requestId: string, paths: string[]) => {
-        const panelTabs = queryClient.getQueryData<{ tabs: { id: string; source: string | null }[]; activeTabId: string }>(["panel:tabs", "main"]);
+      "toast:channelSwitch": (_event: any, data: { version: string; targetChannel: "stable" | "early-access" }) => {
+        const label = data.targetChannel === "early-access" ? "Early Access" : "Stable";
+        toast.info(`v${data.version} available on ${label}`, {
+          description: `A newer version is available on the ${label} channel.`,
+          duration: 12000,
+          closeButton: true,
+          action: {
+            label: `Switch to ${label}`,
+            onClick: () => window.electron?.userSettings.toggleEarlyAccess(data.targetChannel === "early-access"),
+          },
+        });
+      },
+      "files:saveUnsavedForPaths": async (_event: any, requestId: string, paths: string[], options?: { includeUntitled?: boolean }) => {
+        const panelTabs = queryClient.getQueryData<{ tabs: { id: string; title: string; source: string | null }[]; activeTabId: string }>(["panel:tabs", "main"]);
         const tabs = panelTabs?.tabs ?? [];
-        const matchingTabs = tabs.filter((t) => t.source && paths.includes(t.source));
-        await Promise.all(matchingTabs.map((t) => saveTabById(t.id, { silent: true })));
-        window.electron?.files.acknowledgeUnsavedSaved(requestId);
+        const result: { cancelled: boolean; failed: string[] } = { cancelled: false, failed: [] };
+        try {
+          const isUnsaved = (id: string) => id in useEditorStore.getState().unsaved;
+          // Empty `paths` means "flush every unsaved tab" (used before the app
+          // quits or restarts, where the caller doesn't know specific paths).
+          const namedTabs = paths.length
+            ? tabs.filter((t) => t.source && paths.includes(t.source))
+            : tabs.filter((t) => t.source && isUnsaved(t.id));
+          // A save that throws is a save that failed: it must be reported, never
+          // mistaken for success because the others went through.
+          const saved = await Promise.all(
+            namedTabs.map((t) =>
+              saveTabById(t.id, { silent: true }).catch((error) => {
+                console.error("Failed to save tab:", t.title, error);
+                return false;
+              }),
+            ),
+          );
+          saved.forEach((ok, i) => {
+            if (!ok) result.failed.push(namedTabs[i].title);
+          });
+
+          // Untitled tabs have nowhere to be written, so each one asks where to
+          // save, one dialog at a time. Cancelling one stops the rest: the
+          // caller treats that as "don't go ahead".
+          if (options?.includeUntitled && !paths.length) {
+            for (const tab of tabs.filter((t) => !t.source && isUnsaved(t.id))) {
+              const outcome = await saveUntitledTabById(tab.id);
+              if (outcome === "cancelled") {
+                result.cancelled = true;
+                break;
+              }
+              if (outcome === "failed") result.failed.push(tab.title);
+            }
+          }
+        } catch (error) {
+          // Something unexpected went wrong part-way. Whatever is still unsaved
+          // was not saved; say so rather than letting the caller go ahead.
+          console.error("Failed to save unsaved tabs:", error);
+          const unsaved = useEditorStore.getState().unsaved;
+          for (const tab of tabs) {
+            if (tab.id in unsaved && !result.failed.includes(tab.title)) result.failed.push(tab.title);
+          }
+        } finally {
+          window.electron?.files.acknowledgeUnsavedSaved(requestId, result);
+        }
+      },
+      "files:queryUnsavedTabs": (_event: any, requestId: string) => {
+        const panelTabs = queryClient.getQueryData<{ tabs: { id: string; title: string }[]; activeTabId: string }>(["panel:tabs", "main"]);
+        const tabs = panelTabs?.tabs ?? [];
+        const unsaved = useEditorStore.getState().unsaved;
+        const titles = tabs.filter((t) => t.id in unsaved).map((t) => t.title);
+        window.electron?.files.replyUnsavedTabs(requestId, titles);
       },
     };
 

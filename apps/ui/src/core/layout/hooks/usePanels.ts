@@ -14,6 +14,56 @@ const STORAGE_KEYS = {
   RIGHT_PANEL: "novus:right-panel-collapsed",
 } as const;
 
+// Whether the user is dragging the handle beside a panel right now. The
+// library also reports a collapse or an expand when a layout is first laid
+// out and when the app collapses a panel itself; only the ones the user causes
+// by dragging should change the open/closed state in the store.
+const dragging = { right: false, bottom: false };
+
+export const setPanelDragging = (panel: keyof typeof dragging, value: boolean) => {
+  dragging[panel] = value;
+};
+
+// The largest share of its group a pixel minimum may claim, so the panel next
+// to it always keeps some room in a small window.
+const MAX_MIN_SIZE = 70;
+
+/**
+ * A panel's smallest size is a pixel width (or height), but the resize library
+ * only takes percentages of the panel group. This turns one into the other and
+ * keeps it right as the group is resized. Attach `groupRef` to an element the
+ * same size as the PanelGroup.
+ *
+ * Enforcing the pixel size with a CSS min-width instead makes the two disagree:
+ * the library keeps shrinking a panel that CSS holds in place, so the handle
+ * stops following the cursor and the layout jumps.
+ */
+export const usePixelMinSize = (minPixels: number, minPercent: number, direction: "horizontal" | "vertical") => {
+  const groupRef = useRef<HTMLDivElement>(null);
+  const [minSize, setMinSize] = useState(minPercent);
+
+  useLayoutEffect(() => {
+    const element = groupRef.current;
+    if (!element) return;
+    const update = () => {
+      const total = direction === "horizontal" ? element.clientWidth : element.clientHeight;
+      if (total <= 0) return;
+      const percent = Math.min(MAX_MIN_SIZE, Math.max(minPercent, (minPixels / total) * 100));
+      // Whole tenths, so a one-pixel change does not re-render the layout.
+      setMinSize(Math.ceil(percent * 10) / 10);
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [minPixels, minPercent, direction]);
+
+  return { groupRef, minSize };
+};
+
+export const BOTTOM_PANEL_MIN_PIXELS = 160;
+export const RIGHT_PANEL_MIN_PIXELS = 300;
+
 interface UseLeftPanelProps {
   defaultSize?: number;
   minSize?: number;
@@ -26,14 +76,27 @@ export const useLeftPanel = ({ defaultSize = 20, minSize = 0 }: UseLeftPanelProp
     return stored ? JSON.parse(stored) : false;
   });
 
+  const setLeftPanelRef = usePanelStore((state) => state.setLeftPanelRef);
+  const openLeftPanel = usePanelStore((state) => state.openLeftPanel);
+  const closeLeftPanel = usePanelStore((state) => state.closeLeftPanel);
+  const leftPanelOpen = usePanelStore((state) => state.leftPanelOpen);
+
+  // Register the ref so it can be opened imperatively from outside this component
+  // (e.g. a toast action revealing the Plugins tab).
+  useEffect(() => {
+    setLeftPanelRef(ref);
+  }, []);
+
   const toggle = () => {
     if (ref.current) {
       if (ref.current.isCollapsed()) {
         ref.current.expand();
         setIsCollapsed(false);
+        openLeftPanel();
       } else {
         ref.current.collapse();
         setIsCollapsed(true);
+        closeLeftPanel();
       }
     }
   };
@@ -42,6 +105,15 @@ export const useLeftPanel = ({ defaultSize = 20, minSize = 0 }: UseLeftPanelProp
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.LEFT_PANEL, JSON.stringify(isCollapsed));
   }, [isCollapsed]);
+
+  // React to imperative opens requested via the global store (e.g. openLeftPanel()
+  // called from outside this component) without fighting the toggle/keyboard-shortcut path.
+  useEffect(() => {
+    if (ref.current && leftPanelOpen && ref.current.isCollapsed()) {
+      ref.current.expand();
+      setIsCollapsed(false);
+    }
+  }, [leftPanelOpen]);
 
   // Keyboard shortcut: Cmd+Shift+E
   useEffect(() => {
@@ -69,7 +141,7 @@ export const useLeftPanel = ({ defaultSize = 20, minSize = 0 }: UseLeftPanelProp
     collapsedSize: 0,
     defaultSize,
     minSize,
-    className: cn("", !isCollapsed && "min-w-40"),
+    className: cn("", !isCollapsed && "min-w-[200px]"),
   };
 
   return {
@@ -86,7 +158,7 @@ interface UseBottomPanelProps {
   panelId: string;
 }
 
-export const useBottomPanel = ({ defaultSize = 0, minSize = 20, panelId = "bottom" }: UseBottomPanelProps = {} as UseBottomPanelProps) => {
+export const useBottomPanel = ({ defaultSize = 0, minSize = 28, panelId = "bottom" }: UseBottomPanelProps = {} as UseBottomPanelProps) => {
   if (!panelId) {
     throw new Error("useBottomPanel requires a valid panelId");
   }
@@ -208,7 +280,15 @@ export const useBottomPanel = ({ defaultSize = 0, minSize = 20, panelId = "botto
     collapsedSize: 0,
     defaultSize,
     minSize,
-    className: cn("", bottomPanelOpen && "min-h-[100px]"),
+    // Dragging the handle far enough collapses or re-opens the panel; keep the
+    // store in step so the rest of the app knows. The pixel minimum is applied
+    // by the layout through usePixelMinSize.
+    onCollapse: () => {
+      if (dragging.bottom) closeBottomPanel();
+    },
+    onExpand: () => {
+      if (dragging.bottom) openBottomPanel();
+    },
   };
 
   return {
@@ -311,7 +391,13 @@ export const useRightPanel = ({ defaultSize = 0, minSize = 30 }: UseRightPanelPr
     collapsedSize: 0,
     defaultSize,
     minSize,
-    className: cn("", rightPanelOpen && "min-w-[200px]"),
+    // As for the bottom panel: see the note there.
+    onCollapse: () => {
+      if (dragging.right) closeRightPanel();
+    },
+    onExpand: () => {
+      if (dragging.right) openRightPanel();
+    },
   };
 
   return {

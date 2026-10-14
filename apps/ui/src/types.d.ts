@@ -39,6 +39,8 @@ export interface SearchResult {
   line: number;
   col: number;
   preview: string;
+  colInPreview: number;
+  matchLength: number;
 }
 
 export {};
@@ -62,6 +64,10 @@ declare global {
       ) => Promise<Response>;
       connectWss: (wsId: string) => Promise<void>;
       getVersion: () => Promise<string>;
+      checkForUpdates: (channel: "stable" | "early-access") => Promise<{ available: boolean; version?: string }>;
+      onUpdateProgress: (callback: (progress: { percent?: number; bytesPerSecond?: number; transferred?: number; total?: number; status: string }) => void) => () => void;
+      readUpdaterLog: () => Promise<string>;
+      getUpdaterLogPath: () => Promise<string>;
       mainwindow: {
         minimize: () => void;
         maximize: () => void;
@@ -70,6 +76,12 @@ declare global {
       };
       utils: {
         pathJoin: (...paths: string[]) => Promise<string>;
+        /** Resolves a dragged File's real filesystem path — needed for
+         * directories, since Electron no longer exposes `.path` directly on
+         * a drag-and-drop File object (see the preload implementation for
+         * why). Regular files don't need this — their content is read via
+         * `file.arrayBuffer()` instead, which doesn't depend on a path. */
+        getPathForFile: (file: File) => string;
       };
       dialog: {
         openFile: (options: Electron.OpenDialogOptions) => Promise<string[]>;
@@ -152,6 +164,9 @@ declare global {
         ) => Promise<{ success: boolean; error?: string }>;
         deleteDirectory: (path: string) => Promise<boolean>;
         bulkDelete: (items: FileTreeItem[]) => Promise<boolean>;
+        deleteItems: (items: FileTreeItem[]) => Promise<void>;
+        revealInFinder: (path: string) => Promise<void>;
+        setTreeFocusState: (item: FileTreeItem | null) => void;
         getFiles: (
           filePaths: string[],
           isExternal?: boolean,
@@ -187,6 +202,8 @@ declare global {
           path?: string;
           error?: string;
         }>;
+        resolveInheritedChain: (filePath: string, workspaceRoot: string) => Promise<string[]>;
+        createInheritedConfig: (folderPath: string) => Promise<{ path: string; created: boolean }>;
         onReferencesUpdated: (
           callback: (filePaths: string[]) => void,
         ) => () => void;
@@ -194,9 +211,13 @@ declare global {
           callback: (requestId: string, paths: string[]) => void,
         ) => () => void;
         acknowledgeUnsavedSaved: (requestId: string) => void;
+        replyUnsavedTabs: (requestId: string, titles: string[]) => void;
       };
       startSearch: (args: { query: string; matchCase: boolean; matchWholeWord: boolean; useRegex: boolean; useMultiline: boolean; searchId: number; fileMask?: string; dirMask?: string; includeHidden?: boolean }) => void;
       cancelSearch: (searchId: number) => void;
+      replaceMatch: (args: { path: string; line: number; col: number; query: string; replacement: string; matchCase: boolean; matchWholeWord: boolean; useRegex: boolean; useMultiline: boolean }) => Promise<{ success: boolean; updatedPaths: string[]; replacement?: string; error?: string }>;
+      replaceInFiles: (args: { query: string; replacement: string; matchCase: boolean; matchWholeWord: boolean; useRegex: boolean; useMultiline: boolean; paths: string[] }) => Promise<{ replacedCount: number; updatedPaths: string[]; replacements?: Record<string, string[]>; error?: string }>;
+      searchInFile: (args: { path: string; query: string; matchCase: boolean; matchWholeWord: boolean; useRegex: boolean; useMultiline: boolean }) => Promise<{ results: SearchResult[] }>;
       listDirs: (parent?: string) => Promise<string[]>;
       onSearchResult: (cb: (data: { searchId: number; result: SearchResult }) => void) => () => void;
       onSearchDone: (cb: (data: { searchId: number; error?: string }) => void) => () => void;
@@ -286,6 +307,15 @@ declare global {
           tabId: string,
           unsavedContent?: string,
         ) => Promise<{ panelId: string; tabId: string; canceled?: boolean }>;
+        closePanelTabs: (
+          panelId: string,
+          tabs: Array<{ tabId: string; unsavedContent?: string }>,
+        ) => Promise<{
+          panelId: string;
+          closedTabs: Array<{ tabId: string; panelId: string }>;
+          canceledTabs: Array<{ tabId: string; panelId: string }>;
+          allClosed: boolean;
+        }>;
         renameFile: (
           oldPath: string,
           newName: string,
@@ -304,6 +334,7 @@ declare global {
           tabId: string,
         ) => Promise<{ panelId: string; tabId: string }>;
         reorderTabs: (panelId: string, tabs: any[]) => Promise<void>;
+        promotePendingTab: (panelId: string, tabId: string) => Promise<{ panelId: string; tabId: string }>;
       };
 
       tab: {
@@ -386,8 +417,9 @@ declare global {
           comment: string,
           variables: [{ key: string; value: Record<string, string> }],
         ) => Promise<void>;
-        replaceVariables: (text: string) => Promise<string>;
-        getKeys: () => Promise<string[]>;
+        replaceVariables: (text: string, requestFilePath?: string) => Promise<string>;
+        forRequest: (requestFilePath: string) => Promise<Record<string, string>>;
+        getKeys: (requestFilePath?: string) => Promise<string[]>;
         getYamlTrees: (profile?: string) => Promise<{
           public: Record<string, unknown>;
           private: Record<string, unknown>;
@@ -399,9 +431,20 @@ declare global {
           projectPath?: string,
         ) => Promise<void>;
         getProfiles: () => Promise<string[]>;
+        getProfileFiles: () => Promise<Record<string, string>>;
+        getNestedEnvSources: () => Promise<
+          Array<{
+            projectPath: string;
+            relPath: string;
+            profile: string;
+            public: Record<string, unknown>;
+            private: Record<string, unknown>;
+          }>
+        >;
         setActiveProfile: (profile: string) => Promise<void>;
         createProfile: (profile: string) => Promise<void>;
         deleteProfile: (profile: string) => Promise<void>;
+        renameProfile: (oldName: string, newName: string) => Promise<void>;
       };
       fileLink: {
         exists: (absolutePath: string) => Promise<boolean>;
@@ -411,6 +454,7 @@ declare global {
         set: (patch: any) => Promise<any>;
         reset: () => Promise<any>;
         onChange: (callback: void) => Promise<any>;
+        toggleEarlyAccess: (enable: boolean) => Promise<void>;
       };
       pluginSettings: {
         get: (pluginId: string, key: string) => Promise<unknown>;
@@ -458,6 +502,11 @@ declare global {
           cb: (payload: { projectRoot: string; locked: boolean }) => void,
         ) => () => void;
       };
+      path: {
+        toRelative: (base: string, target: string) => Promise<string>;
+        toAbsolute: (base: string, maybeRelative: string) => Promise<string>;
+        findProjectRoot: (filePath: string) => Promise<string | null>;
+      };
       logger: {
         getLogs: () => Promise<any[]>;
         filterLogs: (category?: string, level?: string, sinceTimestamp?: number) => Promise<any[]>;
@@ -475,6 +524,11 @@ declare global {
         build: (sourcePath: string) => Promise<{ success: boolean; error?: string }>;
         onBuildOutput: (cb: (line: string) => void) => () => void;
         checkProject: (dirPath: string) => Promise<{ isPlugin: boolean; pluginId?: string; pluginName?: string }>;
+      };
+      mcp: {
+        initialize: () => Promise<{ success: boolean; message?: string }>;
+        disable: () => Promise<{ success: boolean; message?: string }>;
+        status: () => Promise<{ registered: boolean; cliInstalled: boolean }>;
       };
     };
     platform: NodeJS.Platform;

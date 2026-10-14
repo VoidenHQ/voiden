@@ -8,6 +8,7 @@ import { ElectronEventProvider } from "@/core/providers";
 import { useState, useEffect } from "react";
 import { CommandPalette } from "@/core/components/CommandPalette";
 import { HelpModal } from "@/core/help/HelpModal";
+import { WhatsNewModal } from "@/core/whats-new/WhatsNewModal";
 import { useHistoryTabSync } from "@/core/layout/hooks";
 import { matchesShortcut } from "@/core/shortcuts";
 
@@ -79,6 +80,7 @@ export const Route = createRootRouteWithContext<{
                   title={helpModalTitle}
                   content={helpModalContent}
                 />
+                <WhatsNewModal />
               </div>
             </TooltipProvider>
           </PluginProvider>

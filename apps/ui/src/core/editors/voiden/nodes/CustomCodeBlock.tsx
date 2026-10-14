@@ -66,7 +66,6 @@ const CodeBlockView = (props: NodeViewProps) => {
           <CodeEditor
             lang={language}
             readOnly={!isEditable}
-            showReplace={false}
             autofocus={!body && isEditable}
             tiptapProps={{
               ...props,
@@ -117,12 +116,27 @@ export const CustomCodeBlock = CodeBlock.extend({
   addInputRules() {
     // The parent CodeBlock uses setBlockType which requires a textblock.
     // Since this node has content: "" (non-textblock), we use replaceWith instead.
+    const isCodeBlockDisallowedHere = ($from: import("@tiptap/pm/model").ResolvedPos) => {
+      // Headings shouldn't be convertible into code blocks
+      if ($from.parent.type.name === "heading") return true;
+
+      // Table cells/headers shouldn't contain code blocks
+      for (let d = $from.depth; d > 0; d--) {
+        const typeName = $from.node(d).type.name;
+        if (typeName === "tableCell" || typeName === "tableHeader") return true;
+      }
+
+      return false;
+    };
+
     return [
       new InputRule({
         find: /^`{3,}([a-zA-Z]*)?[\s\n]$/,
         handler: ({ state, range, match }) => {
-          const language = match[1] || "plaintext";
           const $from = state.doc.resolve(range.from);
+          if (isCodeBlockDisallowedHere($from)) return;
+
+          const language = match[1] || "plaintext";
           const blockStart = $from.before($from.depth);
           const blockEnd = $from.after($from.depth);
           state.tr.replaceWith(blockStart, blockEnd, this.type.create({ language, body: "" }));
@@ -131,8 +145,10 @@ export const CustomCodeBlock = CodeBlock.extend({
       new InputRule({
         find: /^~{3,}([a-zA-Z]*)?[\s\n]$/,
         handler: ({ state, range, match }) => {
-          const language = match[1] || "plaintext";
           const $from = state.doc.resolve(range.from);
+          if (isCodeBlockDisallowedHere($from)) return;
+
+          const language = match[1] || "plaintext";
           const blockStart = $from.before($from.depth);
           const blockEnd = $from.after($from.depth);
           state.tr.replaceWith(blockStart, blockEnd, this.type.create({ language, body: "" }));

@@ -1,7 +1,17 @@
 import { mergeAttributes } from "@tiptap/core";
-import Table from "@tiptap/extension-table";
+import { Table } from "@tiptap/extension-table";
 
 export const CustomTable = Table.extend({
+  addOptions() {
+    return {
+      ...this.parent!(),
+      // Tiptap 3 renders non-resizable tables through its own TableView node
+      // view, which skips renderHTML below — dropping our table-fixed/w-full
+      // classes, so the first w-full cell took the whole row. null restores
+      // Tiptap 2's behavior of rendering via renderHTML.
+      View: null,
+    };
+  },
   addKeyboardShortcuts() {
     return {
       ...this.parent?.(),

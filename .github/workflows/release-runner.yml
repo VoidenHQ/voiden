@@ -1,19 +1,29 @@
 # Builds and publishes @voiden/runner to npm, and attaches a .tgz to a GitHub Release.
 #
-# Trigger: push a tag like runner-v0.1.0
+# Trigger: manual (workflow_dispatch)
+# Bump the version in packages/voiden-runner/package.json, commit, then trigger this workflow.
 #
-# Required repository secret:
-#   NPM_TOKEN  — Automation token from npmjs.com (Settings → Access Tokens → Automation)
+# @voiden/executors is a separate npm package that voiden-runner depends on.
+# This workflow verifies it's published at the version voiden-runner was just
+# built against and publishes it first if not — then pins voiden-runner's
+# dependency to that exact version before publishing (rather than shipping the
+# "*" range from source, which resolves against whatever happens to be
+# "latest" on npm at *install* time and previously caused a published runner
+# to pull in a stale/incompatible executors build).
+#
+# Publishes via npm Trusted Publishing (OIDC) — no NPM_TOKEN secret needed.
+# One-time setup required on npmjs.com for EACH package (@voiden/runner AND
+# @voiden/executors): package Settings → Trusted Publisher → add GitHub
+# Actions with org "VoidenHQ", repo "voiden", workflow "release-runner.yml".
 
 name: Release voiden-runner
 
 on:
-  push:
-    tags:
-      - 'runner-v*'   # e.g. runner-v0.1.0
+  workflow_dispatch:
 
 permissions:
   contents: write
+  id-token: write
 
 jobs:
   release:
@@ -24,9 +34,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # core-extensions is gitignored — fetch it from its own repo
-      - name: Clone core-extensions
-        run: git clone https://github.com/VoidenHQ/core-extensions.git core-extensions
+      - name: Read runner version
+        id: version
+        run: |
+          VERSION=$(node -p "require('./packages/voiden-runner/package.json').version")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=runner-v$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Setup Node (with npm registry auth)
         uses: actions/setup-node@v4
@@ -37,24 +50,73 @@ jobs:
       - name: Enable Corepack (Yarn)
         run: corepack enable
 
-      - name: Install workspace dependencies
-        run: yarn install --immutable
+      # Same prep the app release uses — clones plugin-registry + core plugins
+      # into plugins/, then yarn installs workspace deps. The postbuild step
+      # below (build-runners.mjs) needs those cloned repos + their own
+      # node_modules (esbuild) to build {pluginId}-runner.js bundles.
+      - name: Run cleanup (clone plugins + install deps)
+        run: chmod +x cleanup.sh && ./cleanup.sh
 
       # npm run build handles the full chain:
-      #   prebuild → tsc in core-extensions → tsc in executors
-      #   build    → tsc in voiden-runner
+      #   prebuild  → tsc in executors
+      #   build     → tsc in voiden-runner
+      #   postbuild → build-runners.mjs (bundles each cloned plugin's runner.ts)
       - name: Build @voiden/runner
         working-directory: packages/voiden-runner
         run: npm run build
 
-      # ── Publish to npm ─────────────────────────────────────────────────────
+      # ── Publish to npm (Trusted Publishing / OIDC — no token needed) ─────────────
+      - name: Upgrade npm (OIDC support needs npm >=11.5.1)
+        run: npm install -g npm@11
+
+      # Guards against the class of bug where voiden-runner ships depending on
+      # an @voiden/executors version/feature that was never actually pushed
+      # to the npm registry — publish it now if the registry doesn't have it.
+      - name: Verify / publish @voiden/executors
+        id: executors
+        working-directory: packages/executors
+        run: |
+          EXEC_VERSION=$(node -p "require('./package.json').version")
+          echo "version=$EXEC_VERSION" >> "$GITHUB_OUTPUT"
+          if npm view "@voiden/executors@$EXEC_VERSION" version >/dev/null 2>&1; then
+            echo "@voiden/executors@$EXEC_VERSION is already published, skipping."
+          else
+            echo "@voiden/executors@$EXEC_VERSION is not on npm yet — publishing."
+            if [[ "$EXEC_VERSION" == *beta* || "$EXEC_VERSION" == *alpha* || "$EXEC_VERSION" == *rc* ]]; then
+              npm publish --access public --provenance --tag beta
+            else
+              npm publish --access public --provenance
+            fi
+          fi
+
+      # Pin the dependency to the version we just verified is on npm, instead
+      # of the "*" range committed in source (which is only safe locally,
+      # where the yarn workspace resolves it to the live local package).
+      - name: Pin @voiden/executors dependency to published version
+        working-directory: packages/voiden-runner
+        run: |
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            pkg.dependencies['@voiden/executors'] = '${{ steps.executors.outputs.version }}';
+            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+
+      # Prerelease versions (2.3.0-beta.1, ...-alpha.N, ...-rc.N) publish under
+      # the "beta" dist-tag so `npm install -g @voiden/runner` (no version
+      # pinned) keeps resolving to the last stable release — users opt into a
+      # prerelease via `npm install @voiden/runner@beta`.
       - name: Publish to npm
         working-directory: packages/voiden-runner
-        run: npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          if [[ "$VERSION" == *beta* || "$VERSION" == *alpha* || "$VERSION" == *rc* ]]; then
+            npm publish --access public --provenance --tag beta
+          else
+            npm publish --access public --provenance
+          fi
 
-      # ── Attach tarball to GitHub Release ───────────────────────────────────
+      # ── Attach tarball to GitHub Release ─────────────────────────────────────
       - name: Pack tarball
         working-directory: packages/voiden-runner
         run: npm pack
@@ -67,8 +129,9 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
-          name: voiden-runner ${{ github.ref_name }}
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: voiden-runner ${{ steps.version.outputs.tag }}
+          generate_release_notes: true
           body: |
             ### Install
 
@@ -78,6 +141,6 @@ jobs:
 
             Or from this release tarball:
             ```bash
-            npm install -g https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/${{ steps.tarball.outputs.name }}
+            npm install -g https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.tag }}/${{ steps.tarball.outputs.name }}
             ```
           files: packages/voiden-runner/${{ steps.tarball.outputs.name }}

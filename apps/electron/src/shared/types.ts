@@ -13,6 +13,8 @@ export interface Tab {
   directory?: string | null;
   // Meta information for extension tabs
   meta?: Meta;
+  // If true, this tab was opened via single-click and will be replaced by the next single-clicked file
+  pending?: boolean;
 }
 
 interface Panel {

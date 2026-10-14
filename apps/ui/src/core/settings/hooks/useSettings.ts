@@ -3,12 +3,33 @@ import { loadThemeById } from "@/utils/themeLoader";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 // Valid font families from SettingsScreen
-const VALID_FONT_FAMILIES = [
+export const SYSTEM_DEFAULT_FONT = "System Default";
+// Mirrors the default --font-family-base stack in styles.css. Bundled Inter
+// (see the "Inter (Font Family option)" @font-face) with the real macOS
+// monospace stack as fallback in case the Inter webfont fails to load.
+export const SYSTEM_DEFAULT_MONO_STACK = '"Inter", "SF Mono", Monaco, Menlo, Courier, monospace';
+// Terminal-only fallback for "System Default" — deliberately excludes Inter.
+// A terminal renders in a fixed-width character grid; forcing a proportional
+// font into that grid breaks column alignment (ls output, box-drawing chars,
+// progress bars, etc). The code editor can tolerate a proportional font,
+// a terminal fundamentally can't.
+export const TERMINAL_DEFAULT_MONO_STACK = '"SF Mono", Monaco, Menlo, Courier, monospace';
+// Single source of truth — SettingsScreen.tsx imports this instead of keeping
+// its own copy, so the dropdown options and the persisted-value validator
+// below can never drift out of sync with each other.
+export const VALID_FONT_FAMILIES = [
+  SYSTEM_DEFAULT_FONT,
   "Inconsolata",
   "Geist Mono",
   "JetBrains Mono",
-  "Fira Code"
+  "Fira Code",
+  "Inter"
 ];
+// Entries in VALID_FONT_FAMILIES that are proportional rather than monospace.
+// "Inter" can be picked directly from the Font family dropdown (not just via
+// System Default), but it hits the same terminal-grid problem described above
+// — the terminal must fall back to TERMINAL_DEFAULT_MONO_STACK for these too.
+export const PROPORTIONAL_FONT_FAMILIES = ["Inter"];
 
 // Validation ranges
 const FONT_SIZE_MIN = 10;
@@ -37,7 +58,7 @@ function validateSettings(settings: UserSettings): UserSettings {
   // Validate font family
   if (!validated.appearance.font_family ||
     !VALID_FONT_FAMILIES.includes(validated.appearance.font_family)) {
-    validated.appearance.font_family = "Inconsolata"; // Default fallback
+    validated.appearance.font_family = SYSTEM_DEFAULT_FONT; // Default fallback
   }
 
   // Validate UI font size
@@ -84,6 +105,10 @@ function validateSettings(settings: UserSettings): UserSettings {
         validated.editor.code_block_max_lines > CODE_BLOCK_MAX_LINES_MAX))
   ) {
     validated.editor.code_block_max_lines = 50;
+  }
+
+  if (typeof validated.editor.pending_tabs !== 'boolean') {
+    validated.editor.pending_tabs = false;
   }
 
   // Validate request timeout
@@ -273,6 +298,8 @@ export type UserSettings = {
     auto_save: boolean;
     auto_save_delay: number; // seconds
     code_block_max_lines: number; // 0 = unlimited
+    block_overview: boolean;
+    pending_tabs: boolean;
   };
   requests: {
     disable_tls_verification: boolean;
@@ -335,7 +362,9 @@ export function useSettings() {
 
   useEffect(() => {
     if (settings?.appearance?.font_family) {
-      const cssFont = `"${settings.appearance.font_family}", monospace`;
+      const cssFont = settings.appearance.font_family === SYSTEM_DEFAULT_FONT
+        ? SYSTEM_DEFAULT_MONO_STACK
+        : `"${settings.appearance.font_family}", monospace`;
       document.documentElement.style.setProperty("--font-family-base", cssFont);
       document.documentElement.style.setProperty("--font-family-mono", cssFont);
     }
@@ -359,6 +388,18 @@ export function useSettings() {
       );
     }
   }, [settings?.appearance?.content_width]);
+
+  // Drives where the width-capped content column sits horizontally —
+  // consumed by any width-capped editor surface (VoidenEditor, CodeEditor,
+  // markdown preview) via margin-left/margin-right, same left/center/right
+  // value as the request-separator label alignment.
+  useEffect(() => {
+    const alignment = settings?.appearance?.separator_alignment;
+    if (alignment) {
+      document.documentElement.style.setProperty("--content-align-ml", alignment === "left" ? "0" : "auto");
+      document.documentElement.style.setProperty("--content-align-mr", alignment === "right" ? "0" : "auto");
+    }
+  }, [settings?.appearance?.separator_alignment]);
 
   useEffect(() => {
     let cancelled = false;

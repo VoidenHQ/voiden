@@ -71,16 +71,17 @@ function withCopyAction(type: string, message: ReactNode, options?: ToastOptions
 export const toast = Object.assign(
   (message: ReactNode, options?: ToastOptions) => sonnerToast(message, withCopyAction("default", message, options)),
   {
-    // Success: pass options through (description shown), but no copy button
     success: (message: ReactNode, options?: ToastOptions) =>
       sonnerToast.success(message, options),
-    // Error, warning, info: include copy button
+    // Error: keep copy — useful for debugging
     error: (message: ReactNode, options?: ToastOptions) =>
       sonnerToast.error(message, withCopyAction("error", message, options)),
+    // Warning: keep copy
     warning: (message: ReactNode, options?: ToastOptions) =>
       sonnerToast.warning(message, withCopyAction("warning", message, options)),
+    // Info: no copy — used for status notifications (update available, etc.)
     info: (message: ReactNode, options?: ToastOptions) =>
-      sonnerToast.info(message, withCopyAction("info", message, options)),
+      sonnerToast.info(message, options),
     dismiss: sonnerToast.dismiss,
     custom: sonnerToast.custom,
     promise: sonnerToast.promise,
@@ -106,6 +107,17 @@ const Toaster = ({ ...props }: ToasterProps) => {
             "group-[.toast]:bg-active group-[.toast]:text-text transition-transform duration-150 hover:scale-[1.02] active:scale-95",
           cancelButton:
             "group-[.toast]:bg-active group-[.toast]:text-comment",
+          // Sonner colors this from its own light/dark palette (driven by
+          // the `theme` prop above, which tracks next-themes/system) rather
+          // than Voiden's actual active theme — the two can disagree (e.g.
+          // OS in dark mode while a light Voiden theme is selected), leaving
+          // a white X on a white toast. Pin it to our own theme tokens
+          // instead, `!` to win over sonner's own non-:where-wrapped
+          // close-button rules (its background and dark-mode color rules
+          // aren't in a zero-specificity :where(), unlike the rest of its
+          // toast styling).
+          closeButton:
+            "group-[.toast]:!bg-panel group-[.toast]:!text-comment group-[.toast]:!border-border group-[.toast]:hover:!bg-hover group-[.toast]:hover:!text-text",
         },
       }}
       {...props}

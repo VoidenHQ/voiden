@@ -53,22 +53,25 @@ export enum PipelineStage {
 export interface RestApiRequestState {
   method: string
   url: string
-  headers:     Array<{ key: string; value: string; enabled?: boolean }>
-  queryParams: Array<{ key: string; value: string; enabled?: boolean }>
+  headers:     Array<{ key: string; value: string; enabled?: boolean; omitIfUnresolved?: boolean }>
+  cookies?:    Array<{ key: string; value: string; enabled?: boolean; omitIfUnresolved?: boolean }>
+  queryParams: Array<{ key: string; value: string; enabled?: boolean; omitIfUnresolved?: boolean }>
   pathParams:  Array<{ key: string; value: string; enabled?: boolean }>
   body?: string
   contentType?: string
-  bodyParams?: Array<{ key: string; value: string | File; type?: string; enabled?: boolean }>
+  bodyParams?: Array<{ key: string; value: string | File; type?: string; enabled?: boolean; omitIfUnresolved?: boolean }>
   binary?: File | string | string[]
   authProfile?: string
   preRequestResult?: any
   metadata?: Record<string, any>
-  /** Protocol hint set by parser plugins: 'rest' | 'graphql' | 'grpc' | 'ws' */
+  /** Protocol hint set by parser plugins: 'rest' | 'graphql' | 'grpc' | 'ws' | 'mcp' */
   protocolType?: string
   /** GraphQL operation type: 'query' | 'mutation' | 'subscription' */
   operationType?: string
   /** gRPC-specific config set by the GraphQL/sockets parser */
   grpc?: Record<string, any>
+  /** MCP-specific config set by the voiden-mcp-client parser */
+  mcp?: Record<string, any>
 }
 
 export interface RestApiResponseState {
@@ -90,6 +93,8 @@ export interface RestApiResponseState {
     headers: { key: string; value: string }[]
     httpVersion?: string
     proxy?: { name: string; host: string; port: number }
+    /** Resolved (post-{{...}}-substitution) body actually sent, when the adapter reports one. */
+    body?: string
   }
   metadata?: Record<string, any>
 }

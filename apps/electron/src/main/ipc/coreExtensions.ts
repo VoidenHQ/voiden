@@ -1,10 +1,11 @@
-import { ipcMain, app, net, BrowserWindow } from 'electron'
+import { ipcMain, app, BrowserWindow } from 'electron'
 import path from 'node:path'
 import fs from 'node:fs/promises'
 import { existsSync, watch, readFileSync } from 'node:fs'
 import { coreExtensions, fetchAndUpdateCoreRegistry, remoteVersions, remoteVoidenVersions, remoteNewPlugins } from '../config/coreExtensions'
 import { getMainProcessExtensionResults } from '../extensionLoader'
 import { coreCacheDir, githubCachePath, coreUninstalledPath } from '../extension/paths'
+import { fetchPluginRegistry } from '../extension/pluginRegistry'
 
 // builtInRegistry reflects what's actually loaded (remote if fetched, otherwise local fallback)
 const builtInRegistry = {
@@ -14,7 +15,6 @@ const builtInRegistry = {
 }
 
 // Plugin registry — each plugin lives in its own VoidenHQ/plugin-* repo
-const REGISTRY_URL = 'https://raw.githubusercontent.com/VoidenHQ/plugin-registry/main/extensions.json'
 
 interface RegistryPlugin {
   id: string
@@ -421,13 +421,10 @@ async function fetchRegistry(): Promise<Record<string, RegistryPlugin>> {
 
   // Fallback: try remote fetch directly if coreExtensions is empty (shouldn't happen as it's seeded with snapshot)
   try {
-    const res = await net.fetch(REGISTRY_URL, { headers: { 'User-Agent': 'Voiden-App' } })
-    if (res.ok) {
-      const data = await res.json()
-      const entries: any[] = Array.isArray(data) ? data.filter((p: any) => p.type === 'core') : Object.values(data?.plugins ?? {})
-      cachedRegistry = Object.fromEntries(entries.map((p: any) => [p.id, p]))
-      return cachedRegistry!
-    }
+    const data = await fetchPluginRegistry()
+    const entries: any[] = Array.isArray(data) ? data.filter((p: any) => p.type === 'core') : Object.values(data?.plugins ?? {})
+    cachedRegistry = Object.fromEntries(entries.map((p: any) => [p.id, p]))
+    return cachedRegistry!
   } catch (err) {
     console.warn('[CoreExtensions] Failed to fetch remote registry directly:', err);
   }
@@ -677,14 +674,34 @@ export function registerCoreExtensionsIpcHandlers(): void {
    *
    * Pass pluginId to scope to a single plugin (used by the "Install" button).
    * Returns { updated, upToDate, incompatible }.
+   *
+   * Every invocation reads-modifies-writes the single shared manifest.json (read at the
+   * top, written near the bottom). If two invocations run concurrently — e.g. the user
+   * clicks "Update" on several plugin rows in quick succession — each reads its own snapshot
+   * before either has written back, so whichever write lands last silently reverts the
+   * others' version bookkeeping even though their files downloaded fine. All calls are
+   * funneled through checkAndUpdateQueue so they always run one at a time.
    */
-  ipcMain.handle('coreExtensions:checkAndUpdate', async (_event, pluginId?: string): Promise<{
-    updated: string[]
-    upToDate: boolean
-    incompatible: string[]
-    incompatibleVersions: { [id: string]: { version: string; requiredVoidenVersion: string } }
-    error?: string
-  }> => {
+  ipcMain.handle('coreExtensions:checkAndUpdate', (_event, pluginId?: string) =>
+    enqueueCheckAndUpdate(() => runCheckAndUpdate(pluginId))
+  )
+}
+
+let checkAndUpdateQueue: Promise<unknown> = Promise.resolve()
+
+function enqueueCheckAndUpdate<T>(task: () => Promise<T>): Promise<T> {
+  const run = checkAndUpdateQueue.catch(() => {}).then(task)
+  checkAndUpdateQueue = run.catch(() => {})
+  return run
+}
+
+async function runCheckAndUpdate(pluginId?: string): Promise<{
+  updated: string[]
+  upToDate: boolean
+  incompatible: string[]
+  incompatibleVersions: { [id: string]: { version: string; requiredVoidenVersion: string } }
+  error?: string
+}> {
     try {
       const cacheDir = getCacheDir()
       await fs.mkdir(cacheDir, { recursive: true })
@@ -815,8 +832,12 @@ export function registerCoreExtensionsIpcHandlers(): void {
         await writeLocalManifest(localManifest)
         // Sync core extensions state so isLocallyAvailable and version update immediately
         try {
-          const { extensionManager, getAppState } = await import('../state')
+          const { extensionManager, getAppState, maybeRecomposeSkills } = await import('../state')
           if (extensionManager) extensionManager.syncCoreExtensions()
+          // An update can bring a new skill.md. Rebuild the installed agent skill now,
+          // so it doesn't stay on the old text until the next app start.
+          const stateAfterUpdate = getAppState()
+          if (stateAfterUpdate) maybeRecomposeSkills(stateAfterUpdate)
           // Load (or reload) the main-process bundle for any plugin that was just downloaded.
           // reloadMainProcessExtension handles the hasMainProcess detection internally so
           // plugins whose registry entry lacks mainProcess:true are still covered.
@@ -839,7 +860,6 @@ export function registerCoreExtensionsIpcHandlers(): void {
       console.error('[CoreExtensions] checkAndUpdate failed:', message)
       return { updated: [], upToDate: true, incompatible: [], incompatibleVersions: {}, error: message }
     }
-  })
 }
 
 /**

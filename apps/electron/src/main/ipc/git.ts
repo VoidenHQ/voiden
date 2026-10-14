@@ -4,9 +4,10 @@ import { getActiveProject } from "../state";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
-import { invalidateGitCache, getCachedIsRepo, invalidateRepoCache, getSharedGit } from "../git";
+import { invalidateGitCache, getCachedIsRepo, invalidateRepoCache, getSharedGit, ensureVoidenGitignore } from "../git";
 import { setCloning } from "../fileWatcher";
 import { logger } from "../logger";
+import { getSettings, getDefaultProjectsDirectory } from "../settings";
 
 // In-flight deduplication: prevents polling intervals from stacking up
 // concurrent git processes when a call takes longer than the poll interval.
@@ -121,16 +122,101 @@ export function registerGitIpcHandlers() {
     }
   });
 
-  ipcMain.handle("git:clone", async (event: IpcMainInvokeEvent, repoUrl: string, token?: string) => {
+  ipcMain.handle("git:clone", async (
+    event: IpcMainInvokeEvent,
+    repoUrl: string,
+    authOptions?: { token?: string; sshKeyPath?: string; sshPassphrase?: string; useSshAgent?: boolean },
+  ) => {
     const activeProject = await getActiveProject(event);
+
+    const { token, sshKeyPath, sshPassphrase, useSshAgent } = authOptions ?? {};
+
+    // Strips embedded credentials from any URL in an error message (global).
+    const redact = (s: string) => s.replace(/:[^@\s]*@/g, ':***@');
+
+    // Temp files written for credential helpers — always cleaned up in finally.
+    const tempFiles: string[] = [];
+    const cleanupTempFiles = async () => {
+      await Promise.all(tempFiles.map((f) => fs.promises.unlink(f).catch(() => {})));
+      tempFiles.length = 0;
+    };
+
+    const writeTempScript = async (content: string): Promise<string> => {
+      const scriptPath = path.join(os.tmpdir(), `voiden-git-helper-${Date.now()}.sh`);
+      await fs.promises.writeFile(scriptPath, content, { mode: 0o700 });
+      tempFiles.push(scriptPath);
+      return scriptPath;
+    };
 
     try {
       let cloneUrl = repoUrl;
+      // Always suppress interactive terminal prompts regardless of auth mode.
+      // Without this, git can hang waiting for keyboard input inside Electron.
+      const baseEnv: NodeJS.ProcessEnv = { ...process.env, GIT_TERMINAL_PROMPT: '0' };
+      let cloneEnv: NodeJS.ProcessEnv = baseEnv;
+      // Extra args prepended to every git clone call (auth-mode specific).
+      let extraCloneArgs: string[] = [];
+
       if (token) {
-        const parsed = new URL(repoUrl);
-        parsed.username = "oauth2";
-        parsed.password = token;
-        cloneUrl = parsed.toString();
+        let parsed: URL;
+        try {
+          parsed = new URL(repoUrl);
+        } catch {
+          throw new Error("Invalid repository URL. For token authentication use an https:// URL.");
+        }
+
+        if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+          throw new Error("Access tokens only work with HTTPS URLs. For SSH, configure an SSH key instead.");
+        }
+
+        // GIT_ASKPASS script echoes credentials without putting them on the command line.
+        const scriptPath = await writeTempScript([
+          '#!/bin/sh',
+          'case "$1" in',
+          '  *Username*) echo "oauth2" ;;',
+          `  *) echo ${JSON.stringify(token)} ;;`,
+          'esac',
+        ].join('\n') + '\n');
+
+        // Disable the system credential helper (-c credential.helper=) so GIT_ASKPASS
+        // is the ONLY credential source. Without this, osxkeychain/etc. takes precedence
+        // and the provided token is silently ignored when the system has cached credentials.
+        extraCloneArgs = ['-c', 'credential.helper='];
+        cloneEnv = { ...baseEnv, GIT_ASKPASS: scriptPath };
+        cloneUrl = parsed.toString(); // credential-free URL
+      } else if (useSshAgent) {
+        // SSH agent mode — no specific key, let the agent supply credentials.
+        // StrictHostKeyChecking=accept-new avoids interactive prompts for new hosts.
+        // BatchMode=yes makes ssh fail immediately instead of prompting when no key matches.
+        cloneEnv = {
+          ...baseEnv,
+          GIT_SSH_COMMAND: 'ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes',
+        };
+      } else if (sshKeyPath) {
+        // Specific key file — use it exclusively (IdentitiesOnly=yes ignores agent keys).
+        let sshCmd = `ssh -i ${JSON.stringify(sshKeyPath)} -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes`;
+
+        if (sshPassphrase) {
+          // SSH_ASKPASS supplies the passphrase non-interactively.
+          const passScript = await writeTempScript([
+            '#!/bin/sh',
+            `echo ${JSON.stringify(sshPassphrase)}`,
+          ].join('\n') + '\n');
+          cloneEnv = {
+            ...baseEnv,
+            GIT_SSH_COMMAND: sshCmd,
+            SSH_ASKPASS: passScript,
+            SSH_ASKPASS_REQUIRE: 'force',
+            DISPLAY: process.env.DISPLAY ?? '',
+          };
+        } else {
+          cloneEnv = { ...baseEnv, GIT_SSH_COMMAND: sshCmd };
+        }
+      } else {
+        // Auto mode — let the OS credential helper (osxkeychain, Windows
+        // Credential Manager, etc.) supply credentials automatically.
+        // If the user has previously authenticated with the host, this just works.
+        // extraCloneArgs and cloneEnv stay as their defaults (empty / baseEnv).
       }
 
       const baseName = repoUrl.replace(/\.git$/, "").split("/").pop() || "repo";
@@ -149,16 +235,20 @@ export function registerGitIpcHandlers() {
       const makeProgressGit = (baseDir: string) =>
         simpleGit({
           baseDir,
+          ...(cloneEnv ? { env: cloneEnv } : {}),
+          // Token mode passes `-c credential.helper=` (see above), which simple-git
+          // rejects unless this is opted into.
+          ...(token ? { unsafe: { allowUnsafeCredentialHelper: true } } : {}),
           progress({ stage, progress }) {
             sendProgress(stage, progress);
           },
         });
 
       if (!activeProject) {
-        const voidenHome = path.join(os.homedir(), "Voiden");
+        const settings = getSettings();
+        const voidenHome = settings.projects.default_directory || getDefaultProjectsDirectory();
         await fs.promises.mkdir(voidenHome, { recursive: true });
 
-        // Find a unique folder name
         let newFolderName = baseName;
         let newCounter = 1;
         while (await dirExists(path.join(voidenHome, newFolderName))) {
@@ -172,16 +262,27 @@ export function registerGitIpcHandlers() {
         setCloning(newProjectPath, true);
         let newLfsWarning = false;
         try {
-          await gitParent.clone(cloneUrl, newFolderName, ["--depth", "1", "--no-local"]);
+          await gitParent.clone(cloneUrl, newFolderName, [...extraCloneArgs, "--depth", "1", "--no-local"]);
         } catch (cloneErr: any) {
           const msg: string = cloneErr?.message || String(cloneErr);
           if (msg.includes("Clone succeeded, but checkout failed") || (msg.includes("git-lfs") && msg.includes("command not found"))) {
-            newLfsWarning = true; // repo downloaded, LFS files missing — treat as success with warning
+            newLfsWarning = true;
           } else {
             throw cloneErr;
           }
         } finally {
           setCloning(newProjectPath, false);
+        }
+
+        // Detect empty repos — git clone exits 0 for repos with no commits,
+        // so we have to check explicitly. `git log` throws on an empty repo.
+        let newIsEmptyRepo = false;
+        try {
+          const clonedGit = simpleGit(newProjectPath);
+          const log = await clonedGit.log({ maxCount: 1 });
+          newIsEmptyRepo = log.all.length === 0;
+        } catch {
+          newIsEmptyRepo = true;
         }
 
         const voidenDir = path.join(newProjectPath, ".voiden");
@@ -191,7 +292,7 @@ export function registerGitIpcHandlers() {
           JSON.stringify({ project: newFolderName })
         );
 
-        return { clonedPath: newProjectPath, clonedInPlace: false, isNewProject: true, lfsWarning: newLfsWarning };
+        return { clonedPath: newProjectPath, clonedInPlace: false, isNewProject: true, lfsWarning: newLfsWarning, emptyRepo: newIsEmptyRepo };
       }
 
       let folderName = baseName;
@@ -206,7 +307,7 @@ export function registerGitIpcHandlers() {
       setCloning(clonedPath, true);
       let lfsWarning = false;
       try {
-        await gitWithProgress.clone(cloneUrl, folderName, ["--depth", "1", "--no-local"]);
+        await gitWithProgress.clone(cloneUrl, folderName, [...extraCloneArgs, "--depth", "1", "--no-local"]);
       } catch (cloneErr: any) {
         const msg: string = cloneErr?.message || String(cloneErr);
         if (msg.includes("Clone succeeded, but checkout failed") || (msg.includes("git-lfs") && msg.includes("command not found"))) {
@@ -217,14 +318,35 @@ export function registerGitIpcHandlers() {
       } finally {
         setCloning(clonedPath, false);
       }
-      return { clonedPath, clonedInPlace: false, isNewProject: false, lfsWarning };
+
+      // Detect empty repos — git clone exits 0 for repos with no commits.
+      let isEmptyRepo = false;
+      try {
+        const clonedGit = simpleGit(clonedPath);
+        const log = await clonedGit.log({ maxCount: 1 });
+        isEmptyRepo = log.all.length === 0;
+      } catch {
+        isEmptyRepo = true;
+      }
+
+      return { clonedPath, clonedInPlace: false, isNewProject: false, lfsWarning, emptyRepo: isEmptyRepo };
     } catch (error: any) {
-      console.error("Error cloning repository:", error);
-      const raw: string = (error?.message || String(error)).replace(/:[^@]*@/, ":***@");
+      // Sanitize before logging — error message from git may contain the repo URL
+      const raw: string = redact(error?.message || String(error));
+      logger.error('git', 'clone failed', { error: raw });
 
       // Translate common git errors into friendly messages
       if (raw.includes("Repository not found") || raw.includes("does not exist")) {
-        throw new Error("Repository not found. Check the URL and make sure it exists.");
+        throw new Error("Repository not found. If this is a private repo, make sure you are authenticated (Access Token or SSH Key).");
+      }
+      if (raw.includes("Permission denied (publickey)") || raw.includes("Host key verification failed") || raw.includes("No such identity")) {
+        if (useSshAgent) {
+          throw new Error("SSH authentication failed. Make sure your SSH key is added to the agent (run: ssh-add ~/.ssh/id_rsa) and authorised on the remote.");
+        }
+        throw new Error("SSH authentication failed. Check that the key path is correct and the key is authorised on the remote.");
+      }
+      if (raw.includes("Bad passphrase") || raw.includes("incorrect passphrase") || raw.includes("Enter passphrase")) {
+        throw new Error("SSH key passphrase is incorrect.");
       }
       if (raw.includes("Authentication failed") || raw.includes("could not read Username") || raw.includes("403")) {
         throw new Error("Authentication failed. Provide a valid access token for private repositories.");
@@ -240,6 +362,8 @@ export function registerGitIpcHandlers() {
       }
 
       throw new Error(raw);
+    } finally {
+      await cleanupTempFiles();
     }
   });
 
@@ -253,6 +377,10 @@ export function registerGitIpcHandlers() {
       const git = getSharedGit(activeProject);
       await git.init();
       invalidateRepoCache(activeProject);
+      // Make sure .voiden/* (except public env YAMLs) is ignored from the very
+      // first commit — the file watcher's .gitignore handler then invalidates
+      // the git/tree caches when this write lands.
+      await ensureVoidenGitignore(activeProject).catch(() => {});
       return true;
     } catch (error) {
       console.error("Error initializing git repository:", error);
@@ -603,7 +731,7 @@ export function registerGitIpcHandlers() {
         diffSummary = await git.diffSummary([`${commitHash}^`, commitHash]);
       } catch {
         // Initial commit — no parent ref; use diff-tree to list introduced files
-        const raw = await git.raw(['diff-tree', '--no-commit-id', '-r', '--numstat', commitHash]);
+        const raw = await git.raw(['diff-tree', '--no-commit-id', '-r', '--numstat', '--root', commitHash]);
         return raw.trim().split('\n').filter(Boolean).map(line => {
           const [ins, del, ...rest] = line.split('\t');
           return {

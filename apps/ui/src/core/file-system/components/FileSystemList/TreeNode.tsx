@@ -1,7 +1,8 @@
 import React, { useContext, useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { ChevronRight, ChevronsDownUp, ChevronsUpDown } from "lucide-react";
+import { ChevronRight, CopyMinus, CopyPlus } from "lucide-react";
 import { NodeApi, NodeRendererProps, TreeApi } from "react-arborist";
+const INHERITED_FILENAME = ".voiden-inherited.void";
 import { Tip } from "@/core/components/ui/Tip";
 import { cn } from "@/core/lib/utils";
 import { useActivateTab } from "@/core/layout/hooks";
@@ -12,6 +13,12 @@ import { getFileIcon } from "./fileIcon";
 import { getGitStatusClass } from "./gitStatus";
 import { RenameInput } from "./RenameInput";
 import { useTreeNodeMutations } from "./useTreeNodeMutations";
+import { useEditorStore } from "@/core/editors/voiden/VoidenEditor";
+import { getSchema } from "@tiptap/core";
+import { voidenExtensions } from "@/core/editors/voiden/extensions";
+import { prosemirrorToMarkdown } from "@/core/file-system/hooks";
+import { useEditorEnhancementStore, getContextMenuItems } from "@/plugins";
+import { confirmAndSaveTab } from "@/core/stores/unsavedChangesDialogStore";
 
 export interface TreeNodeProps extends NodeRendererProps<ExtendedFileTree> {
   activeFile: { source: string } | null;
@@ -20,10 +27,32 @@ export interface TreeNodeProps extends NodeRendererProps<ExtendedFileTree> {
   refreshDir: (dirPath: string) => Promise<void>;
   expandedDirsRef: React.MutableRefObject<Set<string>>;
   treeRef: React.RefObject<TreeApi<ExtendedFileTree>>;
+  pendingTabsEnabled?: boolean;
 }
 
-const isInternalTreeDrag = (e: React.DragEvent) => e.dataTransfer.types.includes("application/x-arborist-node");
-const isExternalFileDrag = (e: React.DragEvent) => e.dataTransfer.types.includes("Files") && !isInternalTreeDrag(e);
+// Whether any folder anywhere below `node` is currently open — used to decide
+// which of the alternating expand-all/collapse-all icons to show. Computed
+// fresh from the tree's real state every render (react-arborist re-renders
+// every row on any open/close change) instead of tracked as local state, so
+// it can't drift out of sync with folders opened/closed by other means (e.g.
+// clicking a nested folder's own chevron directly).
+function hasOpenDescendant(node: NodeApi<ExtendedFileTree>): boolean {
+  if (!node.children) return false;
+  for (const child of node.children) {
+    if (child.data.type !== "folder") continue;
+    if (child.isOpen) return true;
+    if (hasOpenDescendant(child)) return true;
+  }
+  return false;
+}
+
+// Exported for FileSystemList's own container-level drop handler — external
+// file drops (from Finder/Explorer) landing in the empty space below the
+// last row never reach any row's onDrop at all (there's no row there to
+// bubble from), so that container needs the same drag-type detection to
+// accept them instead of only ever-item-scoped drops working.
+export const isInternalTreeDrag = (e: React.DragEvent) => e.dataTransfer.types.includes("application/x-arborist-node");
+export const isExternalFileDrag = (e: React.DragEvent) => e.dataTransfer.types.includes("Files") && !isInternalTreeDrag(e);
 const isKnownFileSystemDrag = (e: React.DragEvent) => isInternalTreeDrag(e) || isExternalFileDrag(e);
 
 function getNameClass(data: ExtendedFileTree, activeFile: { source: string } | null): string {
@@ -55,10 +84,41 @@ export function TreeNode({
   refreshDir,
   expandedDirsRef,
   treeRef,
+  pendingTabsEnabled,
 }: TreeNodeProps) {
   const [error, setError] = useState<string | null>(null);
+  // Bumped after this row's own expand-all/collapse-all action finishes, to
+  // force a re-render that recomputes hasOpenDescendant(node) below. Nested
+  // .open()/.close() calls several levels down don't reliably propagate a
+  // re-render back up to this specific row on their own, so without this the
+  // icon (and the branch its onClick reads) can stay stuck on stale state.
+  const [, forceRerender] = useState(0);
   const [isDragOver, setIsDragOver] = useState(false);
   const dragOverTimerRef = useRef<NodeJS.Timeout | null>(null);
+  // Safety net for a highlight that gets stuck "on" forever. dragleave/dragend
+  // are supposed to clear isDragOver, but native OS drag sessions don't
+  // reliably deliver them — most visibly on Windows, where dragging a file in
+  // from Explorer and then dropping it outside the window (or the drag
+  // otherwise ending abnormally) can leave the browser never told the drag is
+  // over. dragover fires continuously (well under a second apart) for as long
+  // as a drag is genuinely still happening over this row, so re-arming this
+  // timeout on every dragover and clearing state if it ever goes quiet is a
+  // platform-agnostic way to self-heal regardless of which specific "the drag
+  // ended" event did or didn't fire.
+  const dragOverWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const armDragOverWatchdog = () => {
+    if (dragOverWatchdogRef.current) clearTimeout(dragOverWatchdogRef.current);
+    dragOverWatchdogRef.current = setTimeout(() => {
+      dragOverWatchdogRef.current = null;
+      setIsDragOver(false);
+      setDragOverParentId(null);
+    }, 600);
+  };
+  useEffect(() => {
+    return () => {
+      if (dragOverWatchdogRef.current) clearTimeout(dragOverWatchdogRef.current);
+    };
+  }, []);
   const [isContextMenuOpen, setIsContextMenuOpen] = useState(false);
   const { dragOverParentId, setDragOverParentId } = useContext(DragOverContext);
   const { expandAllRecursive, collapseAllFromFolder } = useContext(TreeActionsContext);
@@ -159,6 +219,10 @@ export function TreeNode({
       clearTimeout(dragOverTimerRef.current);
       dragOverTimerRef.current = null;
     }
+    if (dragOverWatchdogRef.current) {
+      clearTimeout(dragOverWatchdogRef.current);
+      dragOverWatchdogRef.current = null;
+    }
 
     if (!isExternalFileDrag(e)) {
       return;
@@ -183,9 +247,18 @@ export function TreeNode({
     for (const item of Array.from(e.dataTransfer.items)) {
       const entry = item.webkitGetAsEntry?.();
       if (entry?.isDirectory) {
-        const file = item.getAsFile() as (File & { path?: string }) | null;
-        if (file?.path) {
-          folderPaths.push(file.path);
+        // A directory item's own File object never carried real content, so
+        // regular files (read via file.arrayBuffer() below) never needed
+        // this — but folders have no content stream, only a path, and
+        // Electron removed direct `.path` access on drag-and-drop File
+        // objects in v30+ (a deliberate Chromium-security-driven change —
+        // see electron/electron#44370, #44600, #47284). This is why
+        // dropping a file worked but dropping a folder silently didn't.
+        // webUtils.getPathForFile is the current replacement.
+        const file = item.getAsFile();
+        const path = file ? window.electron?.utils.getPathForFile(file) : undefined;
+        if (path) {
+          folderPaths.push(path);
         }
       } else {
         const file = item.getAsFile();
@@ -232,6 +305,7 @@ export function TreeNode({
 
       setIsDragOver(true);
       setDragOverParentId(null);
+      armDragOverWatchdog();
 
       if (!node.isOpen && !dragOverTimerRef.current) {
         dragOverTimerRef.current = setTimeout(() => {
@@ -246,6 +320,7 @@ export function TreeNode({
     e.stopPropagation();
 
     setIsDragOver(true);
+    armDragOverWatchdog();
 
     let parentId = null;
     if (node.data.type === "folder") {
@@ -297,7 +372,21 @@ export function TreeNode({
         clearTimeout(dragOverTimerRef.current);
         dragOverTimerRef.current = null;
       }
+      if (dragOverWatchdogRef.current) {
+        clearTimeout(dragOverWatchdogRef.current);
+        dragOverWatchdogRef.current = null;
+      }
     }
+  };
+
+  const getTabTitle = () => {
+    const isInherited = node.data.name === INHERITED_FILENAME;
+    if (isInherited) {
+      const parts = node.data.path.replace(/\\/g, "/").split("/");
+      const folderName = parts[parts.length - 2] ?? "inherited";
+      return `${folderName} — inherited`;
+    }
+    return node.data.name;
   };
 
   const handleSelect = async (event: React.MouseEvent<HTMLDivElement>) => {
@@ -308,12 +397,30 @@ export function TreeNode({
     } else {
       node.select();
       if (node.data.type === "file") {
+        if (pendingTabsEnabled) {
+          const panelData = queryClient.getQueryData<{ tabs: Array<{ id: string; title: string; pending?: boolean; source: string | null }>; activeTabId: string }>(["panel:tabs", "main"]);
+          const existingPendingTab = panelData?.tabs?.find(t => t.pending);
+          if (existingPendingTab && existingPendingTab.source !== node.data.path) {
+            const unsavedContent = useEditorStore.getState().unsaved[existingPendingTab.id];
+            if (unsavedContent) {
+              let contentToSave = unsavedContent;
+              if (existingPendingTab.source && existingPendingTab.source.endsWith(".void")) {
+                const schema = getSchema([...voidenExtensions, ...useEditorEnhancementStore.getState().voidenExtensions]);
+                contentToSave = prosemirrorToMarkdown(unsavedContent, schema);
+              }
+              const proceed = await confirmAndSaveTab(existingPendingTab, existingPendingTab.id, contentToSave);
+              if (!proceed) return;
+            }
+          }
+        }
+
         const newTab = {
           id: crypto.randomUUID(),
           type: "document" as const,
-          title: node.data.name,
+          title: getTabTitle(),
           source: node.data.path,
           directory: null,
+          pending: pendingTabsEnabled ? true : undefined,
         };
 
         try {
@@ -327,6 +434,26 @@ export function TreeNode({
       } else {
         onFolderToggle(node);
       }
+    }
+  };
+
+  const handleDoubleClick = async (_event: React.MouseEvent<HTMLDivElement>) => {
+    if (node.data.type !== "file") return;
+    // Open as permanent (no pending flag) — promotes any existing pending tab
+    const newTab = {
+      id: crypto.randomUUID(),
+      type: "document" as const,
+      title: getTabTitle(),
+      source: node.data.path,
+      directory: null,
+    };
+    try {
+      const { tabId = null } = (await window.electron?.state.addPanelTab("main", newTab)) ?? {};
+      if (tabId) {
+        activateTab({ panelId: "main", tabId });
+      }
+    } catch {
+      // ignore
     }
   };
 
@@ -357,32 +484,41 @@ export function TreeNode({
         })),
       );
     } else {
+      const fileTarget = { path: node.data.path, type: node.data.type, name: node.data.name };
       window.electron?.files.showFileContextMenu({
-        path: node.data.path,
-        type: node.data.type,
-        name: node.data.name,
+        ...fileTarget,
         isProjectRoot: node.level === 0,
+        pluginItems: getContextMenuItems('file', fileTarget).map((i) => ({ id: i.id, label: i.label })),
       });
     }
   };
 
   const nameClass = getNameClass(node.data, activeFile);
+  const showCollapseAll = node.data.type === "folder" && hasOpenDescendant(node);
+  const isRangeSelected = node.isSelected && node.tree.selectedNodes.length > 1;
 
   return (
     <div
       style={style}
       ref={dragHandle}
       className={cn(
-        "group h-6 overflow-hidden transition-colors border border-transparent",
-        !isDragOver && activeFile?.source !== node.data.path && !node.isSelected && "hover:bg-hover",
+        "group h-[22px] overflow-hidden transition-colors border border-transparent",
+        !isDragOver && !node.isSelected && "hover:bg-hover",
         isContextMenuOpen && "border-active",
-        activeFile?.source === node.data.path && !isDragOver && "bg-active",
-        node.isSelected && node.tree.selectedNodes.length > 1 && activeFile?.source !== node.data.path && !isDragOver && "bg-accent/20",
+        // Selection stays visible (background) even after focus moves away
+        // (e.g. clicking into the editor) — a border is added only while
+        // this row is still the actually-focused selection, so the two
+        // states ("selected" vs "selected AND focused") read differently,
+        // matching Cursor's sidebar.
+        node.isSelected && !isRangeSelected && !isDragOver && "bg-active",
+        node.isSelected && !isRangeSelected && node.isFocused && !isDragOver && "border-border",
+        isRangeSelected && !isDragOver && "bg-accent/20",
         node.isFocused && !isDragOver && "ring-0",
         (isDragOver || isInternalDropTargetFolder) && `bg-accent/30 ${node.data.type === "folder" ? "border-l-2 border-accent" : ""}`,
         isSiblingHighlight && !isDragOver && !isInternalDropTargetFolder && "bg-accent/30 hover:bg-accent/30",
       )}
       onClick={handleSelect}
+      onDoubleClick={handleDoubleClick}
       onContextMenu={handleContextMenu}
       onDrop={handleDrop}
       onDragOver={handleDragOver}
@@ -390,11 +526,11 @@ export function TreeNode({
     >
       <div className="absolute left-0 h-full">
         {Array.from({ length: node.level }).map((_, i) => (
-          <div key={i} className="absolute w-px bg-active h-6" style={{ left: `${(i + 1) * 12 + 3}px` }} />
+          <div key={i} className="absolute w-px bg-active h-[22px]" style={{ left: `${(i + 1) * 12 + 3}px` }} />
         ))}
       </div>
       <div className="pl-2 relative flex items-center justify-between gap-2">
-        <div className={`flex items-center ${node.data.type === "folder" ? "gap-1" : "gap-2"} w-full`}>
+        <div className={`flex items-center min-w-0 flex-1 ${node.data.type === "folder" ? "gap-1" : "gap-2"}`}>
           {node.data.type === "folder" && (
             <div className="w-30 flex items-center">
               {/* Chevron rotates whenever folder is open, including empty folders */}
@@ -404,32 +540,33 @@ export function TreeNode({
           <div className="w-30">{node.data.type !== "folder" && getFileIcon(node.data.name, node.data.path)}</div>
           {node.isEditing ? (
             <RenameInput node={node} error={error} setError={setError} onSubmit={onSubmit} setIsRenaming={setIsRenaming} />
+          ) : node.data.name === INHERITED_FILENAME ? (
+            <span className="flex items-center gap-1.5 min-w-0">
+              <span className={cn("truncate text-comment text-[11px]", nameClass)}>Config Inheritance</span>
+              <span className="flex-shrink-0 text-[9px] px-1 py-px rounded font-medium leading-none" style={{ backgroundColor: 'var(--ui-line)', color: 'var(--syntax-comment)' }}>
+                inherited
+              </span>
+            </span>
           ) : (
-            <span className={cn("truncate text-ui-fg", nameClass)}>{node.data.name}</span>
+            <span className={cn("truncate text-ui-fg font-normal opacity-75", nameClass)}>{node.data.name}</span>
           )}
         </div>
         {node.data.type === "folder" && (
-          <div className="flex items-center px-2 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity">
-            <Tip label="Collapse all" side="bottom" align="end">
+          <div className="flex items-center flex-shrink-0 px-2 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity">
+            <Tip label={showCollapseAll ? "Collapse all" : "Expand all"} side="bottom" align="end">
               <button
-                onClick={(e) => {
+                onClick={async (e) => {
                   e.stopPropagation();
-                  collapseAllFromFolder(node);
+                  if (showCollapseAll) {
+                    await collapseAllFromFolder(node);
+                  } else {
+                    await expandAllRecursive(node.data.path);
+                  }
+                  forceRerender((n) => n + 1);
                 }}
                 className="p-0.5 rounded hover:bg-hover ml-1"
               >
-                <ChevronsDownUp size={12} />
-              </button>
-            </Tip>
-            <Tip label="Expand all" side="bottom" align="end">
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  expandAllRecursive(node.data.path);
-                }}
-                className="p-0.5 rounded hover:bg-hover"
-              >
-                <ChevronsUpDown size={12} />
+                {showCollapseAll ? <CopyMinus size={12} /> : <CopyPlus size={12} />}
               </button>
             </Tip>
           </div>

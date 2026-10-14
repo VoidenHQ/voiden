@@ -17,6 +17,7 @@ Complete guide to all Voiden documentation.
 | [Fresh Install](getting-started/FRESH_INSTALL.md) | Complete setup for new repo clone |
 | [Development Workflow](build/DEVELOPMENT.md) | Daily development guide |
 | [Quick Reference](getting-started/QUICK_REFERENCE.md) | Command cheatsheet |
+| [Folder Environments](getting-started/FOLDER_ENVIRONMENTS.md) | Per-folder `.env` inheritance for requests |
 
 ### Architecture
 | Document | Description |
@@ -33,6 +34,14 @@ Complete guide to all Voiden documentation.
 | [Extension Architecture](extensions/ARCHITECTURE.md) | Extension system and types |
 | [Auto-Discovery](extensions/AUTO_DISCOVERY.md) | How manifest.json works |
 | [Submit Extension](extensions/SUBMIT_EXTENSION.md) | Submit your extension to Voiden |
+
+### CLI & MCP
+| Document | Description |
+|----------|-------------|
+| [The `voiden` CLI](voiden-cli.md) | `voiden agent`/`run`/`mcp-stdio` — bundled with the app, no extra install |
+| [MCP Tool Block Spec](mcp-tool-block-spec.md) | `/tool` block architecture, the `@voiden/mcp` vs CLI vs `@voiden/runner` split |
+| [`/tool` Block Field Reference](mcp-tool-block-reference.md) | Every field on the tool block, Parameters table, and Verification table |
+| [Publishing Tools as an MCP Server](mcp-tool-publish-guide.md) | `@voiden/mcp` — publish `/tool` blocks as a real, hostable server, with a worked Render example |
 
 ### Contributing
 | Document | Description |

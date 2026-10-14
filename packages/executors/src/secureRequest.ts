@@ -11,10 +11,16 @@
  */
 
 import { Buffer } from 'node:buffer'
-import { extname } from 'node:path'
+import mimeTypes from 'mime-types'
 import type { RestApiRequestState } from './pipeline/types.js'
 import { executeWebSocket } from './websocket.js'
 import { executeGrpc } from './grpc.js'
+import { executeMcpOperation } from './mcp.js'
+import {
+  assertNoUnresolvedTemplates,
+  UnresolvedVariablesError,
+  validateResolvedStrings,
+} from './unresolvedVariables.js'
 
 // ─── Adapter interface ────────────────────────────────────────────────────────
 
@@ -107,18 +113,46 @@ export function addDefaultHttpHeaders(headers: Record<string, string>, url: stri
 }
 
 export function getFileMimeType(filePath: string): string {
-  const ext = extname(filePath).toLowerCase()
-  const mime: Record<string, string> = {
-    '.txt': 'text/plain',   '.html': 'text/html',       '.css': 'text/css',
-    '.js':  'application/javascript', '.json': 'application/json',
-    '.xml': 'application/xml',        '.pdf':  'application/pdf',
-    '.zip': 'application/zip',        '.jpg':  'image/jpeg',
-    '.jpeg': 'image/jpeg',            '.png':  'image/png',
-    '.gif': 'image/gif',              '.svg':  'image/svg+xml',
-    '.mp4': 'video/mp4',              '.mp3':  'audio/mpeg',
-    '.wav': 'audio/wav',
+  // mime-types covers the full mime-db registry (hundreds of extensions),
+  // so new file types are handled automatically without another release.
+  return mimeTypes.lookup(filePath) || 'application/octet-stream'
+}
+
+function validateResolvedOutgoing(
+  url: string,
+  headers: Record<string, string>,
+  body?: string,
+  extra: string[] = [],
+): void {
+  const parts: string[] = [url]
+  if (body) parts.push(body)
+  parts.push(...Object.keys(headers), ...Object.values(headers), ...extra)
+  assertNoUnresolvedTemplates(parts)
+}
+
+type RequestField = {
+  key: string
+  value: string
+  enabled?: boolean
+  omitIfUnresolved?: boolean
+}
+
+async function resolveRequestField(
+  field: RequestField,
+  replaceVar: (text: string) => Promise<string>,
+): Promise<{ key: string; value: string } | null> {
+  if (field.enabled === false) return null
+
+  const key = await replaceVar(String(field.key ?? ''))
+  const value = await replaceVar(String(field.value ?? ''))
+  const validation = validateResolvedStrings([key, value])
+
+  if (!validation.ok) {
+    if (field.omitIfUnresolved === true) return null
+    throw new UnresolvedVariablesError(validation.message, validation.unresolved)
   }
-  return mime[ext] ?? 'application/octet-stream'
+
+  return { key, value }
 }
 
 // ─── Main executor ────────────────────────────────────────────────────────────
@@ -135,19 +169,31 @@ export async function executeSecureRequest(
   // ── 2. Replace variables in headers ──────────────────────────────────────
   const headers: Record<string, string> = {}
   for (const h of requestState.headers ?? []) {
-    if (h.enabled !== false && h.key) {
-      headers[await rv(h.key)] = await rv(h.value)
+    const resolved = await resolveRequestField(h, rv)
+    if (resolved?.key) headers[resolved.key] = resolved.value
+  }
+
+  // Cookies remain separate rows until this point so an optional unresolved
+  // cookie can be omitted without affecting the other Cookie header values.
+  const cookieParts: string[] = []
+  for (const cookie of requestState.cookies ?? []) {
+    const resolved = await resolveRequestField(cookie, rv)
+    if (resolved?.key) cookieParts.push(`${resolved.key}=${resolved.value}`)
+  }
+  if (cookieParts.length > 0) {
+    const existingCookieHeader = Object.keys(headers).find(key => key.toLowerCase() === 'cookie')
+    if (existingCookieHeader) {
+      headers[existingCookieHeader] = [headers[existingCookieHeader], ...cookieParts].filter(Boolean).join('; ')
+    } else {
+      headers.Cookie = cookieParts.join('; ')
     }
   }
 
   // ── 3. Replace variables in query params → append to URL ─────────────────
   const queryParts: string[] = []
   for (const p of requestState.queryParams ?? []) {
-    if (p.enabled !== false) {
-      const k = await rv(p.key)
-      const v = await rv(p.value)
-      if (k) queryParts.push(`${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
-    }
+    const resolved = await resolveRequestField(p, rv)
+    if (resolved?.key) queryParts.push(`${encodeURIComponent(resolved.key)}=${encodeURIComponent(resolved.value)}`)
   }
   if (queryParts.length > 0) {
     url += url.includes('?') ? `&${queryParts.join('&')}` : `?${queryParts.join('&')}`
@@ -165,6 +211,8 @@ export async function executeSecureRequest(
 
   // ── 6. Ensure URL has a protocol prefix ──────────────────────────────────
   if (!url.match(/^(https?|wss?|grpcs?):\/\//i)) url = `http://${url}`
+
+  validateResolvedOutgoing(url, headers, body)
 
   // ── 7. Protocol detection — hand off WS / gRPC / GQL-sub to caller ───────
   const proto = new URL(url).protocol
@@ -247,6 +295,65 @@ export async function executeSecureRequest(
     }
   }
 
+  // MCP (Streamable HTTP) — not reducible to a single fetch() like GraphQL is,
+  // since a spec-compliant server requires an initialize handshake before any
+  // operation. Unlike WS/gRPC above, there's no persistent connection to keep
+  // alive across IPC calls (connect → one call → close), so this returns a
+  // plain kind:'http' result directly instead of a kind:'handoff' — no
+  // Electron-side registry needed, identical behaviour for app and CLI.
+  if (requestState.protocolType === 'mcp') {
+    const mcp = (requestState as any).mcp ?? {}
+    // toolName/resourceUri/promptName are plain strings; toolArgs/promptArgs
+    // are JSON objects the user authored in the operation block's code
+    // editor — either can contain {{...}} placeholders (env, runtime,
+    // faker, tool-param binds) same as any other request field. rv() only
+    // operates on strings, so object args need a recursive walk rather than
+    // the single call url/headers get above.
+    const resolveDeep = async (value: any): Promise<any> => {
+      if (typeof value === 'string') return rv(value)
+      if (Array.isArray(value)) return Promise.all(value.map(resolveDeep))
+      if (value && typeof value === 'object') {
+        const entries = await Promise.all(
+          Object.entries(value).map(async ([k, v]) => [k, await resolveDeep(v)] as const),
+        )
+        return Object.fromEntries(entries)
+      }
+      return value
+    }
+
+    const result = await executeMcpOperation({
+      url,
+      headers,
+      operation: mcp.operation,
+      toolName: await resolveDeep(mcp.toolName),
+      toolArgs: await resolveDeep(mcp.toolArgs),
+      resourceUri: await resolveDeep(mcp.resourceUri),
+      promptName: await resolveDeep(mcp.promptName),
+      promptArgs: await resolveDeep(mcp.promptArgs),
+    })
+
+    const responseBody = result.success
+      ? { operation: mcp.operation, ...result.result }
+      : { operation: mcp.operation, error: result.error, authRequired: result.authRequired, authorizeUrl: result.authorizeUrl }
+    const metaHeaders = Object.entries(headers).map(([key, value]) => ({ key, value }))
+
+    return {
+      kind: 'http',
+      ok: result.success,
+      status: result.success ? 200 : 0,
+      // Short, generic text only — this feeds the response panel's top-bar
+      // status chrome, which expects an HTTP-style label ("OK", "Not Found"),
+      // not the full (often multi-line, JSON-bearing) MCP error message. The
+      // full error is already carried in the JSON body (responseBody.error
+      // above), which the mcp-response block renders in full.
+      statusText: result.success ? 'OK' : 'MCP request failed',
+      headers: [['content-type', 'application/json']],
+      body: Buffer.from(JSON.stringify(responseBody, null, 2)),
+      protocol: 'mcp',
+      requestMeta: { method: 'MCP', url, headers: metaHeaders, httpVersion: 'MCP/Streamable-HTTP' },
+    }
+  }
+
   // ── 8. Build fetch options ────────────────────────────────────────────────
   const followRedirects = adapter.followRedirects ?? true
   const fetchOptions: any = {
@@ -256,6 +363,7 @@ export async function executeSecureRequest(
   }
 
   // ── 9. Build request body ─────────────────────────────────────────────────
+  const resolvedBodyParamSummaries: Array<{ key: string; value: string; type?: string }> = []
   if (requestState.binary) {
     if (Array.isArray(requestState.binary)) {
       // Multiple binary files → send as multipart/form-data, one entry per file
@@ -270,10 +378,12 @@ export async function executeSecureRequest(
       fetchOptions.body = formData
       deleteHttpHeader(headers, 'Content-Type')
     } else if (typeof requestState.binary === 'string') {
-      if (!adapter.readFile) throw new Error(`Binary file upload requires adapter.readFile (path: ${requestState.binary})`)
-      const fileBuffer = await adapter.readFile(requestState.binary)
+      const resolvedBinaryPath = await rv(requestState.binary)
+      validateResolvedOutgoing(url, headers, body, [resolvedBinaryPath])
+      if (!adapter.readFile) throw new Error(`Binary file upload requires adapter.readFile (path: ${resolvedBinaryPath})`)
+      const fileBuffer = await adapter.readFile(resolvedBinaryPath)
       fetchOptions.body = fileBuffer
-      if (!hasHttpHeader(headers, 'Content-Type')) headers['Content-Type'] = getFileMimeType(requestState.binary)
+      if (!hasHttpHeader(headers, 'Content-Type')) headers['Content-Type'] = getFileMimeType(resolvedBinaryPath)
     } else {
       const bin = requestState.binary as any
       if (typeof bin.arrayBuffer === 'function') fetchOptions.body = Buffer.from(await bin.arrayBuffer())
@@ -286,16 +396,19 @@ export async function executeSecureRequest(
     if (requestState.contentType === 'multipart/form-data') {
       const formData = new FormData()
       for (const p of bodyParams) {
-        if (p.enabled === false) continue
-        if (p.type === 'file' && p.value) {
+        const resolved = await resolveRequestField(p, rv)
+        if (!resolved) continue
+        if (p.type === 'file' && resolved.value) {
           if (!adapter.readFile) throw new Error('Multipart file upload requires adapter.readFile')
-          const filePath = p.value as string
+          const filePath = resolved.value
           const fileBuffer = await adapter.readFile(filePath)
           const fileName = filePath.split('/').pop() ?? 'file'
           const blob = new Blob([fileBuffer], { type: getFileMimeType(filePath) })
-          formData.append(p.key, blob, fileName)
+          formData.append(resolved.key, blob, fileName)
+          resolvedBodyParamSummaries.push({ key: resolved.key, value: filePath, type: 'file' })
         } else if (p.type === 'text') {
-          formData.append(p.key, await rv(p.value as string))
+          formData.append(resolved.key, resolved.value)
+          resolvedBodyParamSummaries.push({ key: resolved.key, value: resolved.value, type: 'text' })
         }
       }
       fetchOptions.body = formData
@@ -303,13 +416,22 @@ export async function executeSecureRequest(
     } else if (requestState.contentType === 'application/x-www-form-urlencoded') {
       const params = new URLSearchParams()
       for (const p of bodyParams) {
-        if (p.enabled !== false && p.type === 'text') {
-          params.append(p.key, await rv(p.value as string))
-        }
+        if (p.type !== 'text') continue
+        const resolved = await resolveRequestField(p, rv)
+        if (!resolved) continue
+        params.append(resolved.key, resolved.value)
+        resolvedBodyParamSummaries.push({ key: resolved.key, value: resolved.value, type: 'text' })
       }
       fetchOptions.body = params.toString()
       if (!hasHttpHeader(headers, 'Content-Type')) headers['Content-Type'] = 'application/x-www-form-urlencoded'
     }
+
+    validateResolvedOutgoing(
+      url,
+      headers,
+      body,
+      resolvedBodyParamSummaries.flatMap(param => [param.key, param.value]),
+    )
   } else if (requestState.method !== 'GET' && body) {
     fetchOptions.body = body
     if (requestState.contentType && !hasHttpHeader(headers, 'Content-Type')) {
@@ -348,18 +470,16 @@ export async function executeSecureRequest(
     requestBodySent = body
     requestBodyContentType = requestState.contentType ?? headers['Content-Type'] ?? null
   } else if (requestState.bodyParams?.length) {
-    const bodyParams = requestState.bodyParams as any[]
     if (requestState.contentType === 'multipart/form-data') {
-      requestBodySent = bodyParams
-        .filter(p => p.enabled !== false)
+      requestBodySent = resolvedBodyParamSummaries
         .map(p => p.type === 'file'
           ? `${p.key}: [file] ${String(p.value).split('/').pop()}`
           : `${p.key}: ${p.value}`)
         .join('\n')
       requestBodyContentType = 'multipart/form-data'
     } else if (requestState.contentType === 'application/x-www-form-urlencoded') {
-      requestBodySent = bodyParams
-        .filter(p => p.enabled !== false && p.type === 'text')
+      requestBodySent = resolvedBodyParamSummaries
+        .filter(p => p.type === 'text')
         .map(p => `${p.key}=${p.value}`)
         .join('&')
       requestBodyContentType = 'application/x-www-form-urlencoded'

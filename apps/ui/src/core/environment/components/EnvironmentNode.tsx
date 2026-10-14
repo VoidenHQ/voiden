@@ -304,7 +304,7 @@ export const EnvironmentNode = ({
         ) : null}
 
         {node.intermediate && (
-          <span className="text-xs text-comment ml-1 italic">hidden</span>
+          <span className="text-xs text-comment ml-1">hidden</span>
         )}
         <span className="text-xs text-comment ml-1">
           {statsLabel}

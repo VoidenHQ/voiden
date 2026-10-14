@@ -12,17 +12,22 @@ export { invalidateEnvQueries } from "./envQueryKeys";
 
 export { useEnvironments } from "./useEnvironments";
 export { useActiveEnvironment } from "./useActiveEnvironment";
+export { useFileEnvironment } from "./useFileEnvironment";
 export { useSetActiveEnvironment } from "./useSetActiveEnvironment";
 export { useEnvironmentKeys } from "./useEnvironmentKeys";
 export { useYamlEnvironments } from "./useYamlEnvironments.ts";
 export { useSaveYamlEnvironments } from "./useSaveYamlEnvironments.ts";
 export { useProfiles } from "./useProfiles";
+export { useProfileFiles } from "./useProfileFiles";
+export { useNestedEnvSources } from "./useNestedEnvSources";
 export { useSetActiveProfile } from "./useSetActiveProfile";
 export { useCreateProfile } from "./useCreateProfile";
 export { useDeleteProfile } from "./useDeleteProfile";
+export { useRenameProfile } from "./useRenameProfile";
 
 export type { EnvironmentData } from "./useEnvironments";
 export type { YamlEnvNode, YamlEnvTree, YamlEnvTrees } from "./useYamlEnvironments.ts";
+export type { NestedEnvSource } from "./useNestedEnvSources";
 
 // Deprecated: use useEnvironments instead
 export { useLoadEnv, useSetActiveEnv } from "./useEnvironment";

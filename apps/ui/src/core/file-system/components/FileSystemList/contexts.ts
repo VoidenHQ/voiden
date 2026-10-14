@@ -12,8 +12,12 @@ export const DragOverContext = React.createContext<{
 
 export const TreeActionsContext = React.createContext<{
   expandAllRecursive: (startPath: string) => Promise<void>;
-  collapseAllFromFolder: (folderNode: NodeApi<ExtendedFileTree>) => Promise<void>;
+  collapseAllFromFolder: (folderNode: NodeApi<ExtendedFileTree>, options?: { includeSelf?: boolean }) => Promise<void>;
+  createFile: (path: string) => Promise<void>;
+  createDirectory: (path: string) => Promise<void>;
 }>({
   expandAllRecursive: async () => { },
   collapseAllFromFolder: async () => { },
+  createFile: async () => { },
+  createDirectory: async () => { },
 });

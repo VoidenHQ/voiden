@@ -1,4 +1,5 @@
-import React, { useEffect } from "react";
+import React from "react";
+import { useHotkeys } from "react-hotkeys-hook";
 import { Files, ArrowDownUp, Blocks, Search, GitBranch, History, icons, Loader2, PanelRight, PanelBottom } from "lucide-react";
 import { cn } from "@/core/lib/utils";
 import { useGetSidebarTabs, useActivateSidebarTab } from "@/core/layout/hooks";
@@ -52,28 +53,27 @@ export const SidePanelTabs = ({ side, wrapperClassName, onTabClick, forceInactiv
 
   const storeIsSearching = useSearchStore((state) => state.isSearching);
   const setStoreIsSearching = useSearchStore((state) => state.setIsSearching);
+  const openWithReplace = useSearchStore((state) => state.openWithReplace);
 
-  useEffect(() => {
-    const handleShortcut = (e: KeyboardEvent) => {
-      // Shift + Cmd/Ctrl + F
-      if (e.shiftKey && (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") {
-        // Capture phase runs before CodeMirror's own keymap, so preventDefault
-        // here stops the editor's built-in replace panel from also opening.
-        e.preventDefault();
-        e.stopPropagation();
-        setStoreIsSearching(true);
-        if (sidebarTabs?.tabs?.length) {
-          activateTab.mutate({ sidebarId: side, tabId: sidebarTabs.tabs[0].id });
-        }
-      }
-    };
-    window.addEventListener("keydown", handleShortcut, true);
-    return () => {
-      window.removeEventListener("keydown", handleShortcut, true);
-    };
-  }, [activateTab, setStoreIsSearching, side, sidebarTabs]);
+  const openSearch = () => {
+    setStoreIsSearching(true);
+    if (sidebarTabs?.tabs?.length) {
+      activateTab.mutate({ sidebarId: side, tabId: sidebarTabs.tabs[0].id });
+    }
+  };
 
-  const isMac = typeof navigator !== "undefined" && /Mac|iPod|iPhone|iPad/.test(navigator.platform);
+  useHotkeys("mod+shift+f", (e) => {
+    e.preventDefault();
+    openSearch();
+  }, { enabled: side === "left", enableOnFormTags: true, enableOnContentEditable: true });
+
+  useHotkeys("mod+shift+r", (e) => {
+    e.preventDefault();
+    openWithReplace();
+    if (sidebarTabs?.tabs?.length) {
+      activateTab.mutate({ sidebarId: side, tabId: sidebarTabs.tabs[0].id });
+    }
+  }, { enabled: side === "left", enableOnFormTags: true, enableOnContentEditable: true });
 
   // Return null if no tabs exist or sidebarTabs is undefined
   if (!sidebarTabs?.tabs?.length) {

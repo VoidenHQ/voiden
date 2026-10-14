@@ -1,5 +1,6 @@
 import { Decoration, DecorationSet, EditorView, Extension, Prec, Range, ViewPlugin, ViewUpdate } from "@uiw/react-codemirror";
 import { dispatchVariableClick, findEnvVariableEl, createCursorHandlers, isModKey } from "@/core/editors/variableClickHelpers";
+import { customVariableRules } from "@/core/editors/voiden/extensions/environmentHighlighter";
 
 // Style classes for highlighting - uses CSS variables for theme support
 const styleClasses = {
@@ -24,6 +25,27 @@ function applyHighlighting(view: EditorView, envData: Record<string, string>, pr
 
     const isFakerVariable = variableName.startsWith('$faker');
     const isProcessVariable = variableName.startsWith('process');
+
+    // Check plugin-registered custom prefix rules first (e.g. scenario.*)
+    const customRule = customVariableRules.find(
+      r => variableName.startsWith(r.prefix + '.') || variableName === r.prefix
+    );
+
+    if (customRule) {
+      const bg = customRule.bgColor ?? `${customRule.color}26`;
+      marks.push(
+        Decoration.mark({
+          attributes: {
+            "data-variable": variableName,
+            "data-variable-type": "custom",
+            "data-variable-label": customRule.label,
+            style: `background-color:${bg};color:${customRule.color};box-shadow:4px 0 0 0 ${bg},-4px 0 0 0 ${bg}`,
+            class: "font-mono rounded-sm font-medium text-base",
+          },
+        }).range(start, end)
+      );
+      continue;
+    }
 
     let className: string;
     const attributes: Record<string, string> = {
@@ -61,15 +83,27 @@ export function createHighlightPlugin(envData: Record<string, string> = {}, proc
   const highlightView = ViewPlugin.fromClass(
     class {
       decorations: DecorationSet;
+      private customRuleListener: () => void;
 
       constructor(view: EditorView) {
         this.decorations = applyHighlighting(view, envData, processData);
+        // Rebuild decorations when a plugin registers a new custom highlighter rule
+        // (e.g. voiden-scenarios registering the "scenario." prefix)
+        this.customRuleListener = () => {
+          this.decorations = applyHighlighting(view, envData, processData);
+          view.dispatch({});
+        };
+        window.addEventListener('voiden:custom-highlighter-updated', this.customRuleListener);
       }
 
       update(update: ViewUpdate) {
         if (update.docChanged || update.viewportChanged) {
           this.decorations = applyHighlighting(update.view, envData, processData);
         }
+      }
+
+      destroy() {
+        window.removeEventListener('voiden:custom-highlighter-updated', this.customRuleListener);
       }
     },
     { decorations: (view) => view.decorations },

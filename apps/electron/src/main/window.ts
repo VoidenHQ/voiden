@@ -5,10 +5,11 @@ import { getRecentPaths } from "./fileSystem";
 import { setActiveProject, addTabToPanel, activateTabInLayout, getAppState, createNewDocumentTab, activateTab, addPanelTab } from "./state";
 import { Tab } from "../shared/types";
 import { saveState } from "./persistState";
-import { createFileTreeContextMenu } from "./menus";
+import { createFileTreeContextMenu, getFileTreeFocus } from "./menus";
 import { setActiveDirectory } from "./ipc/directory";
 import { handleDeeplink } from "./deeplink";
 import { windowManager } from "./windowManager";
+import { guardUnsavedOnClose } from "./unsavedGuard";
 
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string;
 declare const MAIN_WINDOW_VITE_NAME: string;
@@ -45,6 +46,7 @@ const menubarTemplate: Array<MenuItemConstructorOptions> = [
           {
             label: "Settings...",
             accelerator: "Cmd+,",
+            registerAccelerator: false,
             click: () => {
               windowManager.browserWindow?.webContents.send("menu:open-settings", {});
             },
@@ -73,7 +75,12 @@ const menubarTemplate: Array<MenuItemConstructorOptions> = [
           {
             label: `Quit ${app.name}`,
             accelerator: "Cmd+Q",
-            role: "quit" as const,
+            // Use a manual click handler instead of role:"quit" so that
+            // registerAccelerator:false takes effect — native role items
+            // ignore that flag and intercept at the physical key level,
+            // which breaks macOS keyboard remapping tools (e.g. Karabiner).
+            registerAccelerator: false,
+            click: () => app.quit(),
           },
         ],
       },
@@ -86,6 +93,7 @@ const menubarTemplate: Array<MenuItemConstructorOptions> = [
       {
         label: "New Window",
         accelerator: "CmdOrCtrl+Shift+N",
+        registerAccelerator: false,
         click: async () => {
           await windowManager.createWindow();
         },
@@ -93,6 +101,7 @@ const menubarTemplate: Array<MenuItemConstructorOptions> = [
       {
         label: "New File",
         accelerator: "CmdOrCtrl+N",
+        registerAccelerator: false,
         click: async () => {
           await createNewDocumentTab();
         },
@@ -124,6 +133,7 @@ const menubarTemplate: Array<MenuItemConstructorOptions> = [
       {
         label: "Open Folder...",
         accelerator: "CmdOrCtrl+O",
+        registerAccelerator: false,
         click: async (_menuItem, browserWindow) => {
           if (!browserWindow) return;
           const result = await dialog.showOpenDialog(browserWindow, {
@@ -148,6 +158,7 @@ const menubarTemplate: Array<MenuItemConstructorOptions> = [
       {
         label: "Save",
         accelerator: "CmdOrCtrl+S",
+        registerAccelerator: false,
         click: () => {
           windowManager.browserWindow?.webContents.send("file-menu-command", { command: "save-file" });
         },
@@ -173,6 +184,7 @@ const menubarTemplate: Array<MenuItemConstructorOptions> = [
           {
             label: "Settings...",
             accelerator: "Ctrl+,",
+            registerAccelerator: false,
             click: () => {
               windowManager.browserWindow?.webContents.send("menu:open-settings", {});
             },
@@ -230,12 +242,27 @@ const menubarTemplate: Array<MenuItemConstructorOptions> = [
       {
         label: "Select All",
         accelerator: "CmdOrCtrl+A",
-        role: "selectAll",
+        // Use a manual click handler instead of role:"selectAll", same fix
+        // as Quit above: role-based menu items are native NSMenuItem
+        // actions on macOS and intercept the accelerator at the physical
+        // key level regardless of registerAccelerator:false — the keydown
+        // never reaches the web page's own handling at all, so no
+        // TipTap/DOM keyboard shortcut for Cmd/Ctrl+A ever fires (this is
+        // what broke every node-scoped Cmd+A override — REST's UrlNode,
+        // MCP's McpUrlNode, etc.). Dropping the role and keeping only a
+        // manual click handler (for when the menu item is clicked directly,
+        // not via the keystroke) lets the keystroke fall through to the
+        // renderer, where those extensions can properly scope it.
+        registerAccelerator: false,
+        click: () => {
+          windowManager.browserWindow?.webContents.selectAll();
+        },
       },
       { type: "separator" },
       {
         label: "Find",
         accelerator: "CmdOrCtrl+F",
+        registerAccelerator: false,
         click: () => {
           windowManager.browserWindow?.webContents.send("menu:find", {});
         },
@@ -249,6 +276,7 @@ const menubarTemplate: Array<MenuItemConstructorOptions> = [
       {
         label: "Toggle File Explorer",
         accelerator: isMac ? "Cmd+Shift+E" : "Ctrl+Shift+E",
+        registerAccelerator: false,
         click: () => {
           windowManager.browserWindow?.webContents.send("menu:toggle-explorer", {});
         },
@@ -256,6 +284,7 @@ const menubarTemplate: Array<MenuItemConstructorOptions> = [
       {
         label: "Toggle Terminal",
         accelerator: isMac ? "Cmd+J" : "Ctrl+J",
+        registerAccelerator: false,
         click: () => {
           windowManager.browserWindow?.webContents.send("menu:toggle-terminal", {});
         },
@@ -269,7 +298,16 @@ const menubarTemplate: Array<MenuItemConstructorOptions> = [
       {
         label: "Force Reload",
         accelerator: isMac ? "Option+Cmd+R" : "Ctrl+Shift+R",
-        role: "forceReload",
+        // Dropped the native role (and kept a manual click handler instead),
+        // same fix as Select All above: this combo is also the file tree's
+        // "Reveal in Finder" shortcut, and role-based items intercept their
+        // accelerator as a native NSMenuItem action on macOS regardless of
+        // registerAccelerator:false, so the keydown never reaches the
+        // before-input-event handler below that decides between the two.
+        registerAccelerator: false,
+        click: (_menuItem, browserWindow) => {
+          browserWindow?.webContents.reloadIgnoringCache();
+        },
       },
       { type: "separator" },
       {
@@ -280,6 +318,7 @@ const menubarTemplate: Array<MenuItemConstructorOptions> = [
       {
         label: "Zoom In",
         accelerator: "CmdOrCtrl+Plus",
+        registerAccelerator: false,
         click: (_, browserWindow) => {
           if (browserWindow) {
             const currentZoom = browserWindow.webContents.getZoomLevel();
@@ -292,6 +331,7 @@ const menubarTemplate: Array<MenuItemConstructorOptions> = [
       {
         label: "Zoom Out",
         accelerator: "CmdOrCtrl+-",
+        registerAccelerator: false,
         click: (_, browserWindow) => {
           if (browserWindow) {
             const currentZoom = browserWindow.webContents.getZoomLevel();
@@ -311,6 +351,7 @@ const menubarTemplate: Array<MenuItemConstructorOptions> = [
       {
         label: "Toggle Developer Tools",
         accelerator: isMac ? "Option+Cmd+I" : "F12",
+        registerAccelerator: false,
         click: (_menuItem, browserWindow) => {
           if (browserWindow) {
             windowManager.browserWindow?.webContents.toggleDevTools();
@@ -466,10 +507,22 @@ const getLinuxIcon = () => {
   return iconPath;
 };
 
-export async function createWindow(): Promise<BrowserWindow> {
+export interface InitialWindowBounds {
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  isMaximized?: boolean;
+  isFullScreen?: boolean;
+}
+
+export async function createWindow(initialBounds?: InitialWindowBounds): Promise<BrowserWindow> {
   const mainWindow = new BrowserWindow({
-    width: 1200,
-    height: 800,
+    width: initialBounds?.width ?? 1200,
+    height: initialBounds?.height ?? 800,
+    ...(initialBounds?.x != null && initialBounds?.y != null
+      ? { x: initialBounds.x, y: initialBounds.y }
+      : {}),
     minHeight: 384,
     minWidth: 384,
     webPreferences: {
@@ -488,8 +541,34 @@ export async function createWindow(): Promise<BrowserWindow> {
     } : { frame: false })
   });
   mainWindow.on("ready-to-show", () => {
+    // Reapply size before show() — on macOS the OS can silently adjust window
+    // dimensions between construction and ready-to-show, so we set them again
+    // here to guarantee the saved size takes effect without a visible resize.
+    if (initialBounds?.width && initialBounds?.height) {
+      mainWindow.setBounds({
+        width: initialBounds.width,
+        height: initialBounds.height,
+        ...(initialBounds.x != null ? { x: initialBounds.x } : {}),
+        ...(initialBounds.y != null ? { y: initialBounds.y } : {}),
+      }, false);
+    }
+
+    // Restore zoom state before show() so the window is already at its saved
+    // size when it first appears — no visible flash from normal→zoomed.
+    // On macOS, maximize() on a hidden window sets the frame to the work area
+    // directly (no animation), so the user sees it correctly from the start.
+    if (initialBounds?.isMaximized) {
+      mainWindow.maximize();
+    }
+
     splash?.destroy();
     mainWindow.show();
+
+    // Full-screen must come after show() because entering a macOS Space
+    // requires the window to already be visible.
+    if (initialBounds?.isFullScreen) {
+      mainWindow.setFullScreen(true);
+    }
   });
   EventBus.registerWindow(mainWindow);
   // Clear Electron's cache in development to ensure fresh UI loads
@@ -522,6 +601,150 @@ export async function createWindow(): Promise<BrowserWindow> {
   if (process.env.NODE_ENV === "development") {
     mainWindow.webContents.openDevTools();
   }
+
+  // Closing the window (title bar button, taskbar or dock menu, Alt+F4) asks
+  // about its unsaved tabs first. On Windows and Linux closing the last window
+  // quits the app, so without this the quit prompt never gets a chance.
+  guardUnsavedOnClose(mainWindow);
+
+  // Match shortcuts against the OS-remapped logical key (input.key) rather
+  // than the physical key code so that macOS key remapping tools (Karabiner,
+  // custom layouts, System Preferences shortcuts) are respected.
+  // The accelerators above use registerAccelerator:false so they never fire
+  // on the raw scancode; this handler owns the actual dispatch.
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown') return;
+
+    const primary = isMac ? input.meta : input.control;
+    const { shift, alt, meta, control } = input;
+    const key = input.key.toLowerCase();
+
+    // Quit — macOS Cmd+Q
+    if (isMac && meta && !control && !shift && !alt && key === 'q') {
+      app.quit();
+      event.preventDefault();
+      return;
+    }
+
+    // Settings — Cmd+, (macOS) or Ctrl+, (others)
+    if (primary && !shift && !alt && input.key === ',') {
+      mainWindow.webContents.send('menu:open-settings', {});
+      event.preventDefault();
+      return;
+    }
+
+    // New Window — CmdOrCtrl+Shift+N (check before New File)
+    if (primary && shift && !alt && key === 'n') {
+      void windowManager.createWindow();
+      event.preventDefault();
+      return;
+    }
+
+    // New File — CmdOrCtrl+N
+    if (primary && !shift && !alt && key === 'n') {
+      void createNewDocumentTab();
+      event.preventDefault();
+      return;
+    }
+
+    // Open Folder — CmdOrCtrl+O
+    if (primary && !shift && !alt && key === 'o') {
+      void (async () => {
+        const result = await dialog.showOpenDialog(mainWindow, {
+          properties: ['openDirectory', 'createDirectory'],
+        });
+        if (!result.canceled) {
+          await setActiveProject(result.filePaths[0]);
+          mainWindow.webContents.send('folder:opened', { path: result.filePaths[0] });
+        }
+      })();
+      event.preventDefault();
+      return;
+    }
+
+    // Save — CmdOrCtrl+S
+    if (primary && !shift && !alt && key === 's') {
+      mainWindow.webContents.send('file-menu-command', { command: 'save-file' });
+      event.preventDefault();
+      return;
+    }
+
+    // Find — CmdOrCtrl+F
+    if (primary && !shift && !alt && key === 'f') {
+      mainWindow.webContents.send('menu:find', {});
+      event.preventDefault();
+      return;
+    }
+
+    // Toggle Explorer — CmdOrCtrl+Shift+E
+    if (primary && shift && !alt && key === 'e') {
+      mainWindow.webContents.send('menu:toggle-explorer', {});
+      event.preventDefault();
+      return;
+    }
+
+    // Toggle Terminal — CmdOrCtrl+J
+    if (primary && !shift && !alt && key === 'j') {
+      mainWindow.webContents.send('menu:toggle-terminal', {});
+      event.preventDefault();
+      return;
+    }
+
+    // Zoom In — CmdOrCtrl+= or CmdOrCtrl++
+    if (primary && !shift && !alt && (key === '=' || key === '+')) {
+      const level = mainWindow.webContents.getZoomLevel();
+      if (level < 3) mainWindow.webContents.setZoomLevel(Math.min(level + 0.5, 1));
+      event.preventDefault();
+      return;
+    }
+
+    // Zoom Out — CmdOrCtrl+-
+    if (primary && !shift && !alt && key === '-') {
+      const level = mainWindow.webContents.getZoomLevel();
+      if (level > -1) mainWindow.webContents.setZoomLevel(Math.max(level - 0.5, -1));
+      event.preventDefault();
+      return;
+    }
+
+    // Reveal in Finder / Force Reload — Option+Cmd+R (macOS) or Ctrl+Shift+R
+    // (others). Both names are bound to the same combo on purpose: this
+    // reveals the file tree's focused/selected item when the tree has
+    // keyboard focus, and falls through to the previous Force Reload
+    // behavior otherwise (see the dropped role on that menu item above).
+    //
+    // On macOS, holding Option while pressing R doesn't always resolve to a
+    // plain "r" in input.key — on at least the en-GB layout it reports "Dead"
+    // (an unresolved dead-key compose state), so the primary check falls back
+    // to the physical key code when input.key isn't a usable letter. Karabiner
+    // -style remaps still take priority: they change input.key to something
+    // real, which the first branch catches before the fallback ever runs.
+    const isRKey = key === 'r' || (key === 'dead' && input.code === 'KeyR');
+    const isRevealOrForceReloadCombo = isMac
+      ? (meta && alt && !control && !shift && isRKey)
+      : (control && shift && !alt && isRKey);
+    if (isRevealOrForceReloadCombo) {
+      const focused = getFileTreeFocus(mainWindow.webContents.id);
+      if (focused) {
+        shell.showItemInFolder(focused.path);
+      } else {
+        mainWindow.webContents.reloadIgnoringCache();
+      }
+      event.preventDefault();
+      return;
+    }
+
+    // Dev Tools — Option+Cmd+I (macOS) or F12 (others)
+    if (isMac && meta && alt && !shift && !control && key === 'i') {
+      mainWindow.webContents.toggleDevTools();
+      event.preventDefault();
+      return;
+    }
+    if (!isMac && !primary && !shift && !alt && input.key === 'F12') {
+      mainWindow.webContents.toggleDevTools();
+      event.preventDefault();
+      return;
+    }
+  });
 
   createMenuWithRecent(mainWindow);
   createFileTreeContextMenu(mainWindow);

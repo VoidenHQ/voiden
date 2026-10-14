@@ -6,7 +6,6 @@ import { ResponsePanelContainer } from "@/core/request-engine/components/Respons
 import { GitSourceControl } from "@/core/git/components/GitSourceControl";
 import { HistorySidebar } from "@/core/history/components/HistorySidebar";
 import { GlobalHistorySidebar } from "@/core/history/components/GlobalHistorySidebar";
-
 const leftSidebarComponentMap: Record<string, React.ReactNode> = {
   fileExplorer: <FileSystemList />,
   extensionBrowser: <ExtensionBrowser />,

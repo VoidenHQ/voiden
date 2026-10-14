@@ -79,6 +79,14 @@ export class PasteOrchestrator {
   private patternHandlers: Array<{ pluginId: string; handler: PatternHandler }> = [];
 
   /**
+   * Returns true if the given node type name belongs to a registered Voiden block.
+   * Used by editor extensions to disable markdown input rules inside blocks.
+   */
+  isRegisteredBlockType(typeName: string): boolean {
+    return this.blockOwners.has(typeName);
+  }
+
+  /**
    * Register a block owner (plugin that owns a block type)
    */
   registerBlockOwner(blockType: string, handler: BlockPasteHandler, pluginId: string) {
@@ -174,13 +182,31 @@ export class PasteOrchestrator {
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // a) PASTING INSIDE A VOIDEN BLOCK
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    const currentNode = $from.parent;
-    const blockOwner = this.blockOwners.get(currentNode.type.name);
+    // Traverse ancestors to find the nearest registered Voiden block
+    let voidenBlockNode: ProseMirrorNode | null = null;
+    let voidenBlockOwner: BlockPasteHandler | null = null;
+    for (let depth = $from.depth; depth >= 0; depth--) {
+      const ancestorNode = $from.node(depth);
+      const owner = this.blockOwners.get(ancestorNode.type.name);
+      if (owner) {
+        voidenBlockNode = ancestorNode;
+        voidenBlockOwner = owner;
+        break;
+      }
+    }
 
-    if (blockOwner && blockOwner.handlePasteInside) {
-      pasteLogger.info(`Delegating paste to block owner "${currentNode.type.name}"`);
-      const handled = blockOwner.handlePasteInside(text, html, currentNode, view);
-      if (handled) {
+    if (voidenBlockNode && voidenBlockOwner) {
+      if (voidenBlockOwner.handlePasteInside) {
+        pasteLogger.info(`Delegating paste to block owner "${voidenBlockNode.type.name}"`);
+        const handled = voidenBlockOwner.handlePasteInside(text, html, voidenBlockNode, view);
+        if (handled) {
+          return true;
+        }
+      } else {
+        // Block owner exists but has no handlePasteInside — insert as plain text
+        // to prevent markdown formatting from being applied inside Voiden blocks.
+        pasteLogger.info(`Inserting plain text inside Voiden block "${voidenBlockNode.type.name}"`);
+        view.dispatch(view.state.tr.insertText(text));
         return true;
       }
     }

@@ -1,9 +1,10 @@
 /**
- * Community Plugin Registry — fetches the community extensions catalogue from
- * https://github.com/VoidenHQ/plugins and manages on-disk runner installation.
+ * Community Plugin Catalogue — reads community plugin metadata from the same
+ * VoidenHQ/plugin-registry `extensions.json` the Electron app uses (see
+ * registryCache.ts), so the CLI's catalogue never drifts from the desktop app.
  *
  * Install flow (mirrors the Electron app's extensionManager):
- *   1. Fetch extensions.json → list of { id, name, repo, version, … }
+ *   1. Read the registry → list of { id, name, repo, version, … }
  *   2. On `plugin install <id>`, hit the GitHub release for that repo at v{version}
  *   3. Look for a `runner.js` asset in the release
  *   4. Download it to ~/.voiden/extensions/<id>/runner.js
@@ -13,12 +14,12 @@
  */
 
 import * as https from 'https'
-import { existsSync, mkdirSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, statSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
 import { pathToFileURL } from 'url'
+import { getRegistry } from './registryCache.js'
 
-const EXTENSIONS_REPO = 'VoidenHQ/plugins'
 const EXTENSIONS_DIR = join(homedir(), '.voiden', 'extensions')
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -74,23 +75,20 @@ function httpsGetText(url: string, maxRedirects = 5): Promise<string> {
   })
 }
 
-// ─── extensions.json catalogue ───────────────────────────────────────────────
-
-let _cache: CommunityPluginDefinition[] | null = null
+// ─── Community catalogue (from the shared plugin-registry) ──────────────────
 
 export async function fetchCommunityPlugins(): Promise<CommunityPluginDefinition[]> {
-  if (_cache) return _cache
-  try {
-    const raw = await httpsGetText(
-      `https://api.github.com/repos/${EXTENSIONS_REPO}/contents/extensions.json?ref=main`
-    )
-    const fileJson = JSON.parse(raw)
-    const decoded = Buffer.from(fileJson.content, 'base64').toString('utf8')
-    _cache = JSON.parse(decoded) as CommunityPluginDefinition[]
-    return _cache
-  } catch {
-    return []
-  }
+  const entries = await getRegistry()
+  return entries
+    .filter((p) => p.type === 'community')
+    .map((p) => ({
+      id: p.id,
+      name: p.name,
+      description: p.description,
+      author: p.author,
+      version: p.version,
+      repo: p.repo,
+    }))
 }
 
 export function findCommunityPlugin(
@@ -107,7 +105,13 @@ export function getCommunityRunnerPath(pluginId: string): string {
 }
 
 export function hasCommunityRunner(pluginId: string): boolean {
-  return existsSync(getCommunityRunnerPath(pluginId))
+  // A failed/interrupted download can leave a 0-byte file behind; treat that
+  // as "not installed" rather than importing an empty module.
+  try {
+    return existsSync(getCommunityRunnerPath(pluginId)) && statSync(getCommunityRunnerPath(pluginId)).size > 0
+  } catch {
+    return false
+  }
 }
 
 export function getCommunityRunnerImportUrl(pluginId: string): string {
@@ -132,7 +136,13 @@ export async function installCommunityRunner(
   const release = JSON.parse(releaseRaw)
   const assets: ReleaseAsset[] = release.assets ?? []
 
-  const runnerAsset = assets.find(a => a.name === 'runner.js')
+  // Core plugins publish their runner bundle as `{id}-runner.js` (see registry.ts);
+  // `@voiden/create-plugin` now scaffolds community plugins to follow the same
+  // convention. Fall back to the generic `runner.js` for plugins built before
+  // this convention was adopted.
+  const runnerAsset =
+    assets.find(a => a.name === `${plugin.id}-runner.js`) ??
+    assets.find(a => a.name === 'runner.js')
   if (!runnerAsset) return 'no-runner'
 
   const source = await httpsGetText(runnerAsset.browser_download_url)

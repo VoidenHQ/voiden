@@ -12,7 +12,8 @@ export const gitApi = {
   getRepoRoot: () => ipcRenderer.invoke("git:getRepoRoot"),
   getStatus: () => ipcRenderer.invoke("git:getStatus"),
   initialize: () => ipcRenderer.invoke("git:initialize"),
-  clone: (repoUrl: string, token?: string) => ipcRenderer.invoke("git:clone", repoUrl, token),
+  clone: (repoUrl: string, authOptions?: { token?: string; sshKeyPath?: string; sshPassphrase?: string; useSshAgent?: boolean }) =>
+    ipcRenderer.invoke("git:clone", repoUrl, authOptions),
   stage: (files: string[]) => ipcRenderer.invoke("git:stage", files),
   unstage: (files: string[]) => ipcRenderer.invoke("git:unstage", files),
   commit: (message: string) => ipcRenderer.invoke("git:commit", message),

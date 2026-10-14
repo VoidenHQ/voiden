@@ -36,7 +36,12 @@ const createNodeView =
 
     return (
       <NodeViewWrapper spellCheck="false" className="my-4">
-        <RequestBlockHeader withBorder title={title} editor={editor} importedDocumentId={node.attrs.importedFrom} />
+        <RequestBlockHeader
+          withBorder
+          title={title}
+          editor={editor}
+          importedDocumentId={node.attrs.importedFrom}
+        />
 
         <NodeViewContent className={`w-full max-w-full`} style={{
           pointerEvents: !isEditable ? "none" : "unset",

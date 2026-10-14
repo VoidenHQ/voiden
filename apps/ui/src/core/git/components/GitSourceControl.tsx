@@ -1,6 +1,6 @@
 import { useGetGitStatus, useStageFiles, useUnstageFiles, useCommit, useDiscardFiles, useGetGitBranches, useInitializeGit, usePushToRemote, usePullFromRemote, useCloneRepo, useFetchRemote, useGetGitRemote, useStash, useStashList, useStashPop, useUncommit, useGetGitLog } from "@/core/git/hooks";
 import { useSetActiveProject, useOpenProject } from "@/core/projects/hooks/useProjects";
-import { Loader2, FilePlus, FileEdit, FileX, GitBranch, Check, Plus, Minus, RotateCcw, GitCommit, ArrowUp, ArrowDown, RefreshCw, ChevronDown, ChevronRight, GitFork, Eye, EyeOff, MoreVertical, CloudDownload, Archive, ArrowDownToLine, X } from "lucide-react";
+import { Loader2, FilePlus, FileEdit, FileX, GitBranch, Check, Plus, Minus, RotateCcw, GitCommit, ArrowUp, ArrowDown, RefreshCw, ChevronDown, ChevronRight, GitFork, Eye, EyeOff, MoreVertical, CloudDownload, Archive, ArrowDownToLine, X, FolderOpen, Key, Lock } from "lucide-react";
 import { cn } from "@/core/lib/utils";
 import { useState } from "react";
 import { toast } from "@/core/components/ui/sonner";
@@ -41,6 +41,9 @@ export const GitSourceControl = () => {
   const [stashMessage, setStashMessage] = useState("");
   const [cloneUrl, setCloneUrl] = useState("");
   const [cloneToken, setCloneToken] = useState("");
+  const [cloneSshKeyPath, setCloneSshKeyPath] = useState("");
+  const [cloneSshPassphrase, setCloneSshPassphrase] = useState("");
+  const [authMode, setAuthMode] = useState<"auto" | "token" | "ssh">("auto");
   const [clonedProjectPath, setClonedProjectPath] = useState<string | null>(null);
   const [cloneProgress, setCloneProgress] = useState<{ stage: string; progress: number } | null>(null);
 
@@ -48,7 +51,19 @@ export const GitSourceControl = () => {
     setCloneProgress(data);
   });
   const [showToken, setShowToken] = useState(false);
+  const [showSshPassphrase, setShowSshPassphrase] = useState(false);
+  const [showSshAdvanced, setShowSshAdvanced] = useState(false);
   const [showCloneForm, setShowCloneForm] = useState(false);
+
+  // Auto-detect auth mode from URL: git@ / ssh:// → ssh, https:// → keep current (don't override user's choice)
+  const handleCloneUrlChange = (value: string) => {
+    setCloneUrl(value);
+    if (/^(git@|ssh:\/\/)/.test(value.trim()) && authMode !== "ssh") {
+      setAuthMode("ssh");
+    } else if (/^https?:\/\//.test(value.trim()) && authMode === "ssh") {
+      setAuthMode("auto");
+    }
+  };
   const [commitMessage, setCommitMessage] = useState("");
   const [stagedOpen, setStagedOpen] = useState(true);
   const [changesOpen, setChangesOpen] = useState(true);
@@ -251,7 +266,7 @@ export const GitSourceControl = () => {
     }
 
     const isHttps = /^https?:\/\/.+\/.+/.test(url);
-    const isSsh = /^git@[^:]+:.+\/.+/.test(url);
+    const isSsh = /^(git@[^:]+:.+\/.+|ssh:\/\/.+\/.+)/.test(url);
     const isGitProto = /^git:\/\/.+\/.+/.test(url);
     if (!isHttps && !isSsh && !isGitProto) {
       toast.error("Invalid repository URL", {
@@ -260,17 +275,54 @@ export const GitSourceControl = () => {
       return;
     }
 
+    if (authMode === "auto" && isSsh) {
+      toast.error("SSH URLs require SSH key authentication", {
+        description: "Switch to 'SSH Key' mode or use an https:// URL with Auto.",
+      });
+      return;
+    }
+
+    if (authMode === "token" && !isHttps) {
+      toast.error("Token authentication requires an HTTPS URL", {
+        description: "Change the URL to https:// or switch to SSH key authentication.",
+      });
+      return;
+    }
+
+    if (authMode === "ssh" && !isSsh) {
+      toast.error("SSH key authentication requires an SSH URL", {
+        description: "Change the URL to git@host:user/repo format or switch to token authentication.",
+      });
+      return;
+    }
+
+    const sshKeyFile = authMode === "ssh" ? cloneSshKeyPath.trim() || undefined : undefined;
+
     setCloneProgress(null);
     cloneRepo(
-      { repoUrl: cloneUrl.trim(), token: cloneToken.trim() || undefined },
+      {
+        repoUrl: url,
+        token: authMode === "token" ? cloneToken.trim() || undefined : undefined,
+        useSshAgent: authMode === "ssh" && !sshKeyFile ? true : undefined,
+        sshKeyPath: sshKeyFile,
+        sshPassphrase: sshKeyFile ? cloneSshPassphrase.trim() || undefined : undefined,
+      },
       {
         onSuccess: (result) => {
           setCloneProgress(null);
           setCloneUrl("");
           setCloneToken("");
+          setCloneSshKeyPath("");
+          setCloneSshPassphrase("");
+          setAuthMode("auto");
+          setShowSshAdvanced(false);
           setShowCloneForm(false);
 
-          if (result?.lfsWarning) {
+          if (result?.emptyRepo) {
+            toast.warning("Repository is empty", {
+              description: "The repo was cloned successfully but has no commits yet.",
+            });
+          } else if (result?.lfsWarning) {
             toast.warning("Cloned without LFS files", {
               description: "git-lfs is not installed. Run `git lfs install` then `git lfs pull` inside the repo.",
             });
@@ -364,33 +416,132 @@ export const GitSourceControl = () => {
         {showCloneForm && (
           <div className="flex flex-col gap-2">
             <p className="text-[11px] text-comment font-medium">Clone a repository</p>
+
+            {/* Repository URL */}
             <input
               type="text"
               value={cloneUrl}
-              onChange={(e) => setCloneUrl(e.target.value)}
+              onChange={(e) => handleCloneUrlChange(e.target.value)}
               onMouseDown={(e) => e.stopPropagation()}
               placeholder="https://github.com/user/repo.git"
               disabled={isCloning}
               className="w-full bg-editor border border-border rounded px-3 py-2 text-xs text-text placeholder:text-comment focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-50 disabled:cursor-not-allowed"
             />
-            <div className="relative">
-              <input
-                type={showToken ? "text" : "password"}
-                value={cloneToken}
-                onChange={(e) => setCloneToken(e.target.value)}
-                onMouseDown={(e) => e.stopPropagation()}
-                placeholder="Access token (optional)"
-                disabled={isCloning}
-                className="w-full bg-editor border border-border rounded px-3 py-2 pr-9 text-xs text-text placeholder:text-comment focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-50 disabled:cursor-not-allowed"
-              />
-              <button
-                onClick={() => setShowToken((v) => !v)}
-                disabled={isCloning}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-comment hover:text-text disabled:opacity-50"
-              >
-                {showToken ? <EyeOff size={13} /> : <Eye size={13} />}
-              </button>
+
+            {/* Auth mode selector */}
+            <div className="flex gap-0.5 bg-editor border border-border rounded p-0.5">
+              {(["auto", "token", "ssh"] as const).map((mode) => (
+                <button
+                  key={mode}
+                  onClick={() => setAuthMode(mode)}
+                  disabled={isCloning}
+                  className={cn(
+                    "flex-1 flex items-center justify-center gap-1 text-[11px] py-1 rounded transition disabled:opacity-50",
+                    authMode === mode ? "bg-accent text-white" : "text-comment hover:text-text",
+                  )}
+                >
+                  {mode === "ssh" && <Key size={10} />}
+                  {mode === "auto" ? "Auto" : mode === "token" ? "Access Token" : "SSH Key"}
+                </button>
+              ))}
             </div>
+
+            {/* Token input */}
+            {authMode === "token" && (
+              <div className="relative">
+                <input
+                  type={showToken ? "text" : "password"}
+                  value={cloneToken}
+                  onChange={(e) => setCloneToken(e.target.value)}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  placeholder="Personal access token"
+                  disabled={isCloning}
+                  className="w-full bg-editor border border-border rounded px-3 py-2 pr-9 text-xs text-text placeholder:text-comment focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-50 disabled:cursor-not-allowed"
+                />
+                <button
+                  onClick={() => setShowToken((v) => !v)}
+                  disabled={isCloning}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-comment hover:text-text disabled:opacity-50"
+                >
+                  {showToken ? <EyeOff size={13} /> : <Eye size={13} />}
+                </button>
+              </div>
+            )}
+
+            {/* SSH agent mode */}
+            {authMode === "ssh" && (
+              <div className="flex flex-col gap-2">
+                <div className="flex items-start gap-2 px-3 py-2 bg-editor border border-border rounded text-[11px] text-comment leading-relaxed">
+                  <Key size={12} className="mt-0.5 flex-shrink-0 text-accent" />
+                  <span>
+                    Uses your SSH agent. Make sure your key is loaded:{" "}
+                    <code className="text-text font-mono">ssh-add ~/.ssh/id_rsa</code>
+                  </span>
+                </div>
+
+                {/* Advanced: specific key file */}
+                <button
+                  onClick={() => setShowSshAdvanced((v) => !v)}
+                  disabled={isCloning}
+                  className="flex items-center gap-1 text-[11px] text-comment hover:text-text disabled:opacity-50 transition w-fit"
+                >
+                  <ChevronRight size={11} className={cn("transition-transform", showSshAdvanced && "rotate-90")} />
+                  Use a specific key file
+                </button>
+
+                {showSshAdvanced && (
+                  <>
+                    <div className="flex gap-1.5">
+                      <input
+                        type="text"
+                        value={cloneSshKeyPath}
+                        onChange={(e) => setCloneSshKeyPath(e.target.value)}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        placeholder="~/.ssh/id_rsa"
+                        disabled={isCloning}
+                        className="flex-1 bg-editor border border-border rounded px-3 py-2 text-xs text-text placeholder:text-comment focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-50 disabled:cursor-not-allowed"
+                      />
+                      <button
+                        onClick={async () => {
+                          const result = await window.electron?.dialog.openFile({
+                            title: "Select SSH Private Key",
+                            properties: ["openFile"],
+                            filters: [{ name: "All Files", extensions: ["*"] }],
+                          });
+                          if (result && !result.canceled && result.filePaths[0]) {
+                            setCloneSshKeyPath(result.filePaths[0]);
+                          }
+                        }}
+                        disabled={isCloning}
+                        title="Browse for SSH key"
+                        className="flex-shrink-0 flex items-center justify-center px-2.5 bg-editor border border-border rounded text-comment hover:text-text hover:bg-active/40 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <FolderOpen size={13} />
+                      </button>
+                    </div>
+                    <div className="relative">
+                      <input
+                        type={showSshPassphrase ? "text" : "password"}
+                        value={cloneSshPassphrase}
+                        onChange={(e) => setCloneSshPassphrase(e.target.value)}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        placeholder="Key passphrase (optional)"
+                        disabled={isCloning}
+                        className="w-full bg-editor border border-border rounded px-3 py-2 pr-9 text-xs text-text placeholder:text-comment focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-50 disabled:cursor-not-allowed"
+                      />
+                      <button
+                        onClick={() => setShowSshPassphrase((v) => !v)}
+                        disabled={isCloning}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-comment hover:text-text disabled:opacity-50"
+                      >
+                        {showSshPassphrase ? <EyeOff size={13} /> : <Eye size={13} />}
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
             <button
               onClick={handleClone}
               disabled={isCloning || !cloneUrl.trim()}
@@ -426,7 +577,15 @@ export const GitSourceControl = () => {
               </div>
             )}
             <button
-              onClick={() => { setShowCloneForm(false); setCloneUrl(""); setCloneToken(""); }}
+              onClick={() => {
+                setShowCloneForm(false);
+                setCloneUrl("");
+                setCloneToken("");
+                setCloneSshKeyPath("");
+                setCloneSshPassphrase("");
+                setAuthMode("auto");
+                setShowSshAdvanced(false);
+              }}
               disabled={isCloning}
               className="w-full flex items-center justify-center gap-1.5 text-comment hover:text-text disabled:opacity-50 disabled:cursor-not-allowed text-xs py-1.5 transition"
             >

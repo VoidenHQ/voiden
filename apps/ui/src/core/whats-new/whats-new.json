@@ -1,0 +1,362 @@
+{
+  "releases": [
+    {
+      "version": "2.3.3-beta.1",
+      "date": "October 2026",
+      "whatsnew": [
+        {
+          "icon": "📁",
+          "title": "Folder Environments",
+          "description": "Put a .env file in any folder and the requests inside it pick up those variables, on top of the ones from parent folders. Each service can keep its own values without switching environments."
+        },
+        {
+          "icon": "☑️",
+          "title": "Optional Request Fields",
+          "description": "Table rows now have a Required checkbox. Untick it and a row whose variable has no value is simply left out of the request instead of blocking it."
+        },
+        {
+          "icon": "⌨️",
+          "title": "Tab Accepts Suggestions",
+          "description": "Press Tab to take the highlighted suggestion in the slash menu, variable and file suggestions, and code completions."
+        },
+        {
+          "icon": "🐛",
+          "title": "gRPC, WebSocket & Git Fixes",
+          "description": "gRPC calls work with dotted package names and project-relative proto paths, WebSocket messages stay in the response panel, and cloning with an access token works again."
+        }
+      ]
+    },
+    {
+      "version": "2.3.2",
+      "date": "October 2026",
+      "whatsnew": [
+        {
+          "icon": "🤖",
+          "title": "A Skill Agents Read in Full",
+          "description": "The Voiden skill for Claude and Codex is now a short guide with an index, plus one file per extension. Agents open the parts a task needs, so guidance on auth, scripts, and importers no longer goes unread."
+        },
+        {
+          "icon": "🔄",
+          "title": "Skill Stays Current After Plugin Updates",
+          "description": "When a plugin update brings new guidance, the installed skill is rebuilt right away. No restart needed."
+        },
+        {
+          "icon": "🔐",
+          "title": "Better OAuth Guidance for Agents",
+          "description": "Agents now know when a request needs an OAuth 2.0 block, which grant to pick, and when a login uses cookies instead."
+        },
+        {
+          "icon": "🐛",
+          "title": "Editor Fixes",
+          "description": "Files no longer show as unsaved right after you open them, code blocks stop flickering when you right-click a tab, and the close icon is back on tabs."
+        }
+      ]
+    },
+    {
+      "version": "2.3.1",
+      "date": "October 2026",
+      "whatsnew": [
+        {
+          "icon": "🔒",
+          "title": "Security Updates",
+          "description": "Voiden's dependencies — including Electron and the editor engine — are updated to resolve the latest security advisories."
+        },
+        {
+          "icon": "⌨️",
+          "title": "Smoother Keyboard Navigation in Menus",
+          "description": "Arrow keys and Enter now stay inside the slash menu, table cell suggestions, and variable pickers, so you can browse and pick an item without the cursor jumping elsewhere."
+        },
+        {
+          "icon": "🔗",
+          "title": "More Reliable MCP Tool Chaining",
+          "description": "Chained /mcp calls share one server session so captured values carry over, and files saved with an older compatible plugin version keep running after you update the plugin."
+        }
+      ]
+    },
+    {
+      "version": "2.3.0",
+      "date": "September 2026",
+      "whatsnew": [
+        {
+          "icon": "🛠️",
+          "title": "Turn Any Request Into an Agent-Callable Tool",
+          "description": "Add a /tool block to any request and it becomes its own named tool — with a description and typed parameters — that an agent can call directly, verified automatically before it's ever handed over. A tool that starts failing gets withdrawn or flagged instead of silently staying available."
+        },
+        {
+          "icon": "🔌",
+          "title": "Talk to Other MCP Servers From Inside Voiden",
+          "description": "The new /mcp block connects to and tests an external MCP server right from a .void file, and a dedicated MCP tab shows every tool block's list/verify/serve status at a glance."
+        },
+        {
+          "icon": "🤖",
+          "title": "Agents Can Manage Their Own Plugins and Environments",
+          "description": "An agent can now install or update a missing plugin and pick the right environment profile itself, mid-conversation, without you stepping in — plus a one-click \"Disable MCP\" to match \"Initialize MCP.\""
+        },
+        {
+          "icon": "🐛",
+          "title": "Editor Polish & Reliability Fixes",
+          "description": "Scrolling in the code editor no longer fights you while typing or reviewing a response, the response panel's toolbar stays visible on long URLs, file-explorer drag-and-drop is fixed, and a long list of CLI, installer, and theme issues are cleared up."
+        }
+      ]
+    },
+    {
+      "version": "2.3.0-beta.3",
+      "date": "September 2026",
+      "whatsnew": [
+        {
+          "icon": "🔌",
+          "title": "Agents Can Fix Their Own Missing Plugins",
+          "description": "When an agent hits a request that needs a plugin you haven't installed or updated yet, it no longer has to just fail and wait for you. It can now check what's enabled, install what's missing, or grab the latest version itself — and keep going in the same conversation, no restart needed."
+        },
+        {
+          "icon": "🌍",
+          "title": "Agents Can Now Pick Your Environment Too",
+          "description": "Two new tools let an agent see every environment profile your project has — staging, prod, nested ones like \"staging.eu\" — and select one to use for the rest of the session, instead of guessing or asking you every single time."
+        },
+        {
+          "icon": "🔓",
+          "title": "Disable MCP, Right From the Status Bar",
+          "description": "\"Initialize MCP\" now has a counterpart. Turn Claude Code/Codex access for a project back off from the exact same status-bar button you used to turn it on, with a confirmation step so it's never an accident."
+        },
+        {
+          "icon": "🐛",
+          "title": "Fewer Surprises",
+          "description": "No more sudo password prompt on every single launch. Dotfiles show up in the file explorer and search again. winget and the Nix cache install correctly. And two request-execution bugs are fixed for anything run by an agent or the CLI: table fields (headers, query params, form data) no longer silently go missing, and a failed response no longer shows the same green checkmark as a successful one."
+        }
+      ]
+    },
+    {
+      "version": "2.3.0-beta.2",
+      "date": "September 2026",
+      "whatsnew": [
+        {
+          "icon": "🔌",
+          "title": "@voiden/mcp-server Now Serves Your Own Tools, Not Just the Generic Four",
+          "description": "Claude Code and Codex already got list/run/write-back tools for your .void files. Now, any request you mark with the new /tool block is served as its own real, named tool too — create_user, refund_order, whatever you call it — with its own description and typed parameters, verified automatically before it's ever handed to an agent. A tool that's currently failing gets withdrawn (or flagged degraded) instead of silently staying available."
+        },
+        {
+          "icon": "🛠️",
+          "title": "Tool Blocks — Turn Any Request Into an Agent-Callable Tool",
+          "description": "The new /tool block lets you mark an existing request as a named, described tool an AI agent can call directly. Split its parameters between agent-supplied and environment-only (never shown to the agent), and add a verification policy pointing at other requests to prove it still works — the Voiden app's new MCP tab shows you exactly what's currently being served."
+        },
+        {
+          "icon": "🧩",
+          "title": "MCP Connection Blocks — Talk to Any MCP Server",
+          "description": "The new /mcp block lets you connect to and test an external MCP server right from a .void file — list its tools, call one, read a resource, or get a prompt — the same way you already test REST and GraphQL requests. Paste a Claude Desktop / Cursor / VS Code style server config to fill in the connection automatically."
+        },
+        {
+          "icon": "📍",
+          "title": "Initialize MCP Is Now Its Own Status Bar Button",
+          "description": "Registering Voiden's MCP server for your project is now a dedicated \"Initialize MCP\" button in the status bar, scoped to whichever project you have open — instead of a side effect of the Settings → AI Skill toggle. Clearer control, and it won't silently overwrite a manually configured .mcp.json anymore."
+        },
+        {
+          "icon": "📥",
+          "title": "New: Bruno Collection Importer",
+          "description": "Bring your existing Bruno (usebruno.com) requests straight into Voiden — a single .bru file or a whole exported OpenCollection. HTTP, GraphQL, gRPC, and WebSocket requests, all your auth types, environments, and even pre/post-request scripts and assertions come across, with anything Voiden can't safely translate left commented out for you to review instead of silently dropped."
+        },
+        {
+          "icon": "🐛",
+          "title": "AI Agents Author More Reliable Voiden Blocks",
+          "description": "The AI skill Voiden ships to Claude Code and other agents now spells out which request blocks — auth, headers, body, and more, across REST, GraphQL, MCP, and scripting — can only appear once per request, keeps its table examples (headers, query params, path params, form data, and more) in sync with the app's current column layout, and shows where a section's documentation actually belongs in a multi-request file (after its separator, not before — a mistake that silently attached a heading to the wrong request). Agents previously had no way to know any of this and could insert duplicate blocks, malformed tables, or misplaced documentation into your .void files."
+        },
+        {
+          "icon": "▶️",
+          "title": "Run All No Longer Stops Dead on One Bad Placeholder",
+          "description": "If a request in the middle of a multi-request file referenced a variable your active environment doesn't define, Run All used to stop entirely — every request after it silently never ran. It also showed the error as a full-panel overlay that covered every other request's already-successful response instead of appearing under the one request that actually failed. Run All now shows each error inline, under the right request, and keeps going through the rest of the file."
+        },
+        {
+          "icon": "🗂️",
+          "title": "Drag & Drop Now Works Everywhere in the File Explorer",
+          "description": "Dropping a file into empty space below the tree (moving it to the project root) used to do nothing — you had to hit an existing row. Dragging folders in from Finder/Explorer used to fail silently too. Both now work, with a hover highlight so you can see exactly where something will land."
+        },
+        {
+          "icon": "📌",
+          "title": "The File Tree Stays Where You Left It",
+          "description": "Running a request or deleting a file could randomly scroll the file explorer, collapse folders, or pop open an unrelated one. The tree now only jumps to reveal a file when you actually open it — never as a side effect of something unrelated happening elsewhere in the app."
+        },
+        {
+          "icon": "🔍",
+          "title": "Response Panel Section Icons Now Only Show When They Work",
+          "description": "The search, expand-all, and collapse-all icons on a collapsed response section used to sit there clickable but doing nothing. They now only appear once that section is actually expanded."
+        },
+        {
+          "icon": "🔗",
+          "title": "Linked Block Overview Jumps to the Right Block",
+          "description": "Clicking a linked block in the block overview panel used to scroll you to the top of the document instead of to that block. It now takes you straight there."
+        }
+      ]
+    },
+    {
+      "version": "2.3.0-beta.1",
+      "date": "July 2026",
+      "whatsnew": [
+        {
+          "icon": "🔌",
+          "title": "Deeper MCP Integration",
+          "description": "Enabling the Claude or Codex skill now auto-registers Voiden's MCP server for your project — no separate setup step. The MCP tools also work across REST, GraphQL, and sockets/gRPC requests generically, and .void blocks are now tagged with the plugin that created them so Voiden can prompt you to install or enable a missing plugin instead of failing silently."
+        },
+        {
+          "icon": "❓",
+          "title": "Inline Block Help",
+          "description": "Blocks can now show contextual documentation right in their header via a new \"?\" tooltip. Runtime Variables' help was rewritten to show the real capture-expression syntax (`{{$res.body...}}`, `{{process.variable}}`) instead of outdated examples."
+        },
+        {
+          "icon": "🖥️",
+          "title": "Terminal Font Fixes",
+          "description": "The terminal now follows your UI font size and no longer gets stuck showing a fallback font the first time it loads a new typeface."
+        },
+        {
+          "icon": "🐛",
+          "title": "Editor & Plugin Manager Fixes",
+          "description": "Word-delete backspace shortcuts now match Mac vs. Windows/Linux conventions correctly, a recurring editor flicker from unnecessary background polling is gone, plugin icons that fail to load fall back gracefully, \"Update All\" batches core plugin updates into one call, and request failures (like a self-signed cert) now show the real error instead of a generic \"fetch failed\"."
+        }
+      ]
+    },
+    {
+      "version": "2.2.2",
+      "date": "July 2026",
+      "whatsnew": [
+        {
+          "icon": "🌑",
+          "title": "Cursor Dark Default Theme",
+          "description": "New installs (and Reset Settings) now start with the Cursor Dark theme instead of the original Voiden theme. Already have a theme picked? Nothing changes for you."
+        },
+        {
+          "icon": "🐛",
+          "title": "Editor & Popover Fixes",
+          "description": "Script and table-header help popups are readable in every theme again (they'd render invisible black-on-dark text), stay within the window instead of overflowing off-screen, and switching tabs quickly no longer briefly shows the previous tab's content under the new tab's title. Inline code inside a numbered or bulleted list no longer corrupts the whole document into raw YAML on save. The onboarding screen is also fully theme-aware now."
+        }
+      ]
+    },
+    {
+      "version": "2.2.0",
+      "date": "July 2026",
+      "whatsnew": [
+        {
+          "icon": "🗂️",
+          "title": "Hierarchical Request Inheritance",
+          "description": "Set auth, headers, or other shared config once in a folder-level file and every request nested inside automatically inherits it — no more copy-pasting the same setup into each request."
+        },
+        {
+          "icon": "📌",
+          "title": "Preview Tabs",
+          "description": "Single-clicking a file now opens it in a reusable preview tab instead of piling up permanent tabs — click into it to make it stick around."
+        },
+        {
+          "icon": "🔔",
+          "title": "Plugin Update Notifications",
+          "description": "Voiden now tells you when a plugin update is available and takes you straight to the Updates tab — no more manually checking the Plugin Manager."
+        },
+        {
+          "icon": "🐛",
+          "title": "Editor Reliability Fixes",
+          "description": "Cmd/Ctrl+F now reliably opens Find in every editor, backspace no longer corrupts content at block boundaries or requires two presses to delete a character in the request URL/method fields and table cells, huge single lines no longer freeze the code editor, scrolling flicker is gone, and a false \"unsaved changes\" indicator on GraphQL files is fixed."
+        },
+        {
+          "icon": "💾",
+          "title": "Quit Confirmation for Unsaved Tabs",
+          "description": "Quitting with unsaved changes no longer saves everything silently or risks losing your edits — Voiden now shows you exactly which tabs are unsaved and lets you save, discard, or cancel before closing."
+        }
+      ]
+    },
+    {
+      "version": "2.1.1",
+      "date": "June 2026",
+      "whatsnew": [
+        {
+          "icon": "🌱",
+          "title": "More Reliable Environment Creation",
+          "description": "Extending or creating an environment (including from imports) now always lands in the right profile and environment node, with the YAML file created on demand — instead of writing to the old flat .env format."
+        },
+        {
+          "icon": "🐛",
+          "title": "Editor & Reliability Fixes",
+          "description": "The environment editor no longer discards an in-progress variable you were adding when you switch tabs, the file-link \"@\" picker in multipart tables claims Enter correctly, the code editor fills its panel height properly, and running a documentation-only section now shows a friendly \"Nothing to run\" message instead of an empty response panel."
+        }
+      ]
+    },
+    {
+      "version": "2.1.0",
+      "date": "June 2026",
+      "whatsnew": [
+        {
+          "icon": "🗺️",
+          "title": "Block Overview Panel",
+          "description": "See every block in a file at a glance from a new overview panel, making it easy to jump straight to any section without scrolling through the whole document. Great for long .void files with a lot of sections."
+        },
+        {
+          "icon": "🔀",
+          "title": "Drag-and-Drop Block Reordering",
+          "description": "Reorder blocks directly from the overview panel by dragging them into place — no more cutting and pasting content to move a section up or down in the file."
+        },
+        {
+          "icon": "🚫",
+          "title": "Unresolved Variable Guard",
+          "description": "Voiden now blocks a request from sending if it still contains an unresolved {{variable}} after environment and runtime substitution, instead of letting the literal placeholder go out over the wire."
+        },
+        {
+          "icon": "⌨️",
+          "title": "Editor Usability Pass",
+          "description": "Scrollbar behavior, cursor placement, window memory, and select-all all got attention this release, along with smoother keyboard navigation and nesting when moving between blocks."
+        },
+        {
+          "icon": "🐛",
+          "title": "Cookie, Markdown & Tooltip Fixes",
+          "description": "Fixed set-cookie capture lagging one request behind in runtime variables, markdown formatting leaking inside blocks where it shouldn't render, and the \"What's New\" tooltip popping up after the mouse had already left the button."
+        }
+      ]
+    },
+    {
+      "version": "2.0.1",
+      "date": "June 2026",
+      "whatsnew": [
+        {
+          "icon": "🔌",
+          "title": "Plugin Hot-Reload",
+          "description": "Install and update community plugins without restarting the app — changes take effect instantly. We rebuilt the plugin loader to swap code in place, so your editor stays open, your tabs stay exactly where you left them, and there's no jarring full-app reload interrupting your flow."
+        },
+        {
+          "icon": "🗂",
+          "title": "Collection Runner",
+          "description": "Run a sequence of linked .void files in order, straight from the sidebar — perfect for chaining auth, setup, and verification requests into one repeatable API test flow. Each run streams its results live, and you can re-run any step on its own without restarting the whole sequence."
+        },
+        {
+          "icon": "⚡",
+          "title": "Faster Plugin Loading",
+          "description": "Core extensions now load from pre-bundled files instead of being compiled on the fly, cutting cold-start time significantly — especially noticeable if you run several plugins at once."
+        },
+        {
+          "icon": "🐛",
+          "title": "Editor & Response Fixes",
+          "description": "Fixed a DOM error that could crash the editor when uninstalling an extension while it was active, and corrected JSON response parsing so large integers keep their full precision instead of being rounded by floating-point conversion."
+        }
+      ]
+    }
+  ],
+  "welcome": {
+    "headline": "Welcome to Voiden",
+    "subheadline": "The API client built for developers who live in their editor.",
+    "items": [
+      {
+        "emoji": "📝",
+        "title": "Void Files",
+        "description": "Write API requests in plain markdown. Version-controlled, shareable, and readable by humans."
+      },
+      {
+        "emoji": "🔌",
+        "title": "Plugins",
+        "description": "Extend Voiden with community plugins or build your own using the Voiden SDK."
+      },
+      {
+        "emoji": "🌐",
+        "title": "Environments",
+        "description": "Switch between dev, staging, and production with instant variable interpolation."
+      },
+      {
+        "emoji": "📜",
+        "title": "Request History",
+        "description": "Every request is logged. Search, replay, and export to curl in one click."
+      }
+    ]
+  }
+}

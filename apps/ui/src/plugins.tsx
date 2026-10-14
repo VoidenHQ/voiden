@@ -42,16 +42,18 @@ import { AnyExtension } from "@tiptap/core";
 import { historyAdapterRegistry } from "@/core/history/adapterRegistry";
 import { parseMarkdown } from "@/core/editors/voiden/markdownConverter";
 import { useVoidenEditorStore, useEditorStore } from "@/core/editors/voiden/VoidenEditor";
-import { proseClasses } from "@/core/editors/voiden/VoidenEditor";
+import { proseClasses, previewProseClasses } from "@/core/editors/voiden/VoidenEditor";
 import { useCodeEditorStore } from "@/core/editors/code/CodeEditorStore";
 import { usePanelStore } from "@/core/stores/panelStore";
 import { requestOrchestrator } from "@/core/request-engine/requestOrchestrator";
+import { registerToolCapabilityProvider as registerToolCapabilityProviderFn, clearToolCapabilityProvider, getToolCapabilityProvider, useToolCapabilityProvider, type ToolCapabilityProvider } from "@/core/tools/toolCapabilityRegistry";
 import { pasteOrchestrator } from "@/core/paste/pasteOrchestrator";
 import { CodeEditor as GenericCodeEditor } from "@/core/editors/code/lib/components/CodeEditor";
 import { Table, TableBody, TableRow, TableCell } from "@/core/components/ui/table";
 import { NodeViewWrapper } from "@tiptap/react";
 import { useSendRestRequest } from "@/core/request-engine";
-import { RequestBlockHeader } from "@/core/editors/voiden/nodes/RequestBlockHeader";
+import { RequestBlockHeader, BlockHelpTooltip } from "@/core/editors/voiden/nodes/RequestBlockHeader";
+import { RuntimeVariablesHelp } from "@/core/editors/voiden/nodes/help";
 import { useParentResponseDoc } from "@/core/extensions/hooks/useParentResponseDoc";
 import { useResponseBodyHeight } from "@/core/extensions/hooks/useResponseBodyHeight";
 import { Tip } from "@/core/components/ui/Tip";
@@ -73,6 +75,7 @@ import { useActiveEnvironment, useEnvironments } from "@/core/environment/hooks"
 import { getResponsePanelPosition as getResponsePanelPositionFn } from "@/core/stores/responsePanelPosition";
 import { getTable, parseAuthNode, buildHeadersWithCookies, findNode, findNodes, createNewRequestObject, getRequest } from "@/core/request-engine/getRequestFromJson";
 import { voidenExtensions as coreVoidenExtensions } from "@/core/editors/voiden/extensions";
+import { registerCustomVariableHighlighter, type CustomVariableHighlighterRule } from "@/core/editors/voiden/extensions/environmentHighlighter";
 import { expandLinkedBlocksInDoc } from "@/core/editors/voiden/utils/expandLinkedBlocks";
 import { useResponseStore } from "@/core/request-engine/stores/responseStore";
 import { replaceProcessVariablesInText } from "@/core/request-engine/runtimeVariables";
@@ -96,6 +99,86 @@ const historyExporters: Record<string, {
 // calling plugin-specific functions directly.
 type CurlImporter = (curlString: string, editor: any) => Promise<boolean>;
 const curlImporters: CurlImporter[] = [];
+
+// ── cURL extender registry ─────────────────────────────────────────────────────
+// Plugins register functions that augment the cURL command produced by
+// voiden-rest-api's CopyCurlButton. Each extender receives the fully-expanded
+// ProseMirror doc and returns headers, query params, and/or raw cURL flags to
+// append. Existing explicit request headers take precedence — extenders cannot
+// overwrite them. Called after the base request data is assembled, before
+// variable substitution (so {{variable}} placeholders are fine in returned values).
+export type CurlHeaderEntry = { key: string; value: string };
+export type CurlExtenderResult = {
+  /** Extra -H headers to add (skipped if key already present in request). */
+  headers?: CurlHeaderEntry[];
+  /** Extra query params to add (skipped if key already present). */
+  queryParams?: CurlHeaderEntry[];
+  /** Raw cURL flags appended verbatim, e.g. ['--digest', '-u "user:pass"']. */
+  flags?: string[];
+  /**
+   * Set when this auth type has no static cURL representation (e.g. Hawk,
+   * Atlassian ASAP, OAuth1 with HMAC signing — all require a live-computed
+   * signature over the exact request). Surfaced to the user as a toast
+   * instead of silently omitting the auth with no explanation.
+   */
+  warning?: string;
+};
+export type CurlHeaderExtenderFn = (doc: any) => Promise<CurlExtenderResult>;
+// Keyed by extensionId (not a plain array) so a plugin re-registering on
+// reload/HMR overwrites its own previous entry instead of accumulating a new
+// duplicate each time — an array would apply the same extender's flags once
+// per accumulated registration, multiplying auth flags in generated cURL.
+const curlHeaderExtenders = new Map<string, CurlHeaderExtenderFn>();
+
+export function registerCurlHeaderExtender(extensionId: string, fn: CurlHeaderExtenderFn): void {
+  curlHeaderExtenders.set(extensionId, fn);
+}
+
+export function getCurlHeaderExtenders(): readonly CurlHeaderExtenderFn[] {
+  return Array.from(curlHeaderExtenders.values());
+}
+
+// ── cURL auth parser registry (paste direction) ────────────────────────────────
+// The reverse of the extender above: when voiden-rest-api's curl importer parses
+// a pasted cURL command, it extracts raw auth-relevant flags/headers (it has no
+// knowledge of auth-block attr schemas — that stays owned by voiden-advanced-auth)
+// and hands them to registered parsers here, which return a ready-to-insert
+// `auth` node. Keyed by extensionId for the same reload/HMR-safety reason as
+// curlHeaderExtenders above.
+export type RawCurlAuthInput = {
+  /** From -u/--user, split on the first ":". */
+  username?: string;
+  password?: string;
+  /** Flag presence: -u interpretation depends on which of these accompany it. */
+  digest?: boolean;
+  ntlm?: boolean;
+  netrc?: boolean;
+  /** Raw --aws-sigv4 value, e.g. "aws:amz:us-east-1:execute-api". */
+  awsSigV4?: string;
+  /** Raw Authorization header value if present, e.g. "Bearer xyz" or "OAuth oauth_consumer_key=...". */
+  authorizationHeader?: string;
+};
+export type CurlAuthParseResult = {
+  /** ProseMirror JSON for a complete `auth` node, ready to insert as-is. */
+  authNode?: any;
+  /**
+   * Set when full reconstruction isn't possible from the pasted command alone
+   * (e.g. Netrc credentials live in ~/.netrc, never in the command itself;
+   * Hawk/OAuth1-HMAC secrets are one-way signed and can't be recovered).
+   * Surfaced as a toast instead of silently producing an incomplete/wrong block.
+   */
+  warning?: string;
+};
+export type CurlAuthParserFn = (raw: RawCurlAuthInput) => Promise<CurlAuthParseResult>;
+const curlAuthParsers = new Map<string, CurlAuthParserFn>();
+
+export function registerCurlAuthParser(extensionId: string, fn: CurlAuthParserFn): void {
+  curlAuthParsers.set(extensionId, fn);
+}
+
+export function getCurlAuthParsers(): readonly CurlAuthParserFn[] {
+  return Array.from(curlAuthParsers.values());
+}
 
 /**
  * Build a cURL string for a history entry, delegating to the plugin's registered builder
@@ -188,6 +271,30 @@ export interface PluginSettingsSection {
   pluginId: string;
 }
 
+/**
+ * A response-panel section that a plugin can register.
+ * The core ResponsePanelContainer renders all registered sections generically —
+ * no plugin IDs are hardcoded there.
+ */
+export interface ResponsePanelSection {
+  /** Stable unique key for this section (used for collapse state). */
+  id: string;
+  /** Label shown in the collapsible section header. */
+  label: string;
+  /** React component rendered as the section body. Receives { tabId, embedded }. */
+  component: React.ComponentType<{ tabId?: string; embedded?: boolean }>;
+  /**
+   * Called with the active tab ID to decide whether to show this section.
+   * Return true when there are results to display.
+   */
+  hasResults: (tabId: string | undefined) => boolean;
+  /**
+   * Subscribe to the plugin's store so the core can re-evaluate hasResults.
+   * Must return an unsubscribe function.
+   */
+  subscribe: (listener: () => void) => () => void;
+}
+
 export interface CorePluginUpdateInfo {
   pluginId: string;
   currentVersion: string | null;
@@ -231,6 +338,9 @@ interface PluginStoreState {
   addContextMenuItem: (item: PluginContextMenuItem) => void;
   settingsPageSections: PluginSettingsSection[];
   addSettingsSection: (section: PluginSettingsSection) => void;
+  /** Sections registered by plugins for display in the response panel. */
+  responsePanelSections: ResponsePanelSection[];
+  addResponsePanelSection: (section: ResponsePanelSection) => void;
 }
 
 export const usePluginStore = create<PluginStoreState>((set) => ({
@@ -305,6 +415,14 @@ export const usePluginStore = create<PluginStoreState>((set) => ({
   addContextMenuItem: (item) => set((state) => ({ contextMenuItems: [...state.contextMenuItems, item] })),
   settingsPageSections: [],
   addSettingsSection: (section) => set((state) => ({ settingsPageSections: [...state.settingsPageSections, section] })),
+  responsePanelSections: [],
+  addResponsePanelSection: (section) =>
+    set((state) => ({
+      responsePanelSections: [
+        ...state.responsePanelSections.filter((s) => s.id !== section.id),
+        section,
+      ],
+    })),
 }));
 
 interface EditorEnhancementStore {
@@ -356,16 +474,142 @@ const exposedHelpers: Record<string, PluginHelpers> = {};
 
 // Global registry for linkable node types (for external file linking)
 // Core node types that are always linkable (not owned by any plugin)
-const coreLinkableNodeTypes = ['runtime-variables'];
-const coreNodeDisplayNames: Record<string, string> = { 'runtime-variables': 'Runtime Variables' };
+const coreLinkableNodeTypes = ['runtime-variables', 'paragraph', 'heading', 'codeBlock', 'blockquote'];
+const coreNodeDisplayNames: Record<string, string> = {
+  'runtime-variables': 'Runtime Variables',
+  paragraph: 'Paragraph',
+  heading: 'Heading',
+  codeBlock: 'Code Block',
+  blockquote: 'Quote',
+};
 
 const linkableNodeTypes = new Set<string>(coreLinkableNodeTypes);
 
 // Global registry for node display names (for showing human-readable names in UI)
 const nodeDisplayNames = new Map<string, string>(Object.entries(coreNodeDisplayNames));
 
-// Global registry for table cell autocomplete suggestions (plugin-owned)
-const tableSuggestionsRegistry = new Map<string, { [columnIndex: number]: Array<{ label: string; description?: string }> }>();
+// Global registry for table cell autocomplete suggestions (plugin-owned).
+// A column's suggestions can be a static list, or a function of the row/tab
+// context — e.g. headers-table's value column tailoring its list to whichever
+// header key was typed in column 0 (rowContext), or assertions-table's field
+// column offering paths pulled from the current tab's last response (tabId,
+// added for issue #548 — see plugins/simple-assertions).
+export type TableSuggestionItem = { label: string; description?: string };
+export interface TableSuggestionContext {
+  /** Other cells already filled in on this row, keyed by column index. */
+  rowContext: Record<number, string>;
+  /** tabId of the editor the table lives in (editor.storage.tabId), if known. */
+  tabId?: string;
+}
+export type TableSuggestionsForColumn =
+  | TableSuggestionItem[]
+  | ((context: TableSuggestionContext) => TableSuggestionItem[]);
+const tableSuggestionsRegistry = new Map<string, { [columnIndex: number]: TableSuggestionsForColumn }>();
+
+// Global registry for block outline metadata (label + lucide icon name) — registered by plugins
+export interface BlockOutlineMeta {
+  /** Human-readable label shown in the Block Overview panel. */
+  label: string;
+  /** Lucide icon name (e.g. "Hash", "Globe"). Resolved at render time via lucide-react `icons` map. */
+  icon: string;
+  /** Extract a short preview string from the node. Receives node attrs and textContent. */
+  getPreview?: (attrs: Record<string, any>, textContent: string) => string | undefined;
+  /** Count the number of rows/items in the node for the outline badge. */
+  getRowCount?: (attrs: Record<string, any>, childCount: number, textContent: string) => number | undefined;
+  /**
+   * If present, this node contributes a named field to its parent section header rather than
+   * appearing as a block card. Return the field name and value to set on the section.
+   * e.g. the REST plugin uses this for `method` → `{ field: "methodText", value: "POST" }`.
+   */
+  asSectionField?: (attrs: Record<string, any>, textContent: string) => { field: "methodText" | "urlText"; value: string } | null;
+  /**
+   * If true, this node is a transparent container: the Block Overview panel descends into its
+   * children and processes them as if they were at the document level, rather than treating this
+   * node itself as a block card. Use this for wrapper nodes like `request` that own `method`+`url`.
+   */
+  transparent?: boolean;
+  /**
+   * If true, this node is silently skipped in the Block Overview panel — no card, no descent.
+   * Use this for internal child nodes that are owned by a container block and should never
+   * appear as standalone entries (e.g. `method`, `url` inside a `request` container).
+   */
+  skip?: boolean;
+  /**
+   * URL to the canonical documentation page for this block type.
+   * When set, an "Open Documentation" item is shown in the block's right-click menu.
+   * Clicking it opens the URL in the system browser.
+   *
+   * The function form also receives the full node — needed when the deciding
+   * signal isn't on this node's own attrs but on a child's (e.g. a shared
+   * container node whose docs page depends on which optional child is
+   * present, like gRPC vs. plain WebSocket both using `socket-request`).
+   */
+  docsUrl?: string | ((attrs: Record<string, any>, node?: any) => string | undefined);
+}
+
+const coreBlockOutlineMeta: Record<string, BlockOutlineMeta> = {
+  codeBlock: {
+    label: "Code Block",
+    icon: "Code",
+    docsUrl: "https://docs.voiden.md/docs/core-features-section/voiden-blocks/voiden-basic-blocks",
+  },
+  heading: {
+    label: "Heading",
+    icon: "Heading",
+    docsUrl: "https://docs.voiden.md/docs/core-features-section/voiden-blocks/voiden-basic-blocks",
+  },
+  paragraph: {
+    label: "Paragraph",
+    icon: "Pilcrow",
+    docsUrl: "https://docs.voiden.md/docs/core-features-section/voiden-blocks/voiden-basic-blocks",
+  },
+  blockquote: {
+    label: "Quote",
+    icon: "Quote",
+    docsUrl: "https://docs.voiden.md/docs/core-features-section/voiden-blocks/voiden-basic-blocks",
+  },
+  "runtime-variables": {
+    label: "Runtime Variables",
+    icon: "Variable",
+    docsUrl: "https://docs.voiden.md/docs/core-features-section/variables/runtime-variables",
+  },
+};
+
+// Core (non-plugin) block help content — registered the same way a plugin
+// would via registerBlockHelp, just seeded directly since this node lives in
+// apps/ui core, not a plugin package.
+const coreBlockHelp: Record<string, React.ComponentType> = {
+  "runtime-variables": RuntimeVariablesHelp,
+};
+
+const blockOutlineRegistry = new Map<string, BlockOutlineMeta>(Object.entries(coreBlockOutlineMeta));
+
+/** Returns the outline metadata registered by a plugin for a given node type. */
+export function getBlockOutlineMeta(nodeType: string): BlockOutlineMeta | undefined {
+  return blockOutlineRegistry.get(nodeType);
+}
+
+/** Returns the docs URL registered for a given node type, if any. */
+export function getBlockDocsUrl(nodeType: string, attrs?: Record<string, any>, node?: any): string | undefined {
+  const meta = blockOutlineRegistry.get(nodeType);
+  if (!meta) return undefined;
+  if (typeof meta.docsUrl === "function") {
+    return meta.docsUrl(attrs || {}, node);
+  }
+  return meta.docsUrl;
+}
+
+// Block-type-keyed registry for the header-bar "?" help tooltip
+// (RequestBlockHeader's helpContent). Mirrors blockOutlineRegistry above —
+// register once per node type via context.registerBlockHelp, and any block
+// header that passes blockType picks up the content automatically instead of
+// needing helpContent hand-wired at every NodeView call site.
+const blockHelpRegistry = new Map<string, React.ComponentType>(Object.entries(coreBlockHelp));
+
+/** Returns the help component registered for a given node type, if any. */
+export function getBlockHelp(nodeType: string): React.ComponentType | undefined {
+  return blockHelpRegistry.get(nodeType);
+}
 
 // Global registry for loaded plugin instances (for cleanup)
 const loadedPlugins: Map<string, { onload: () => Promise<void>; onunload: () => Promise<void> }> = new Map();
@@ -409,8 +653,8 @@ if (typeof window !== 'undefined') {
     "@codemirror/autocomplete": _CodeMirrorAutocomplete,
     // @/core/* — host app internals exposed for OTA-loaded plugin bundles
     "@/core/file-system/hooks/useFileSystem": { prosemirrorToMarkdown },
-    "@/core/editors/voiden/extensions": { voidenExtensions: coreVoidenExtensions },
-    "@/core/editors/voiden/VoidenEditor": { useEditorStore, useVoidenEditorStore, proseClasses },
+    "@/core/editors/voiden/extensions": { voidenExtensions: coreVoidenExtensions, registerCustomVariableHighlighter },
+    "@/core/editors/voiden/VoidenEditor": { useEditorStore, useVoidenEditorStore, proseClasses, previewProseClasses },
     "@/core/editors/voiden/utils/expandLinkedBlocks": { expandLinkedBlocksInDoc },
     "@/core/editors/voiden/markdownConverter": { parseMarkdown },
     "@/core/request-engine/getRequestFromJson": { getTable, parseAuthNode, buildHeadersWithCookies, findNode, findNodes, createNewRequestObject, getRequest },
@@ -422,6 +666,7 @@ if (typeof window !== 'undefined') {
     "@/core/stores/panelStore": { usePanelStore },
     "@/core/stores/responsePanelPosition": { getResponsePanelPosition: getResponsePanelPositionFn },
     "@/core/environment/hooks": { useActiveEnvironment, useEnvironments },
+    "@/core/tools/toolCapabilityRegistry": { getToolCapabilityProvider, useToolCapabilityProvider },
     // @voiden/sdk — base classes plugins extend (UIExtension, etc.)
     "@voiden/sdk": { UIExtension, PipelineStage },
     "@voiden/sdk/shared": { parseCookies },
@@ -480,10 +725,13 @@ export const getNodeDisplayName = (nodeType: string): string | undefined => {
 export const getTableSuggestions = (
   tableType: string,
   columnIndex: number,
+  context: TableSuggestionContext = { rowContext: {} },
 ): Array<{ label: string; description?: string }> => {
   const config = tableSuggestionsRegistry.get(tableType);
   if (!config) return [];
-  return config[columnIndex] || [];
+  const forColumn = config[columnIndex];
+  if (!forColumn) return [];
+  return typeof forColumn === 'function' ? forColumn(context) : forColumn;
 };
 
 export class PluginPermissionError extends Error {
@@ -571,6 +819,19 @@ export const createPlugin = (
     exposeHelpers: (helpers: PluginHelpers) => {
       extensionLogger.info(`Plugin "${extensionId}" exposing helpers:`, Object.keys(helpers));
       exposedHelpers[extensionId] = helpers;
+    },
+    /**
+     * Register a section to display inside the response panel.
+     * The core renders all registered sections generically — no plugin IDs
+     * are hardcoded in ResponsePanelContainer.
+     */
+    registerResponsePanelSection: (section: ResponsePanelSection) => {
+      extensionLogger.info(`Plugin "${extensionId}" registering response panel section: ${section.id}`);
+      usePluginStore.getState().addResponsePanelSection(section);
+    },
+    registerVariableHighlighter: (rule: CustomVariableHighlighterRule) => {
+      extensionLogger.info(`Plugin "${extensionId}" registering variable highlighter: prefix="${rule.prefix}"`);
+      registerCustomVariableHighlighter(rule);
     },
     registerSidebarTab: (sidebarId: "left" | "right", tab: Tab) => {
       if (tab.component) tab = { ...tab, component: tagComponent(extensionId, tab.component) };
@@ -823,6 +1084,17 @@ export const createPlugin = (
         }
         return classes;
       },
+      getPreviewProseClasses: () => {
+        let classes: string;
+        if (Array.isArray(previewProseClasses)) {
+          classes = previewProseClasses.join(" ");
+        } else if (typeof previewProseClasses === 'string') {
+          classes = previewProseClasses;
+        } else {
+          classes = String(previewProseClasses);
+        }
+        return classes;
+      },
       openRightPanel: () => {
         usePanelStore.getState().openRightPanel();
       },
@@ -881,6 +1153,7 @@ export const createPlugin = (
         TableCell,
         NodeViewWrapper,
         RequestBlockHeader,
+        BlockHelpTooltip,
         Tip,
       } as any,
       hooks: {
@@ -914,6 +1187,46 @@ export const createPlugin = (
       registerCurlImporter: (handler: CurlImporter) => {
         curlImporters.push(handler);
       },
+      /**
+       * Register a function that appends headers to the cURL command produced
+       * by CopyCurlButton. Use this to inject auth tokens or other dynamic
+       * headers that the base cURL generator doesn't handle.
+       *
+       * The extender receives the fully-expanded ProseMirror doc (imports
+       * already resolved) and returns an array of { key, value } headers.
+       * Values may contain {{variable}} placeholders — they are resolved by
+       * the existing env.replaceVariables step after cURL generation.
+       * Existing explicit request headers take precedence: the extender's
+       * headers are only added when no header with the same key already exists.
+       */
+      registerCurlHeaderExtender: (fn: CurlHeaderExtenderFn) => {
+        curlHeaderExtenders.set(extensionId, fn);
+      },
+      /**
+       * Read back the currently registered cURL header extenders. Exposed on
+       * context (like registerCurlHeaderExtender) so a *consuming* plugin
+       * (e.g. voiden-rest-api's CopyCurlButton) can fetch the list through
+       * its own reliably-wired context object, instead of a plugin bundle
+       * dynamically importing this app module by path at runtime — that
+       * cross-plugin-bundle import has no guaranteed resolution and can
+       * silently fail, silently dropping every extended auth type from
+       * generated cURL commands with no error surfaced anywhere.
+       */
+      getCurlHeaderExtenders: (): readonly CurlHeaderExtenderFn[] => getCurlHeaderExtenders(),
+      /**
+       * Register a function that turns raw auth flags/headers extracted from a
+       * pasted cURL command into a ready-to-insert `auth` node. voiden-rest-api's
+       * curl importer has no knowledge of auth-block attr schemas (that stays
+       * owned by voiden-advanced-auth) — it only extracts raw signals (-u value,
+       * --digest/--ntlm/--netrc presence, --aws-sigv4 value, Authorization
+       * header) and passes them through this registry, the paste-direction
+       * mirror of registerCurlHeaderExtender above.
+       */
+      registerCurlAuthParser: (fn: CurlAuthParserFn) => {
+        curlAuthParsers.set(extensionId, fn);
+      },
+      /** Read back registered cURL auth parsers — same rationale as getCurlHeaderExtenders. */
+      getCurlAuthParsers: (): readonly CurlAuthParserFn[] => getCurlAuthParsers(),
     } as any,
     history: {
       /**
@@ -997,6 +1310,13 @@ export const createPlugin = (
     registerResponseSection: (section: any) => {
       requestOrchestrator.registerResponseSection(section);
     },
+    // Host capability for the plugin owning the /tool block — hands back its
+    // own discover/validate/verify/plan-served implementation (mirrors
+    // @voiden/runner's registerMcpToolCapabilityProvider for the headless
+    // side), so this app never hardcodes that block's own semantics.
+    registerToolCapabilityProvider: (p: ToolCapabilityProvider) => {
+      registerToolCapabilityProviderFn(p);
+    },
     openVoidenTab: async (title: string, content: any, options?: { readOnly?: boolean }) => {
       try {
         const { useResponseStore } = await import('@/core/request-engine/stores/responseStore');
@@ -1024,7 +1344,19 @@ export const createPlugin = (
         nodeDisplayNames.set(nodeType, displayName);
       });
     },
-    registerTableSuggestions: (tableType: string, suggestions: { [columnIndex: number]: Array<{ label: string; description?: string }> }) => {
+    registerBlockOutlineMeta: (entries: Record<string, BlockOutlineMeta>) => {
+      extensionLogger.info(`Plugin "${extensionId}" registering ${Object.keys(entries).length} block outline meta entries`);
+      Object.entries(entries).forEach(([nodeType, meta]) => {
+        blockOutlineRegistry.set(nodeType, meta);
+      });
+    },
+    registerBlockHelp: (entries: Record<string, React.ComponentType>) => {
+      extensionLogger.info(`Plugin "${extensionId}" registering ${Object.keys(entries).length} block help entries`);
+      Object.entries(entries).forEach(([nodeType, component]) => {
+        blockHelpRegistry.set(nodeType, component);
+      });
+    },
+    registerTableSuggestions: (tableType: string, suggestions: { [columnIndex: number]: TableSuggestionsForColumn }) => {
       extensionLogger.info(`Plugin "${extensionId}" registering table suggestions for "${tableType}"`);
       tableSuggestionsRegistry.set(tableType, suggestions);
     },
@@ -1209,6 +1541,7 @@ export const getPlugins = async () => {
     contextMenuItems: [],
     settingsPageSections: [],
     panels: { main: [], bottom: [] },
+    responsePanelSections: [],
   });
   pluginEventBus.clear();
   Object.keys(exposedHelpers).forEach(key => delete exposedHelpers[key]);
@@ -1219,10 +1552,15 @@ export const getPlugins = async () => {
   nodeDisplayNames.clear(); // Clear node display names on plugin reload
   Object.entries(coreNodeDisplayNames).forEach(([type, name]) => nodeDisplayNames.set(type, name)); // Re-seed core display names
   tableSuggestionsRegistry.clear();
+  blockOutlineRegistry.clear();
+  Object.entries(coreBlockOutlineMeta).forEach(([type, meta]) => blockOutlineRegistry.set(type, meta));
+  blockHelpRegistry.clear();
+  Object.entries(coreBlockHelp).forEach(([type, component]) => blockHelpRegistry.set(type, component));
   clearHelpRegistry();
   requestOrchestrator.clear();
   pasteOrchestrator.clear();
   historyAdapterRegistry.clear();
+  clearToolCapabilityProvider();
 
   // ── Core history (not a plugin — registered here so it survives plugin reloads) ──
   {
@@ -1322,11 +1660,21 @@ export const getPlugins = async () => {
 
       // Register ownership for all plugins (enabled and disabled)
       ownedBlocks.forEach((blockType: string) => {
-        registerBlockOwnership(blockType, extension.id, extension.name);
+        registerBlockOwnership(blockType, extension.id, extension.name, extension.version);
       });
 
-      // Create placeholder nodes for DISABLED plugins
-      if (!extension.enabled && ownedBlocks.length > 0) {
+      // Create placeholder nodes for DISABLED plugins only — NOT for uninstalled
+      // ones. For core plugins, `enabled` alone can't tell the two apart: an
+      // uninstalled core plugin also reports `enabled: false` (see
+      // extensionManager.ts syncCoreExtensions — isLocallyAvailable is false
+      // when explicitly uninstalled, which forces enabled to false too).
+      // isLocallyAvailable is the field that actually distinguishes them; it's
+      // core-only, so `!== false` (true, or undefined for community plugins)
+      // keeps existing community-disabled behaviour unchanged. When a plugin is
+      // truly uninstalled, skip the placeholder so the block type stays absent
+      // from the schema and falls through to the "not installed" card instead
+      // of the "disabled" one.
+      if (!extension.enabled && extension.isLocallyAvailable !== false && ownedBlocks.length > 0) {
         extensionLogger.info(`Creating placeholders for disabled plugin: ${extension.id} (${ownedBlocks.length} blocks)`);
         ownedBlocks.forEach((blockType: string) => {
           const placeholderNode = createPlaceholderBlock(blockType);

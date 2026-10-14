@@ -7,6 +7,10 @@ import { PluginKey } from '@tiptap/pm/state';
 
 export const ReqSuggestionPluginKey = new PluginKey('reqSuggestion');
 
+let activePopup: Instance<Props>[] | undefined;
+
+export const isReqSuggestionOpen = () => !!activePopup?.[0]?.state?.isVisible;
+
 
 interface SuggestionItem {
   label: string
@@ -100,6 +104,7 @@ export const ReqSuggestion = Extension.create({
                 trigger: 'manual',
                 placement: 'bottom-start',
               })
+              activePopup = popup
             },
 
             onUpdate(props: any) {
@@ -126,6 +131,9 @@ export const ReqSuggestion = Extension.create({
             onExit() {
               popup[0].destroy()
               component.destroy()
+              if (activePopup === popup) {
+                activePopup = undefined
+              }
             },
           }
         },

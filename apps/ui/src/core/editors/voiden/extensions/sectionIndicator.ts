@@ -33,6 +33,12 @@ export const SECTION_COLORS = [
   "#6BBF92",  // 9  green
 ];
 
+/**
+ * Request labels are text, so they should use the active theme's readable
+ * foreground rather than the translucent accent used for separator lines.
+ */
+export const SECTION_LABEL_COLOR = "var(--fg-primary, var(--editor-fg, #a9b7c6))";
+
 export function pickDistinctColorIndex(
   prevColorIndex: number,
   nextColorIndex: number
@@ -69,6 +75,37 @@ export function getSectionLineColor(colorIndex: number): string {
   const g = parseInt(hex.slice(3, 5), 16);
   const b = parseInt(hex.slice(5, 7), 16);
   return `rgba(${r}, ${g}, ${b}, 0.55)`;
+}
+
+/**
+ * Look up a specific section's label/colorIndex by walking request-separator
+ * nodes in document order — same pattern requestOrchestrator.ts uses when it
+ * has a successful response to attach these to, but callable independently
+ * so a failure that never produces a response (e.g. an unresolved-variable
+ * error) can still record which section it belongs to, before the section's
+ * request is even built. sectionIndex 0 is section 0 (before the first
+ * separator — no colorIndex/label of its own). sectionIndex N (N>=1) is the
+ * section starting at the Nth separator.
+ */
+export function getSectionLabelAndColorByIndex(
+  doc: any,
+  sectionIndex: number
+): { sectionLabel?: string; sectionColorIndex?: number } {
+  if (!doc || sectionIndex <= 0) return {};
+  let result: { sectionLabel?: string; sectionColorIndex?: number } = {};
+  let sepIdx = 0;
+  doc.forEach((child: any) => {
+    if (child.type.name === "request-separator") {
+      sepIdx++;
+      if (sepIdx === sectionIndex) {
+        result = {
+          sectionLabel: child.attrs.label || undefined,
+          sectionColorIndex: typeof child.attrs.colorIndex === "number" ? child.attrs.colorIndex : undefined,
+        };
+      }
+    }
+  });
+  return result;
 }
 
 /**
@@ -280,6 +317,7 @@ function buildFirstSectionDecoration(doc: any, editorDom: HTMLElement | null, ed
   if (!hasSeparators || firstNodeIsSeparator) return DecorationSet.empty;
 
   const color = getSectionLineColor(0);
+  const labelColor = SECTION_LABEL_COLOR;
   const label = getFirstSectionLabel(editorDom);
 
   // Read alignment setting
@@ -310,7 +348,7 @@ function buildFirstSectionDecoration(doc: any, editorDom: HTMLElement | null, ed
     labelSpan.title = "Double-click to rename";
     labelSpan.style.cssText = `
       font-size: 10px; font-weight: 700; letter-spacing: 1.5px;
-      text-transform: uppercase; color: ${color}; white-space: nowrap;
+      text-transform: uppercase; color: ${labelColor}; white-space: nowrap;
       cursor: text; padding: 2px 4px; border-radius: 3px;
     `;
 
@@ -328,7 +366,7 @@ function buildFirstSectionDecoration(doc: any, editorDom: HTMLElement | null, ed
       input.placeholder = "Request 1";
       input.style.cssText = `
         font-size: 10px; font-weight: 700; letter-spacing: 1.5px;
-        text-transform: uppercase; color: ${color}; white-space: nowrap;
+        text-transform: uppercase; color: ${labelColor}; white-space: nowrap;
         background: var(--editor-bg, transparent);
         border: 1px solid ${color}; border-radius: 3px;
         padding: 2px 8px; outline: none; text-align: center;

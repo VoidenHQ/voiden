@@ -9,9 +9,14 @@
  * Usage:
  *   node publish-snap.js [beta|stable]
  *
- * Prerequisites:
+ * Prerequisites (local machine):
  *   sudo snap install snapcraft --classic
  *   snapcraft login  (one-time — logs into your Snap Store account)
+ *
+ * Prerequisites (CI / non-interactive):
+ *   Export a login once locally with `snapcraft export-login -`, then store its
+ *   contents as the SNAPCRAFT_STORE_CREDENTIALS secret/env var. snapcraft picks
+ *   this up automatically — no interactive login or password prompt happens.
  *
  * Users install with:
  *   sudo snap install voiden
@@ -58,6 +63,14 @@ if (process.platform !== 'linux') {
 }
 
 checkCommand('snapcraft');
+
+if (process.env.CI && !process.env.SNAPCRAFT_STORE_CREDENTIALS) {
+  console.error('❌ SNAPCRAFT_STORE_CREDENTIALS is not set. In CI, snapcraft cannot fall back to');
+  console.error('   an interactive `snapcraft login` prompt. Export one locally with:');
+  console.error('     snapcraft export-login -');
+  console.error('   and store its output as the SNAPCRAFT_STORE_CREDENTIALS secret.');
+  process.exit(1);
+}
 
 // ─── Find .deb artifact ───────────────────────────────────────────────────────
 

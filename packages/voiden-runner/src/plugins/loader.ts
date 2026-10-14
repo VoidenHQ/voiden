@@ -15,7 +15,7 @@
  */
 
 import { requestOrchestrator, hookRegistry } from '@voiden/executors'
-import { CORE_PLUGINS, hasCoreRunner, getCoreRunnerImportUrl, getCoreRunnerPath } from './registry.js'
+import { getCorePlugins, hasCoreRunner, getCoreRunnerImportUrl, getCoreRunnerPath } from './registry.js'
 import {
   fetchCommunityPlugins,
   findCommunityPlugin,
@@ -24,19 +24,47 @@ import {
 } from './community.js'
 import { createHeadlessPluginContext } from '../headlessContext.js'
 import { clearSchemas } from '../blockSchemaRegistry.js'
-import { readStore } from './store.js'
-import { findPlugin } from './registry.js'
+import { clearRequestContainers } from '../requestContainerRegistry.js'
+import { clearToolProviders } from '../toolRegistry.js'
+import { clearMcpToolCapabilityProvider } from '../mcpToolCapability.js'
+import { readStore, setPluginVersion } from './store.js'
+import { isDisabledInElectronApp } from './electronAppState.js'
 import * as https from 'https'
 import { mkdirSync, createWriteStream, existsSync } from 'fs'
 import { dirname } from 'path'
 
-/** Download a core plugin runner bundle from its GitHub repo release. */
-async function downloadCoreRunner(pluginId: string, repo: string, assetName: string, verbose: boolean): Promise<boolean> {
+// Follows redirects (GitHub release assets 302 to signed blob-storage URLs).
+function downloadToFile(url: string, destPath: string, hops = 5): Promise<void> {
+  return new Promise((resolve, reject) => {
+    https.get(url, { headers: { 'User-Agent': 'voiden-runner' } }, res => {
+      if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        if (hops <= 0) { reject(new Error('Too many redirects')); return }
+        downloadToFile(res.headers.location, destPath, hops - 1).then(resolve, reject)
+        return
+      }
+      if (res.statusCode && res.statusCode >= 400) {
+        reject(new Error(`HTTP ${res.statusCode}`))
+        return
+      }
+      const file = createWriteStream(destPath)
+      res.pipe(file)
+      file.on('finish', () => { file.close(); resolve() })
+    }).on('error', reject)
+  })
+}
+
+/**
+ * Download a core plugin runner bundle from its GitHub repo release, pinned to
+ * the version published in the registry — mirrors the Electron app's
+ * `getExtensionFiles` (which fetches `releases/tags/v{version}`), so the
+ * version we record locally always matches what we actually downloaded and
+ * `plugin update` can detect drift against the registry.
+ */
+export async function downloadCoreRunner(pluginId: string, repo: string, assetName: string, version: string, verbose: boolean): Promise<boolean> {
   const destPath = getCoreRunnerPath(pluginId)
   mkdirSync(dirname(destPath), { recursive: true })
 
-  // Fetch latest release metadata from GitHub API
-  const apiUrl = `https://api.github.com/repos/${repo}/releases/latest`
+  const apiUrl = `https://api.github.com/repos/${repo}/releases/tags/v${version}`
   const meta: any = await new Promise((resolve, reject) => {
     https.get(apiUrl, { headers: { 'User-Agent': 'voiden-runner', 'Accept': 'application/vnd.github+json' } }, res => {
       let data = ''
@@ -49,30 +77,38 @@ async function downloadCoreRunner(pluginId: string, repo: string, assetName: str
 
   const asset = (meta.assets ?? []).find((a: any) => a.name === assetName)
   if (!asset) {
-    if (verbose) console.warn(`  [plugins] No "${assetName}" asset in latest release of ${repo}`)
+    if (verbose) console.warn(`  [plugins] No "${assetName}" asset in release v${version} of ${repo}`)
     return false
   }
 
-  // Download the asset
-  await new Promise<void>((resolve, reject) => {
-    const file = createWriteStream(destPath)
-    https.get(asset.browser_download_url, { headers: { 'User-Agent': 'voiden-runner' } }, res => {
-      res.pipe(file)
-      file.on('finish', () => { file.close(); resolve() })
-    }).on('error', reject)
-  })
+  // Download the asset, following redirects — GitHub's browser_download_url
+  // always 302s to a signed blob-storage URL, which https.get does not follow
+  // automatically. Without this, the response piped to disk is the empty
+  // redirect body, leaving a 0-byte runner.js.
+  await downloadToFile(asset.browser_download_url, destPath)
 
-  if (verbose) console.log(`  [plugins] Downloaded ${assetName} → ${destPath}`)
+  setPluginVersion(pluginId, version)
+  if (verbose) console.log(`  [plugins] Downloaded ${assetName}@${version} → ${destPath}`)
   return true
 }
 
 // ─── Per-plugin enabled check ─────────────────────────────────────────────────
 
 // Core plugins default to enabled; only skip if explicitly set to false in store.
-function isCorePluginEnabled(name: string): boolean {
+//
+// An explicit voiden-runner-side record (set via `voiden-runner plugin
+// enable/disable`) always wins — that's the user directly telling this CLI
+// what they want. Absent that, fall back to the Electron app's own
+// core-disabled.json instead of defaulting straight to enabled: most users
+// manage plugins from the app's Settings screen, never voiden-runner's CLI,
+// so without this fallback a plugin the user just disabled in the app would
+// still run here, and one they just re-enabled there could still read as
+// disabled if a stale explicit record exists. See electronAppState.ts.
+export function isCorePluginEnabled(name: string): boolean {
   const store = readStore()
   const record = store.installedPlugins[name]
-  return record === undefined ? true : record.enabled
+  if (record !== undefined) return record.enabled
+  return !isDisabledInElectronApp(name)
 }
 
 // Community plugins default to disabled; must be explicitly installed.
@@ -91,8 +127,20 @@ async function loadPlugin(
 ): Promise<boolean> {
   try {
     const mod = await import(pluginPath)
-    const factory: ((ctx: any) => { onload: () => void | Promise<void> }) | undefined =
-      mod.default ?? mod
+    // Runner bundles are esbuild-compiled CJS (`export default factory` →
+    // `module.exports = { __esModule: true, default: factory }`). Node's native
+    // ESM loader then wraps that whole CJS object as `mod.default`, so the real
+    // factory ends up nested at `mod.default.default`. Unwrap until we hit a
+    // function or run out of `__esModule`-marked layers.
+    let factory: unknown = mod.default ?? mod
+    while (
+      factory &&
+      typeof factory === 'object' &&
+      (factory as any).__esModule &&
+      'default' in (factory as any)
+    ) {
+      factory = (factory as any).default
+    }
 
     if (typeof factory !== 'function') {
       if (verbose) {
@@ -107,9 +155,16 @@ async function loadPlugin(
     if (verbose) console.log(`  [plugins] Loaded plugin: ${pluginName}`)
     return true
   } catch (err: any) {
-    if (verbose) {
-      console.warn(`  [plugins] Failed to load "${pluginName}": ${err?.message ?? String(err)}`)
-    }
+    // Always surfaced, not gated behind --verbose (matching the "not
+    // installed" message above) — a plugin that's enabled and has a runner
+    // present but still fails to actually load is a real, unexpected
+    // problem (e.g. a bundled runner.js with an unresolvable external
+    // dependency — see voiden-scripting's own history), not a normal,
+    // silent "nothing to do here" case. Without this, the failure was
+    // invisible everywhere: install_plugin's own response only shows
+    // `active: false`, with no indication of why, unless the caller happens
+    // to be running with --verbose already.
+    console.warn(`  [plugins] Failed to load "${pluginName}": ${err?.message ?? String(err)}`)
     return false
   }
 }
@@ -125,13 +180,19 @@ export async function loadEnabledPlugins(
   requestOrchestrator.clear()
   hookRegistry.clearAll()
   clearSchemas()
+  clearRequestContainers()
+  clearToolProviders()
+  clearMcpToolCapabilityProvider()
 
   const loaded: string[] = []
 
   // ── Core plugins ──────────────────────────────────────────────────────────
   // Core plugins default to enabled but can be disabled via ~/.voiden/plugins.json.
-  // Runner bundles are downloaded on-demand from each plugin's GitHub repo.
-  for (const def of CORE_PLUGINS) {
+  // `run` never downloads anything — it only uses what's already bundled in the
+  // package (see bundled-runners/) or previously cached via `plugin install` /
+  // `plugin update`. A plugin that's neither gets a one-line install hint.
+  const corePlugins = await getCorePlugins()
+  for (const def of corePlugins) {
     if (skipPlugins.has(def.name)) {
       if (verbose) console.log(`  [plugins] Skipping plugin (--no-scripts): ${def.name}`)
       continue
@@ -141,14 +202,8 @@ export async function loadEnabledPlugins(
       continue
     }
 
-    // Auto-download runner bundle if not cached locally
     if (!hasCoreRunner(def.name)) {
-      if (verbose) console.log(`  [plugins] Downloading runner for ${def.name} from ${def.repo}...`)
-      await downloadCoreRunner(def.name, def.repo, def.runnerAsset, verbose)
-    }
-
-    if (!hasCoreRunner(def.name)) {
-      if (verbose) console.warn(`  [plugins] Runner not available for ${def.name} — skipping`)
+      console.log(`  [plugins] "${def.name}" not installed — run: voiden-runner plugin install ${def.name}`)
       continue
     }
 
@@ -167,12 +222,13 @@ export async function loadEnabledPlugins(
     communityPlugins = []
   }
 
+  const corePluginNames = new Set(corePlugins.map((p) => p.name))
   const store = readStore()
   for (const [name, record] of Object.entries(store.installedPlugins)) {
     if (!isCommunityPluginEnabled(name)) continue
 
     // Skip if it's a core plugin (already handled above)
-    if (findPlugin(name)) continue
+    if (corePluginNames.has(name)) continue
 
     const commDef = findCommunityPlugin(name, communityPlugins)
     if (!commDef) {

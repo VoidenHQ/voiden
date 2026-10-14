@@ -97,17 +97,25 @@ export const ResponseViewer = forwardRef<ResponseViewerHandle, ResponseViewerPro
     }
   }, [content, finalExtensions]);
 
-  // Create read-only editor. Deps are stable: parsedContent changes only when the
-  // actual response content changes (new request), and onActiveNodeChange is ref-backed.
+  // Stable ref so onTransaction always sees the current callback without
+  // the editor being destroyed and recreated when the prop changes.
+  const onActiveNodeChangeRef = useRef(onActiveNodeChange);
+  onActiveNodeChangeRef.current = onActiveNodeChange;
+
+  // Create the read-only editor ONCE and keep it alive for the component's
+  // lifetime. Content updates go through the setContent effect below, which
+  // issues a cheap ProseMirror replace transaction instead of tearing down
+  // and rebuilding the full TipTap instance on every new response.
   const editor = useEditor({
     extensions: finalExtensions,
     content: parsedContent,
     editable: false,
     onTransaction: ({ editor: transactionEditor }) => {
-      if (!onActiveNodeChange) return;
+      const cb = onActiveNodeChangeRef.current;
+      if (!cb) return;
       transactionEditor.state.doc.descendants((node: any) => {
         if (node.type.name !== 'response-doc') return true;
-        onActiveNodeChange((node.attrs?.activeNode ?? '') as ResponseNodeType);
+        cb((node.attrs?.activeNode ?? '') as ResponseNodeType);
         return false;
       });
     },
@@ -117,9 +125,10 @@ export const ResponseViewer = forwardRef<ResponseViewerHandle, ResponseViewerPro
         style: 'user-select: text; -webkit-user-select: text;',
       },
     },
-  }, [parsedContent, onActiveNodeChange]);
+  }, []);
 
-  // Update editor content when response changes (e.g. multi-request sections)
+  // Update content when the response changes — fast replace transaction,
+  // not an editor rebuild.
   useEffect(() => {
     if (editor && parsedContent) {
       editor.commands.setContent(parsedContent);
@@ -143,12 +152,12 @@ export const ResponseViewer = forwardRef<ResponseViewerHandle, ResponseViewerPro
     };
 
     readResponseDocState();
+    // Only subscribe to `update` (document change), not `transaction` (every dispatch).
+    // Listening to both caused readResponseDocState to fire twice per content change.
     editor.on('update', readResponseDocState);
-    editor.on('transaction', readResponseDocState);
 
     return () => {
       editor.off('update', readResponseDocState);
-      editor.off('transaction', readResponseDocState);
     };
   }, [editor, COLLAPSIBLE_RESPONSE_NODES]);
 

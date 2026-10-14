@@ -3,13 +3,14 @@ import { FileTree, FileTreeItem, TabState } from "@/types";
 import { useDocumentStore } from "../stores/fileSystemStore";
 import { useGetAppState } from "@/core/state/hooks";
 import { getQueryClient } from "@/main";
-import { useEditorStore, useVoidenEditorStore } from "@/core/editors/voiden/VoidenEditor";
+import { useEditorStore, useVoidenEditorStore, registerSelfSave } from "@/core/editors/voiden/VoidenEditor";
 import { voidenExtensions } from "@/core/editors/voiden/extensions";
 import { addVersionFrontmatter, createMarkdownSerializer } from "@/core/editors/voiden/markdownConverter";
 import { Schema } from "@tiptap/pm/model";
 import { getSchema } from "@tiptap/core";
 import { useCodeEditorStore } from "@/core/editors/code/CodeEditorStore";
 import { useEditorEnhancementStore } from "@/plugins";
+import { invalidateFileSaveQueries } from "./fileSaveInvalidation";
 import { isPathInsideLockedProject } from "./useProjectLock";
 import { toast } from "@/core/components/ui/sonner";
 
@@ -99,13 +100,15 @@ export const prosemirrorToMarkdown = (content: string, schema: Schema) => {
   return markdownWithVersion;
 };
 
-export const invalidateOnFileSave = (path: string, panelId: string, tabId: string) => {
+export const invalidateOnFileSave = (panelId: string, tabId: string, fileTreeChanged = false) => {
   const queryClient = getQueryClient();
-  const appState = queryClient.getQueryData<any>(["app:state"]);
-  const activeDirectory = appState?.activeDirectory;
-  queryClient.invalidateQueries({ queryKey: ["panel:tabs", panelId] });
-  queryClient.invalidateQueries({ queryKey: ["tab:content", panelId, tabId] });
-  queryClient.invalidateQueries({ queryKey: ["files:tree", activeDirectory] });
+  const appState = fileTreeChanged
+    ? queryClient.getQueryData<{ activeDirectory?: string }>(["app:state"])
+    : undefined;
+  invalidateFileSaveQueries(queryClient, panelId, tabId, {
+    activeDirectory: appState?.activeDirectory,
+    fileTreeChanged,
+  });
 };
 
 export const saveFileUtil = async (path: string | null, content: string, panelId: string, tabId: string, schema: Schema) => {
@@ -114,10 +117,21 @@ export const saveFileUtil = async (path: string | null, content: string, panelId
     return;
   }
   const markdown = prosemirrorToMarkdown(content, schema);
+
+  // Register BEFORE the IPC write so the token is already in place when the
+  // file-watcher fires apy:changed. On slow machines the watcher event can
+  // arrive at the renderer before the files.write() response does, causing a
+  // false reload. For new files (path null) we register after since we don't
+  // know the path yet; the 5s auto-expiry cleans up if the watcher never fires.
+  if (path) registerSelfSave(path);
+
   const filePath = await window.electron?.files.write(path, markdown, tabId);
   if (!filePath) return;
 
-  invalidateOnFileSave(filePath, panelId, tabId);
+  // For new (previously unsaved) files, register now that we have the real path.
+  if (!path) registerSelfSave(filePath);
+
+  invalidateOnFileSave(panelId, tabId, path === null);
 
   useEditorStore.getState().clearUnsaved(tabId);
   useVoidenEditorStore.getState().setFilePath(filePath);
@@ -604,7 +618,7 @@ export const saveTabById = async (tabId: string, options?: { silent?: boolean })
       
       await window.electron?.files.write(tab.source, unsavedContent);
       if (shouldInvalidate) {
-        invalidateOnFileSave(tab.source, "main", tabId);
+        invalidateOnFileSave("main", tabId);
       } else {
         syncTabContentCache(unsavedContent);
       }
@@ -616,6 +630,41 @@ export const saveTabById = async (tabId: string, options?: { silent?: boolean })
   }
   
   return false;
+};
+
+/**
+ * Save an untitled tab (one with no file yet) by asking where to put it.
+ * The main process shows the save dialog when files.write gets no path.
+ * Used by "Save All & Quit"; an ordinary save of the active tab goes through
+ * globalSaveFile instead.
+ */
+export const saveUntitledTabById = async (tabId: string): Promise<"saved" | "cancelled" | "failed"> => {
+  const unsavedContent = useEditorStore.getState().unsaved[tabId];
+  if (!unsavedContent) return "saved"; // Nothing typed into it: nothing to keep.
+
+  try {
+    // The open editor has the latest content; other tabs have what they held
+    // when they were last active.
+    const voidenEditor = useVoidenEditorStore.getState().editor;
+    const isActive = !!voidenEditor && !voidenEditor.isDestroyed && voidenEditor.storage.tabId === tabId;
+    const schema = isActive
+      ? voidenEditor.schema
+      : getSchema([...voidenExtensions, ...useEditorEnhancementStore.getState().voidenExtensions]);
+    const content = isActive ? JSON.stringify(voidenEditor.getJSON()) : unsavedContent;
+    const markdown = prosemirrorToMarkdown(content, schema);
+
+    const filePath = await window.electron?.files.write(null, markdown, tabId);
+    if (!filePath) return "cancelled";
+
+    registerSelfSave(filePath);
+    invalidateOnFileSave("main", tabId, true);
+    useEditorStore.getState().clearUnsaved(tabId);
+    if (isActive) useVoidenEditorStore.getState().setFilePath(filePath);
+    return "saved";
+  } catch (error) {
+    console.error("Failed to save untitled tab:", error);
+    return "failed";
+  }
 };
 
 export const useFileExists = (filePath?: string) => {
@@ -693,7 +742,7 @@ export const globalSaveFile = async () => {
             ? view.state.doc.toString()
             : activeEditor.content;
           await writeFileChunked(activeEditor.source, content);
-          invalidateOnFileSave(activeEditor.source, activeEditor.panelId || "", activeEditor.tabId);
+          invalidateOnFileSave(activeEditor.panelId || "", activeEditor.tabId);
           useEditorStore.getState().clearUnsaved(activeEditor.tabId);
           return true;
         } catch (error) {
@@ -725,7 +774,7 @@ export const globalSaveFile = async () => {
           ? view.state.doc.toString()
           : activeEditor.content;
         await writeFileChunked(activeEditor.source, content);
-        invalidateOnFileSave(activeEditor.source, activeEditor.panelId || "", activeEditor.tabId);
+        invalidateOnFileSave(activeEditor.panelId || "", activeEditor.tabId);
         useEditorStore.getState().clearUnsaved(activeEditor.tabId);
         return true;
       } catch (error) {

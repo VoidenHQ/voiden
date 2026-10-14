@@ -151,6 +151,7 @@ export interface RequestParam {
   key: string;
   value: string;
   type?: "text" | "file";
+  omitIfUnresolved?: boolean;
 }
 export interface BodyParam {
   id?: string; // make it mandatory after refactor
@@ -158,6 +159,7 @@ export interface BodyParam {
   key: string;
   value: string | File | null;
   type?: string;
+  omitIfUnresolved?: boolean;
 }
 
 export interface Request {
@@ -178,6 +180,7 @@ export interface Request {
   postscript: any;
   content_type: ContentType;
   headers: RequestParam[];
+  cookies?: RequestParam[];
   params: RequestParam[];
   path_params: RequestParam[];
   body_params: BodyParam[];
@@ -193,6 +196,7 @@ export interface Request {
   auth: Authorization;
   openApiSpecs?: JsonData;
   preRequestResult?: PreRequestResult;
+  options?: Record<string, string>;
 }
 
 interface DeletedRequest {

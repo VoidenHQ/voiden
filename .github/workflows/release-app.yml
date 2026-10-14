@@ -1,0 +1,376 @@
+# Builds and publishes the Voiden desktop app for all platforms.
+#
+# Trigger: tag push matching "v*" only. Channel is derived from which branch
+# the tag's commit is on:
+#   main   -> stable
+#   beta   -> beta
+#   other  -> development   (e.g. tagging a feature branch for an ad-hoc build)
+#
+# Every run requires approval via the "release" GitHub Environment before
+# any build/publish steps execute (see resolve-channel job).
+#
+# Channels:
+#   beta        — publishes to S3 (beta bucket) + creates a pre-release GitHub Release
+#   stable      — publishes to S3 (stable bucket) + creates a GitHub Release
+#   development — publishes to S3 (dev bucket) only; no GitHub Release is created
+#
+# For a build-only run (no S3 publish, no version release — just installer
+# binaries attached to a draft GitHub Release), use the separate
+# "Build Voiden Assets" workflow (build-app-assets.yml) instead.
+#
+# Required repository secrets:
+#   APPLE_CERTIFICATE           — base64-encoded .p12 developer certificate
+#   APPLE_CERTIFICATE_PASSWORD  — password for the .p12
+#   KEYCHAIN_PASSWORD           — password for the temporary build keychain
+#   APPLE_ID                    — Apple ID for notarization
+#   APPLE_ID_PASSWORD           — App-specific password for notarization
+#   APPLE_TEAM_ID               — Apple Developer Team ID
+#   AZURE_CLIENT_ID                  — Azure service principal client ID
+#   AZURE_CLIENT_SECRET              — Azure service principal client secret
+#   AZURE_TENANT_ID                  — Azure AD tenant ID
+#   AZURE_CODE_SIGNING_ENDPOINT      — e.g. https://<region>.codesigning.azure.net
+#   AZURE_CODE_SIGNING_ACCOUNT_NAME  — Trusted Signing account name in Azure Portal
+#   AZURE_CODE_SIGNING_CERT_PROFILE  — certificate profile name in Azure Trusted Signing
+#   Each channel publishes through its own IAM credentials, scoped to its own bucket:
+#   S3_ACCESS_KEY_ID_BETA       — AWS access key for beta channel
+#   S3_SECRET_ACCESS_KEY_BETA   — AWS secret key for beta channel
+#   S3_BUCKET_NAME_BETA         — S3 bucket for beta channel  (default: voiden-beta-releases)
+#   S3_ACCESS_KEY_ID_STABLE     — AWS access key for stable channel
+#   S3_SECRET_ACCESS_KEY_STABLE — AWS secret key for stable channel
+#   S3_BUCKET_NAME_STABLE       — S3 bucket for stable channel (default: voiden-releases)
+#   S3_ACCESS_KEY_ID_DEV        — AWS access key for development channel
+#   S3_SECRET_ACCESS_KEY_DEV    — AWS secret key for development channel
+#   S3_BUCKET_NAME_DEV          — S3 bucket for development channel (default: voiden-dev-releases)
+#
+#   APT repo + Snap Store publishing (beta + stable only) is handled by the
+#   "Release Package Managers" workflow (release-package-managers.yml), called
+#   below after the Linux build. See that file for its required secrets.
+
+name: Release Voiden App
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+  actions: read
+
+env:
+  NODE_OPTIONS: --max-old-space-size=4096
+
+jobs:
+  # ── Resolve channel + gate the whole run behind the "release" environment ──────
+  # Approval (required reviewers configured on the "release" environment) happens
+  # here, before any build minutes are spent. Every downstream job depends on
+  # this one, so reviewers approve once per run.
+  resolve-channel:
+    name: Resolve Release Channel
+    runs-on: ubuntu-latest
+    environment: release
+    outputs:
+      channel: ${{ steps.resolve.outputs.channel }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve channel
+        id: resolve
+        run: |
+          git fetch origin main beta --quiet
+          BRANCHES=$(git branch -r --contains "${{ github.sha }}")
+          if echo "$BRANCHES" | grep -q 'origin/main'; then
+            echo "channel=stable" >> "$GITHUB_OUTPUT"
+          elif echo "$BRANCHES" | grep -q 'origin/beta'; then
+            echo "channel=beta" >> "$GITHUB_OUTPUT"
+          else
+            echo "channel=development" >> "$GITHUB_OUTPUT"
+          fi
+
+  # ── Per-platform build ────────────────────────────────────────────────────────
+  build:
+    name: Build — ${{ matrix.label }}
+    needs: resolve-channel
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: macOS Silicon (arm64)
+            os: macos-latest
+            arch_flag: ''
+            artifact_name: darwin-arm64
+
+          # Cross-packaged on the arm64 runner via --arch=x64 — GitHub's free plan
+          # no longer has a standalone Intel macOS runner pool (macos-13 is retired;
+          # Intel "large" runners require a paid Team/Enterprise plan). Packaging,
+          # codesigning, and notarization don't need native x64 hardware to run.
+          - label: macOS Intel (x64)
+            os: macos-latest
+            arch_flag: '--arch=x64'
+            artifact_name: darwin-x64
+
+          # Pinned to windows-2022 (not windows-latest) — that image bundles
+          # Visual Studio "18" (2026), and the installed node-gyp doesn't
+          # recognize that version string ("unknown version \"undefined\""),
+          # so it fails to find VS at all even though it's present.
+          - label: Windows (x64)
+            os: windows-2022
+            arch_flag: ''
+            artifact_name: win32-x64
+
+          - label: Linux (x64)
+            os: ubuntu-latest
+            arch_flag: ''
+            artifact_name: linux-x64
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Enable Corepack (Yarn)
+        run: corepack enable
+
+      # Clones plugin-registry + core plugins, removes node_modules, yarn install, builds plugins
+      - name: Run cleanup (macOS / Linux)
+        if: runner.os != 'Windows'
+        run: chmod +x cleanup.sh && ./cleanup.sh
+
+      - name: Run cleanup (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: cleanup.bat
+
+      # cleanup.bat installs with --mode=skip-build — node-pty's unpatched source
+      # fails to compile under MSVC 2022 + C++20. Patch it, then force a rebuild.
+      - name: Apply Windows native build patches
+        if: runner.os == 'Windows'
+        shell: bash
+        run: bash patches/win-native-fixes/apply-patches.sh
+
+      - name: Rebuild native modules (Windows)
+        if: runner.os == 'Windows'
+        run: yarn rebuild
+
+      # macOS: import developer certificate into a temporary keychain so
+      # electron-forge osxSign can codesign the app bundle.
+      - name: Import Apple certificate into keychain
+        if: runner.os == 'macOS'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
+          security import certificate.p12 -k build.keychain \
+            -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list \
+            -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+          rm -f certificate.p12
+
+      # Microsoft.ArtifactSigning.Client (the Trusted Signing service was renamed
+      # "Artifact Signing") ships as a plain NuGet library package, not a dotnet
+      # global tool — `dotnet tool install` fails with "not found in NuGet feeds".
+      # Download it + the matching SignTool build via nuget.exe instead, then
+      # locate the extracted signtool.exe / dlib and expose their paths to
+      # forge.config.ts via GITHUB_ENV.
+      - name: Setup .NET 8 runtime (required by Artifact Signing dlib)
+        if: runner.os == 'Windows'
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Install Artifact Signing client tools
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri https://dist.nuget.org/win-x86-commandline/latest/nuget.exe -OutFile nuget.exe
+          ./nuget.exe install Microsoft.Windows.SDK.BuildTools -OutputDirectory signing-tools -ExcludeVersion -NonInteractive
+          ./nuget.exe install Microsoft.ArtifactSigning.Client -OutputDirectory signing-tools -ExcludeVersion -NonInteractive
+
+          $signtool = Get-ChildItem -Path "signing-tools\Microsoft.Windows.SDK.BuildTools" -Recurse -Filter signtool.exe |
+            Where-Object { $_.FullName -like "*\x64\*" } | Select-Object -First 1
+          $dlib = Get-ChildItem -Path "signing-tools\Microsoft.ArtifactSigning.Client" -Recurse -Filter Azure.CodeSigning.Dlib.dll |
+            Where-Object { $_.FullName -like "*\x64\*" } | Select-Object -First 1
+
+          if (-not $signtool) { throw "signtool.exe not found in Microsoft.Windows.SDK.BuildTools package" }
+          if (-not $dlib) { throw "Azure.CodeSigning.Dlib.dll not found in Microsoft.ArtifactSigning.Client package" }
+
+          echo "SIGNTOOL_PATH=$($signtool.FullName)" >> $env:GITHUB_ENV
+          echo "SIGNING_DLIB_PATH=$($dlib.FullName)" >> $env:GITHUB_ENV
+
+      # ── beta / stable / development: yarn publish (make + upload to S3) ──────
+      - name: Publish to S3 — macOS Silicon
+        if: matrix.artifact_name == 'darwin-arm64'
+        working-directory: apps/electron
+        env:
+          RELEASE_CHANNEL: ${{ needs.resolve-channel.outputs.channel }}
+          S3_ACCESS_KEY_ID_BETA: ${{ secrets.S3_ACCESS_KEY_ID_BETA }}
+          S3_SECRET_ACCESS_KEY_BETA: ${{ secrets.S3_SECRET_ACCESS_KEY_BETA }}
+          S3_ACCESS_KEY_ID_STABLE: ${{ secrets.S3_ACCESS_KEY_ID_STABLE }}
+          S3_SECRET_ACCESS_KEY_STABLE: ${{ secrets.S3_SECRET_ACCESS_KEY_STABLE }}
+          S3_ACCESS_KEY_ID_DEV: ${{ secrets.S3_ACCESS_KEY_ID_DEV }}
+          S3_SECRET_ACCESS_KEY_DEV: ${{ secrets.S3_SECRET_ACCESS_KEY_DEV }}
+          S3_BUCKET_NAME_BETA: ${{ secrets.S3_BUCKET_NAME_BETA }}
+          S3_BUCKET_NAME_STABLE: ${{ secrets.S3_BUCKET_NAME_STABLE }}
+          S3_BUCKET_NAME_DEV: ${{ secrets.S3_BUCKET_NAME_DEV }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: yarn publish
+
+      - name: Publish to S3 — macOS Intel
+        if: matrix.artifact_name == 'darwin-x64'
+        working-directory: apps/electron
+        env:
+          RELEASE_CHANNEL: ${{ needs.resolve-channel.outputs.channel }}
+          S3_ACCESS_KEY_ID_BETA: ${{ secrets.S3_ACCESS_KEY_ID_BETA }}
+          S3_SECRET_ACCESS_KEY_BETA: ${{ secrets.S3_SECRET_ACCESS_KEY_BETA }}
+          S3_ACCESS_KEY_ID_STABLE: ${{ secrets.S3_ACCESS_KEY_ID_STABLE }}
+          S3_SECRET_ACCESS_KEY_STABLE: ${{ secrets.S3_SECRET_ACCESS_KEY_STABLE }}
+          S3_ACCESS_KEY_ID_DEV: ${{ secrets.S3_ACCESS_KEY_ID_DEV }}
+          S3_SECRET_ACCESS_KEY_DEV: ${{ secrets.S3_SECRET_ACCESS_KEY_DEV }}
+          S3_BUCKET_NAME_BETA: ${{ secrets.S3_BUCKET_NAME_BETA }}
+          S3_BUCKET_NAME_STABLE: ${{ secrets.S3_BUCKET_NAME_STABLE }}
+          S3_BUCKET_NAME_DEV: ${{ secrets.S3_BUCKET_NAME_DEV }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: yarn publish --arch=x64
+
+      - name: Publish to S3 — Windows
+        if: matrix.artifact_name == 'win32-x64'
+        working-directory: apps/electron
+        env:
+          RELEASE_CHANNEL: ${{ needs.resolve-channel.outputs.channel }}
+          S3_ACCESS_KEY_ID_BETA: ${{ secrets.S3_ACCESS_KEY_ID_BETA }}
+          S3_SECRET_ACCESS_KEY_BETA: ${{ secrets.S3_SECRET_ACCESS_KEY_BETA }}
+          S3_ACCESS_KEY_ID_STABLE: ${{ secrets.S3_ACCESS_KEY_ID_STABLE }}
+          S3_SECRET_ACCESS_KEY_STABLE: ${{ secrets.S3_SECRET_ACCESS_KEY_STABLE }}
+          S3_ACCESS_KEY_ID_DEV: ${{ secrets.S3_ACCESS_KEY_ID_DEV }}
+          S3_SECRET_ACCESS_KEY_DEV: ${{ secrets.S3_SECRET_ACCESS_KEY_DEV }}
+          S3_BUCKET_NAME_BETA: ${{ secrets.S3_BUCKET_NAME_BETA }}
+          S3_BUCKET_NAME_STABLE: ${{ secrets.S3_BUCKET_NAME_STABLE }}
+          S3_BUCKET_NAME_DEV: ${{ secrets.S3_BUCKET_NAME_DEV }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CODE_SIGNING_ENDPOINT: ${{ secrets.AZURE_CODE_SIGNING_ENDPOINT }}
+          AZURE_CODE_SIGNING_ACCOUNT_NAME: ${{ secrets.AZURE_CODE_SIGNING_ACCOUNT_NAME }}
+          AZURE_CODE_SIGNING_CERT_PROFILE: ${{ secrets.AZURE_CODE_SIGNING_CERT_PROFILE }}
+        run: yarn publish
+
+      - name: Publish to S3 — Linux
+        if: matrix.artifact_name == 'linux-x64'
+        working-directory: apps/electron
+        env:
+          RELEASE_CHANNEL: ${{ needs.resolve-channel.outputs.channel }}
+          S3_ACCESS_KEY_ID_BETA: ${{ secrets.S3_ACCESS_KEY_ID_BETA }}
+          S3_SECRET_ACCESS_KEY_BETA: ${{ secrets.S3_SECRET_ACCESS_KEY_BETA }}
+          S3_ACCESS_KEY_ID_STABLE: ${{ secrets.S3_ACCESS_KEY_ID_STABLE }}
+          S3_SECRET_ACCESS_KEY_STABLE: ${{ secrets.S3_SECRET_ACCESS_KEY_STABLE }}
+          S3_ACCESS_KEY_ID_DEV: ${{ secrets.S3_ACCESS_KEY_ID_DEV }}
+          S3_SECRET_ACCESS_KEY_DEV: ${{ secrets.S3_SECRET_ACCESS_KEY_DEV }}
+          S3_BUCKET_NAME_BETA: ${{ secrets.S3_BUCKET_NAME_BETA }}
+          S3_BUCKET_NAME_STABLE: ${{ secrets.S3_BUCKET_NAME_STABLE }}
+          S3_BUCKET_NAME_DEV: ${{ secrets.S3_BUCKET_NAME_DEV }}
+        run: yarn publish
+
+      # Republish Linux artifacts: generates latest.json and uploads .deb/.rpm/.AppImage URLs to S3
+      - name: Republish Linux artifacts
+        if: (needs.resolve-channel.outputs.channel == 'beta' || needs.resolve-channel.outputs.channel == 'stable') && matrix.artifact_name == 'linux-x64'
+        working-directory: apps/electron
+        env:
+          S3_ACCESS_KEY_ID_BETA: ${{ secrets.S3_ACCESS_KEY_ID_BETA }}
+          S3_SECRET_ACCESS_KEY_BETA: ${{ secrets.S3_SECRET_ACCESS_KEY_BETA }}
+          S3_ACCESS_KEY_ID_STABLE: ${{ secrets.S3_ACCESS_KEY_ID_STABLE }}
+          S3_SECRET_ACCESS_KEY_STABLE: ${{ secrets.S3_SECRET_ACCESS_KEY_STABLE }}
+          S3_BUCKET_NAME_BETA: ${{ secrets.S3_BUCKET_NAME_BETA }}
+          S3_BUCKET_NAME_STABLE: ${{ secrets.S3_BUCKET_NAME_STABLE }}
+        run: node republish.js ${{ needs.resolve-channel.outputs.channel }}
+
+      # Upload everything from out/make/ so both S3 + GitHub Release jobs can use it
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: voiden-${{ matrix.artifact_name }}
+          path: apps/electron/out/make/
+          if-no-files-found: warn
+
+      # Tear down the temporary keychain to avoid leaving certs on the runner
+      - name: Cleanup keychain
+        if: runner.os == 'macOS' && always()
+        run: |
+          security delete-keychain build.keychain 2>/dev/null || true
+
+  # ── apt + snap publishing (beta + stable only) ────────────────────────────────
+  package-managers:
+    name: Release Package Managers
+    needs: [build, resolve-channel]
+    if: needs.resolve-channel.outputs.channel == 'beta' || needs.resolve-channel.outputs.channel == 'stable'
+    uses: ./.github/workflows/release-package-managers.yml
+    secrets: inherit
+    with:
+      channel: ${{ needs.resolve-channel.outputs.channel }}
+
+  # ── GitHub Release (stable + beta) ────────────────────────────────────────────
+  release:
+    name: Create GitHub Release
+    needs: [build, resolve-channel]
+    runs-on: ubuntu-latest
+    if: needs.resolve-channel.outputs.channel != 'development'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Read app version
+        id: version
+        run: |
+          VERSION=$(node -p "require('./apps/electron/package.json').version")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+          pattern: voiden-*
+
+      - name: List artifacts
+        run: find release-artifacts -type f | sort
+
+      # Pulls the changelog entry matching this version (apps/ui/src/data/changelog.json)
+      # into apps/electron/release-notes.md, used as the release body below.
+      - name: Generate release notes from changelog
+        id: release-notes
+        run: node apps/electron/generate-release-notes.js
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: Voiden v${{ steps.version.outputs.version }}
+          prerelease: ${{ needs.resolve-channel.outputs.channel == 'beta' }}
+          generate_release_notes: true
+          body_path: apps/electron/release-notes.md
+          fail_on_unmatched_files: false
+          files: |
+            release-artifacts/**/*.dmg
+            release-artifacts/**/*.zip
+            release-artifacts/**/*.exe
+            release-artifacts/**/*.deb
+            release-artifacts/**/*.rpm
+            release-artifacts/**/*.AppImage
+            release-artifacts/**/*.yml

@@ -20,6 +20,7 @@ import { json, jsonParseLinter } from "@codemirror/lang-json";
 import { html } from "@codemirror/lang-html";
 import { css } from "@codemirror/lang-css";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
+import { attachScrollTracker } from "./scrollTracker";
 import { python } from "@codemirror/lang-python";
 import { java } from "@codemirror/lang-java";
 import { cpp } from "@codemirror/lang-cpp";
@@ -30,6 +31,8 @@ import { yaml } from "@codemirror/lang-yaml";
 import { langs } from "@uiw/codemirror-extensions-langs";
 import { useCodeEditorStore } from "./CodeEditorStore";
 import { lintYaml } from "@/core/editors/code/lib/extensions/lintYaml";
+import { tabAcceptsCompletion } from "@/core/editors/code/lib/extensions/tabAcceptsCompletion";
+import { createHiddenSearchPanel } from "./lib/createHiddenSearchPanel";
 
 interface CodeEditorProps {
   tabId: string;
@@ -44,6 +47,21 @@ interface CodeEditorProps {
 const LARGE_FILE_THRESHOLD = 5 * 1024 * 1024;
 const AUTO_ENABLE_THRESHOLD = 10 * 1024 * 1024;
 const MEDIUM_FILE_THRESHOLD = 512 * 1024;
+// A single line this long is its own performance cliff (text layout/measurement
+// cost is driven by line length, not file size) — treat it like a large file
+// even when the total byte count is well under LARGE_FILE_THRESHOLD.
+const LONG_LINE_THRESHOLD = 20_000;
+
+function hasVeryLongLine(content: string): boolean {
+  let lineStart = 0;
+  for (let i = 0; i <= content.length; i++) {
+    if (i === content.length || content.charCodeAt(i) === 10) {
+      if (i - lineStart > LONG_LINE_THRESHOLD) return true;
+      lineStart = i + 1;
+    }
+  }
+  return false;
+}
 
 function debounce<T extends (...args: any[]) => any>(
   func: T,
@@ -60,7 +78,7 @@ export const config = {
   background: "var(--editor-bg)",
   foreground: "var(--editor-fg)",
   caret: "var(--editor-fg)",
-  selection: "var(--selection)",
+  selection: "var(--editor-selection-bg)",
   lineHighlight: "transparent",
 
   keyword: "var(--syntax-keyword)",
@@ -83,7 +101,7 @@ const defaultSettingsQuietlight: CreateThemeOptions["settings"] = {
   foreground: config.foreground,
   caret: config.caret,
   selection: config.selection,
-  selectionMatch: "var(--editor-selection)",
+  selectionMatch: "var(--editor-selection-match)",
   gutterBackground: config.background,
   gutterForeground: "var(--editor-gutter-normal)",
   gutterBorder: "transparent",
@@ -93,12 +111,11 @@ const defaultSettingsQuietlight: CreateThemeOptions["settings"] = {
 };
 
 export const quietlightStyle: CreateThemeOptions["styles"] = [
-  { tag: t.emphasis, backgroundColor: "#44403c" },
   { tag: t.keyword, color: config.keyword },
   { tag: [t.name, t.deleted, t.character, t.macroName], color: config.variable },
   { tag: [t.propertyName], color: config.function },
   {
-    tag: [t.processingInstruction, t.string, t.inserted, t.special(t.string)],
+    tag: [t.string, t.inserted, t.special(t.string)],
     color: config.string,
   },
   { tag: [t.function(t.variableName), t.labelName], color: config.function },
@@ -118,12 +135,17 @@ export const quietlightStyle: CreateThemeOptions["styles"] = [
   { tag: [t.meta, t.comment], color: config.comment },
   { tag: t.tagName, color: config.tag },
   { tag: t.strong, fontWeight: "bold" },
-  { tag: t.emphasis, fontStyle: "italic" },
+  { tag: t.emphasis, fontStyle: "italic", color: config.type },
   { tag: t.link, textDecoration: "underline" },
   { tag: t.heading, fontWeight: "bold", color: config.heading },
   { tag: [t.atom, t.bool, t.special(t.variableName)], color: config.variable },
   { tag: t.invalid, color: config.invalid },
   { tag: t.strikethrough, textDecoration: "line-through" },
+  // Markdown-specific: backtick delimiters (CodeMark) and inline-code content
+  // (CodeText) — colored like a "keyword" pink so `code spans` and fenced
+  // code fences pop the same way they do in Cursor/VS Code's markdown view.
+  { tag: t.processingInstruction, color: config.keyword },
+  { tag: t.monospace, color: config.keyword },
 ];
 
 const quietlightInit = (options?: Partial<CreateThemeOptions>) => {
@@ -353,15 +375,27 @@ const activeMatchHighlighter = Prec.high(ViewPlugin.fromClass(
   { decorations: v => v.decorations },
 ));
 
-function scrollMatchIntoView(view: EditorView) {
+// `markProgrammatic` flags the resulting 'scroll' event as a deliberate
+// search-nav jump (not a stray/incidental one) so the tab-switch scroll
+// tracker below doesn't snap it back to the saved position — see
+// searchNavScrollRef where it's wired up.
+function scrollMatchIntoView(view: EditorView, markProgrammatic?: () => void) {
   requestAnimationFrame(() => {
-    const scrollEl = document.getElementById("code-editor-container");
-    if (!scrollEl) return;
+    // CodeMirror's own scroller (.cm-scroller), NOT the outer shared
+    // #code-editor-container — @uiw/react-codemirror height-bounds
+    // .cm-scroller to 100% of its wrapper and CodeMirror's base theme
+    // already makes it overflow:auto, so it's .cm-scroller that actually
+    // scrolls when .cm-content overflows. The outer container's own content
+    // (this tab's wrapper div) is always pinned to exactly its height, so
+    // its scrollTop never has anywhere to go — writing to it here was a
+    // silent no-op.
+    const scrollEl = view.scrollDOM;
     const pos = view.state.selection.main.head;
     const coords = view.coordsAtPos(pos);
     if (!coords) return;
     const containerRect = scrollEl.getBoundingClientRect();
     const relativeTop = coords.top - containerRect.top + scrollEl.scrollTop;
+    markProgrammatic?.();
     scrollEl.scrollTop = Math.max(0, relativeTop - scrollEl.clientHeight / 2);
   });
 }
@@ -491,6 +525,44 @@ const getLintExtensions = (ext: string | undefined) => {
   return [];
 };
 
+// Fence-info -> embedded language, so ```sql / ```js / etc. blocks inside a
+// markdown file get real syntax highlighting instead of flat monospace text.
+// Reuses the same language packages already loaded for standalone files
+// (rather than pulling in @codemirror/language-data) so the .md highlighting
+// stays consistent with how those languages render in their own file type.
+const EMBEDDED_MD_LANGUAGES: Record<string, () => ReturnType<typeof javascript>["language"]> = {
+  js: () => javascript({ jsx: true }).language,
+  javascript: () => javascript({ jsx: true }).language,
+  jsx: () => javascript({ jsx: true }).language,
+  ts: () => javascript({ jsx: true, typescript: true }).language,
+  typescript: () => javascript({ jsx: true, typescript: true }).language,
+  tsx: () => javascript({ jsx: true, typescript: true }).language,
+  json: () => json().language,
+  html: () => html().language,
+  css: () => css().language,
+  py: () => python().language,
+  python: () => python().language,
+  java: () => java().language,
+  c: () => cpp().language,
+  cpp: () => cpp().language,
+  cc: () => cpp().language,
+  cxx: () => cpp().language,
+  rs: () => rust().language,
+  rust: () => rust().language,
+  sql: () => sql().language,
+  xml: () => xml().language,
+  yml: () => yaml().language,
+  yaml: () => yaml().language,
+  sh: () => langs.shell().language,
+  bash: () => langs.shell().language,
+  shell: () => langs.shell().language,
+};
+
+const markdownCodeLanguages = (info: string) => {
+  const key = info.trim().split(/\s+/)[0]?.toLowerCase();
+  return key ? EMBEDDED_MD_LANGUAGES[key]?.() ?? null : null;
+};
+
 const getLanguageExtension = (filename: string) => {
   const ext = filename?.split(".").pop()?.toLowerCase() || "";
   switch (ext) {
@@ -509,7 +581,7 @@ const getLanguageExtension = (filename: string) => {
       return css();
     case "md":
     case "markdown":
-      return markdown({ base: markdownLanguage });
+      return markdown({ base: markdownLanguage, codeLanguages: markdownCodeLanguages });
     case "py":
       return python();
     case "java":
@@ -546,6 +618,11 @@ export const CodeEditor = memo(({ tabId, content, source, panelId, isActive = tr
   const lintCompartment = useRef(new Compartment()).current;
   const isActiveRef = useRef(isActive);
   isActiveRef.current = isActive;
+  // Set right before any deliberate search-nav scroll (scrollMatchIntoView,
+  // the go-to-line jump below) so the scroll tracker's handleScroll can tell
+  // it apart from an incidental/unwanted programmatic scroll and let it
+  // through instead of snapping back to the saved tab-switch position.
+  const searchNavScrollRef = useRef(false);
 
   const { setUnsaved, clearUnsaved, setScrollPosition, getScrollPosition } = useEditorStore((state) => ({
     setUnsaved: state.setUnsaved,
@@ -554,7 +631,19 @@ export const CodeEditor = memo(({ tabId, content, source, panelId, isActive = tr
     getScrollPosition: state.getScrollPosition,
   }));
 
-  const { setActiveEditor, updateContent, setEditor, registerEditorView, unregisterEditorView, setStreamSnapshot } = useCodeEditorStore();
+  // Select each action individually rather than destructuring the whole store
+  // (`useCodeEditorStore()`), which subscribes to every field — including
+  // `activeEditor.content`, which changes on every keystroke in ANY tab/panel.
+  // That was forcing every mounted CodeEditor instance (all cached tabs across
+  // all panels) to re-render on every keystroke anywhere in the app. Action
+  // functions are stable references defined once at store creation, so
+  // selecting them individually never triggers a re-render.
+  const setActiveEditor = useCodeEditorStore((state) => state.setActiveEditor);
+  const updateContent = useCodeEditorStore((state) => state.updateContent);
+  const setEditor = useCodeEditorStore((state) => state.setEditor);
+  const registerEditorView = useCodeEditorStore((state) => state.registerEditorView);
+  const unregisterEditorView = useCodeEditorStore((state) => state.unregisterEditorView);
+  const setStreamSnapshot = useCodeEditorStore((state) => state.setStreamSnapshot);
 
   const searchTerm = useEditorSearchStore((s) => s.term);
   const matchCase = useEditorSearchStore((s) => s.matchCase);
@@ -589,7 +678,7 @@ export const CodeEditor = memo(({ tabId, content, source, panelId, isActive = tr
       // Skip if a targeted line jump is pending — storeTargetLine effect handles it.
       if (useEditorSearchStore.getState().targetLine === null) {
         navigateToFirst(editorView);
-        scrollMatchIntoView(editorView);
+        scrollMatchIntoView(editorView, () => { searchNavScrollRef.current = true; });
       }
     }
   }, [searchTerm, matchCase, matchWholeWord, useRegex, replaceTerm, editorView, isActive]);
@@ -642,13 +731,13 @@ export const CodeEditor = memo(({ tabId, content, source, panelId, isActive = tr
     if (!editorView || !isActive) return;
     const { registerSearchCallbacks, unregisterSearchCallbacks } = useEditorSearchStore.getState();
     const callbacks: SearchCallbacks = {
-      onFindNext: () => { navigateNext(editorView); scrollMatchIntoView(editorView); },
-      onFindPrevious: () => { navigatePrev(editorView); scrollMatchIntoView(editorView); },
+      onFindNext: () => { navigateNext(editorView); scrollMatchIntoView(editorView, () => { searchNavScrollRef.current = true; }); },
+      onFindPrevious: () => { navigatePrev(editorView); scrollMatchIntoView(editorView, () => { searchNavScrollRef.current = true; }); },
       onClose: () => {
         useEditorSearchStore.getState().setIsOpen(false);
         useEditorSearchStore.getState().setUnifiedSearchActive(false);
       },
-      onReplace: () => { replaceNext(editorView); scrollMatchIntoView(editorView); },
+      onReplace: () => { replaceNext(editorView); scrollMatchIntoView(editorView, () => { searchNavScrollRef.current = true; }); },
       onReplaceAll: () => replaceAll(editorView),
       getStatus: () => computeCmStatus(editorView),
     };
@@ -689,7 +778,7 @@ export const CodeEditor = memo(({ tabId, content, source, panelId, isActive = tr
     // Skip first-match navigation when targetLine is set — the dedicated effect below handles it.
     if (targetLine !== null) return;
     navigateToFirst(editorView);
-    scrollMatchIntoView(editorView);
+    scrollMatchIntoView(editorView, () => { searchNavScrollRef.current = true; });
   }, [openPanelTick, editorView, isActive]);
 
   // Dedicated effect: jump to the exact line from a search-result click.
@@ -732,14 +821,16 @@ export const CodeEditor = memo(({ tabId, content, source, panelId, isActive = tr
       }))] : [],
     });
 
-    // Scroll the custom container to centre the target line.
+    // Scroll CodeMirror's own scroller (.cm-scroller via view.scrollDOM) to
+    // centre the target line — not #code-editor-container, see
+    // scrollMatchIntoView above for why that's the wrong element.
     // Retry at increasing delays to handle layout timing on newly mounted editors.
     const doScroll = () => {
-      const scrollEl = document.getElementById("code-editor-container");
-      if (!scrollEl) return false;
+      const scrollEl = editorView.scrollDOM;
       const coords = editorView.coordsAtPos(pos);
       if (!coords) return false;
       const relTop = coords.top - scrollEl.getBoundingClientRect().top + scrollEl.scrollTop;
+      searchNavScrollRef.current = true;
       scrollEl.scrollTop = Math.max(0, relTop - scrollEl.clientHeight / 2);
       return true;
     };
@@ -761,7 +852,7 @@ export const CodeEditor = memo(({ tabId, content, source, panelId, isActive = tr
   const isLargeFile = useMemo(() => {
     if (streamable) return true;
     const sizeInBytes = new Blob([content]).size;
-    return sizeInBytes > LARGE_FILE_THRESHOLD;
+    return sizeInBytes > LARGE_FILE_THRESHOLD || hasVeryLongLine(content);
   }, [content, streamable]);
 
   const isMediumFile = useMemo(() => {
@@ -808,7 +899,12 @@ export const CodeEditor = memo(({ tabId, content, source, panelId, isActive = tr
       if (!cancelled) {
         setStreamProgress(null);
         const fileSize = fullSize ?? 0;
-        if (fileSize <= AUTO_ENABLE_THRESHOLD) {
+        // A file can load under AUTO_ENABLE_THRESHOLD yet still contain one
+        // pathologically long line — auto-enabling highlighting/lint would
+        // reintroduce the same layout freeze right after the loading bar
+        // finishes, so it falls back to the opt-in banner below instead.
+        const tooPathological = hasVeryLongLine(editorView.state.doc.toString());
+        if (fileSize <= AUTO_ENABLE_THRESHOLD && !tooPathological) {
           setIsApplyingFeatures(true);
           editorView.dispatch({
             effects: [
@@ -838,8 +934,8 @@ export const CodeEditor = memo(({ tabId, content, source, panelId, isActive = tr
         setUnsaved(tId, value);
       }
       updateContent(value);
-    }, isLargeFile ? 300 : 0),
-    [isLargeFile, setUnsaved, clearUnsaved, updateContent, content]
+    }, isLargeFile ? 300 : (isMediumFile ? 150 : 0)),
+    [isLargeFile, isMediumFile, setUnsaved, clearUnsaved, updateContent, content]
   );
 
   const initialContent = useMemo(() => {
@@ -875,47 +971,34 @@ export const CodeEditor = memo(({ tabId, content, source, panelId, isActive = tr
   useLayoutEffect(() => {
     if (!editorView || !isActive) return;
 
-    const scrollEl = document.getElementById("code-editor-container") as HTMLElement | null;
-    if (!scrollEl) return;
+    // CodeMirror's own scroller (.cm-scroller), not the outer shared
+    // #code-editor-container. @uiw/react-codemirror height-bounds
+    // .cm-scroller to 100% of its wrapper and CodeMirror's base theme
+    // already sets it to overflow:auto, so .cm-scroller is what actually
+    // scrolls once .cm-content overflows — #code-editor-container's own
+    // content (this tab's wrapper div) is always pinned to exactly its
+    // height, so its scrollTop never had anywhere to go. That's why saving/
+    // restoring against #code-editor-container was a silent no-op: nothing
+    // was ever actually being tracked, so a tab switch always looked like a
+    // reset to 0 (there was nothing saved to restore in the first place).
+    const scrollEl = editorView.scrollDOM;
 
-    let currentTarget = getScrollPosition(tabId);
-    let isUserScrolling = false;
-    let userScrollTimeout: number | null = null;
-
-    const setUserScrolling = () => {
-      isUserScrolling = true;
-      if (userScrollTimeout !== null) clearTimeout(userScrollTimeout);
-      userScrollTimeout = window.setTimeout(() => {
-        isUserScrolling = false;
-        userScrollTimeout = null;
-      }, 1000);
-    };
-
-    const applySavedScroll = () => {
-      if (isUserScrolling) return;
-      const maxScrollTop = Math.max(0, scrollEl.scrollHeight - scrollEl.clientHeight);
-      scrollEl.scrollTop = Math.min(currentTarget, maxScrollTop);
-    };
-
-    const handleScroll = () => {
-      if (isUserScrolling) {
-        currentTarget = scrollEl.scrollTop;
-        setScrollPosition(tabId, scrollEl.scrollTop);
-      }
-      // Programmatic scrolls (e.g. find navigation) must not be fought against —
-      // the initial rAF restoration already handles tab-switch scroll restoration.
-    };
-
-    const handleUserInteraction = () => { setUserScrolling(); };
-
-    scrollEl.addEventListener("scroll", handleScroll, { passive: true });
-    scrollEl.addEventListener("wheel", handleUserInteraction, { passive: true, capture: true });
-    scrollEl.addEventListener("touchmove", handleUserInteraction, { passive: true, capture: true });
-    scrollEl.addEventListener("keydown", handleUserInteraction, { capture: true });
-    scrollEl.addEventListener("mousedown", handleUserInteraction, { capture: true });
+    // Snapping back an unrequested scroll is only right just after this tab
+    // activates (CodeMirror re-measuring can reset scrollTop to 0) — see
+    // scrollTracker.ts for why it must not outlive that window.
+    const tracker = attachScrollTracker({
+      scrollEl,
+      initialTarget: getScrollPosition(tabId),
+      onPositionChange: (scrollTop) => setScrollPosition(tabId, scrollTop),
+      consumeProgrammaticFlag: () => {
+        const flagged = searchNavScrollRef.current;
+        searchNavScrollRef.current = false;
+        return flagged;
+      },
+    });
 
     scrollEl.style.scrollBehavior = "auto";
-    applySavedScroll();
+    tracker.restore();
 
     let rafId: number;
     const timeoutIds: number[] = [];
@@ -923,23 +1006,17 @@ export const CodeEditor = memo(({ tabId, content, source, panelId, isActive = tr
     rafId = requestAnimationFrame(() => {
       rafId = requestAnimationFrame(() => {
         scrollEl.style.scrollBehavior = "auto";
-        applySavedScroll();
-        timeoutIds.push(window.setTimeout(applySavedScroll, 0));
-        timeoutIds.push(window.setTimeout(applySavedScroll, 60));
-        timeoutIds.push(window.setTimeout(applySavedScroll, 140));
+        tracker.restore();
+        timeoutIds.push(window.setTimeout(tracker.restore, 0));
+        timeoutIds.push(window.setTimeout(tracker.restore, 60));
+        timeoutIds.push(window.setTimeout(tracker.restore, 140));
       });
     });
 
     return () => {
-      scrollEl.removeEventListener("scroll", handleScroll);
-      scrollEl.removeEventListener("wheel", handleUserInteraction, { capture: true });
-      scrollEl.removeEventListener("touchmove", handleUserInteraction, { capture: true });
-      scrollEl.removeEventListener("keydown", handleUserInteraction, { capture: true });
-      scrollEl.removeEventListener("mousedown", handleUserInteraction, { capture: true });
-      if (userScrollTimeout !== null) clearTimeout(userScrollTimeout);
       cancelAnimationFrame(rafId);
       timeoutIds.forEach(clearTimeout);
-      setScrollPosition(tabId, currentTarget);
+      setScrollPosition(tabId, tracker.detach());
     };
   }, [editorView, tabId, isActive, getScrollPosition, setScrollPosition]);
 
@@ -955,7 +1032,7 @@ export const CodeEditor = memo(({ tabId, content, source, panelId, isActive = tr
         if (editorView) setEditor(editorView);
       }
 
-      if (isLargeFile) {
+      if (isLargeFile || isMediumFile) {
         debouncedUpdate(value, tabId);
       } else {
         if (value === content) {
@@ -966,7 +1043,7 @@ export const CodeEditor = memo(({ tabId, content, source, panelId, isActive = tr
         updateContent(value);
       }
     },
-    [tabId, content, source, panelId, editorView, setUnsaved, clearUnsaved, updateContent, setActiveEditor, setEditor, isLargeFile, debouncedUpdate],
+    [tabId, content, source, panelId, editorView, setUnsaved, clearUnsaved, updateContent, setActiveEditor, setEditor, isLargeFile, isMediumFile, debouncedUpdate],
   );
 
   const languageExtension = useMemo(() => {
@@ -989,8 +1066,18 @@ export const CodeEditor = memo(({ tabId, content, source, panelId, isActive = tr
 
     const baseExtensions = [
       ...languageExtension,
+      // Real wrapping extension (not just CSS): tells CodeMirror's own
+      // layout/measurement/scrollIntoView logic that lines wrap, so the
+      // cursor's horizontal position is computed against the actual wrapped
+      // layout from the first render. Without this, CodeMirror still
+      // *assumes* unwrapped lines until its next measure pass notices the
+      // computed white-space is wrapping — which is what caused the visible
+      // "scrolls right, then snaps to the new line" glitch while typing.
+      EditorView.lineWrapping,
       lintCompartment.of(initialLint),
-      search({ top: true, createPanel: () => ({ dom: document.createElement("div") }) }),
+      search({ top: true, createPanel: createHiddenSearchPanel }),
+      // Tab accepts an open completion, like Enter
+      tabAcceptsCompletion,
       Prec.highest(keymap.of([
         {
           key: "Mod-f", preventDefault: true, run: () => {
@@ -1108,6 +1195,8 @@ export const CodeEditor = memo(({ tabId, content, source, panelId, isActive = tr
       <div className="flex-1 min-h-0">
         <ReactCodeMirror
           autoFocus={false}
+          className="h-full"
+          height="100%"
           value={initialContent}
           theme={voidenTheme}
           onChange={streamable ? undefined : onChange}

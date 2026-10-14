@@ -1,17 +1,9 @@
-import { useSettings, ProxyConfig } from "@/core/settings/hooks/useSettings";
-import { Check, RefreshCw, Plus, Trash2, Edit2, Palette, FileText, Network, Search, Keyboard, ChevronUp, ChevronDown, Settings, Plug, Code2, Sparkles } from "lucide-react";
+import { useSettings, ProxyConfig, SYSTEM_DEFAULT_FONT, VALID_FONT_FAMILIES } from "@/core/settings/hooks/useSettings";
+import { Check, RefreshCw, Plus, Trash2, Edit2, Palette, FileText, Network, Search, Keyboard, ChevronUp, ChevronDown, Settings, Plug, Code2, Sparkles, Download, Copy, RotateCcw } from "lucide-react";
 import { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import { usePluginStore, type PluginSettingsSection } from "@/plugins";
 import { loadThemeById, getAvailableThemes } from "@/utils/themeLoader";
 import { Kbd } from "@/core/components/ui/kbd";
-
-// Validation constants (should match useSettings.ts)
-const VALID_FONT_FAMILIES = [
-  "Inconsolata",
-  "Geist Mono",
-  "JetBrains Mono",
-  "Fira Code"
-];
 
 const FONT_SIZE_MIN = 10;
 const FONT_SIZE_MAX = 20;
@@ -220,10 +212,18 @@ export const SettingsScreen = () => {
   const developerRef = useRef<HTMLElement>(null);
   const keyboardRef = useRef<HTMLElement>(null);
   const pluginsRef = useRef<HTMLElement>(null);
+  const updatesRef = useRef<HTMLElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
 
   const [claudeSkillToggling, setClaudeSkillToggling] = useState(false);
   const [codexSkillToggling, setCodexSkillToggling] = useState(false);
+
+  // Updates section state
+  const [appVersion, setAppVersion] = useState<string>("");
+  const [updaterLog, setUpdaterLog] = useState<string>("");
+  const [isLoadingLog, setIsLoadingLog] = useState(false);
+  const [isCopiedLog, setIsCopiedLog] = useState(false);
+  const [updateProgress, setUpdateProgress] = useState<{ status: string; percent?: number } | null>(null);
 
   const sections = useMemo(() => [
     { id: "general", label: "General", icon: <Settings className="w-4 h-4" />, ref: generalRef },
@@ -233,6 +233,7 @@ export const SettingsScreen = () => {
     { id: "integrations", label: "Integrations", icon: <Plug className="w-4 h-4" />, ref: integrationsRef },
     { id: "ai-skills", label: "AI Skills", icon: <Sparkles className="w-4 h-4" />, ref: aiSkillsRef },
     { id: "developer", label: "Developer", icon: <Code2 className="w-4 h-4" />, ref: developerRef },
+    { id: "updates", label: "Updates", icon: <Download className="w-4 h-4" />, ref: updatesRef },
     { id: "keyboard", label: "Keyboard", icon: <Keyboard className="w-4 h-4" />, ref: keyboardRef },
     { id: "plugins", label: "Plugins", icon: <Plug className="w-4 h-4" />, ref: pluginsRef },
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -303,6 +304,31 @@ export const SettingsScreen = () => {
     });
     return unsubscribe;
   }, [onChange]);
+
+  // Load app version
+  useEffect(() => {
+    window.electron?.getVersion().then((v: string) => setAppVersion(v ?? ""));
+  }, []);
+
+  // Load updater log on mount; auto-refresh when an update is in progress
+  const loadUpdaterLog = useCallback(async () => {
+    setIsLoadingLog(true);
+    try {
+      const content = await window.electron?.readUpdaterLog();
+      setUpdaterLog(content ?? "");
+    } finally {
+      setIsLoadingLog(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadUpdaterLog();
+    const unsubscribe = window.electron?.onUpdateProgress((progress) => {
+      setUpdateProgress(progress);
+      loadUpdaterLog();
+    });
+    return () => unsubscribe?.();
+  }, [loadUpdaterLog]);
 
   useEffect(() => {
     if (!loading && settings) {
@@ -588,7 +614,7 @@ export const SettingsScreen = () => {
       const result = await window.electron?.themes?.sync();
       if (result?.success) {
         // Reload the current theme to apply any updates
-        const currentTheme = settings.appearance.theme || 'voiden';
+        const currentTheme = settings.appearance.theme || 'cursor-dark';
         await loadThemeById(currentTheme);
 
         // Refresh the available themes list
@@ -894,7 +920,7 @@ export const SettingsScreen = () => {
                   control={
                     <div className="flex items-center gap-1.5">
                       <Select
-                        value={settings.appearance.theme || "voiden"}
+                        value={settings.appearance.theme || "cursor-dark"}
                         onChange={async (e) => {
                           const newTheme = e.target.value;
                           await loadThemeById(newTheme);
@@ -1100,7 +1126,6 @@ export const SettingsScreen = () => {
                 <Row
                   title="Code block max lines"
                   description="Maximum number of lines a code block expands to before scrolling. Set to Unlimited to always expand fully."
-                  border={false}
                   control={
                     <Select
                       value={settings.editor.code_block_max_lines ?? 50}
@@ -1115,6 +1140,31 @@ export const SettingsScreen = () => {
                       <option value={500}>500 lines</option>
                       <option value={0}>Unlimited</option>
                     </Select>
+                  }
+                />
+              )}
+              {matchesSearch("Block Overview outline panel blocks requests void file") && (
+                <Row
+                  title="Block Overview"
+                  description="Show a collapsible outline panel beside the editor listing all blocks in the current .void file, grouped by request section."
+                  control={
+                    <Toggle
+                      checked={settings.editor?.block_overview ?? false}
+                      onChange={(v) => save({ editor: { block_overview: v } })}
+                    />
+                  }
+                />
+              )}
+              {matchesSearch("Pending Tabs preview tab single click file explorer italic") && (
+                <Row
+                  title="Pending Tabs"
+                  description="Single-clicking a file opens it as a pending tab (shown in italics), replaced when you open another file. Double-click to make it permanent."
+                  border={false}
+                  control={
+                    <Toggle
+                      checked={settings.editor?.pending_tabs ?? false}
+                      onChange={(v) => save({ editor: { pending_tabs: v } })}
+                    />
                   }
                 />
               )}
@@ -1413,6 +1463,68 @@ export const SettingsScreen = () => {
                   }
                 />
               )}
+            </Card>
+          </section>
+
+          {/* ── Updates ──────────────────────────────────────────── */}
+          <section ref={updatesRef} data-section="updates" className="mb-10">
+            <h2 className="text-lg font-semibold text-text mb-4">Updates</h2>
+
+            <Card>
+              <div className="px-4 py-3.5 border-b border-border-subtle flex items-center justify-between">
+                <div>
+                  <div className="text-sm text-text">Current version</div>
+                  <div className="text-xs text-comment mt-0.5">
+                    {appVersion ? `v${appVersion}` : "—"}
+                  </div>
+                </div>
+                {updateProgress && updateProgress.status !== "idle" && updateProgress.status !== "checking" && (
+                  <div className="text-xs text-comment">
+                    {updateProgress.status === "downloading" && typeof updateProgress.percent === "number"
+                      ? `Downloading… ${updateProgress.percent}%`
+                      : updateProgress.status === "installing"
+                      ? "Installing…"
+                      : updateProgress.status === "ready"
+                      ? "Ready to install"
+                      : null}
+                  </div>
+                )}
+              </div>
+
+              {/* Updater log viewer */}
+              <div className="px-4 py-3">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs text-comment">Updater log</span>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={loadUpdaterLog}
+                      disabled={isLoadingLog}
+                      title="Refresh log"
+                      className="p-1 rounded hover:bg-panel/50 text-comment hover:text-text transition-colors disabled:opacity-40"
+                    >
+                      <RotateCcw className={`w-3 h-3 ${isLoadingLog ? "animate-spin" : ""}`} />
+                    </button>
+                    <button
+                      onClick={async () => {
+                        await navigator.clipboard.writeText(updaterLog);
+                        setIsCopiedLog(true);
+                        setTimeout(() => setIsCopiedLog(false), 1500);
+                      }}
+                      disabled={!updaterLog}
+                      title="Copy log"
+                      className="p-1 rounded hover:bg-panel/50 text-comment hover:text-text transition-colors disabled:opacity-40"
+                    >
+                      {isCopiedLog ? <Check className="w-3 h-3" style={{ color: "var(--icon-primary)" }} /> : <Copy className="w-3 h-3" />}
+                    </button>
+                  </div>
+                </div>
+                <pre
+                  className="text-[11px] leading-relaxed text-comment bg-surface rounded-md p-3 overflow-auto max-h-72 whitespace-pre-wrap break-all font-mono"
+                  style={{ minHeight: "4rem" }}
+                >
+                  {updaterLog || "No log entries yet. Log is cleared at the start of each update check."}
+                </pre>
+              </div>
             </Card>
           </section>
 

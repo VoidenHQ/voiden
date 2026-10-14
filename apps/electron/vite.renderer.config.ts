@@ -47,6 +47,9 @@ export default defineConfig((env) => {
         'lodash',
         'prosemirror-model',
         'markdown-it',
+        // @tiptap/react is excluded above, so its CJS deps must be pre-bundled explicitly
+        '@tiptap/react > use-sync-external-store/shim/index.js',
+        '@tiptap/react > use-sync-external-store/shim/with-selector.js',
       ],
     },
     server: {

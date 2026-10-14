@@ -1,4 +1,4 @@
-import { ipcRenderer } from "electron";
+import { ipcRenderer, webUtils } from "electron";
 import { Tab } from "../../shared/types";
 import type { Settings } from "../../main/settings";
 
@@ -15,6 +15,22 @@ export const directoriesApi = {
     ipcRenderer.on("directory:changed", handler);
     return () => ipcRenderer.removeListener("directory:changed", handler);
   },
+};
+
+/** Path math for the renderer/plugins, which have no direct Node `path`
+ *  access — e.g. so a plugin's file picker can save a cross-file reference
+ *  relative to the project root instead of the OS dialog's raw absolute
+ *  path, and resolve it back to absolute wherever it's actually read. */
+export const pathApi = {
+  toRelative: (base: string, target: string): Promise<string> =>
+    ipcRenderer.invoke("path:toRelative", base, target),
+  toAbsolute: (base: string, maybeRelative: string): Promise<string> =>
+    ipcRenderer.invoke("path:toAbsolute", base, maybeRelative),
+  /** Walks up from a file's directory looking for the nearest ancestor with
+   *  a .voiden marker folder. Returns null if the file isn't part of any
+   *  Voiden project (or itself doesn't exist / isn't accessible). */
+  findProjectRoot: (filePath: string): Promise<string | null> =>
+    ipcRenderer.invoke("path:findProjectRoot", filePath),
 };
 
 export const dialogApi = {
@@ -214,15 +230,17 @@ export const envApi = {
    * @param text - Text containing {{VARIABLE}} patterns
    * @returns Text with variables replaced
    */
-  replaceVariables: (text: string) =>
-    ipcRenderer.invoke("env:replaceVariables", text),
+  replaceVariables: (text: string, requestFilePath?: string) =>
+    ipcRenderer.invoke("env:replaceVariables", text, requestFilePath),
+  forRequest: (requestFilePath: string) =>
+    ipcRenderer.invoke("env:forRequest", requestFilePath) as Promise<Record<string, string>>,
   /**
    * Get environment variable keys (names only) for autocomplete.
    * @returns Array of variable names (no values)
    */
-  getKeys: () => ipcRenderer.invoke("env:getKeys"),
-  extendEnvs: (comment: string, variables: [{ key: string; value: string }]) =>
-    ipcRenderer.invoke("env:extend-env-files", { comment, variables }),
+  getKeys: (requestFilePath?: string) => ipcRenderer.invoke("env:getKeys", requestFilePath),
+  extendEnvs: (comment: string, variables: [{ key: string; value: string }], envName?: string) =>
+    ipcRenderer.invoke("env:extend-env-files", { comment, variables, envName }),
   getYamlTrees: (profile?: string) =>
     ipcRenderer.invoke(
       "env:getYamlTrees",
@@ -244,12 +262,31 @@ export const envApi = {
       projectPath,
     }),
   getProfiles: () => ipcRenderer.invoke("env:getProfiles") as Promise<string[]>,
+  getProfileFiles: () =>
+    ipcRenderer.invoke("env:getProfileFiles") as Promise<Record<string, string>>,
+  /**
+   * Nested sub-project .voiden/ directories found elsewhere in a monorepo,
+   * each with its "default" profile's public/private YAML trees already
+   * loaded. `relPath` is the project-relative folder only (no filename).
+   */
+  getNestedEnvSources: () =>
+    ipcRenderer.invoke("env:getNestedEnvSources") as Promise<
+      Array<{
+        projectPath: string;
+        relPath: string;
+        profile: string;
+        public: Record<string, unknown>;
+        private: Record<string, unknown>;
+      }>
+    >,
   setActiveProfile: (profile: string) =>
     ipcRenderer.invoke("env:setActiveProfile", profile),
   createProfile: (profile: string) =>
     ipcRenderer.invoke("env:createProfile", profile),
   deleteProfile: (profile: string) =>
     ipcRenderer.invoke("env:deleteProfile", profile),
+  renameProfile: (oldName: string, newName: string) =>
+    ipcRenderer.invoke("env:renameProfile", { oldName, newName }),
 };
 
 export const requestApi = {
@@ -310,6 +347,21 @@ export const fileLinkApi = {
 export const utilsApi = {
   pathJoin: (...paths: string[]) =>
     ipcRenderer.invoke("utils:pathJoin", ...paths),
+  /** Open a URL in the system default browser. */
+  openExternalUrl: (url: string) =>
+    ipcRenderer.send("open-external", url),
+  /**
+   * Resolves a dragged File object's real filesystem path. Electron removed
+   * direct `.path` access on File objects from drag-and-drop events around
+   * v30+ (a deliberate Chromium-security-driven change, not a bug — see
+   * electron/electron#44370, #44600, #47284) — webUtils.getPathForFile is
+   * the replacement, and per Electron's own docs it only works called from
+   * here (a preload script), not directly from renderer code even though
+   * contextIsolation is otherwise transparent to it. A File object survives
+   * the contextBridge call (Files/Blobs are structured-cloneable), so this
+   * can be called directly with the File dropped in the renderer.
+   */
+  getPathForFile: (file: File): string => webUtils.getPathForFile(file),
 };
 
 export const userSettingsApi = {
@@ -390,6 +442,23 @@ export const skillsApi = {
     enabled: boolean,
   ): Promise<{ success: boolean; message?: string }> =>
     ipcRenderer.invoke("skills:setCodex", enabled),
+};
+
+export const mcpApi = {
+  /** Registers .mcp.json/config.toml for the active project and refreshes
+   *  the composed skill — a discoverable shortcut for Settings' "AI Skills"
+   *  toggle, project-scoped, without installing the separate standalone
+   *  voiden-mcp skill or touching that toggle's own persisted state. */
+  initialize: (): Promise<{ success: boolean; message?: string }> =>
+    ipcRenderer.invoke("mcp:initialize"),
+  /** Unregisters the active project's .mcp.json entry only — project-scoped,
+   *  does not touch Codex's global config section or either installed
+   *  skill (those aren't specific to this project). */
+  disable: (): Promise<{ success: boolean; message?: string }> =>
+    ipcRenderer.invoke("mcp:disable"),
+  /** Whether the active project already has .mcp.json/config.toml registered. */
+  status: (): Promise<{ registered: boolean }> =>
+    ipcRenderer.invoke("mcp:status"),
 };
 
 export const variablesApi = {
