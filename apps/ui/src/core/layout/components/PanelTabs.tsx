@@ -13,6 +13,7 @@ import {
   Terminal,
   Lock,
   ChevronDown,
+  icons,
 } from "lucide-react";
 import { useProjectLock } from "@/core/file-system/hooks";
 import { cn, isMac } from "@/core/lib/utils";
@@ -23,7 +24,7 @@ import { useEditorStore } from "@/core/editors/voiden/VoidenEditor";
 import { getSchema } from "@tiptap/core";
 import { voidenExtensions } from "@/core/editors/voiden/extensions";
 import { prosemirrorToMarkdown } from "@/core/file-system/hooks";
-import { useEditorEnhancementStore, emitPluginEvent, getContextMenuItems } from "@/plugins";
+import { useEditorEnhancementStore, emitPluginEvent, getContextMenuItems, usePluginStore } from "@/plugins";
 import { usePanelStore } from "@/core/stores/panelStore";
 import { getQueryClient } from "@/main";
 import { Kbd } from "@/core/components/ui/kbd";
@@ -67,7 +68,19 @@ interface Tab {
   title: string;
   source: string | null;
   pending?: boolean;
+  meta?: { customTabKey?: string; extensionId?: string };
 }
+
+// Icon a plugin passed to context.addTab: a lucide icon name or an icon component.
+const CustomTabIcon = ({ customTabKey }: { customTabKey?: string }) => {
+  const icon = usePluginStore((state) => state.panels.main?.find((p: any) => p.id === customTabKey)?.icon);
+  if (typeof icon === "function") {
+    const Icon = icon as React.ComponentType<{ size?: number }>;
+    return <Icon size={14} />;
+  }
+  const Lucide = typeof icon === "string" ? (icons as Record<string, React.ComponentType<{ size?: number }>>)[icon] : undefined;
+  return Lucide ? <Lucide size={14} /> : <Blocks size={14} />;
+};
 
 const getTabDisplayTitle = (tab: Tab): string => {
   if (tab.source?.replace(/\\/g, "/").endsWith("/.voiden-inherited.void")) {
@@ -105,6 +118,7 @@ const getTabIcon = (tab: Tab): JSX.Element => {
   if(tab.type==='extensionDetails'){
     return <Blocks size={14} />;
   }
+  if (tab.type === "custom") return <CustomTabIcon customTabKey={tab.meta?.customTabKey} />;
 
   return <File size={14} />;
 };

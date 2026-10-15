@@ -11,6 +11,7 @@ import {
 import { ExtensionManager } from "./extension/extensionManager";
 import { getRemoteExtensions, fetchReadme, fetchChangelog, fetchManifest } from "./extension/extensionFetcher";
 import { migratePluginPaths, coreCacheDir, communityDir } from "./extension/paths";
+import { scaffoldPluginProject, toPluginId, checkPluginProject } from "./extension/pluginScaffold";
 import { fetchAndUpdateCoreRegistry, coreExtensions, remoteNewPlugins } from "./config/coreExtensions";
 import { app, BrowserWindow, dialog, ipcMain, IpcMainInvokeEvent } from "electron";
 import {
@@ -706,6 +707,16 @@ export async function activateTab(
   await saveState(appState);
   return { panelId, tabId };
 }
+// Live-reload watchers for plugin dev mode, keyed by the watching window's webContents id.
+const pluginDevWatchers = new Map<number, { watcher: fsSync.FSWatcher; clear: () => void }>();
+const stopPluginDevWatcher = (webContentsId: number) => {
+  const entry = pluginDevWatchers.get(webContentsId);
+  if (!entry) return;
+  entry.clear();
+  entry.watcher.close();
+  pluginDevWatchers.delete(webContentsId);
+};
+
 export const ipcStateHandlers = () => {
   ipcMain.handle("state:get", (event) => {
     return getAppState(event);
@@ -1212,10 +1223,20 @@ export const ipcStateHandlers = () => {
       await saveState(appState);
     }
 
+    // Which recent projects are plugin projects, so the selector can tell them apart.
+    const pluginProjects: Record<string, { pluginId?: string; pluginName?: string }> = {};
+    await Promise.all(
+      projects.map(async (projectPath) => {
+        const info = await checkPluginProject(projectPath);
+        if (info.isPlugin) pluginProjects[projectPath] = { pluginId: info.pluginId, pluginName: info.pluginName };
+      }),
+    );
+
     const activeProject = appState.activeDirectory;
     return {
       projects,
       activeProject,
+      pluginProjects,
     };
   });
 
@@ -1298,208 +1319,13 @@ export const ipcStateHandlers = () => {
     }
   });
 
-  // Dev plugin: scaffold a new plugin project directly (no external CLI, no prompts, instant).
+  // Dev plugin: scaffold a new plugin project under parentDir (no external CLI, no prompts, instant).
   ipcMain.handle(
     "extensions:devScaffold",
     async (_, { name, parentDir }: { name: string; parentDir: string }) => {
       try {
-        const pluginId = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "my-plugin";
-        const projectDir = path.join(parentDir, pluginId);
-        const srcDir = path.join(projectDir, "src");
-        await fs.mkdir(srcDir, { recursive: true });
-
-        // manifest.json at root (also read by build script)
-        await fs.writeFile(
-          path.join(projectDir, "manifest.json"),
-          JSON.stringify({
-            id: pluginId,
-            name,
-            description: "",
-            version: "1.0.0",
-            voidenVersion: ">=2.0.0",
-            author: "",
-            icon: "Plug",
-            type: "community",
-            priority: 30,
-            permissions: [],
-            capabilities: {},
-            features: [],
-          }, null, 2)
-        );
-
-        // src/plugin.ts — entry point
-        const fnSuffix = name.replace(/[^a-zA-Z0-9]/g, "") || "Plugin";
-        await fs.writeFile(
-          path.join(srcDir, "plugin.ts"),
-`import type { CorePluginContext } from '@voiden/sdk/ui';
-import manifest from '../manifest.json';
-
-export default function create${fnSuffix}(context: CorePluginContext) {
-  return {
-    onload: async () => {
-      // Register your plugin functionality here
-    },
-
-    onunload: async () => {
-      // Clean up subscriptions and listeners here
-    },
-
-    metadata: manifest,
-  };
-}
-`
-        );
-
-        // src/voiden.d.ts — compile-time stubs for all packages shimmed by Voiden at runtime.
-        // react, react-dom, and @voiden/sdk are ALL provided via window.__voiden_shims__
-        // when the plugin is loaded, so none of them need to be installed from npm.
-        await fs.writeFile(
-          path.join(srcDir, "voiden.d.ts"),
-`// ── Voiden runtime shims ──────────────────────────────────────────────────────
-// These packages are injected by Voiden at runtime via window.__voiden_shims__.
-// They are externalized from the build and must NOT be installed from npm.
-
-declare module 'react' {
-  export = React;
-  export as namespace React;
-  namespace React {
-    type ReactNode = any;
-    type FC<P = {}> = (props: P) => ReactNode;
-    type CSSProperties = { [key: string]: any };
-    function useState<T>(init: T | (() => T)): [T, (v: T | ((prev: T) => T)) => void];
-    function useEffect(fn: () => void | (() => void), deps?: any[]): void;
-    function useRef<T>(init?: T): { current: T };
-    function useCallback<T extends (...args: any[]) => any>(fn: T, deps: any[]): T;
-    function useMemo<T>(fn: () => T, deps: any[]): T;
-    function useContext<T>(ctx: React.Context<T>): T;
-    function createContext<T>(def: T): Context<T>;
-    function createElement(type: any, props?: any, ...children: any[]): ReactNode;
-    function forwardRef<T, P>(fn: (props: P, ref: any) => ReactNode): FC<P & { ref?: any }>;
-    function memo<T extends FC<any>>(fn: T): T;
-    interface Context<T> { Provider: FC<{ value: T; children?: ReactNode }> }
-    [key: string]: any;
-  }
-}
-
-declare module 'react/jsx-runtime' { export const jsx: any; export const jsxs: any; export const Fragment: any; }
-declare module 'react/jsx-dev-runtime' { export const jsxDEV: any; export const Fragment: any; }
-
-declare module 'react-dom' {
-  export function render(element: any, container: Element): void;
-  export function unmountComponentAtNode(container: Element): boolean;
-  export function createPortal(children: any, container: Element): any;
-  export const version: string;
-}
-
-declare module 'react-dom/client' {
-  export function createRoot(container: Element): { render(el: any): void; unmount(): void };
-}
-
-declare module '@voiden/sdk/ui' {
-  export interface CorePluginContext {
-    registerVoidenExtension: (ext: any) => void;
-    addVoidenSlashGroup: (group: any) => void;
-    registerSidebarTab: (opts: any) => void;
-    registerCommand: (opts: any) => void;
-    registerContextMenu: (opts: any) => void;
-    events: { on: (event: string, handler: (...args: any[]) => void) => () => void };
-    fs: { read: (p: string) => Promise<string>; write: (p: string, content: string) => Promise<void>; [k: string]: any };
-    settings: { get: (key: string) => Promise<any>; set: (key: string, value: any) => Promise<void>; [k: string]: any };
-    ui: { registerSettings: (opts: any) => void; [k: string]: any };
-    [key: string]: any;
-  }
-}
-
-declare module '@voiden/sdk' { export * from '@voiden/sdk/ui'; }
-`
-        );
-
-        // package.json — only vite + typescript needed; @voiden/sdk is shimmed by Voiden at runtime
-        await fs.writeFile(
-          path.join(projectDir, "package.json"),
-          JSON.stringify({
-            name: pluginId,
-            version: "1.0.0",
-            type: "module",
-            scripts: {
-              build: "node build.mjs",
-              zip: "node zip.mjs",
-            },
-            devDependencies: {
-              vite: "^6.0.0",
-              typescript: "^5.0.0",
-            },
-          }, null, 2)
-        );
-
-        // tsconfig.json
-        await fs.writeFile(
-          path.join(projectDir, "tsconfig.json"),
-          JSON.stringify({
-            compilerOptions: {
-              target: "ES2020",
-              module: "ESNext",
-              moduleResolution: "bundler",
-              jsx: "react-jsx",
-              strict: true,
-              declaration: true,
-              resolveJsonModule: true,
-            },
-            include: ["src/**/*", "manifest.json"],
-          }, null, 2)
-        );
-
-        // build.mjs — Vite build, copies manifest.json to dist/
-        await fs.writeFile(
-          path.join(projectDir, "build.mjs"),
-`import { build } from 'vite';
-import { readFileSync, copyFileSync, mkdirSync } from 'fs';
-
-const manifest = JSON.parse(readFileSync('./manifest.json', 'utf8'));
-const pluginId = manifest.id;
-
-// All packages listed here are provided by Voiden's shim system at runtime.
-// They must be externalized — do NOT bundle them.
-const VOIDEN_SHIMS = [
-  'react',
-  'react-dom',
-  'react-dom/client',
-  'react/jsx-runtime',
-  'react/jsx-dev-runtime',
-  '@voiden/sdk',
-  '@voiden/sdk/ui',
-];
-
-await build({
-  build: {
-    lib: {
-      entry: './src/plugin.ts',
-      formats: ['es'],
-      fileName: () => \`\${pluginId}.js\`,
-    },
-    outDir: './dist',
-    rollupOptions: {
-      external: VOIDEN_SHIMS,
-    },
-  },
-});
-
-mkdirSync('./dist', { recursive: true });
-copyFileSync('./manifest.json', './dist/manifest.json');
-console.log(\`Built \${pluginId} → dist/\${pluginId}.js\`);
-`
-        );
-
-        // changelog.json
-        await fs.writeFile(
-          path.join(projectDir, "changelog.json"),
-          JSON.stringify([{
-            version: "1.0.0",
-            date: new Date().toISOString().split("T")[0],
-            changes: ["Initial release"],
-          }], null, 2)
-        );
-
+        const projectDir = path.join(parentDir, toPluginId(name));
+        const { pluginId } = await scaffoldPluginProject(projectDir, name);
         return { success: true, projectPath: projectDir, pluginId };
       } catch (e: any) {
         return { success: false, error: e.message ?? "Scaffold failed", details: e.stack ?? "" };
@@ -1507,21 +1333,40 @@ console.log(\`Built \${pluginId} → dist/\${pluginId}.js\`);
     }
   );
 
-  // Dev plugin: check whether a directory looks like a valid plugin project.
-  ipcMain.handle("pluginDev:checkProject", (_, dirPath: string) => {
+  // Dev plugin: ask where to put it, then scaffold a brand-new plugin project in its own folder.
+  ipcMain.handle("pluginDev:create", async (event, name: string) => {
+    const browserWindow = BrowserWindow.fromWebContents(event.sender);
+    const result = await dialog.showOpenDialog(browserWindow!, {
+      title: "Choose where to create the plugin",
+      buttonLabel: "Create Here",
+      properties: ["openDirectory", "createDirectory"],
+    });
+    if (result.canceled || result.filePaths.length === 0) return { success: false, canceled: true };
+
+    const projectDir = path.join(result.filePaths[0], toPluginId(name));
     try {
-      const manifestPath = path.join(dirPath, "manifest.json");
-      const pkgPath = path.join(dirPath, "package.json");
-      if (!fsSync.existsSync(manifestPath) || !fsSync.existsSync(pkgPath)) return { isPlugin: false };
-      const manifest = JSON.parse(fsSync.readFileSync(manifestPath, "utf8"));
-      const pkg = JSON.parse(fsSync.readFileSync(pkgPath, "utf8"));
-      if (!manifest.id || !manifest.name || !manifest.version) return { isPlugin: false };
-      if (!pkg.scripts?.build) return { isPlugin: false };
-      return { isPlugin: true, pluginId: manifest.id as string, pluginName: manifest.name as string };
-    } catch {
-      return { isPlugin: false };
+      if (fsSync.existsSync(projectDir) && fsSync.readdirSync(projectDir).length > 0) {
+        return { success: false, error: `"${path.basename(projectDir)}" already exists in that folder and isn't empty.` };
+      }
+      const { pluginId } = await scaffoldPluginProject(projectDir, name);
+      return { success: true, projectPath: projectDir, pluginId };
+    } catch (e: any) {
+      return { success: false, error: e.message ?? "Could not create plugin" };
     }
   });
+
+  // Dev plugin: add the missing plugin files to an existing folder. Never overwrites existing files.
+  ipcMain.handle("pluginDev:convert", async (_, { dirPath, name }: { dirPath: string; name: string }) => {
+    try {
+      const { pluginId, created, skipped } = await scaffoldPluginProject(dirPath, name);
+      return { success: true, projectPath: dirPath, pluginId, created, skipped };
+    } catch (e: any) {
+      return { success: false, error: e.message ?? "Could not convert project" };
+    }
+  });
+
+  // Dev plugin: check whether a directory looks like a valid plugin project.
+  ipcMain.handle("pluginDev:checkProject", (_, dirPath: string) => checkPluginProject(dirPath));
 
   // Dev plugin: open a new Voiden window to preview the loaded dev extension.
   ipcMain.handle("extensions:devOpenPreviewWindow", async () => {
@@ -1534,8 +1379,15 @@ console.log(\`Built \${pluginId} → dist/\${pluginId}.js\`);
     const { spawn } = await import("child_process");
     const sender = event.sender;
 
+    // Lines go to the dev toolbar's log: "step" marks a command starting, "out" is its
+    // output, "info" is a note from Voiden itself (e.g. a skipped step).
+    const send = (line: string, kind: "step" | "out" | "info") => {
+      if (!sender.isDestroyed()) sender.send("pluginDev:buildOutput", line, kind);
+    };
+
     const runStep = (args: string[]): Promise<{ success: boolean; error?: string; output: string }> =>
       new Promise((resolve) => {
+        send(`npm ${args.join(" ")}`, "step");
         const proc = spawn("npm", args, {
           cwd: sourcePath,
           shell: true,
@@ -1545,7 +1397,7 @@ console.log(\`Built \${pluginId} → dist/\${pluginId}.js\`);
         const collect = (d: Buffer) => {
           const text = d.toString();
           output += text;
-          text.split("\n").forEach((l) => { if (l.trim() && !sender.isDestroyed()) sender.send("pluginDev:buildOutput", l); });
+          text.split("\n").forEach((l) => { if (l.trim()) send(l, "out"); });
         };
         proc.stdout?.on("data", collect);
         proc.stderr?.on("data", collect);
@@ -1553,10 +1405,20 @@ console.log(\`Built \${pluginId} → dist/\${pluginId}.js\`);
         proc.on("error", (err: Error) => resolve({ success: false, error: err.message, output }));
       });
 
-    // Step 1: npm install — --legacy-peer-deps avoids eresolve conflicts from npm 7+
-    const installResult = await runStep(["install", "--legacy-peer-deps"]);
-    if (!installResult.success) {
-      return { success: false, error: `npm install failed: ${installResult.error}` };
+    // Step 1: npm install, only when dependencies may have changed. npm writes
+    // node_modules/.package-lock.json on every install, so if that is newer than
+    // package.json and package-lock.json there is nothing new to install.
+    const mtime = (rel: string) => fsSync.statSync(path.join(sourcePath, rel), { throwIfNoEntry: false })?.mtimeMs;
+    const installedAt = mtime("node_modules/.package-lock.json");
+    const depsChangedAt = Math.max(mtime("package.json") ?? 0, mtime("package-lock.json") ?? 0);
+    if (installedAt && installedAt >= depsChangedAt) {
+      send("Dependencies are up to date, skipping npm install", "info");
+    } else {
+      // --legacy-peer-deps avoids eresolve conflicts from npm 7+
+      const installResult = await runStep(["install", "--legacy-peer-deps"]);
+      if (!installResult.success) {
+        return { success: false, error: `npm install failed: ${installResult.error}` };
+      }
     }
 
     // Step 2: npm run build
@@ -1564,6 +1426,51 @@ console.log(\`Built \${pluginId} → dist/\${pluginId}.js\`);
     return buildResult.success
       ? { success: true }
       : { success: false, error: `npm run build failed: ${buildResult.error}` };
+  });
+
+  // Dev plugin live reload: watch the plugin source and tell the renderer what changed.
+  // One watcher per window. Build output and installs are ignored, so a rebuild's own
+  // writes (dist/, node_modules/, package-lock.json) can't trigger another rebuild.
+  ipcMain.handle("pluginDev:watch", (event, sourcePath: string) => {
+    const sender = event.sender;
+    stopPluginDevWatcher(sender.id);
+
+    const IGNORED_DIRS = new Set(["node_modules", "dist", ".git"]);
+    const isIgnored = (rel: string) => {
+      const parts = rel.split(/[\\/]/);
+      if (parts.some((part) => IGNORED_DIRS.has(part))) return true;
+      const file = parts[parts.length - 1];
+      return file === "package-lock.json" || file === ".DS_Store" || file.endsWith(".tsbuildinfo") || file.endsWith("~");
+    };
+
+    let pending = new Set<string>();
+    let timer: NodeJS.Timeout | null = null;
+    try {
+      const watcher = fsSync.watch(sourcePath, { recursive: true }, (_type, filename) => {
+        if (!filename) return;
+        const rel = filename.toString();
+        if (isIgnored(rel)) return;
+        pending.add(rel.replace(/\\/g, "/"));
+        // Editors often write a file several times per save; wait for them to settle.
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(() => {
+          const files = [...pending];
+          pending = new Set();
+          if (!sender.isDestroyed()) sender.send("pluginDev:sourceChanged", files);
+        }, 300);
+      });
+      watcher.on("error", () => stopPluginDevWatcher(sender.id));
+      pluginDevWatchers.set(sender.id, { watcher, clear: () => timer && clearTimeout(timer) });
+      sender.once("destroyed", () => stopPluginDevWatcher(sender.id));
+      return { success: true };
+    } catch (e: any) {
+      return { success: false, error: e.message ?? "Could not watch the plugin folder" };
+    }
+  });
+
+  ipcMain.handle("pluginDev:unwatch", (event) => {
+    stopPluginDevWatcher(event.sender.id);
+    return { success: true };
   });
 
   // Dev plugin: re-read files from the original source directory and reinstall.

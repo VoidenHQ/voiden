@@ -518,9 +518,15 @@ const syntaxErrorLinter = linter((view) => {
   return diagnostics;
 });
 
+// The Lezer JS/TS grammar can't parse some valid code — `declare module "x" {}`
+// (needed in every .d.ts that declares a package) and JSX comments `{/* */}` —
+// so syntaxErrorLinter would flag correct files. Skip it for these languages.
+const NO_SYNTAX_LINT_EXTENSIONS = new Set(["js", "jsx", "mjs", "cjs", "ts", "tsx", "mts", "cts"]);
+
 const getLintExtensions = (ext: string | undefined) => {
   if (ext === "json") return [lintGutterTheme, lintGutter(), linter(jsonParseLinter()), myJsonOASLinter];
   if (ext === "yml" || ext === "yaml") return [lintGutterTheme, lintGutter(), myYamlLinter];
+  if (ext && NO_SYNTAX_LINT_EXTENSIONS.has(ext)) return [];
   if (ext) return [lintGutterTheme, lintGutter(), syntaxErrorLinter];
   return [];
 };

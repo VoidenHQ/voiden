@@ -1104,7 +1104,12 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
     // Validate component before rendering
     if (!Component || typeof Component !== 'function') {
       console.warn(`[PanelContent] Invalid custom panel component for tab: ${tabContent.customTabKey}`);
-      return <div className="h-full flex items-center justify-center text-comment">Panel component not available</div>;
+      return (
+        <div className="h-full flex flex-col items-center justify-center gap-1 text-comment text-sm">
+          <span>Panel component not available</span>
+          <span className="text-xs">The plugin that owns this tab isn't loaded, or didn't register it when it loaded.</span>
+        </div>
+      );
     }
 
     return <div className="h-full"><Component /></div>;

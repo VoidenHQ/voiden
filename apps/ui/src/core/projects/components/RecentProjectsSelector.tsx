@@ -2,7 +2,7 @@ import { cn } from "@/core/lib/utils";
 import { Command } from "cmdk";
 import { useEffect, useState } from "react";
 import { useGetProjects, useSetActiveProject, removeProjectFromList } from "@/core/projects/hooks";
-import { X, Folder, Check } from "lucide-react";
+import { X, Folder, Check, Puzzle } from "lucide-react";
 import { Kbd } from "@/core/components/ui/kbd";
 import { Tip } from "@/core/components/ui/Tip";
 import { matchesShortcut, getShortcutLabel } from "@/core/shortcuts";
@@ -50,6 +50,10 @@ export const RecentProjectsSelector = () => {
   };
 
   if (!projects) return null;
+
+  // Recent projects that are plugin projects (manifest.json + build script), keyed by path.
+  const pluginProjects: Record<string, { pluginId?: string; pluginName?: string }> = projects.pluginProjects ?? {};
+  const isActivePlugin = !!projects.activeProject && !!pluginProjects[projects.activeProject];
   return (
     <>
       <Tip label={<span className="flex items-center gap-2"><span>Open recent project</span><Kbd keys={getShortcutLabel("ToggleRecentProjectsSelector")} size="sm" /></span>}>
@@ -60,6 +64,7 @@ export const RecentProjectsSelector = () => {
           )}
           onClick={() => setOpen(true)}
         >
+          {isActivePlugin && <Puzzle size={12} className="text-accent flex-shrink-0" />}
           <span>{(projects?.activeProject || "").replace(/\\/g, "/")?.split("/").pop() || "Open recent project"}</span>
         </button>
       </Tip>
@@ -106,22 +111,40 @@ export const RecentProjectsSelector = () => {
                     {projects?.projects.filter((project:string)=>{
                        const normalizedPath = project.replace(/\\/g, "/");
                        const projectName = normalizedPath.split("/").pop()||normalizedPath;
-                       return projectName.toLowerCase().includes(search.toLowerCase());
+                       const plugin = pluginProjects[project];
+                       // Plugin projects also match their plugin name and the word "plugin".
+                       const haystack = plugin ? `${projectName} ${plugin.pluginName ?? ""} plugin` : projectName;
+                       return haystack.toLowerCase().includes(search.toLowerCase());
                     }).map((project: string) => {
                       const isActive = projects?.activeProject === project;
                       const normalizedPath = project.replace(/\\/g, "/");
                       const projectName = normalizedPath.split("/").pop();
+                      const plugin = pluginProjects[project];
 
                       return (
                         <Command.Item
                           key={project}
-                          value={projectName}
+                          value={plugin ? `${projectName} ${plugin.pluginName ?? ""} plugin` : projectName}
                           className="cursor-pointer px-3 py-2.5 rounded-md mb-1 text-text data-[selected=true]:bg-active hover:bg-active flex items-center gap-3 outline-none group"
                           onSelect={() => handleProjectSelect(project)}
                         >
-                          <Folder size={16} className="flex-shrink-0 text-comment" />
+                          {plugin ? (
+                            <Puzzle size={16} className="flex-shrink-0 text-accent" />
+                          ) : (
+                            <Folder size={16} className="flex-shrink-0 text-comment" />
+                          )}
                           <div className="flex-1 min-w-0">
-                            <div className="text-sm font-medium truncate">{projectName}</div>
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="text-sm font-medium truncate">{projectName}</span>
+                              {plugin && (
+                                <span
+                                  className="flex-shrink-0 px-1.5 py-px rounded text-[10px] font-medium leading-4 text-accent border border-accent/30 bg-accent/10"
+                                  title={plugin.pluginName ? `Plugin: ${plugin.pluginName}` : "Plugin project"}
+                                >
+                                  Plugin
+                                </span>
+                              )}
+                            </div>
                             <div className="text-xs text-comment truncate">{project}</div>
                           </div>
                           {isActive && <Check size={16} className="flex-shrink-0 text-green-500" />}

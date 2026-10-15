@@ -401,13 +401,25 @@ export const pluginSettingsApi = {
 export const pluginDevApi = {
   build: (sourcePath: string): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke("pluginDev:build", sourcePath),
-  onBuildOutput: (cb: (line: string) => void) => {
-    const handler = (_: Electron.IpcRendererEvent, line: string) => cb(line);
+  onBuildOutput: (cb: (line: string, kind: "step" | "out" | "info") => void) => {
+    const handler = (_: Electron.IpcRendererEvent, line: string, kind: "step" | "out" | "info") => cb(line, kind);
     ipcRenderer.on("pluginDev:buildOutput", handler);
     return () => ipcRenderer.removeListener("pluginDev:buildOutput", handler);
   },
   checkProject: (dirPath: string): Promise<{ isPlugin: boolean; pluginId?: string; pluginName?: string }> =>
     ipcRenderer.invoke("pluginDev:checkProject", dirPath),
+  create: (name: string): Promise<{ success: boolean; canceled?: boolean; projectPath?: string; pluginId?: string; error?: string }> =>
+    ipcRenderer.invoke("pluginDev:create", name),
+  convert: (dirPath: string, name: string): Promise<{ success: boolean; projectPath?: string; pluginId?: string; created?: string[]; skipped?: string[]; error?: string }> =>
+    ipcRenderer.invoke("pluginDev:convert", { dirPath, name }),
+  watch: (sourcePath: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke("pluginDev:watch", sourcePath),
+  unwatch: (): Promise<{ success: boolean }> => ipcRenderer.invoke("pluginDev:unwatch"),
+  onSourceChanged: (cb: (files: string[]) => void) => {
+    const handler = (_: Electron.IpcRendererEvent, files: string[]) => cb(files);
+    ipcRenderer.on("pluginDev:sourceChanged", handler);
+    return () => ipcRenderer.removeListener("pluginDev:sourceChanged", handler);
+  },
 };
 
 export const fontsApi = {

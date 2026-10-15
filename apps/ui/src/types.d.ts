@@ -522,8 +522,13 @@ declare global {
       };
       pluginDev: {
         build: (sourcePath: string) => Promise<{ success: boolean; error?: string }>;
-        onBuildOutput: (cb: (line: string) => void) => () => void;
+        onBuildOutput: (cb: (line: string, kind: "step" | "out" | "info") => void) => () => void;
+        watch: (sourcePath: string) => Promise<{ success: boolean; error?: string }>;
+        unwatch: () => Promise<{ success: boolean }>;
+        onSourceChanged: (cb: (files: string[]) => void) => () => void;
         checkProject: (dirPath: string) => Promise<{ isPlugin: boolean; pluginId?: string; pluginName?: string }>;
+        create: (name: string) => Promise<{ success: boolean; canceled?: boolean; projectPath?: string; pluginId?: string; error?: string }>;
+        convert: (dirPath: string, name: string) => Promise<{ success: boolean; projectPath?: string; pluginId?: string; created?: string[]; skipped?: string[]; error?: string }>;
       };
       mcp: {
         initialize: () => Promise<{ success: boolean; message?: string }>;

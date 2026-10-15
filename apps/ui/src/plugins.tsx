@@ -373,10 +373,12 @@ export const usePluginStore = create<PluginStoreState>((set) => ({
     }));
   },
   registerPanel: (panelId, panel) => {
+    // Same id replaces the earlier entry: a plugin may register a tab in onload
+    // and pass it to addTab again when opening it.
     set((state) => ({
       panels: {
         ...state.panels,
-        [panelId]: [...(state.panels[panelId] || []), panel],
+        [panelId]: [...(state.panels[panelId] || []).filter((p) => p.id !== panel.id), panel],
       },
     }));
   },
@@ -891,6 +893,8 @@ export const createPlugin = (
         usePluginStore.getState().registerPanel(tabId, {
           id: tab.id,
           title: tab.title,
+          // Shown in the tab bar: a lucide icon name or an icon component.
+          icon: typeof tab.icon === "function" ? tagComponent(extensionId, tab.icon) : tab.icon,
           component: tagComponent(extensionId, tab.component),
         });
       }
@@ -1510,6 +1514,11 @@ export const createPlugin = (
   };
 };
 
+// Lets tools such as the plugin dev toolbar follow a plugin's lifecycle
+// (it logs load/unload results) without polling the loader.
+const emitPluginLifecycle = (detail: { id: string; status: "loaded" | "failed" | "unloaded"; ms?: string; error?: string }) =>
+  window.dispatchEvent(new CustomEvent("voiden:pluginLifecycle", { detail }));
+
 export const getPlugins = async () => {
   usePluginStore.getState().clearPluginErrors();
 
@@ -1519,6 +1528,7 @@ export const getPlugins = async () => {
     try {
       extensionLogger.info(`Unloading plugin: ${pluginId}`);
       await plugin.onunload();
+      emitPluginLifecycle({ id: pluginId, status: "unloaded" });
     } catch (error) {
       extensionLogger.error(`Error unloading plugin ${pluginId}:`, error);
     }
@@ -1804,6 +1814,7 @@ export const getPlugins = async () => {
         loadedPlugins.set(extension.id, pluginInstance);
         const loadTime = (performance.now() - startTime).toFixed(2);
         console.log(`[Plugin Loader] ✓ Loaded ${extension.id} in ${loadTime}ms`);
+        emitPluginLifecycle({ id: extension.id, status: "loaded", ms: loadTime });
 
       } else {
         extensionLogger.info(`Loading external extension: ${extension.id}`);
@@ -1888,6 +1899,7 @@ export const getPlugins = async () => {
         loadedPlugins.set(extension.id, pluginInstance);
         const loadTime = (performance.now() - startTime).toFixed(2);
         console.log(`[Plugin Loader] ✓ Loaded ${extension.id} in ${loadTime}ms`);
+        emitPluginLifecycle({ id: extension.id, status: "loaded", ms: loadTime });
       }
     } catch (error) {
       const loadTime = (performance.now() - startTime).toFixed(2);
@@ -1902,6 +1914,7 @@ export const getPlugins = async () => {
       }
 
       extensionLogger.error(`Error loading extension ${extension.id}:`, error);
+      emitPluginLifecycle({ id: extension.id, status: "failed", ms: loadTime, error: errorMessage });
 
       // Store detailed error information
       const detailedError = `${errorMessage}${errorStack ? '\n\nStack:\n' + errorStack : ''}`;
@@ -2288,8 +2301,14 @@ export const PluginProvider = ({ children }: { children: React.ReactNode }) => {
   }, [isInitialized]);
 
   const reloadingRef = useRef(false);
+  // A reload requested while one is running must not be dropped: the request may
+  // carry new plugin code (e.g. a dev plugin's live reload). Run one more after.
+  const reloadQueuedRef = useRef(false);
   const reloadPlugins = useCallback(async () => {
-    if (reloadingRef.current) return;
+    if (reloadingRef.current) {
+      reloadQueuedRef.current = true;
+      return;
+    }
     reloadingRef.current = true;
     // Always set isInitialized: false so that mounted editors unmount cleanly
     // before extensions are cleared (prevents TipTap removeChild DOM errors).
@@ -2315,8 +2334,14 @@ export const PluginProvider = ({ children }: { children: React.ReactNode }) => {
       usePluginStore.getState().initialize();
     } finally {
       reloadingRef.current = false;
+      if (reloadQueuedRef.current) {
+        reloadQueuedRef.current = false;
+        reloadPluginsRef.current();
+      }
     }
   }, [getPlugins]);
+  const reloadPluginsRef = useRef(reloadPlugins);
+  reloadPluginsRef.current = reloadPlugins;
 
   // Hot-reload: main process signals this when bundled-plugins/ changes (dev only)
   useEffect(() => {
