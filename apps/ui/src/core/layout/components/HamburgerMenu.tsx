@@ -206,7 +206,7 @@ export const HamburgerMenu = ({ onShowAbout }: HamburgerMenuProps) => {
         { label: "Save", accelerator: "Ctrl+S", click: handleSave, icon: Save },
         { type: "separator" },
         { label: "Close Project", click: handleCloseProject, icon: X },
-        { label: "Close Window", click: handleCloseWindow, icon: AppWindow },
+        { label: "Close and Forget Window", click: handleCloseWindow, icon: AppWindow },
         { type: "separator" },
         { label: "Settings...", accelerator: "Ctrl+,", click: handleOpenSettings, icon: SettingsIcon },
         { type: "separator" },

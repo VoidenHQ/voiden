@@ -327,6 +327,10 @@ export type UserSettings = {
   projects: {
     default_directory: string;
   };
+  startup?: {
+    /** Which windows to reopen when Voiden is launched (default: "all") */
+    restore_windows?: "all" | "last" | "none";
+  };
   history?: {
     /** Whether request history recording is enabled (default: false) */
     enabled: boolean;
@@ -429,6 +433,7 @@ export function useSettings() {
       skills: { ...currentSettings.skills, ...patch.skills },
       cli: { ...currentSettings.cli, ...patch.cli },
       projects: { ...currentSettings.projects, ...patch.projects },
+      startup: { ...currentSettings.startup, ...patch.startup },
       history: { ...currentSettings.history, ...patch.history },
       developer: { ...currentSettings.developer, ...patch.developer },
     };

@@ -8,6 +8,7 @@ import { createWindow, initializeWelcomeTabs, setSplash } from "./main/window";
 import { initializeUpdates, registerUpdateIpcHandlers } from "./main/updates";
 import { handleCliArguments, getCliArguments, setupMacOSFileHandler } from "./main/cliHandler";
 import { windowManager } from "./main/windowManager";
+import { takeLaunchRestoreMode } from "./main/launchRestore";
 // IPC Handler Imports
 import { registerFileIpcHandlers } from "./main/ipc/files";
 import { registerGitIpcHandlers } from "./main/ipc/git";
@@ -215,13 +216,17 @@ app.on("ready", async () => {
   const allInitialArgs = [...cliArgs, ...pendingOpenFiles];
   pendingOpenFiles.length = 0;
 
+  // Read (and clear) the relaunch marker on every launch, even one that opens
+  // a path from the command line, so a stale marker can't linger.
+  const restoreMode = takeLaunchRestoreMode();
+
   if (allInitialArgs.length > 0) {
     await handleCliArguments(allInitialArgs);
     if (windowManager.getAllWindows().length === 0) {
       splashWindow?.destroy();
     }
   } else {
-    await windowManager.loadAllWindows();
+    await windowManager.loadAllWindows(restoreMode);
   }
   logger.perf('system', 'STARTUP: windows loaded', Date.now() - appReadyTime, {
     note: 'total time from app:ready to first window visible — if >5000ms check FileWatcher:ready and initializeState phases',

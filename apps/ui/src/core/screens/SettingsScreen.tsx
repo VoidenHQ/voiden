@@ -811,6 +811,25 @@ export const SettingsScreen = () => {
                 </div>
               )}
 
+              {matchesSearch("On startup restore reopen windows session launch") && (
+                <Row
+                  title="On startup"
+                  description="Windows to reopen when you launch Voiden. Windows that aren't reopened are forgotten. Restarts for an update always reopen your open windows."
+                  control={
+                    <Select
+                      value={settings.startup?.restore_windows ?? "all"}
+                      onChange={(e) => {
+                        save({ startup: { restore_windows: e.target.value as "all" | "last" | "none" } });
+                      }}
+                    >
+                      <option value="all">Reopen all windows (default)</option>
+                      <option value="last">Reopen the last window</option>
+                      <option value="none">Start with a new window</option>
+                    </Select>
+                  }
+                />
+              )}
+
               {matchesSearch("Early Access early access new features updates beta") && (
                 <Row
                   title="Early Access"

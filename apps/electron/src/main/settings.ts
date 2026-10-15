@@ -1,6 +1,7 @@
 import { app, ipcMain, BrowserWindow, dialog } from "electron";
 import fs from "fs";
 import path from "path";
+import { markRestoreWindowsOnRelaunch } from "./launchRestore";
 
 export type ProxyConfig = {
   id: string;
@@ -12,6 +13,9 @@ export type ProxyConfig = {
   password?: string;
   excludedDomains?: string[]; // Domains to bypass proxy (e.g., localhost, 127.0.0.1)
 };
+
+// Which windows to reopen when Voiden is launched (see launchRestore.ts).
+export type RestoreWindowsMode = "all" | "last" | "none";
 
 export type Settings = {
   appearance: {
@@ -55,6 +59,9 @@ export type Settings = {
   };
   projects: {
     default_directory: string;
+  };
+  startup?: {
+    restore_windows?: RestoreWindowsMode;
   };
   history?: {
     enabled?: boolean;
@@ -239,6 +246,7 @@ export async function toggleEarlyAccess(
 
     // Schedule restart after a short delay to allow response to be sent
     setTimeout(() => {
+      markRestoreWindowsOnRelaunch();
       app.relaunch();
       app.quit();
     }, 100);

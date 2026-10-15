@@ -171,7 +171,10 @@ const menubarTemplate: Array<MenuItemConstructorOptions> = [
         },
       },
       {
-        label: "Close Window",
+        // Unlike the window's close button, this forgets the window's session
+        // so it isn't reopened the next time Voiden starts.
+        label: "Close and Forget Window",
+        toolTip: "Close this window and don't reopen it the next time Voiden starts",
         click: () => {
           // Delete state before closing since this is explicit menu close
           windowManager.closeWindowAndDeleteState();

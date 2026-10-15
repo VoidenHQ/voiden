@@ -10,6 +10,7 @@ import { windowManager } from "./windowManager";
 import { getSettings, saveSettings } from "./settings";
 import { flushRendererUnsavedForPaths } from "./fileSystem";
 import { approveQuit } from "./unsavedGuard";
+import { markRestoreWindowsOnRelaunch } from "./launchRestore";
 
 // ---------- Updater logger ----------
 
@@ -444,6 +445,7 @@ function installPackage(filePath: string, type: "deb" | "rpm" | "appimage") {
         detail: "The app will now restart to complete the update.",
       })
       .then(() => {
+        markRestoreWindowsOnRelaunch();
         app.relaunch();
         app.exit(0);
       });
@@ -758,6 +760,7 @@ function setupAutoUpdaterListeners() {
             // The user already chose to restart: the windows it closes must not
             // stop to ask about unsaved tabs.
             approveQuit();
+            markRestoreWindowsOnRelaunch();
             autoUpdater.quitAndInstall(true, true);
           });
         } else {

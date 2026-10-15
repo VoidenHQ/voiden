@@ -6,6 +6,7 @@ import { coreExtensions, fetchAndUpdateCoreRegistry, remoteVersions, remoteVoide
 import { getMainProcessExtensionResults } from '../extensionLoader'
 import { coreCacheDir, githubCachePath, coreUninstalledPath } from '../extension/paths'
 import { fetchPluginRegistry } from '../extension/pluginRegistry'
+import { markRestoreWindowsOnRelaunch } from '../launchRestore'
 
 // builtInRegistry reflects what's actually loaded (remote if fetched, otherwise local fallback)
 const builtInRegistry = {
@@ -619,6 +620,7 @@ export function registerCoreExtensionsIpcHandlers(): void {
 
   /** Relaunch the Electron app. */
   ipcMain.handle('coreExtensions:restart', () => {
+    markRestoreWindowsOnRelaunch()
     app.relaunch()
     app.quit()
   })
@@ -889,6 +891,7 @@ export function watchBundledPluginsForDevReload(): void {
       if (isMainBundle) {
         // Main-process bundle changed — full restart needed to reload it
         console.log(`[CoreExtensions] Main-process plugin changed (${filename}) — restarting app`)
+        markRestoreWindowsOnRelaunch()
         app.relaunch()
         app.quit()
       } else {

@@ -12,6 +12,7 @@ import { getDefaultLayout, saveState, loadState } from "./persistState";
 import { initializeState, updateWindowState } from "./state";
 import { removeFileWatcher } from "./fileWatcher";
 import { setActiveDirectory } from "./ipc/directory";
+import type { RestoreWindowsMode } from "./settings";
 
 interface WindowInfo {
   id: string;
@@ -483,7 +484,13 @@ class WindowManager {
 
   private isLoadingWindows = false;
 
-  async loadAllWindows(): Promise<void> {
+  /**
+   * Reopen saved windows. `restore` comes from the "On startup" preference at
+   * launch: "last" reopens only the most recently used window and "none" opens
+   * a fresh one. Saved windows that aren't reopened are forgotten, so they
+   * don't come back on a later launch or after an update restart.
+   */
+  async loadAllWindows(restore: RestoreWindowsMode = "all"): Promise<void> {
     // Prevent concurrent calls
     if (this.isLoadingWindows) return;
     this.isLoadingWindows = true;
@@ -556,6 +563,13 @@ class WindowManager {
 
       // Sort by modification time (newest first)
       statesWithTime.sort((a, b) => b.mtime - a.mtime);
+
+      if (restore !== "all") {
+        const keep = restore === "last" ? 1 : 0;
+        for (const { windowId } of statesWithTime.splice(keep)) {
+          this.deleteWindowStateFile(windowId);
+        }
+      }
 
       // Create windows, skipping duplicate projects
       for (const { windowId, state } of statesWithTime) {

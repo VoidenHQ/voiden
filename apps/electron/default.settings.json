@@ -43,6 +43,9 @@
   "projects": {
     "default_directory": ""
   },
+  "startup": {
+    "restore_windows": "all"
+  },
   "history": {
     "enabled": true,
     "retention_days": 7
