@@ -1,5 +1,5 @@
 import { ipcMain, IpcMainInvokeEvent, dialog, BrowserWindow } from "electron";
-import simpleGit from "simple-git";
+import simpleGit, { StatusResult } from "simple-git";
 import { getActiveProject } from "../state";
 import * as fs from "fs";
 import * as path from "path";
@@ -82,6 +82,64 @@ function normalizeCurrentBranchName(branch: string | null | undefined): string |
   return branch;
 }
 
+// simple-git's StatusSummary only fills `staged` for a handful of porcelain
+// codes — renames (R), copies (C), type changes (T) and "staged then deleted"
+// (AD/MD) are missing. Deleting a committed file and staging a similar new one
+// makes git report the pair as a rename, so both vanished from Staged Changes.
+// Classify straight from each file's index / working-tree codes instead.
+function classifyStatusFiles(status: StatusResult) {
+  const conflicted = new Set(status.conflicted);
+  const staged: string[] = [];
+  const modified: string[] = [];
+  const untracked: string[] = [];
+  const deleted: string[] = [];
+  const renamed: Array<{ from: string; to: string }> = [];
+
+  for (const file of status.files) {
+    const x = file.index;
+    const y = file.working_dir;
+    if (conflicted.has(file.path) || x === '!') continue;
+    if (x === '?') {
+      untracked.push(file.path);
+      continue;
+    }
+    if (x !== ' ') staged.push(file.path);
+    if ((x === 'R' || x === 'C') && file.from && file.from !== file.path) {
+      renamed.push({ from: file.from, to: file.path });
+    }
+    if (x === 'M' || y === 'M' || y === 'T') modified.push(file.path);
+    if (x === 'D' || y === 'D') deleted.push(file.path);
+  }
+
+  return { staged, modified, untracked, deleted, renamed, conflicted: status.conflicted };
+}
+
+// Env vars simple-git refuses to spawn with unless each is explicitly allowed,
+// because they can make git run arbitrary programs. Clone passes a custom env,
+// so anything inherited from the user's shell (EDITOR, PAGER, a GIT_ASKPASS left
+// by an IDE terminal, …) aborted the clone before git even ran. None of them
+// matter for a clone; strip them and allow only what the auth mode itself sets.
+const SIMPLE_GIT_GUARDED_ENV = new Set([
+  'editor', 'pager', 'prefix', 'ssh_askpass',
+  'git_askpass', 'git_editor', 'git_pager', 'git_sequence_editor',
+  'git_ssh', 'git_ssh_command', 'git_proxy_command', 'git_external_diff',
+  'git_template_dir', 'git_exec_path',
+  'git_config', 'git_config_global', 'git_config_system', 'git_config_count',
+]);
+
+function cloneBaseEnv(): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    const lower = key.toLowerCase();
+    if (SIMPLE_GIT_GUARDED_ENV.has(lower) || /^git_config_(key|value)_\d+$/.test(lower)) continue;
+    env[key] = value;
+  }
+  // Always suppress interactive terminal prompts regardless of auth mode.
+  // Without this, git can hang waiting for keyboard input inside Electron.
+  env.GIT_TERMINAL_PROMPT = '0';
+  return env;
+}
+
 // Per-handler in-flight stores (keyed by project path)
 const pendingStatus = new Map<string, Promise<any>>();
 const pendingLog = new Map<string, Promise<any>>();
@@ -150,12 +208,11 @@ export function registerGitIpcHandlers() {
 
     try {
       let cloneUrl = repoUrl;
-      // Always suppress interactive terminal prompts regardless of auth mode.
-      // Without this, git can hang waiting for keyboard input inside Electron.
-      const baseEnv: NodeJS.ProcessEnv = { ...process.env, GIT_TERMINAL_PROMPT: '0' };
+      const baseEnv = cloneBaseEnv();
       let cloneEnv: NodeJS.ProcessEnv = baseEnv;
-      // Extra args prepended to every git clone call (auth-mode specific).
-      let extraCloneArgs: string[] = [];
+      // Per-command `git -c` config for this clone only (auth-mode specific).
+      // Unlike `git clone -c`, this is not written into the new repo's config.
+      let cloneConfig: string[] = [];
 
       if (token) {
         let parsed: URL;
@@ -181,7 +238,7 @@ export function registerGitIpcHandlers() {
         // Disable the system credential helper (-c credential.helper=) so GIT_ASKPASS
         // is the ONLY credential source. Without this, osxkeychain/etc. takes precedence
         // and the provided token is silently ignored when the system has cached credentials.
-        extraCloneArgs = ['-c', 'credential.helper='];
+        cloneConfig = ['credential.helper='];
         cloneEnv = { ...baseEnv, GIT_ASKPASS: scriptPath };
         cloneUrl = parsed.toString(); // credential-free URL
       } else if (useSshAgent) {
@@ -216,7 +273,7 @@ export function registerGitIpcHandlers() {
         // Auto mode — let the OS credential helper (osxkeychain, Windows
         // Credential Manager, etc.) supply credentials automatically.
         // If the user has previously authenticated with the host, this just works.
-        // extraCloneArgs and cloneEnv stay as their defaults (empty / baseEnv).
+        // cloneConfig and cloneEnv stay as their defaults (empty / baseEnv).
       }
 
       const baseName = repoUrl.replace(/\.git$/, "").split("/").pop() || "repo";
@@ -232,17 +289,23 @@ export function registerGitIpcHandlers() {
         } catch { /* renderer disposed */ }
       };
 
+      // simple-git rejects the credential helper override and the askpass / ssh
+      // command env vars set above unless each is opted into. The env must go
+      // through .env() — simpleGit({ env }) is not an option and was silently
+      // dropped, so the token / key never reached git.
       const makeProgressGit = (baseDir: string) =>
         simpleGit({
           baseDir,
-          ...(cloneEnv ? { env: cloneEnv } : {}),
-          // Token mode passes `-c credential.helper=` (see above), which simple-git
-          // rejects unless this is opted into.
-          ...(token ? { unsafe: { allowUnsafeCredentialHelper: true } } : {}),
+          config: cloneConfig,
+          unsafe: {
+            allowUnsafeCredentialHelper: cloneConfig.length > 0,
+            allowUnsafeAskPass: !!(cloneEnv.GIT_ASKPASS || cloneEnv.SSH_ASKPASS),
+            allowUnsafeSshCommand: !!cloneEnv.GIT_SSH_COMMAND,
+          },
           progress({ stage, progress }) {
             sendProgress(stage, progress);
           },
-        });
+        }).env(cloneEnv);
 
       if (!activeProject) {
         const settings = getSettings();
@@ -262,7 +325,7 @@ export function registerGitIpcHandlers() {
         setCloning(newProjectPath, true);
         let newLfsWarning = false;
         try {
-          await gitParent.clone(cloneUrl, newFolderName, [...extraCloneArgs, "--depth", "1", "--no-local"]);
+          await gitParent.clone(cloneUrl, newFolderName, ["--no-local"]);
         } catch (cloneErr: any) {
           const msg: string = cloneErr?.message || String(cloneErr);
           if (msg.includes("Clone succeeded, but checkout failed") || (msg.includes("git-lfs") && msg.includes("command not found"))) {
@@ -307,7 +370,7 @@ export function registerGitIpcHandlers() {
       setCloning(clonedPath, true);
       let lfsWarning = false;
       try {
-        await gitWithProgress.clone(cloneUrl, folderName, [...extraCloneArgs, "--depth", "1", "--no-local"]);
+        await gitWithProgress.clone(cloneUrl, folderName, ["--no-local"]);
       } catch (cloneErr: any) {
         const msg: string = cloneErr?.message || String(cloneErr);
         if (msg.includes("Clone succeeded, but checkout failed") || (msg.includes("git-lfs") && msg.includes("command not found"))) {
@@ -337,28 +400,38 @@ export function registerGitIpcHandlers() {
 
       // Translate common git errors into friendly messages
       if (raw.includes("Repository not found") || raw.includes("does not exist")) {
-        throw new Error("Repository not found. If this is a private repo, make sure you are authenticated (Access Token or SSH Key).");
+        throw new Error(token
+          ? "Repository not found, or your access token can't see it. Check the URL and that the token has access to this repository."
+          : "Repository not found. Check the URL — if the repository is private, switch to Access Token or SSH Key.");
       }
-      if (raw.includes("Permission denied (publickey)") || raw.includes("Host key verification failed") || raw.includes("No such identity")) {
+      if (raw.includes("Bad passphrase") || raw.includes("incorrect passphrase")) {
+        throw new Error("The SSH key passphrase is incorrect. Re-enter it and try again.");
+      }
+      if (raw.includes("Host key verification failed")) {
+        throw new Error("The server's SSH host key could not be verified. Connect once from a terminal (ssh -T git@<host>) to trust it, then try again.");
+      }
+      if (raw.includes("Permission denied (publickey)") || raw.includes("No such identity")) {
         if (useSshAgent) {
-          throw new Error("SSH authentication failed. Make sure your SSH key is added to the agent (run: ssh-add ~/.ssh/id_rsa) and authorised on the remote.");
+          throw new Error("SSH authentication failed. Add your key to the agent (ssh-add ~/.ssh/id_ed25519) and make sure it's registered with your git host.");
         }
-        throw new Error("SSH authentication failed. Check that the key path is correct and the key is authorised on the remote.");
+        throw new Error("SSH authentication failed. Check the key file path and that the key is registered with your git host.");
       }
-      if (raw.includes("Bad passphrase") || raw.includes("incorrect passphrase") || raw.includes("Enter passphrase")) {
-        throw new Error("SSH key passphrase is incorrect.");
-      }
-      if (raw.includes("Authentication failed") || raw.includes("could not read Username") || raw.includes("403")) {
-        throw new Error("Authentication failed. Provide a valid access token for private repositories.");
+      if (/Authentication failed|could not read (Username|Password)|terminal prompts disabled|\b40[13]\b/.test(raw)) {
+        throw new Error(token
+          ? "The access token was rejected. Check that it's correct, hasn't expired, and has read access to this repository (e.g. the \"repo\" scope on GitHub)."
+          : "This repository needs authentication. Switch to Access Token and paste a personal access token, or use SSH Key.");
       }
       if (raw.includes("invalid url") || raw.includes("not a valid URL") || raw.includes("unsupported protocol") || raw.includes("Unable to find remote helper")) {
-        throw new Error("Invalid repository URL. Use https:// or git@ format.");
+        throw new Error("Invalid repository URL. Use an https:// or git@host:owner/repo URL.");
       }
-      if (raw.includes("Name or service not known") || raw.includes("Could not resolve host")) {
-        throw new Error("Could not reach the server. Check your internet connection and the URL.");
+      if (/Name or service not known|Could not resolve host|Failed to connect|Connection timed out|Network is unreachable/.test(raw)) {
+        throw new Error("Couldn't reach the git server. Check your internet connection and the repository URL.");
+      }
+      if (/SSL certificate problem|server certificate verification failed/.test(raw)) {
+        throw new Error("The server's SSL certificate couldn't be verified. If you're behind a corporate proxy, configure git's http.sslCAInfo.");
       }
       if (raw.includes("already exists and is not an empty directory")) {
-        throw new Error("A folder with that name already exists in the project directory.");
+        throw new Error("A folder with that name already exists in the project directory. Rename or remove it and try again.");
       }
 
       throw new Error(raw);
@@ -466,27 +539,25 @@ export function registerGitIpcHandlers() {
         } catch { outgoing = false; }
       }
 
+      const { staged, modified, untracked, deleted, renamed, conflicted } = classifyStatusFiles(status);
+
       return {
-        files: [
-          ...status.staged,
-          ...status.modified,
-          ...status.not_added,
-          ...status.deleted,
-        ].map((file) => ({
+        files: [...new Set([...staged, ...modified, ...untracked, ...deleted])].map((file) => ({
           path: file,
-          status: status.staged.includes(file)
+          status: staged.includes(file)
             ? "staged"
-            : status.modified.includes(file)
+            : modified.includes(file)
               ? "modified"
-              : status.not_added.includes(file)
+              : untracked.includes(file)
                 ? "untracked"
                 : "deleted",
         })),
-        staged:     status.staged,
-        modified:   status.modified,
-        untracked:  status.not_added,
-        deleted:    status.deleted,
-        conflicted: status.conflicted,
+        staged,
+        modified,
+        untracked,
+        deleted,
+        renamed,
+        conflicted,
         published:  isPublished,
         tracking,
         current: currentBranch || status.current,
@@ -559,7 +630,14 @@ export function registerGitIpcHandlers() {
       if (!isRepo) {
         throw new Error("Not a git repository");
       }
-      await git.reset(['HEAD', '--', ...files]);
+      // A staged rename is listed under its new path only — unstage the old
+      // path with it so its deletion doesn't linger in Staged on its own.
+      const status = await git.status();
+      const targets = new Set(files);
+      for (const file of status.files) {
+        if (file.from && file.from !== file.path && targets.has(file.path)) targets.add(file.from);
+      }
+      await git.reset(['HEAD', '--', ...targets]);
       return true;
     } catch (error) {
       console.error("Error unstaging files:", error);
@@ -939,6 +1017,13 @@ export function registerGitIpcHandlers() {
     const isRepo = await getCachedIsRepo(activeProject);
     if (!isRepo) return null;
     const remotes = await git.getRemotes(false);
+    // Clones made by older Voiden versions used --depth 1, so their history
+    // stopped at a single commit. Pull the rest in once on the next fetch.
+    let isShallow = false;
+    try {
+      isShallow = (await git.revparse(['--is-shallow-repository'])).trim() === 'true';
+    } catch { /* git < 2.15 — leave as is */ }
+    const unshallowRemote = remotes.find((r) => r.name === 'origin')?.name ?? remotes[0]?.name;
     if (remotes.length === 0) {
       await git.fetch(["--prune", "--all"]);
     } else {
@@ -947,10 +1032,12 @@ export function registerGitIpcHandlers() {
           'fetch',
           remote.name,
           '--prune',
+          ...(isShallow && remote.name === unshallowRemote ? ['--unshallow'] : []),
           `+refs/heads/*:refs/remotes/${remote.name}/*`,
         ]);
       }
     }
+    if (isShallow) logger.info('git', 'unshallowed repository on fetch', { project: activeProject });
     invalidateGitCache(activeProject);
     return true;
     }); // end dedupeCall git:fetch

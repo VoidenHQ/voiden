@@ -10,6 +10,7 @@ import { useAddPanelTab } from "@/core/layout/hooks";
 import { GitGraph } from "./GitGraph";
 import { ConflictResolver } from "./ConflictResolver";
 import { Tip } from "@/core/components/ui/Tip";
+import { getGitErrorMessage, getGitErrorSummary } from "@/core/git/utils/gitErrorMessage";
 
 export const GitSourceControl = () => {
 
@@ -74,7 +75,7 @@ export const GitSourceControl = () => {
     try {
       await Promise.all([triggerFetch(), refetchStatus(), refetchBranches(), refetchRemote()]);
     } catch (error: any) {
-      toast.error("Refresh failed", { description: error?.message || String(error) });
+      toast.error("Refresh failed", { description: getGitErrorMessage(error) });
     } finally {
       setIsRefreshing(false);
     }
@@ -86,7 +87,7 @@ export const GitSourceControl = () => {
       await triggerFetch();
       await Promise.all([refetchStatus(), refetchBranches()]);
     } catch (error: any) {
-      toast.error("Fetch failed", { description: error?.message || String(error) });
+      toast.error("Fetch failed", { description: getGitErrorMessage(error) });
     } finally {
       setIsFetchingAll(false);
     }
@@ -116,7 +117,7 @@ export const GitSourceControl = () => {
     stageFiles([file], {
       onError: (error: any) => {
         toast.error("Failed to stage file", {
-          description: error?.message || String(error),
+          description: getGitErrorMessage(error),
         });
       },
     });
@@ -126,7 +127,7 @@ export const GitSourceControl = () => {
     unstageFiles([file], {
       onError: (error: any) => {
         toast.error("Failed to unstage file", {
-          description: error?.message || String(error),
+          description: getGitErrorMessage(error),
         });
       },
     });
@@ -143,7 +144,7 @@ export const GitSourceControl = () => {
       },
       onError: (error: any) => {
         toast.error("Failed to discard changes", {
-          description: error?.message || String(error),
+          description: getGitErrorMessage(error),
         });
       },
     });
@@ -152,7 +153,9 @@ export const GitSourceControl = () => {
   const handleStageAll = () => {
     if (!status) return;
     const unstaged = [...status.modified, ...status.untracked, ...status.deleted].filter(f => !status.staged.includes(f));
-    stageFiles(unstaged);
+    stageFiles(unstaged, {
+      onError: (error: any) => toast.error("Failed to stage changes", { description: getGitErrorMessage(error) }),
+    });
   };
 
   const handleDiscardAll = () => {
@@ -164,13 +167,15 @@ export const GitSourceControl = () => {
         if (result?.canceled) return;
         toast.success("All changes discarded");
       },
-      onError: (error: any) => toast.error("Failed to discard changes", { description: error?.message || String(error) }),
+      onError: (error: any) => toast.error("Failed to discard changes", { description: getGitErrorMessage(error) }),
     });
   };
 
   const handleUnstageAll = () => {
     if (!status) return;
-    unstageFiles(status.staged);
+    unstageFiles(status.staged, {
+      onError: (error: any) => toast.error("Failed to unstage changes", { description: getGitErrorMessage(error) }),
+    });
   };
 
   const handlePush = async () => {
@@ -182,7 +187,7 @@ export const GitSourceControl = () => {
       refetchStatus();
     } catch (error: any) {
       toast.error("Push failed", {
-        description: error?.message || String(error),
+        description: getGitErrorMessage(error),
       });
     }
   };
@@ -194,7 +199,7 @@ export const GitSourceControl = () => {
       },
       onError: (error: any) => {
         toast.error("Pull failed", {
-          description: error?.message || String(error),
+          description: getGitErrorMessage(error),
         });
       },
     });
@@ -208,7 +213,7 @@ export const GitSourceControl = () => {
       });
     } catch (error: any) {
       toast.error("Failed to undo commit", {
-        description: error?.message || String(error),
+        description: getGitErrorMessage(error),
       });
     }
   };
@@ -239,7 +244,7 @@ export const GitSourceControl = () => {
       });
     } catch (error: any) {
       toast.error("Failed to commit", {
-        description: error?.message || String(error),
+        description: getGitErrorMessage(error),
       });
     }
   };
@@ -336,9 +341,7 @@ export const GitSourceControl = () => {
         },
         onError: (error: any) => {
           setCloneProgress(null);
-          const msg: string = error?.message || String(error);
-          const short = msg.length > 120 ? msg.slice(0, 117).trimEnd() + "…" : msg;
-          toast.error("Clone failed", { description: short });
+          toast.error("Clone failed", { description: getGitErrorSummary(error), duration: 8000 });
         },
       }
     );
@@ -772,7 +775,7 @@ export const GitSourceControl = () => {
                     if (e.key === 'Enter') {
                       stash(stashMessage.trim() || undefined, {
                         onSuccess: () => { setStashMessage(""); toast.success("Changes stashed"); },
-                        onError: (err: any) => toast.error("Stash failed", { description: err?.message }),
+                        onError: (err: any) => toast.error("Stash failed", { description: getGitErrorMessage(err) }),
                       });
                     }
                   }}
@@ -780,7 +783,7 @@ export const GitSourceControl = () => {
                 <button
                   onClick={() => stash(stashMessage.trim() || undefined, {
                     onSuccess: () => { setStashMessage(""); toast.success("Changes stashed"); },
-                    onError: (err: any) => toast.error("Stash failed", { description: err?.message }),
+                    onError: (err: any) => toast.error("Stash failed", { description: getGitErrorMessage(err) }),
                   })}
                   disabled={isStashing}
                   className="w-full bg-accent hover:bg-accent/90 disabled:opacity-50 text-white text-xs rounded px-3 py-1.5 transition-colors"
@@ -803,7 +806,7 @@ export const GitSourceControl = () => {
                       <button
                         onClick={() => stashPop(item.index, {
                           onSuccess: () => toast.success("Stash applied"),
-                          onError: (err: any) => toast.error("Pop failed", { description: err?.message }),
+                          onError: (err: any) => toast.error("Pop failed", { description: getGitErrorMessage(err) }),
                         })}
                         disabled={isPopping}
                         className="flex items-center gap-1 text-[10px] bg-active hover:bg-active/70 text-text rounded px-2 py-0.5 flex-shrink-0 disabled:opacity-50 transition-colors"
@@ -904,7 +907,7 @@ export const GitSourceControl = () => {
                       onClick={() => handleFileClick(file, true)}
                       className="ml-2 flex items-center gap-2 px-3 py-1.5 hover:bg-active/50 group cursor-pointer"
                     >
-                      {getFileIcon(file)}
+                      {getFileIcon(file, status.deleted.includes(file) ? 'deleted' : undefined)}
                       <span className="text-xs text-text flex-1 truncate">{file.split('/').pop() || file}</span>
                       <Tip label="Unstage" side="bottom">
                         <button

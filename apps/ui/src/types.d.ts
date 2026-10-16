@@ -247,6 +247,8 @@ declare global {
           modified: string[];
           untracked: string[];
           deleted: string[];
+          renamed: { from: string; to: string }[];
+          conflicted: string[];
           published: boolean;
           current: string;
           tracking: string | null;
@@ -254,7 +256,10 @@ declare global {
           behind: number;
           outgoing: boolean;
         }>;
-        clone: (repoUrl: string, token?: string) => Promise<{ clonedPath: string; clonedInPlace: boolean; isNewProject: boolean }>;
+        clone: (
+          repoUrl: string,
+          authOptions?: { token?: string; sshKeyPath?: string; sshPassphrase?: string; useSshAgent?: boolean },
+        ) => Promise<{ clonedPath: string; clonedInPlace: boolean; isNewProject: boolean; lfsWarning?: boolean; emptyRepo?: boolean }>;
         stage: (files: string[]) => Promise<boolean>;
         unstage: (files: string[]) => Promise<boolean>;
         commit: (message: string) => Promise<any>;

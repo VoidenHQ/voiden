@@ -18,6 +18,7 @@ import {
 } from "@codemirror/view";
 import { StateField, RangeSetBuilder, Text } from "@codemirror/state";
 import { voidenTheme } from "@/core/editors/code/CodeEditor.tsx";
+import { getGitErrorMessage } from "@/core/git/utils/gitErrorMessage";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -290,7 +291,7 @@ export const ConflictEditorTab = ({ tab }: { tab: any }) => {
         setLoadKey((k) => k + 1);
       }
     } catch (err: any) {
-      toast.error("Failed to load file", { description: err?.message });
+      toast.error("Failed to load file", { description: getGitErrorMessage(err) });
     } finally {
       setIsLoading(false);
     }
@@ -326,7 +327,7 @@ export const ConflictEditorTab = ({ tab }: { tab: any }) => {
       // Close this tab
       if (tabId) closeTab({ panelId: "main", tabId });
     } catch (err: any) {
-      toast.error("Failed to save", { description: err?.message || String(err) });
+      toast.error("Failed to save", { description: getGitErrorMessage(err) });
     } finally {
       setIsSaving(false);
     }

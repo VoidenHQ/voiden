@@ -7,6 +7,7 @@ import { useGetProjects } from "@/core/projects/hooks";
 import { toast } from "@/core/components/ui/sonner";
 import { Kbd } from "@/core/components/ui/kbd";
 import { Tip } from "@/core/components/ui/Tip";
+import { getGitErrorMessage } from "@/core/git/utils/gitErrorMessage";
 import { matchesShortcut, getShortcutLabel } from "@/core/shortcuts";
 
 type Step =
@@ -80,13 +81,10 @@ export const GitBranchesList = () => {
           },
           onError: (error: any) => {
             const errorMessage = error?.message || String(error);
-            let displayMessage = errorMessage;
-            if (errorMessage.includes("would be overwritten by checkout")) {
-              displayMessage = "Cannot switch branches: You have uncommitted changes. Please commit or stash them first.";
-            } else if (errorMessage.includes("already exists")) {
-              displayMessage = "A branch with that name already exists.";
-            }
-            toast.error("Git Checkout Failed", { description: displayMessage, duration: 5000 });
+            const displayMessage = errorMessage.includes("would be overwritten by checkout")
+              ? "You have uncommitted changes that would be lost by switching. Commit or stash them first, then switch branches."
+              : getGitErrorMessage(error);
+            toast.error("Couldn't switch branch", { description: displayMessage, duration: 6000 });
           },
         }
       );
@@ -108,10 +106,10 @@ export const GitBranchesList = () => {
         },
         onError: (error: any) => {
           const errorMessage = error?.message || String(error);
-          let displayMessage = errorMessage;
-          if (errorMessage.includes("already exists")) displayMessage = `Branch "${branchName}" already exists.`;
-          else if (errorMessage.includes("not a valid branch name")) displayMessage = `"${branchName}" is not a valid branch name.`;
-          toast.error("Failed to Create Branch", { description: displayMessage, duration: 5000 });
+          let displayMessage = getGitErrorMessage(error);
+          if (errorMessage.includes("already exists")) displayMessage = `Branch "${branchName}" already exists. Pick a different name or switch to it instead.`;
+          else if (errorMessage.includes("not a valid branch name")) displayMessage = `"${branchName}" isn't a valid branch name. Avoid spaces and special characters such as ~ ^ : ? * [ \\.`;
+          toast.error("Couldn't create branch", { description: displayMessage, duration: 6000 });
         },
       }
     );
@@ -132,10 +130,10 @@ export const GitBranchesList = () => {
         },
         onError: (error: any) => {
           const errorMessage = error?.message || String(error);
-          let displayMessage = errorMessage;
-          if (errorMessage.includes("already exists")) displayMessage = `Branch "${branchName}" already exists.`;
-          else if (errorMessage.includes("not a valid branch name")) displayMessage = `"${branchName}" is not a valid branch name.`;
-          toast.error("Failed to Create Branch", { description: displayMessage, duration: 5000 });
+          let displayMessage = getGitErrorMessage(error);
+          if (errorMessage.includes("already exists")) displayMessage = `Branch "${branchName}" already exists. Pick a different name or switch to it instead.`;
+          else if (errorMessage.includes("not a valid branch name")) displayMessage = `"${branchName}" isn't a valid branch name. Avoid spaces and special characters such as ~ ^ : ? * [ \\.`;
+          toast.error("Couldn't create branch", { description: displayMessage, duration: 6000 });
         },
       }
     );
