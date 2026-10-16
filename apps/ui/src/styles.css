@@ -373,6 +373,8 @@ input[type="week"]::-webkit-datetime-edit-year-field:focus {
     --vcs-added: var(--success, #87d96c);
     --http-get: var(--success, #87d96c);
     --http-get-bg: color-mix(in srgb, var(--http-get) 15%, transparent);
+    --http-query: var(--success, #87d96c);
+    --http-query-bg: color-mix(in srgb, var(--http-query) 15%, transparent);
     --test-passed-fg: var(--success, #87d96c);
     --test-passed-bg: var(--success-bg, rgba(135, 217, 108, 0.2));
 
