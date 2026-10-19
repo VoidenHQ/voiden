@@ -99,7 +99,7 @@ const CommitFileRow = memo(({ file, commitHash, shortHash }: { file: CommitFile;
       tabIndex={-1}
       title={`${fullPathLabel} • ${status.label}`}
       onClick={() => openDiff(commitHash, shortHash, file.path)}
-      className="group/file flex items-center gap-1.5 h-[22px] pr-2 cursor-pointer hover:bg-hover text-xs"
+      className="group/file flex items-center gap-1.5 h-[22px] pl-1 pr-2 cursor-pointer hover:bg-hover text-xs"
     >
       <FileTypeIcon name={name} />
       <span className={cn("truncate text-text flex-shrink-0 max-w-[60%]", file.status === "D" && "line-through opacity-70")}>{name}</span>

@@ -131,12 +131,14 @@ export function buildGraph(commits: GraphCommit[]): GraphNode[] {
   return nodes;
 }
 
-/** Width shared by every row so content never shifts horizontally. */
-export function computeGraphWidth(nodes: GraphNode[]): number {
-  if (!nodes.length) return LANE_WIDTH + GRAPH_PADDING;
-  const maxLane = nodes.reduce((max, node) => {
-    const lanes = [node.lane, ...node.activeLanesAfter, ...node.branches.map((b) => b.to)];
-    return Math.max(max, ...lanes);
-  }, 0);
-  return (maxLane + 1) * LANE_WIDTH + GRAPH_PADDING;
+const lanesWidth = (lanes: number[]) => (Math.max(0, ...lanes) + 1) * LANE_WIDTH + GRAPH_PADDING;
+
+/** Width of one row's graph: just wide enough for the lanes it draws, so text starts right after them (like VS Code). */
+export function rowGraphWidth(node: GraphNode, prevActiveLanes: number[]): number {
+  return lanesWidth([node.lane, ...prevActiveLanes, ...node.activeLanesAfter, ...node.branches.map((b) => b.to)]);
+}
+
+/** Width of the lanes that keep running below a row (through its expanded file list). */
+export function continuationWidth(node: GraphNode): number {
+  return lanesWidth([node.lane, ...node.activeLanesAfter]);
 }

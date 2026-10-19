@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildGraph, computeGraphWidth } from "../gitGraphLayout";
+import { buildGraph, continuationWidth, rowGraphWidth } from "../gitGraphLayout";
 
 describe("buildGraph", () => {
   const c = (hash: string, parents: string[]) => ({
@@ -14,7 +14,9 @@ describe("buildGraph", () => {
       { from: 0, to: 0, isMerge: false },
       { from: 0, to: 1, isMerge: true },
     ]);
-    expect(computeGraphWidth(nodes)).toBeGreaterThan(computeGraphWidth(buildGraph([c("A", [])])));
+    // Row width follows each row's own lanes, so text starts right after them.
+    expect(rowGraphWidth(nodes[0], [])).toBeGreaterThan(rowGraphWidth(nodes[3], nodes[2].activeLanesAfter));
+    expect(continuationWidth(nodes[1])).toBe(rowGraphWidth(nodes[1], nodes[0].activeLanesAfter));
   });
 
   it("handles an empty history", () => {

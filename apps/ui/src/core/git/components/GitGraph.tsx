@@ -5,35 +5,34 @@ import { useGetGitLog } from "@/core/git/hooks";
 import { Tip } from "@/core/components/ui/Tip";
 import { cn } from "@/core/lib/utils";
 import { parseRefs } from "@/core/git/utils/commitInfo";
-import { GraphNode, ROW_HEIGHT, buildGraph, computeGraphWidth } from "./gitGraphLayout";
+import { GraphNode, ROW_HEIGHT, buildGraph, continuationWidth, rowGraphWidth } from "./gitGraphLayout";
 import { CommitGraphCell, LaneContinuation } from "./CommitGraphCell";
 import { CommitFileList, useOpenCommitChanges } from "./CommitFileList";
 import { CommitHoverCard } from "./CommitHoverCard";
 
 const PAGE_SIZE = 100;
-const MAX_VISIBLE_REFS = 2;
 const SKELETON_WIDTHS = [62, 48, 70, 55, 66, 44, 58, 50];
+const EMPTY_LANES: number[] = [];
 
 const RefBadges = ({ refs }: { refs: string }) => {
   const parsed = parseRefs(refs);
   if (!parsed.length) return null;
-  const visible = parsed.slice(0, MAX_VISIBLE_REFS);
-  const hidden = parsed.length - visible.length;
+  const [first, ...rest] = parsed;
   return (
-    <span className="flex items-center gap-1 flex-shrink-0 ml-1.5" title={parsed.map((r) => r.name).join(", ")}>
-      {visible.map((ref) => (
-        <span
-          key={ref.name}
-          className={cn(
-            "flex items-center gap-0.5 px-1 rounded border text-[10px] leading-[14px] max-w-[110px]",
-            ref.kind === "head" ? "border-accent/60 text-accent" : "border-border text-comment",
-          )}
-        >
-          {ref.kind === "tag" && <Tag size={9} className="flex-shrink-0" />}
-          <span className="truncate">{ref.name}</span>
-        </span>
-      ))}
-      {hidden > 0 && <span className="text-[10px] text-comment">+{hidden}</span>}
+    <span
+      className="flex items-center gap-1 flex-shrink min-w-0 max-w-[45%] ml-1.5 overflow-hidden"
+      title={parsed.map((r) => r.name).join(", ")}
+    >
+      <span
+        className={cn(
+          "flex items-center gap-0.5 min-w-0 px-1 rounded border text-[10px] leading-[14px]",
+          first.kind === "head" ? "border-accent/60 text-accent" : "border-border text-comment",
+        )}
+      >
+        {first.kind === "tag" && <Tag size={9} className="flex-shrink-0" />}
+        <span className="truncate">{first.name}</span>
+      </span>
+      {rest.length > 0 && <span className="text-[10px] text-comment flex-shrink-0">+{rest.length}</span>}
     </span>
   );
 };
@@ -41,15 +40,16 @@ const RefBadges = ({ refs }: { refs: string }) => {
 interface CommitRowProps {
   node: GraphNode;
   prevActiveLanes: number[];
-  graphWidth: number;
   selected: boolean;
   expanded: boolean;
   onRowClick: (hash: string) => void;
   onOpenChanges: (hash: string, shortHash: string) => void;
 }
 
-const CommitRow = memo(({ node, prevActiveLanes, graphWidth, selected, expanded, onRowClick, onOpenChanges }: CommitRowProps) => {
+const CommitRow = memo(({ node, prevActiveLanes, selected, expanded, onRowClick, onOpenChanges }: CommitRowProps) => {
   const { commit } = node;
+  const graphWidth = rowGraphWidth(node, prevActiveLanes);
+  const filesIndent = continuationWidth(node);
   return (
     <div data-hash={commit.hash}>
       <CommitHoverCard commit={commit} color={node.color}>
@@ -65,7 +65,7 @@ const CommitRow = memo(({ node, prevActiveLanes, graphWidth, selected, expanded,
           style={{ height: ROW_HEIGHT }}
         >
           <CommitGraphCell node={node} prevActiveLanes={prevActiveLanes} graphWidth={graphWidth} selected={selected} />
-          <span className="flex-1 min-w-0 truncate text-xs pl-1">
+          <span className="flex-1 min-w-[4rem] truncate text-xs pl-1">
             <span className="text-text">{commit.message}</span>
             <span className="text-comment ml-1.5">{commit.author}</span>
           </span>
@@ -95,9 +95,9 @@ const CommitRow = memo(({ node, prevActiveLanes, graphWidth, selected, expanded,
             exit={{ height: 0 }}
             transition={{ duration: 0.15, ease: "easeOut" }}
             className="relative overflow-hidden"
-            style={{ paddingLeft: graphWidth }}
+            style={{ paddingLeft: filesIndent }}
           >
-            <LaneContinuation node={node} graphWidth={graphWidth} />
+            <LaneContinuation node={node} graphWidth={filesIndent} />
             <CommitFileList commitHash={commit.hash} shortHash={commit.shortHash} />
           </motion.div>
         )}
@@ -127,7 +127,6 @@ export const GitGraph = () => {
   const openChanges = useOpenCommitChanges();
 
   const graphNodes = useMemo(() => (log?.all ? buildGraph(log.all) : []), [log]);
-  const graphWidth = useMemo(() => computeGraphWidth(graphNodes), [graphNodes]);
   const hasMore = (log?.all.length ?? 0) >= limit;
 
   const handleRowClick = useCallback((hash: string) => {
@@ -202,8 +201,7 @@ export const GitGraph = () => {
         <CommitRow
           key={node.commit.hash}
           node={node}
-          prevActiveLanes={index > 0 ? graphNodes[index - 1].activeLanesAfter : []}
-          graphWidth={graphWidth}
+          prevActiveLanes={index > 0 ? graphNodes[index - 1].activeLanesAfter : EMPTY_LANES}
           selected={selectedHash === node.commit.hash}
           expanded={expandedHash === node.commit.hash}
           onRowClick={handleRowClick}
