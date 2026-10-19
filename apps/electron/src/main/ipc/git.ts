@@ -469,6 +469,11 @@ export function registerGitIpcHandlers() {
     try {
       if (!await getCachedIsRepo(activeProject)) return null;
 
+      // Every refresh re-checks that .gitignore still covers .voiden/ (only the
+      // public env YAMLs may be tracked) and untracks anything ignored that
+      // slipped into the index, so the status below already reflects it.
+      await ensureVoidenGitignore(activeProject).catch(() => {});
+
       const git = getSharedGit(activeProject);
 
       const _t0 = Date.now();
@@ -658,6 +663,9 @@ export function registerGitIpcHandlers() {
       if (!isRepo) {
         throw new Error("Not a git repository");
       }
+      // Last line of defence: never let an ignored .voiden file (history,
+      // process vars, private envs) be committed — and so never pushed.
+      await ensureVoidenGitignore(activeProject).catch(() => {});
       const result = await git.commit(message);
       return result;
     } catch (error) {

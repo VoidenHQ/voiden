@@ -448,14 +448,25 @@ export const aggregateGitStatus = (nodes: TreeNode[]): any => {
 
 // Ignore all .voiden contents; only public env YAMLs are allowed through.
 // NOTE: must use .voiden/* (not .voiden/) so git honours the negation lines.
+// The leading **/ matters: a pattern with a slash in the middle is anchored
+// to the .gitignore's directory, so a bare `.voiden/*` left nested
+// sub-project .voiden/ folders (and their private env files) unignored.
 const VOIDEN_IGNORE_BLOCK = [
-  '.voiden/*',
-  '!.voiden/env-public.yaml',
-  '!.voiden/env-*-public.yaml',
+  '**/.voiden/*',
+  '!**/.voiden/env-public.yaml',
+  '!**/.voiden/env-*-public.yaml',
   // Config inheritance is local-only — never meant to be shared/committed.
   // No leading slash: matches at any depth in the project tree.
   '.voiden-inherited.void',
 ];
+
+// Root-anchored lines written by older versions, upgraded in place to their
+// **/ equivalents so ordering relative to the user's own rules is preserved.
+const LEGACY_VOIDEN_IGNORE_LINES: Record<string, string> = {
+  '.voiden/*': '**/.voiden/*',
+  '!.voiden/env-public.yaml': '!**/.voiden/env-public.yaml',
+  '!.voiden/env-*-public.yaml': '!**/.voiden/env-*-public.yaml',
+};
 
 // Matches the basenames let through by the negation lines above.
 const VOIDEN_PUBLIC_ENV_RE = /^env(-[^/]+)?-public\.yaml$/;
@@ -468,7 +479,7 @@ const VOIDEN_PUBLIC_ENV_RE = /^env(-[^/]+)?-public\.yaml$/;
 async function untrackIgnoredVoidenFiles(rootDir: string): Promise<void> {
   try {
     const git = getSharedGit(rootDir);
-    const lsOutput = await git.raw(['ls-files', '-z', '--', '.voiden/']);
+    const lsOutput = await git.raw(['ls-files', '-z', '--', ':(glob)**/.voiden/**']);
     const tracked = lsOutput.split('\0').filter(Boolean);
     const toUntrack = tracked.filter((rel) => !VOIDEN_PUBLIC_ENV_RE.test(path.basename(rel)));
     if (toUntrack.length === 0) return;
@@ -496,11 +507,18 @@ export async function ensureVoidenGitignore(rootDir: string): Promise<void> {
   // Migrate old directory-level ignore (`.voiden/`) which blocks negations
   content = content.replace(/^\.voiden\/\s*$/m, '');
 
+  content = content
+    .split('\n')
+    .map((l) => LEGACY_VOIDEN_IGNORE_LINES[l.trim()] ?? l)
+    .join('\n');
+
   const lines = content.split('\n').map((l) => l.trim());
   const missing = VOIDEN_IGNORE_BLOCK.filter((p) => !lines.includes(p));
   if (missing.length > 0) {
     if (content && !content.endsWith('\n')) content += '\n';
     content += '\n# Voiden\n' + missing.join('\n') + '\n';
+  }
+  if (content !== existing) {
     await fs.promises.writeFile(gitignorePath, content, 'utf8');
   }
 
