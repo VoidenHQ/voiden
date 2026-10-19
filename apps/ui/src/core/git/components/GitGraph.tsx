@@ -2,6 +2,7 @@ import { useGetGitLog, useGetCommitFiles } from "@/core/git/hooks";
 import { useAddPanelTab } from "@/core/layout/hooks";
 import { Loader2, File, Eye } from "lucide-react";
 import { useMemo, useState } from "react";
+import { CommitHoverCard } from "./CommitHoverCard";
 
 interface GraphNode {
   commit: {
@@ -203,97 +204,93 @@ const CommitRow = ({
     cx: node.lane * LANE_WIDTH + LANE_WIDTH / 2,
     cy: ROW_HEIGHT / 2,
   };
-  const laneRefSummary = node.commit.refs?.trim()
-    ? node.commit.refs
-    : "No branch/tag ref at this commit";
-  const tooltipText = `${node.commit.shortHash} - ${node.commit.message}\n${laneRefSummary}`;
 
   return (
     <div>
       {/* Main commit row */}
-      <div
-        className="flex items-center hover:bg-active/50 cursor-pointer overflow-hidden"
-        style={{ height: ROW_HEIGHT }}
-        onClick={() =>
-          setExpandedCommit(expandedCommit === node.commit.hash ? null : node.commit.hash)
-        }
-      >
-        {/* Graph SVG */}
-        <svg
-          width={graphWidth}
-          height={ROW_HEIGHT}
-          viewBox={`0 0 ${graphWidth} ${ROW_HEIGHT}`}
-          className="flex-shrink-0"
+      <CommitHoverCard commit={node.commit} color={node.color}>
+        <div
+          className="flex items-center hover:bg-active/50 cursor-pointer overflow-hidden"
+          style={{ height: ROW_HEIGHT }}
+          onClick={() =>
+            setExpandedCommit(expandedCommit === node.commit.hash ? null : node.commit.hash)
+          }
         >
-          {/* ── Continuation lines ───────────────────────────────── */}
-          {prevActiveLanes.map((l) => {
-            const x = l * LANE_WIDTH + LANE_WIDTH / 2;
-            const color = COLORS[l % COLORS.length];
-            const remainsActiveAfterRow = node.activeLanesAfter.includes(l);
+          {/* Graph SVG */}
+          <svg
+            width={graphWidth}
+            height={ROW_HEIGHT}
+            viewBox={`0 0 ${graphWidth} ${ROW_HEIGHT}`}
+            className="flex-shrink-0"
+          >
+            {/* ── Continuation lines ───────────────────────────────── */}
+            {prevActiveLanes.map((l) => {
+              const x = l * LANE_WIDTH + LANE_WIDTH / 2;
+              const color = COLORS[l % COLORS.length];
+              const remainsActiveAfterRow = node.activeLanesAfter.includes(l);
 
-            if (l === node.lane) {
-              // Line from top down to the commit dot.
+              if (l === node.lane) {
+                // Line from top down to the commit dot.
+                return (
+                  <line key={`in-${l}`} x1={x} y1={0} x2={x} y2={dot.cy}
+                    stroke={color} strokeWidth="1.5" opacity="0.7" strokeLinecap="round" />
+                );
+              } else {
+                // If a lane is no longer active after this row, terminate at the row center.
+                const y2 = remainsActiveAfterRow ? ROW_HEIGHT : dot.cy;
+                return (
+                  <line key={`pass-${l}`} x1={x} y1={0} x2={x} y2={y2}
+                    stroke={color} strokeWidth="1.5" opacity="0.7" strokeLinecap="round" />
+                );
+              }
+            })}
+
+            {/* ── Outgoing branches ─────────────────────────────────── */}
+            {node.branches.map((branch, i) => {
+              const x1 = dot.cx;
+              const y1 = dot.cy;
+              const x2 = branch.to * LANE_WIDTH + LANE_WIDTH / 2;
+              const y2 = ROW_HEIGHT;
+              const branchColor = COLORS[branch.to % COLORS.length];
+
+              if (branch.from === branch.to) {
+                // Straight downward continuation.
+                return (
+                  <line key={`br-${i}`} x1={x1} y1={y1} x2={x2} y2={y2}
+                    stroke={node.color} strokeWidth="1.5" opacity="0.7" strokeLinecap="round" />
+                );
+              }
+
+              // Smooth arc: departs straight down from x1, arrives straight down at x2.
               return (
-                <line key={`in-${l}`} x1={x} y1={0} x2={x} y2={dot.cy}
-                  stroke={color} strokeWidth="1.5" opacity="0.7" strokeLinecap="round" />
+                <path key={`br-${i}`}
+                  d={`M ${x1} ${y1} C ${x1} ${y2} ${x2} ${y1} ${x2} ${y2}`}
+                  stroke={branchColor} strokeWidth="1.5"
+                  fill="none" opacity="0.7" strokeLinecap="round"
+                />
               );
-            } else {
-              // If a lane is no longer active after this row, terminate at the row center.
-              const y2 = remainsActiveAfterRow ? ROW_HEIGHT : dot.cy;
-              return (
-                <line key={`pass-${l}`} x1={x} y1={0} x2={x} y2={y2}
-                  stroke={color} strokeWidth="1.5" opacity="0.7" strokeLinecap="round" />
-              );
-            }
-          })}
+            })}
 
-          {/* ── Outgoing branches ─────────────────────────────────── */}
-          {node.branches.map((branch, i) => {
-            const x1 = dot.cx;
-            const y1 = dot.cy;
-            const x2 = branch.to * LANE_WIDTH + LANE_WIDTH / 2;
-            const y2 = ROW_HEIGHT;
-            const branchColor = COLORS[branch.to % COLORS.length];
+            {/* ── Commit dot ───────────────────────────────────────── */}
+            <circle cx={dot.cx} cy={dot.cy} r="3.5"
+              fill={node.color} stroke="#1e1e2e" strokeWidth="1.5" />
+          </svg>
 
-            if (branch.from === branch.to) {
-              // Straight downward continuation.
-              return (
-                <line key={`br-${i}`} x1={x1} y1={y1} x2={x2} y2={y2}
-                  stroke={node.color} strokeWidth="1.5" opacity="0.7" strokeLinecap="round" />
-              );
-            }
-
-            // Smooth arc: departs straight down from x1, arrives straight down at x2.
-            return (
-              <path key={`br-${i}`}
-                d={`M ${x1} ${y1} C ${x1} ${y2} ${x2} ${y1} ${x2} ${y2}`}
-                stroke={branchColor} strokeWidth="1.5"
-                fill="none" opacity="0.7" strokeLinecap="round"
-              />
-            );
-          })}
-
-          {/* ── Commit dot ───────────────────────────────────────── */}
-          <circle cx={dot.cx} cy={dot.cy} r="3.5"
-            fill={node.color} stroke="#1e1e2e" strokeWidth="1.5">
-            <title>{tooltipText}</title>
-          </circle>
-        </svg>
-
-        {/* Commit info */}
-        <div className="flex-1 min-w-0 pl-1.5 pr-3 flex flex-col justify-center gap-0.5">
-          <p className="text-xs text-text min-w-0 truncate">
-            {node.commit.message}
-          </p>
-          <div className="flex items-center gap-2 text-[10px] text-comment">
-            <span className="truncate max-w-[80px]">{node.commit.author}</span>
-            <span className="font-mono opacity-70">{node.commit.shortHash}</span>
-            <span className="whitespace-nowrap opacity-70">
-              {new Date(node.commit.date).toLocaleDateString()}
-            </span>
+          {/* Commit info */}
+          <div className="flex-1 min-w-0 pl-1.5 pr-3 flex flex-col justify-center gap-0.5">
+            <p className="text-xs text-text min-w-0 truncate">
+              {node.commit.message}
+            </p>
+            <div className="flex items-center gap-2 text-[10px] text-comment">
+              <span className="truncate max-w-[80px]">{node.commit.author}</span>
+              <span className="font-mono opacity-70">{node.commit.shortHash}</span>
+              <span className="whitespace-nowrap opacity-70">
+                {new Date(node.commit.date).toLocaleDateString()}
+              </span>
+            </div>
           </div>
         </div>
-      </div>
+      </CommitHoverCard>
 
       {/* Expanded file list */}
       {isExpanded && (
