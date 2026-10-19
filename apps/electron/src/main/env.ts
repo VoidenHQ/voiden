@@ -125,13 +125,13 @@ function flattenYamlEnvironments(
   for (const [key, node] of Object.entries(tree)) {
     const envName = prefix ? `${prefix}.${key}` : key;
     const currentVars = { ...parentVars, ...(node.variables || {}) };
-    // Intermediate environments are used only for grouping/inheritance,
-    // they don't appear in the env selector as selectable options
-    if (!node.intermediate) {
-      data[envName] = currentVars;
-      if (node.displayName) {
-        displayNames[envName] = node.displayName;
-      }
+    // Hidden ("intermediate") environments are left out of the env selector
+    // together with their whole subtree — hiding a parent hides its children.
+    if (node.intermediate) continue;
+
+    data[envName] = currentVars;
+    if (node.displayName) {
+      displayNames[envName] = node.displayName;
     }
 
     if (node.children) {

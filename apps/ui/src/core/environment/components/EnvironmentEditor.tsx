@@ -54,9 +54,11 @@ interface FlatEnvEntry {
   privateCount: number;
   hasChildren: boolean;
   intermediate?: boolean;
+  // An ancestor is hidden, which hides this env from the picker too.
+  hiddenByParent?: boolean;
 }
 
-function flattenTree(tree: EditableEnvTree, parentPath = "", depth = 0): FlatEnvEntry[] {
+function flattenTree(tree: EditableEnvTree, parentPath = "", depth = 0, parentHidden = false): FlatEnvEntry[] {
   const entries: FlatEnvEntry[] = [];
   for (const [name, node] of Object.entries(tree)) {
     const path = parentPath ? `${parentPath}.${name}` : name;
@@ -70,9 +72,10 @@ function flattenTree(tree: EditableEnvTree, parentPath = "", depth = 0): FlatEnv
       privateCount: node.variables.filter((v) => v.isPrivate).length,
       hasChildren,
       intermediate: node.intermediate,
+      hiddenByParent: parentHidden,
     });
     if (hasChildren) {
-      entries.push(...flattenTree(node.children, path, depth + 1));
+      entries.push(...flattenTree(node.children, path, depth + 1, parentHidden || !!node.intermediate));
     }
   }
   return entries;
@@ -101,6 +104,16 @@ function getNodeAtPath(tree: EditableEnvTree, path: string): EditableEnvNode | n
     node = node.children[segments[i]];
   }
   return node ?? null;
+}
+
+function hasHiddenAncestor(tree: EditableEnvTree, path: string): boolean {
+  const segments = path.split(".");
+  let node: EditableEnvNode | undefined = tree[segments[0]];
+  for (let i = 1; i < segments.length && node; i++) {
+    if (node.intermediate) return true;
+    node = node.children[segments[i]];
+  }
+  return false;
 }
 
 function updateNodeAtPath(tree: EditableEnvTree, path: string, updated: EditableEnvNode): EditableEnvTree {
@@ -1047,6 +1060,11 @@ const EnvSidebarItem = ({
             <EyeOff size={11} style={{ color: "var(--icon-warning)" }} />
           </button>
         )}
+        {!entry.intermediate && entry.hiddenByParent && (
+          <span title="Hidden from env picker because a parent environment is hidden" className="p-0.5 flex-shrink-0">
+            <EyeOff size={11} className="text-comment/50" />
+          </span>
+        )}
         <span className="text-xs text-comment/60 tabular-nums flex-shrink-0 opacity-0 group-hover/item:opacity-100 transition-opacity">{entry.varCount}</span>
         {/* All row actions live in this menu (same items as the right-click menu) */}
         <DropdownMenu.Root open={actionsOpen} onOpenChange={setActionsOpen}>
@@ -1331,6 +1349,20 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
   // Env renaming in sidebar
   const [renamingPath, setRenamingPath] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
+  const renameInputRef = useRef<HTMLInputElement>(null);
+
+  // Rename is usually opened from a row's dropdown/context menu (Rename,
+  // Duplicate, Add child). `autoFocus` fires while that menu's focus trap is
+  // still mounted — Radix unmounts the content a render later — so the trap
+  // pulls focus straight back and the input is left unfocused. Focus on the
+  // next frame instead, once the menu is fully gone.
+  useEffect(() => {
+    if (!renamingPath) return;
+    const frame = requestAnimationFrame(() => {
+      renameInputRef.current?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [renamingPath]);
 
   // Resizable sidebar
   const [sidebarWidth, setSidebarWidth] = useState(208);
@@ -1798,6 +1830,7 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
     : selectedOwner
       ? getNodeAtPath(nestedTrees[selectedOwner] ?? {}, selectedEnvPath)
       : getNodeAtPath(tree, selectedEnvPath);
+  const selectedHiddenByParent = !!selectedEnvPath && !selectedOwner && hasHiddenAncestor(tree, selectedEnvPath);
   const runtimeCount = Object.keys(runtimeVars).length;
 
   // Reload YAML when external file changes detected (git pull, external editor, etc.)
@@ -1973,7 +2006,7 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
                       style={{ paddingLeft: `${10 + entry.depth * 14}px` }}
                       className="w-full text-xs font-mono py-1.5 pr-2 bg-editor border border-border rounded-md text-text focus:outline-none focus:ring-1"
                       onFocus={(e) => e.currentTarget.select()}
-                      autoFocus
+                      ref={renameInputRef}
                     />
                   ) : (
                     <EnvSidebarItem
@@ -2125,7 +2158,11 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
                   {!selectedOwner && (
                     <button
                       onClick={() => handleToggleIntermediate(selectedEnvPath)}
-                      title={selectedNode.intermediate ? "Show in env picker (currently hidden)" : "Hide from env picker"}
+                      title={selectedNode.intermediate
+                        ? "Show in env picker (currently hidden)"
+                        : selectedHiddenByParent
+                          ? "Hidden from env picker because a parent environment is hidden"
+                          : "Hide from env picker"}
                       className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-md border transition-colors"
                       style={selectedNode.intermediate ? {
                         backgroundColor: "color-mix(in srgb, var(--icon-warning) 10%, transparent)",
@@ -2136,8 +2173,8 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
                         color: "var(--syntax-comment)",
                       }}
                     >
-                      {selectedNode.intermediate ? <EyeOff size={11} /> : <Eye size={11} />}
-                      {selectedNode.intermediate ? "hidden" : "visible"}
+                      {selectedNode.intermediate || selectedHiddenByParent ? <EyeOff size={11} /> : <Eye size={11} />}
+                      {selectedNode.intermediate ? "hidden" : selectedHiddenByParent ? "hidden by parent" : "visible"}
                     </button>
                   )}
                 </div>
