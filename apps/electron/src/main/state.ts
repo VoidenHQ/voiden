@@ -35,7 +35,7 @@ import { updateFileWatcher } from "./fileWatcher";
 import { windowManager } from "./windowManager";
 import { getSettings } from "./settings";
 import { recomposeAndInstall } from "./skillsInstaller";
-import { reloadMainProcessExtension } from "./extensionLoader";
+import { reloadMainProcessExtension, unloadMainProcessExtension } from "./extensionLoader";
 import { logger } from "./logger";
 
 // Mirrors CodeEditor.tsx's LONG_LINE_THRESHOLD/hasVeryLongLine — a single line
@@ -1277,6 +1277,7 @@ export const ipcStateHandlers = () => {
     }
 
     removeExtensionTabsFromSidebars(appState.sidebars, extensionId);
+    await unloadMainProcessExtension(extensionId).catch(() => {});
     await extensionManager.uninstallCommunityExtension(extensionId);
     await saveState(appState);
     maybeRecomposeSkills(appState);
