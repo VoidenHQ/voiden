@@ -8,6 +8,13 @@ import { invalidateGitCache, getCachedIsRepo, invalidateRepoCache, getSharedGit,
 import { setCloning } from "../fileWatcher";
 import { logger } from "../logger";
 import { getSettings, getDefaultProjectsDirectory } from "../settings";
+import {
+  COMMIT_DETAILS_FORMAT,
+  mergeCommitFileStats,
+  parseCommitDetails,
+  parseNameStatusZ,
+  parseNumstatZ,
+} from "./gitCommitParsers";
 
 // In-flight deduplication: prevents polling intervals from stacking up
 // concurrent git processes when a call takes longer than the poll interval.
@@ -811,33 +818,42 @@ export function registerGitIpcHandlers() {
         return [];
       }
 
-      // Check if this commit has a parent (initial commit does not)
-      let diffSummary;
+      // Diff against the first parent; the initial commit has none, so diff-tree --root lists what it introduced.
+      let hasParent = true;
       try {
-        diffSummary = await git.diffSummary([`${commitHash}^`, commitHash]);
+        await git.raw(['rev-parse', '--verify', '--quiet', `${commitHash}^`]);
       } catch {
-        // Initial commit — no parent ref; use diff-tree to list introduced files
-        const raw = await git.raw(['diff-tree', '--no-commit-id', '-r', '--numstat', '--root', commitHash]);
-        return raw.trim().split('\n').filter(Boolean).map(line => {
-          const [ins, del, ...rest] = line.split('\t');
-          return {
-            path: rest.join('\t'),
-            changes: (parseInt(ins) || 0) + (parseInt(del) || 0),
-            insertions: parseInt(ins) || 0,
-            deletions: parseInt(del) || 0,
-          };
-        });
+        hasParent = false;
       }
+      const diffArgs = hasParent
+        ? ['diff', '-M', '-z', `${commitHash}^`, commitHash]
+        : ['diff-tree', '-r', '-M', '-z', '--root', '--no-commit-id', commitHash];
 
-      return diffSummary.files.map(file => ({
-        path: file.file,
-        changes: (file as any).changes ?? 0,
-        insertions: (file as any).insertions ?? 0,
-        deletions: (file as any).deletions ?? 0,
-      }));
+      const [nameStatusRaw, numstatRaw] = await Promise.all([
+        git.raw([...diffArgs, '--name-status']),
+        git.raw([...diffArgs, '--numstat']),
+      ]);
+
+      return mergeCommitFileStats(parseNameStatusZ(nameStatusRaw), parseNumstatZ(numstatRaw));
     } catch (error) {
       console.error("Error getting commit files:", error);
       return [];
+    }
+  });
+
+  // Full metadata for one commit (full message, emails, dates) for the history hover card
+  ipcMain.handle("git:getCommitDetails", async (event, commitHash: string) => {
+    const activeProject = await getActiveProject(event);
+    if (!activeProject) return null;
+
+    try {
+      if (!await getCachedIsRepo(activeProject)) return null;
+      const git = getSharedGit(activeProject);
+      const raw = await git.raw(['show', '-s', `--format=${COMMIT_DETAILS_FORMAT}`, commitHash]);
+      return parseCommitDetails(raw);
+    } catch (error) {
+      console.error("Error getting commit details:", error);
+      return null;
     }
   });
 

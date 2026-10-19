@@ -20,6 +20,7 @@ export const gitApi = {
   discard: (files: string[]) => ipcRenderer.invoke("git:discard", files),
   getLog: (limit?: number) => ipcRenderer.invoke("git:getLog", limit),
   getCommitFiles: (commitHash: string) => ipcRenderer.invoke("git:getCommitFiles", commitHash),
+  getCommitDetails: (commitHash: string) => ipcRenderer.invoke("git:getCommitDetails", commitHash),
   fetchRemote: () => ipcRenderer.invoke("git:fetch"),
   push: () => ipcRenderer.invoke("git:pushBranch"),
   pull: () => ipcRenderer.invoke("git:pull"),
