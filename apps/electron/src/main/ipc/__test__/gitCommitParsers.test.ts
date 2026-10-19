@@ -74,8 +74,11 @@ describe('parseCommitDetails', () => {
 // Runs the exact git commands the IPC handlers use against a real repository.
 describe('against a real git repository', () => {
   let repo: string;
+  let emptyConfig: string;
+  // Isolate from the developer's global/system git config (signing, autocrlf, hooks...).
+  // An empty file instead of /dev/null so this also works with Git for Windows.
   const git = (...args: string[]) =>
-    execFileSync('git', args, { cwd: repo, encoding: 'utf8', env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' } });
+    execFileSync('git', args, { cwd: repo, encoding: 'utf8', env: { ...process.env, GIT_CONFIG_GLOBAL: emptyConfig, GIT_CONFIG_NOSYSTEM: '1' } });
   const commit = (message: string) => {
     git('add', '-A');
     git('commit', '-q', '-m', message);
@@ -94,7 +97,11 @@ describe('against a real git repository', () => {
   const hashes: Record<string, string> = {};
 
   beforeAll(() => {
-    repo = fs.mkdtempSync(path.join(os.tmpdir(), 'voiden-git-parsers-'));
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'voiden-git-parsers-'));
+    emptyConfig = path.join(tmp, 'empty.gitconfig');
+    fs.writeFileSync(emptyConfig, '');
+    repo = path.join(tmp, 'repo');
+    fs.mkdirSync(repo);
     git('init', '-q', '-b', 'main');
     git('config', 'user.name', 'Test Author');
     git('config', 'user.email', 'author@example.com');
@@ -120,7 +127,7 @@ describe('against a real git repository', () => {
   });
 
   afterAll(() => {
-    fs.rmSync(repo, { recursive: true, force: true });
+    fs.rmSync(path.dirname(repo), { recursive: true, force: true });
   });
 
   it('lists files of the root commit', () => {
