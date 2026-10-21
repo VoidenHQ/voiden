@@ -8,6 +8,7 @@ import { useElectronEvent } from "@/core/providers";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/core/components/ui/dialog";
 import { useAddPanelTab } from "@/core/layout/hooks";
 import { GitGraph } from "./GitGraph";
+import { GitFileStatusBadge } from "./GitFileStatusBadge";
 import { ConflictResolver } from "./ConflictResolver";
 import { Tip } from "@/core/components/ui/Tip";
 import { getGitErrorMessage, getGitErrorSummary } from "@/core/git/utils/gitErrorMessage";
@@ -152,7 +153,7 @@ export const GitSourceControl = () => {
 
   const handleStageAll = () => {
     if (!status) return;
-    const unstaged = [...status.modified, ...status.untracked, ...status.deleted].filter(f => !status.staged.includes(f));
+    const unstaged = unstagedChanges;
     stageFiles(unstaged, {
       onError: (error: any) => toast.error("Failed to stage changes", { description: getGitErrorMessage(error) }),
     });
@@ -160,7 +161,7 @@ export const GitSourceControl = () => {
 
   const handleDiscardAll = () => {
     if (!status) return;
-    const allUnstaged = [...status.modified, ...status.deleted, ...status.untracked].filter(f => !status.staged.includes(f));
+    const allUnstaged = unstagedChanges;
     if (allUnstaged.length === 0) return;
     discardFiles(allUnstaged, {
       onSuccess: (result: any) => {
@@ -601,14 +602,11 @@ export const GitSourceControl = () => {
     );
   }
 
-  // Files that are staged but also modified in working tree appear in both lists.
-  // Filter them out so they only show in Staged, not in Changes.
+  // Index and working-tree changes are independent, including partially staged files.
   const conflictedFiles = status.conflicted ?? [];
-  const unstagedChanges = [
-    ...status.modified,
-    ...status.untracked,
-    ...status.deleted,
-  ].filter((f) => !status.staged.includes(f) && !conflictedFiles.includes(f));
+  const unstagedChanges = status.files
+    .filter((file) => file.workingTree.trim() !== '' && !conflictedFiles.includes(file.path))
+    .map((file) => file.path);
   const stagedChanges = status.staged.filter((f) => !conflictedFiles.includes(f));
 
   const hasConflicts = conflictedFiles.length > 0;
@@ -907,7 +905,7 @@ export const GitSourceControl = () => {
                       onClick={() => handleFileClick(file, true)}
                       className="ml-2 flex items-center gap-2 px-3 py-1.5 hover:bg-active/50 group cursor-pointer"
                     >
-                      {getFileIcon(file, status.deleted.includes(file) ? 'deleted' : undefined)}
+                      {getFileIcon(file, status.files.find((entry) => entry.path === file)?.index === 'D' ? 'deleted' : undefined)}
                       <span className="text-xs text-text flex-1 truncate">{file.split('/').pop() || file}</span>
                       <Tip label="Unstage" side="bottom">
                         <button
@@ -920,6 +918,7 @@ export const GitSourceControl = () => {
                           <Minus size={13} />
                         </button>
                       </Tip>
+                      <GitFileStatusBadge code={status.files.find((entry) => entry.path === file)?.index} />
                     </div>
                   ))}
                 </div>
@@ -962,8 +961,9 @@ export const GitSourceControl = () => {
               {changesOpen && (
                 <div>
                   {unstagedChanges.map((file) => {
-                    const fileStatus = status.untracked.includes(file) ? 'untracked'
-                      : status.deleted.includes(file) ? 'deleted' : 'modified';
+                    const workingTreeCode = status.files.find((entry) => entry.path === file)?.workingTree;
+                    const fileStatus = workingTreeCode === '?' ? 'untracked'
+                      : workingTreeCode === 'D' ? 'deleted' : 'modified';
                     return (
                       <div
                         key={file}
@@ -996,6 +996,7 @@ export const GitSourceControl = () => {
                             </button>
                           </Tip>
                         </div>
+                        <GitFileStatusBadge code={workingTreeCode === '?' ? 'U' : workingTreeCode} />
                       </div>
                     );
                   })}

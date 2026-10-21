@@ -552,10 +552,13 @@ export function registerGitIpcHandlers() {
       }
 
       const { staged, modified, untracked, deleted, renamed, conflicted } = classifyStatusFiles(status);
+      const fileStatuses = new Map(status.files.map((file) => [file.path, file]));
 
       return {
         files: [...new Set([...staged, ...modified, ...untracked, ...deleted])].map((file) => ({
           path: file,
+          index: fileStatuses.get(file)?.index ?? ' ',
+          workingTree: fileStatuses.get(file)?.working_dir ?? ' ',
           status: staged.includes(file)
             ? "staged"
             : modified.includes(file)
