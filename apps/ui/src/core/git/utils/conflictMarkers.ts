@@ -80,12 +80,20 @@ export function parseConflicts(content: string): ConflictSegment[] {
 export const getHunks = (segments: ConflictSegment[]): ConflictHunk[] =>
   segments.flatMap((s) => (s.kind === "conflict" ? [s.hunk] : []));
 
-const hunkLines = (hunk: ConflictHunk, resolution: Resolution | undefined): string[] => {
+export interface ResolveOptions {
+  /**
+   * Put a blank line between the two sides of "both" when neither has one.
+   * Needed for .void (markdown) files, where two lines with no gap between
+   * them merge into one paragraph; plain text files keep the sides as is.
+   */
+  separateBoth?: boolean;
+}
+
+const hunkLines = (hunk: ConflictHunk, resolution: Resolution | undefined, options: ResolveOptions): string[] => {
   if (resolution === "current") return hunk.current;
   if (resolution === "incoming") return hunk.incoming;
   if (resolution === "both") {
-    // Keep both sides as separate blocks: without a blank line between them,
-    // two paragraphs would merge into one.
+    if (!options.separateBoth) return [...hunk.current, ...hunk.incoming];
     const last = hunk.current[hunk.current.length - 1];
     const needsGap = last !== undefined && last.trim() !== "" && hunk.incoming.length > 0 && hunk.incoming[0].trim() !== "";
     return [...hunk.current, ...(needsGap ? [last.endsWith("\r") ? "\r" : ""] : []), ...hunk.incoming];
@@ -101,13 +109,17 @@ const hunkLines = (hunk: ConflictHunk, resolution: Resolution | undefined): stri
 };
 
 /** Rebuilds the file, resolving only the conflicts that have a choice. */
-export function resolveSegments(segments: ConflictSegment[], choose: (hunk: ConflictHunk) => Resolution | undefined): string {
-  return segments.flatMap((s) => (s.kind === "text" ? s.lines : hunkLines(s.hunk, choose(s.hunk)))).join("\n");
+export function resolveSegments(
+  segments: ConflictSegment[],
+  choose: (hunk: ConflictHunk) => Resolution | undefined,
+  options: ResolveOptions = { separateBoth: true },
+): string {
+  return segments.flatMap((s) => (s.kind === "text" ? s.lines : hunkLines(s.hunk, choose(s.hunk), options))).join("\n");
 }
 
 /** Resolves the given conflicts (by index) and leaves the rest as they are. */
-export function resolveConflicts(content: string, choices: ReadonlyMap<number, Resolution>): string {
-  return resolveSegments(parseConflicts(content), (hunk) => choices.get(hunk.index));
+export function resolveConflicts(content: string, choices: ReadonlyMap<number, Resolution>, options?: ResolveOptions): string {
+  return resolveSegments(parseConflicts(content), (hunk) => choices.get(hunk.index), options);
 }
 
 /** Branch names from the markers, e.g. { current: "HEAD", incoming: "feature" }. */
@@ -122,6 +134,8 @@ export interface ConflictGroup {
   indices: number[];
   /** True when the conflict is in the file's YAML header. */
   metadata: boolean;
+  /** True when the conflict is inside a ```void block (a request, table...). */
+  fenced: boolean;
 }
 
 /**
@@ -179,7 +193,9 @@ export function groupConflictsByBlock(content: string): ConflictGroup[] {
     while (at < start + hunk.current.length && !blockOf[at]) at++;
     const block = (at < start + hunk.current.length || hunk.current.length === 0 ? blockOf[at] : "") || `conflict-${hunk.index}`;
     const key = block === "meta" ? "meta" : block;
-    const group = groups.get(key) ?? { indices: [], metadata: key === "meta" };
+    const blockStart = key.startsWith("block-") ? Number(key.slice(6)) : -1;
+    const fenced = blockStart >= 0 && lines[blockStart].trim().startsWith("```");
+    const group = groups.get(key) ?? { indices: [], metadata: key === "meta", fenced };
     group.indices.push(hunk.index);
     groups.set(key, group);
   }
@@ -212,4 +228,27 @@ export function validateVoidContent(content: string): { valid: boolean; invalidB
   }
   const invalidBlocks = total - parsed;
   return { valid: invalidBlocks === 0 && !hasMarkers, invalidBlocks, hasMarkers };
+}
+
+/** Resolves every conflict with one side. */
+export const resolveAll = (content: string, resolution: Resolution, options?: ResolveOptions): string =>
+  resolveSegments(parseConflicts(content), () => resolution, options);
+
+/**
+ * Keeps both sides of conflicts in the text between blocks, where both
+ * versions can sit next to each other. Conflicts in the header or inside a
+ * block (a request, a headers table) stay unresolved: keeping both there gives
+ * a broken or wrong block, so the user picks a side for them.
+ */
+export function keepBothWherePossible(content: string): { content: string; skipped: number } {
+  const segments = parseConflicts(content);
+  const choices = new Map<number, Resolution>();
+  let skipped = 0;
+  for (const group of groupConflictsByBlock(content)) {
+    const inGroup = new Set(group.indices);
+    const variant = resolveSegments(segments, (h) => (inGroup.has(h.index) ? "both" : "current"));
+    if (!group.metadata && !group.fenced && validateVoidContent(variant).valid) group.indices.forEach((i) => choices.set(i, "both"));
+    else skipped++;
+  }
+  return { content: resolveConflicts(content, choices), skipped };
 }

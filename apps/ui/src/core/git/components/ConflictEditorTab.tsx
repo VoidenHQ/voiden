@@ -19,7 +19,7 @@ import {
 import { StateField, RangeSetBuilder, Text } from "@codemirror/state";
 import { voidenTheme } from "@/core/editors/code/CodeEditor.tsx";
 import { getGitErrorMessage } from "@/core/git/utils/gitErrorMessage";
-import { resolveConflicts, validateVoidContent } from "@/core/git/utils/conflictMarkers";
+import { groupConflictsByBlock, keepBothWherePossible, resolveAll, resolveConflicts, validateVoidContent } from "@/core/git/utils/conflictMarkers";
 import { VoidView, VoidViewToggle } from "./VoidDiffView";
 import { VoidConflictView } from "./VoidConflictView";
 
@@ -27,50 +27,18 @@ import { VoidConflictView } from "./VoidConflictView";
 
 type Resolution = "current" | "incoming" | "both";
 
-// ── In-memory bulk resolution ─────────────────────────────────────────────────
+// ── In-memory resolution ─────────────────────────────────────────────────────
+// Unresolved conflicts are left exactly as they are, branch labels included.
 
 function applyResolutionInMemory(
   content: string,
   resolution: Resolution,
   sectionIndex?: number,
+  separateBoth = false,
 ): string {
-  const lines = content.split("\n");
-  const result: string[] = [];
-  let i = 0;
-  let cur = 0;
-
-  while (i < lines.length) {
-    if (lines[i].startsWith("<<<<<<<")) {
-      const currentLines: string[] = [];
-      const incomingLines: string[] = [];
-      let state: "current" | "base" | "incoming" = "current";
-      i++;
-      while (i < lines.length && !lines[i].startsWith(">>>>>>>")) {
-        if (lines[i].startsWith("=======")) state = "incoming";
-        else if (lines[i].startsWith("|||||||")) state = "base";
-        else if (state === "current") currentLines.push(lines[i]);
-        else if (state === "incoming") incomingLines.push(lines[i]);
-        i++;
-      }
-      const shouldResolve = sectionIndex === undefined || sectionIndex === cur;
-      if (shouldResolve) {
-        if (resolution === "current") result.push(...currentLines);
-        else if (resolution === "incoming") result.push(...incomingLines);
-        else { result.push(...currentLines); result.push(...incomingLines); }
-      } else {
-        result.push("<<<<<<< HEAD");
-        result.push(...currentLines);
-        result.push("=======");
-        result.push(...incomingLines);
-        result.push(">>>>>>> incoming");
-      }
-      cur++;
-    } else {
-      result.push(lines[i]);
-    }
-    i++;
-  }
-  return result.join("\n");
+  return sectionIndex === undefined
+    ? resolveAll(content, resolution, { separateBoth })
+    : resolveConflicts(content, new Map([[sectionIndex, resolution]]), { separateBoth });
 }
 
 // ── Conflict editor theme ─────────────────────────────────────────────────────
@@ -94,6 +62,7 @@ class ConflictActionWidget extends WidgetType {
   constructor(
     private readonly getView: () => EditorView | null,
     private readonly conflictIndex: number,
+    private readonly separateBoth: boolean,
   ) {
     super();
   }
@@ -127,7 +96,7 @@ class ConflictActionWidget extends WidgetType {
         const view = this.getView();
         if (!view) return;
         const content = view.state.doc.toString();
-        const resolved = applyResolutionInMemory(content, resolution, this.conflictIndex);
+        const resolved = applyResolutionInMemory(content, resolution, this.conflictIndex, this.separateBoth);
         view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: resolved } });
       });
       return btn;
@@ -157,6 +126,7 @@ class ConflictActionWidget extends WidgetType {
 function buildConflictDecos(
   doc: Text,
   getView: () => EditorView | null,
+  separateBoth: boolean,
 ): DecorationSet {
   const builder = new RangeSetBuilder<Decoration>();
   const lines = doc.toString().split("\n");
@@ -174,7 +144,7 @@ function buildConflictDecos(
         headerLine.from,
         headerLine.from,
         Decoration.widget({
-          widget: new ConflictActionWidget(getView, conflictIdx),
+          widget: new ConflictActionWidget(getView, conflictIdx, separateBoth),
           side: -1,
           block: true,
         }),
@@ -296,6 +266,16 @@ export const ConflictEditorTab = ({ tab }: { tab: any }) => {
     [localContent],
   );
   const allResolved = !isLoading && conflictCount === 0;
+  // In the rendered view one card can hold several conflicts (e.g. method and URL of one request).
+  const remaining = useMemo(
+    () => (showRendered ? groupConflictsByBlock(localContent).length : conflictCount),
+    [showRendered, localContent, conflictCount],
+  );
+  // A merged .void file that does not parse must not look resolved.
+  const voidInvalid = useMemo(
+    () => isVoid && allResolved && !validateVoidContent(localContent).valid,
+    [isVoid, allResolved, localContent],
+  );
 
   // ── StateField for conflict decorations (stable, created once per mount) ───
 
@@ -303,10 +283,10 @@ export const ConflictEditorTab = ({ tab }: { tab: any }) => {
     const getView = () => editorRef.current;
     return StateField.define<DecorationSet>({
       create(state) {
-        return buildConflictDecos(state.doc, getView);
+        return buildConflictDecos(state.doc, getView, isVoid);
       },
       update(decos, tr) {
-        if (tr.docChanged) return buildConflictDecos(tr.state.doc, getView);
+        if (tr.docChanged) return buildConflictDecos(tr.state.doc, getView, isVoid);
         return decos.map(tr.changes);
       },
       provide: (f) => EditorView.decorations.from(f),
@@ -345,13 +325,23 @@ export const ConflictEditorTab = ({ tab }: { tab: any }) => {
 
   const applyResolution = (resolution: Resolution) => {
     if (showRendered) {
-      changeContent(applyResolutionInMemory(localContent, resolution));
+      if (resolution !== "both") {
+        changeContent(resolveAll(localContent, resolution));
+        return;
+      }
+      const { content, skipped } = keepBothWherePossible(localContent);
+      if (content !== localContent) changeContent(content);
+      if (skipped > 0) {
+        toast.info(`${skipped} conflict${skipped === 1 ? "" : "s"} still need${skipped === 1 ? "s" : ""} a choice`, {
+          description: "Keeping both sides there would break the file, so pick Current or Incoming for them.",
+        });
+      }
       return;
     }
     const view = editorRef.current;
     if (!view) return;
     const content = view.state.doc.toString();
-    const resolved = applyResolutionInMemory(content, resolution);
+    const resolved = applyResolutionInMemory(content, resolution, undefined, isVoid);
     view.dispatch({
       changes: { from: 0, to: view.state.doc.length, insert: resolved },
     });
@@ -400,7 +390,7 @@ export const ConflictEditorTab = ({ tab }: { tab: any }) => {
         <div className="flex items-center gap-2">
           <AlertTriangle
             size={13}
-            className={cn(allResolved ? "text-green-400" : "text-orange-400")}
+            className={cn(voidInvalid ? "text-vcs-removed" : allResolved ? "text-green-400" : "text-orange-400")}
           />
           <span className="text-sm font-medium text-text truncate max-w-[200px]">
             {fileName}
@@ -409,14 +399,18 @@ export const ConflictEditorTab = ({ tab }: { tab: any }) => {
             <span
               className={cn(
                 "text-[10px] px-1.5 py-0.5 rounded font-medium whitespace-nowrap",
-                allResolved
-                  ? "bg-green-500/15 text-green-400"
-                  : "bg-orange-500/15 text-orange-400",
+                voidInvalid
+                  ? "bg-[color-mix(in_srgb,var(--vcs-removed)_15%,transparent)] text-vcs-removed"
+                  : allResolved
+                    ? "bg-green-500/15 text-green-400"
+                    : "bg-orange-500/15 text-orange-400",
               )}
             >
-              {allResolved
-                ? "Resolved"
-                : `${conflictCount} conflict${conflictCount !== 1 ? "s" : ""}`}
+              {voidInvalid
+                ? "Not valid"
+                : allResolved
+                  ? "Resolved"
+                  : `${remaining} conflict${remaining !== 1 ? "s" : ""} left`}
             </span>
           )}
         </div>
@@ -440,7 +434,7 @@ export const ConflictEditorTab = ({ tab }: { tab: any }) => {
                   <ArrowDown size={11} /> All Incoming
                 </button>
               </Tip>
-              <Tip label="Accept all — keep both" side="bottom">
+              <Tip label={showRendered ? "Keep both where the file stays valid" : "Accept all, keep both"} side="bottom">
                 <button
                   onClick={() => applyResolution("both")}
                   className="flex items-center gap-1 whitespace-nowrap text-[11px] text-comment hover:text-text bg-active/40 hover:bg-active border border-border px-2.5 py-1 rounded transition-colors"
@@ -543,7 +537,7 @@ export const ConflictEditorTab = ({ tab }: { tab: any }) => {
             </button>
           ) : (
             <span className="text-[10px] text-comment">
-              Resolve all {conflictCount} conflict{conflictCount !== 1 ? "s" : ""} to continue
+              Resolve all {remaining} conflict{remaining !== 1 ? "s" : ""} to continue
             </span>
           )}
         </div>

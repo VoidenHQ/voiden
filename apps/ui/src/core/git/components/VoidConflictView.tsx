@@ -26,6 +26,16 @@ const SIDE_CLASSES: Record<"current" | "incoming", string> = {
   incoming: "border-l-2 border-vcs-modified bg-[color-mix(in_srgb,var(--vcs-modified)_8%,transparent)]",
 };
 
+const TYPE_NAMES: Record<string, string> = { paragraph: "Text", heading: "Heading", "headers-table": "Headers table", blockquote: "Quote" };
+
+/** Readable name of the block a conflict is in, e.g. "Request" or "Headers table". */
+const blockTitle = (sections: VoidDiffSection[] | null): string => {
+  const first = sections?.[0];
+  const type = !first ? undefined : first.kind === "modified" ? first.before.type : (first.kind === "changed" ? first.removed[0] ?? first.added[0] : undefined)?.type;
+  if (!type) return "Block";
+  return TYPE_NAMES[type] ?? type.charAt(0).toUpperCase() + type.slice(1).replace(/[-_]/g, " ");
+};
+
 interface GroupView {
   group: ConflictGroup;
   /** Block differences between the two sides, or null if a side cannot be shown as blocks. */
@@ -106,8 +116,6 @@ const ActionButton = ({ onClick, children, className }: { onClick: () => void; c
 
 interface CardProps {
   view: GroupView;
-  number: number;
-  total: number;
   labels: { current: string; incoming: string };
   onResolve: (indices: number[], resolution: Resolution) => void;
   onShowSource: () => void;
@@ -115,7 +123,7 @@ interface CardProps {
   extensionsKey: string;
 }
 
-const ConflictCard = memo(({ view, number, total, labels, onResolve, onShowSource, extensions, extensionsKey }: CardProps) => {
+const ConflictCard = memo(({ view, labels, onResolve, onShowSource, extensions, extensionsKey }: CardProps) => {
   const { group, sections, metadata, incomingValid, canKeepBoth } = view;
   const resolve = (resolution: Resolution) => onResolve(group.indices, resolution);
   const showsBlocks = !group.metadata && sections && sections.length > 0 && incomingValid;
@@ -123,10 +131,7 @@ const ConflictCard = memo(({ view, number, total, labels, onResolve, onShowSourc
   return (
     <section className="border border-border rounded-md overflow-hidden" data-testid="void-conflict-card">
       <header className="flex items-center gap-2 px-4 py-2 border-b border-border bg-panel">
-        <span className="text-xs font-medium text-text">
-          Conflict {number} of {total}
-        </span>
-        <span className="text-[11px] text-comment truncate flex-1">{group.metadata ? "File metadata" : "Block"}</span>
+        <span className="text-xs font-medium text-text truncate flex-1">{group.metadata ? "File metadata" : blockTitle(sections)}</span>
         <ActionButton onClick={() => resolve("current")} className="text-vcs-added border-border hover:bg-active">
           <ArrowUp size={11} /> Keep Current
         </ActionButton>
@@ -232,12 +237,10 @@ export const VoidConflictView = ({ content, onResolve, onShowSource }: VoidConfl
 
   return (
     <div className="flex-1 overflow-auto px-4 py-4 space-y-4" data-testid="void-conflict-view">
-      {views.map((view, i) => (
+      {views.map((view) => (
         <ConflictCard
           key={view.group.indices.join(",")}
           view={view}
-          number={i + 1}
-          total={views.length}
           labels={labels}
           onResolve={onResolve}
           onShowSource={onShowSource}

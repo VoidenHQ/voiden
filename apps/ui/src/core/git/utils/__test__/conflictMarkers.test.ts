@@ -8,7 +8,9 @@ import {
   conflictLabels,
   getHunks,
   groupConflictsByBlock,
+  keepBothWherePossible,
   parseConflicts,
+  resolveAll,
   resolveConflicts,
   validateVoidContent,
 } from "../conflictMarkers";
@@ -31,6 +33,15 @@ describe("parseConflicts / resolveConflicts", () => {
     expect(resolveConflicts(simple, new Map([[0, "both"]]))).toBe("a\nmine\n\ntheirs\nb");
     const gapped = ["<<<<<<< HEAD", "mine", "", "=======", "theirs", ">>>>>>> f"].join("\n");
     expect(resolveConflicts(gapped, new Map([[0, "both"]]))).toBe("mine\n\ntheirs");
+  });
+
+  it("adds no blank line for 'both' when separateBoth is off (plain text files)", () => {
+    expect(resolveConflicts(simple, new Map([[0, "both"]]), { separateBoth: false })).toBe("a\nmine\ntheirs\nb");
+  });
+
+  it("keeps the branch labels of conflicts it does not resolve", () => {
+    const two = `${simple}\n${simple.replace("feature", "other-branch")}`;
+    expect(resolveConflicts(two, new Map([[0, "current"]]))).toContain(">>>>>>> other-branch");
   });
 
   it("leaves unresolved conflicts byte for byte", () => {
@@ -182,6 +193,34 @@ describe("against a real git merge conflict", () => {
     expect(out).toContain("https://staging.apyhub.com/v2");
     expect(out).toContain("- text/plain");
     expect(out).toContain("generatedAt: 2025-03-03");
+  });
+
+  it("resolveAll takes one side everywhere and gives a valid file", () => {
+    for (const side of ["current", "incoming"] as const) {
+      const out = resolveAll(conflicted, side);
+      expect(getHunks(parseConflicts(out))).toEqual([]);
+      expect(validateVoidContent(out).valid).toBe(true);
+    }
+  });
+
+  it("keeps both only where that stays valid and leaves the rest for the user", () => {
+    const { content, skipped } = keepBothWherePossible(conflicted);
+    // Only text between blocks keeps both; header, request and table are left.
+    const groups = groupConflictsByBlock(conflicted);
+    expect(groups.map((g) => [g.metadata, g.fenced])).toEqual([[true, false], [false, true], [false, true]]);
+    expect(skipped).toBe(3);
+    const left = groupConflictsByBlock(content);
+    expect(left).toHaveLength(skipped);
+    // Finishing the skipped ones with one side gives a valid file.
+    expect(validateVoidContent(resolveAll(content, "current")).valid).toBe(true);
+  });
+
+  it("keeps both for conflicting paragraphs between blocks", () => {
+    const text = ["## Notes", "", "<<<<<<< HEAD", "My tip.", "=======", "Their tip.", ">>>>>>> theirs", "", "```void", "---", "type: request", "---", "```"].join("\n");
+    const { content, skipped } = keepBothWherePossible(text);
+    expect(skipped).toBe(0);
+    expect(content).toContain("My tip.\n\nTheir tip.");
+    expect(validateVoidContent(content).valid).toBe(true);
   });
 
   it("flags 'both' inside a request as invalid instead of saving it", () => {
