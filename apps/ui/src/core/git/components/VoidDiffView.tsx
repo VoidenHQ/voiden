@@ -35,7 +35,7 @@ export const VoidViewToggle = ({ value, onChange }: { value: VoidView; onChange:
 );
 
 type Tone = "added" | "removed" | "neutral";
-type Extensions = ReturnType<typeof useVoidenExtensionsAndSchema>["finalExtensions"];
+export type Extensions = ReturnType<typeof useVoidenExtensionsAndSchema>["finalExtensions"];
 
 const TONE_CLASSES: Record<Tone, string> = {
   added: "border-l-2 border-vcs-added bg-[color-mix(in_srgb,var(--vcs-added)_12%,transparent)]",
@@ -52,7 +52,7 @@ const LABEL_CLASSES: Record<string, string> = {
 };
 
 /** Same extension set the linked-file preview uses: everything except keyboard navigation between files. */
-const usePreviewExtensions = () => {
+export const usePreviewExtensions = () => {
   const { finalExtensions, memoizedSchema } = useVoidenExtensionsAndSchema();
   const extensions = useMemo(() => finalExtensions.filter((ext) => ext?.name !== "seamlessNavigation"), [finalExtensions]);
   // finalExtensions is a new array whenever variables or environments refresh;
@@ -62,22 +62,27 @@ const usePreviewExtensions = () => {
 };
 
 /** Parses a .void file into top-level blocks. Returns null when the file cannot be parsed. */
-const useParsedBlocks = (markdown: string | null | undefined, schema: ReturnType<typeof usePreviewExtensions>["schema"]) =>
-  useMemo((): JSONContent[] | null => {
-    if (!markdown || !markdown.trim()) return [];
-    try {
-      return (parseMarkdown(markdown, schema)?.content as JSONContent[] | undefined) ?? [];
-    } catch (error) {
-      console.error("[VoidDiffView] Could not parse .void file", error);
-      return null;
-    }
-  }, [markdown, schema]);
+export function parseVoidBlocks(markdown: string | null | undefined, schema: ReturnType<typeof usePreviewExtensions>["schema"]): JSONContent[] | null {
+  if (!markdown || !markdown.trim()) return [];
+  try {
+    return (parseMarkdown(markdown, schema)?.content as JSONContent[] | undefined) ?? [];
+  } catch (error) {
+    console.error("[VoidDiffView] Could not parse .void file", error);
+    return null;
+  }
+}
 
-type Side = "removed" | "added";
+const useParsedBlocks = (markdown: string | null | undefined, schema: ReturnType<typeof usePreviewExtensions>["schema"]) =>
+  useMemo(() => parseVoidBlocks(markdown, schema), [markdown, schema]);
+
+/** Which version a preview shows: the two sides of a diff, or of a merge conflict. */
+export type Side = "removed" | "added" | "current" | "incoming";
 
 const WORD_CLASSES: Record<Side, string> = {
   removed: "rounded-sm bg-[color-mix(in_srgb,var(--vcs-removed)_30%,transparent)]",
   added: "rounded-sm bg-[color-mix(in_srgb,var(--vcs-added)_30%,transparent)]",
+  current: "rounded-sm bg-[color-mix(in_srgb,var(--vcs-added)_30%,transparent)]",
+  incoming: "rounded-sm bg-[color-mix(in_srgb,var(--vcs-modified)_30%,transparent)]",
 };
 
 // sanitizeDoc mutates, and the same blocks render on both sides of a split diff.
@@ -98,7 +103,9 @@ const createWordDiffExtension = (other: JSONContent[], side: Side) =>
               if (cache?.doc === state.doc) return cache.set;
               try {
                 otherDoc ??= schema.nodeFromJSON(toDoc(other));
-                const decorations = changedRanges(state.doc, otherDoc, side).map((range) =>
+                // Either way the marked words are the ones this version has and the other lacks.
+                const direction = side === "removed" || side === "current" ? "removed" : "added";
+                const decorations = changedRanges(state.doc, otherDoc, direction).map((range) =>
                   Decoration.inline(range.from, range.to, { class: WORD_CLASSES[side] }),
                 );
                 cache = { doc: state.doc, set: DecorationSet.create(state.doc, decorations) };
@@ -124,7 +131,7 @@ interface PreviewProps {
 }
 
 /** Read-only Voiden editor for a run of blocks. */
-const BlocksPreview = memo(({ blocks, extensions, extensionsKey, compareTo, side }: PreviewProps) => {
+export const BlocksPreview = memo(({ blocks, extensions, extensionsKey, compareTo, side }: PreviewProps) => {
   const wordDiff = useMemo(() => (compareTo && side ? createWordDiffExtension(compareTo, side) : null), [compareTo, side]);
   const editor = useEditor(
     {
