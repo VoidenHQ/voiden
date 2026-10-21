@@ -53,8 +53,10 @@ interface ColumnProps {
   extensionsKey: string;
 }
 
-const SideColumn = ({ sections, side, extensions, extensionsKey }: ColumnProps) => {
-  const parts = sideBlocks(sections, side);
+const SideColumn = memo(({ sections, side, extensions, extensionsKey }: ColumnProps) => {
+  // New arrays here would make every preview editor rebuild on each render,
+  // briefly collapsing its height and throwing the scroll position back.
+  const parts = useMemo(() => sideBlocks(sections, side), [sections, side]);
   return (
     <div className={cn("min-w-0 px-4 py-3", SIDE_CLASSES[side])}>
       {parts.length === 0 ? (
@@ -75,7 +77,8 @@ const SideColumn = ({ sections, side, extensions, extensionsKey }: ColumnProps) 
       )}
     </div>
   );
-};
+});
+SideColumn.displayName = "SideColumn";
 
 const MetadataRows = ({ changes }: { changes: FrontmatterChange[] }) => (
   <div className="grid grid-cols-2 text-xs font-mono">
