@@ -3,6 +3,7 @@ import { useSetActiveProject, useOpenProject } from "@/core/projects/hooks/usePr
 import { Loader2, FilePlus, FileEdit, FileX, GitBranch, Check, Plus, Minus, RotateCcw, GitCommit, ArrowUp, ArrowDown, RefreshCw, ChevronDown, ChevronRight, GitFork, Eye, EyeOff, MoreVertical, CloudDownload, Archive, ArrowDownToLine, X, FolderOpen, Key, Lock } from "lucide-react";
 import { cn } from "@/core/lib/utils";
 import { useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import { toast } from "@/core/components/ui/sonner";
 import { useElectronEvent } from "@/core/providers";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/core/components/ui/dialog";
@@ -1046,15 +1047,26 @@ export const GitSourceControl = () => {
             className="px-3 py-1.5 bg-active/30 border-b border-border flex items-center gap-1 cursor-pointer select-none"
             onClick={() => setHistoryOpen((o) => !o)}
           >
-            {historyOpen ? <ChevronDown size={11} className="text-comment" /> : <ChevronRight size={11} className="text-comment" />}
+            <ChevronRight size={11} className={cn("text-comment transition-transform duration-200", historyOpen && "rotate-90")} />
             <GitCommit size={11} className="text-accent" />
             <span className="text-[10px] uppercase tracking-wide text-comment">Commit History</span>
           </div>
-          {historyOpen && (
-            <div className="h-72 flex flex-col overflow-hidden border-b border-border">
-              <GitGraph />
-            </div>
-          )}
+          <AnimatePresence initial={false}>
+            {historyOpen && (
+              <motion.div
+                key="history"
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.2, ease: "easeOut" }}
+                className="overflow-hidden"
+              >
+                <div className="h-72 flex flex-col overflow-hidden border-b border-border">
+                  <GitGraph />
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </div>
     </div>
