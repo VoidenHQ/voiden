@@ -278,10 +278,26 @@ declare global {
         }>;
         getCommitFiles: (commitHash: string) => Promise<{
           path: string;
+          oldPath?: string;
+          status: 'A' | 'M' | 'D' | 'R' | 'C' | 'T' | 'U';
           changes: number;
           insertions: number;
           deletions: number;
         }[]>;
+        getCommitDetails: (commitHash: string) => Promise<{
+          hash: string;
+          shortHash: string;
+          authorName: string;
+          authorEmail: string;
+          authorDate: string;
+          committerName: string;
+          committerEmail: string;
+          committerDate: string;
+          parents: string[];
+          refs: string;
+          subject: string;
+          body: string;
+        } | null>;
         fetchRemote: () => Promise<boolean | null>;
         push: () => Promise<{ branch: string }>;
         pull: () => Promise<any>;

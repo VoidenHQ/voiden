@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { useGetAppState } from "@/core/state/hooks";
 import { reloadVoidenEditor } from "@/core/editors/voiden/VoidenEditor";
@@ -172,6 +172,8 @@ export const useGetGitLog = (limit: number = 50) => {
     refetchInterval: isGitRepo ? 90000 : false,
     refetchIntervalInBackground: false,
     staleTime: 8000,
+    // Keep the current list on screen while a larger page ("Load more") loads.
+    placeholderData: keepPreviousData,
   });
 };
 
@@ -183,6 +185,19 @@ export const useGetCommitFiles = (commitHash: string | null) => {
       return window.electron?.git.getCommitFiles(commitHash);
     },
     enabled: !!commitHash,
+  });
+};
+
+export const useGetCommitDetails = (commitHash: string | null) => {
+  return useQuery({
+    queryKey: ["git:commitDetails", commitHash],
+    queryFn: async () => {
+      if (!commitHash) return null;
+      return window.electron?.git.getCommitDetails(commitHash);
+    },
+    enabled: !!commitHash,
+    // A commit's metadata never changes.
+    staleTime: Infinity,
   });
 };
 
