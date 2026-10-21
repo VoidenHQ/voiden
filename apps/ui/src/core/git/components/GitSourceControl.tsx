@@ -1,15 +1,17 @@
 import { useGetGitStatus, useStageFiles, useUnstageFiles, useCommit, useDiscardFiles, useGetGitBranches, useInitializeGit, usePushToRemote, usePullFromRemote, useCloneRepo, useFetchRemote, useGetGitRemote, useStash, useStashList, useStashPop, useUncommit, useGetGitLog } from "@/core/git/hooks";
 import { useSetActiveProject, useOpenProject } from "@/core/projects/hooks/useProjects";
-import { Loader2, FilePlus, FileEdit, FileX, GitBranch, Check, Plus, Minus, RotateCcw, GitCommit, ArrowUp, ArrowDown, RefreshCw, ChevronDown, ChevronRight, GitFork, Eye, EyeOff, MoreVertical, CloudDownload, Archive, ArrowDownToLine, X, FolderOpen, Key, Lock } from "lucide-react";
+import { Loader2, FilePlus, FileEdit, FileX, GitBranch, Check, Plus, Minus, RotateCcw, GitCommit, ArrowUp, ArrowDown, RefreshCw, ChevronRight, GitFork, Eye, EyeOff, MoreVertical, CloudDownload, Archive, ArrowDownToLine, X, FolderOpen, Key, Lock } from "lucide-react";
 import { cn } from "@/core/lib/utils";
-import { useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { useRef, useState } from "react";
 import { toast } from "@/core/components/ui/sonner";
 import { useElectronEvent } from "@/core/providers";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/core/components/ui/dialog";
 import { useAddPanelTab } from "@/core/layout/hooks";
 import { GitGraph } from "./GitGraph";
 import { GitFileStatusBadge } from "./GitFileStatusBadge";
+import { CommitHistoryResizer } from "./CommitHistoryResizer";
+import { Collapse, SectionChevron } from "./Collapse";
+import { useCommitHistoryHeight } from "@/core/stores/commitHistoryHeight";
 import { ConflictResolver } from "./ConflictResolver";
 import { Tip } from "@/core/components/ui/Tip";
 import { getGitErrorMessage, getGitErrorSummary } from "@/core/git/utils/gitErrorMessage";
@@ -87,6 +89,8 @@ export const GitSourceControl = () => {
   const [stagedOpen, setStagedOpen] = useState(true);
   const [changesOpen, setChangesOpen] = useState(true);
   const [historyOpen, setHistoryOpen] = useState(true);
+  const historyPanelRef = useRef<HTMLDivElement>(null);
+  const historyHeight = useCommitHistoryHeight((s) => s.height);
   // Huge change lists (e.g. an untracked node_modules) would freeze the panel if every row rendered.
   const [stagedLimit, setStagedLimit] = useState(ROW_PAGE);
   const [changesLimit, setChangesLimit] = useState(ROW_PAGE);
@@ -906,7 +910,7 @@ export const GitSourceControl = () => {
                 onClick={() => setStagedOpen((o) => !o)}
               >
                 <div className="flex items-center gap-1">
-                  {stagedOpen ? <ChevronDown size={11} className="text-comment" /> : <ChevronRight size={11} className="text-comment" />}
+                  <SectionChevron open={stagedOpen} />
                   <span className="text-[10px] uppercase tracking-wide text-comment">
                     Staged ({stagedChanges.length})
                   </span>
@@ -920,7 +924,7 @@ export const GitSourceControl = () => {
                   </button>
                 </Tip>
               </div>
-              {stagedOpen && (
+              <Collapse open={stagedOpen}>
                 <div>
                   {stagedChanges.slice(0, stagedLimit).map((file) => (
                     <div
@@ -946,7 +950,7 @@ export const GitSourceControl = () => {
                   ))}
                   <ShowMoreRows shown={stagedLimit} total={stagedChanges.length} onShowMore={() => setStagedLimit((n) => n + ROW_PAGE)} />
                 </div>
-              )}
+              </Collapse>
             </div>
           )}
 
@@ -958,7 +962,7 @@ export const GitSourceControl = () => {
                 onClick={() => setChangesOpen((o) => !o)}
               >
                 <div className="flex items-center gap-1">
-                  {changesOpen ? <ChevronDown size={11} className="text-comment" /> : <ChevronRight size={11} className="text-comment" />}
+                  <SectionChevron open={changesOpen} />
                   <span className="text-[10px] uppercase tracking-wide text-comment">
                     Changes ({unstagedChanges.length})
                   </span>
@@ -982,7 +986,7 @@ export const GitSourceControl = () => {
                   </Tip>
                 </div>
               </div>
-              {changesOpen && (
+              <Collapse open={changesOpen}>
                 <div>
                   {unstagedChanges.slice(0, changesLimit).map((file) => {
                     const workingTreeCode = entryByPath.get(file)?.workingTree;
@@ -1026,7 +1030,7 @@ export const GitSourceControl = () => {
                   })}
                   <ShowMoreRows shown={changesLimit} total={unstagedChanges.length} onShowMore={() => setChangesLimit((n) => n + ROW_PAGE)} />
                 </div>
-              )}
+              </Collapse>
             </div>
           )}
 
@@ -1042,31 +1046,28 @@ export const GitSourceControl = () => {
         </div>
 
         {/* ── Commit History ── */}
-        <div className="border-t border-border flex-shrink-0">
+        <div className="border-t border-border flex-shrink-0 relative" data-commit-history>
+          {historyOpen && <CommitHistoryResizer panelRef={historyPanelRef} />}
           <div
             className="px-3 py-1.5 bg-active/30 border-b border-border flex items-center gap-1 cursor-pointer select-none"
             onClick={() => setHistoryOpen((o) => !o)}
           >
-            <ChevronRight size={11} className={cn("text-comment transition-transform duration-200", historyOpen && "rotate-90")} />
+            <SectionChevron open={historyOpen} />
             <GitCommit size={11} className="text-accent" />
             <span className="text-[10px] uppercase tracking-wide text-comment">Commit History</span>
           </div>
-          <AnimatePresence initial={false}>
-            {historyOpen && (
-              <motion.div
-                key="history"
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: "auto", opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                transition={{ duration: 0.2, ease: "easeOut" }}
-                className="overflow-hidden"
-              >
-                <div className="h-72 flex flex-col overflow-hidden border-b border-border">
-                  <GitGraph />
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
+          <Collapse open={historyOpen}>
+            {/* Auto size fits short histories and never takes more than 40% of the window,
+                so the change lists above keep room on small screens. A dragged height
+                is capped too, in case the window got smaller since. */}
+            <div
+              ref={historyPanelRef}
+              className={cn("flex flex-col overflow-hidden border-b border-border", historyHeight === null && "max-h-[min(18rem,40vh)]")}
+              style={historyHeight === null ? undefined : { height: `min(${historyHeight}px, 70vh)` }}
+            >
+              <GitGraph />
+            </div>
+          </Collapse>
         </div>
       </div>
     </div>
