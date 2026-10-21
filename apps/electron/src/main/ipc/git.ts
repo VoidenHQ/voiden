@@ -477,10 +477,9 @@ export function registerGitIpcHandlers() {
     try {
       if (!await getCachedIsRepo(activeProject)) return null;
 
-      // Every refresh re-checks that .gitignore still covers .voiden/ (only the
-      // public env YAMLs may be tracked) and untracks anything ignored that
-      // slipped into the index, so the status below already reflects it.
-      await ensureVoidenGitignore(activeProject).catch(() => {});
+      // Don't ensureVoidenGitignore here: doing it on every refresh re-wrote
+      // .gitignore (and re-untracked .voiden files) right after the user
+      // discarded those changes. Commit still runs it as the last line of defence.
 
       const git = getSharedGit(activeProject);
 
