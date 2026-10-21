@@ -4,9 +4,27 @@ import { useCommitHistoryHeight } from "@/core/stores/commitHistoryHeight";
 
 /** Smallest height the Commit History panel can be dragged to. */
 const MIN_HISTORY = 80;
-/** Space always left for the change lists above the panel. */
+/** Space left above the panel when there are no change lists to keep in view. */
 const MIN_ABOVE = 120;
+/** The lists above never get pushed below this share of the shared space. */
+const MAX_ABOVE_SHARE = 0.5;
 const KEY_STEP = 16;
+
+/**
+ * Height the change lists need so the last section's header and its first file
+ * stay in view, like VS Code keeps "Changes" and one file above the graph.
+ */
+const keepVisible = (lists: HTMLElement | null): number => {
+  if (!lists) return MIN_ABOVE;
+  const sections = lists.querySelectorAll<HTMLElement>("[data-scm-section]");
+  const last = sections[sections.length - 1];
+  if (!last) return MIN_ABOVE;
+  const header = last.firstElementChild as HTMLElement | null;
+  // The first file row, when the section is expanded.
+  const firstRow = last.children[1]?.firstElementChild?.firstElementChild as HTMLElement | null;
+  const bottom = (firstRow ?? header ?? last).getBoundingClientRect().bottom;
+  return bottom - lists.getBoundingClientRect().top + lists.scrollTop;
+};
 
 /**
  * Drag handle on the top edge of Commit History, like the sash between
@@ -24,7 +42,9 @@ export const CommitHistoryResizer = ({ panelRef }: { panelRef: RefObject<HTMLDiv
     const section = panel.closest<HTMLElement>("[data-commit-history]");
     const above = section?.previousElementSibling as HTMLElement | null;
     const height = panel.getBoundingClientRect().height;
-    const room = Math.max(0, (above?.getBoundingClientRect().height ?? 0) - MIN_ABOVE);
+    const aboveHeight = above?.getBoundingClientRect().height ?? 0;
+    const keep = Math.min(keepVisible(above), (aboveHeight + height) * MAX_ABOVE_SHARE);
+    const room = Math.max(0, aboveHeight - keep);
     return { panel, height, max: Math.max(MIN_HISTORY, height + room) };
   };
 

@@ -907,7 +907,7 @@ export const GitSourceControl = () => {
 
           {/* ── Staged Changes ── */}
           {stagedChanges.length > 0 && (
-            <div>
+            <div data-scm-section>
               <div
                 className="px-3 py-1.5 bg-active/30 border-b border-border flex items-center justify-between cursor-pointer select-none"
                 onClick={() => setStagedOpen((o) => !o)}
@@ -959,7 +959,7 @@ export const GitSourceControl = () => {
 
           {/* ── Changes ── */}
           {unstagedChanges.length > 0 && (
-            <div >
+            <div data-scm-section>
               <div
                 className="px-3 py-1.5 bg-active/30 border-b border-border flex items-center justify-between cursor-pointer select-none"
                 onClick={() => setChangesOpen((o) => !o)}
