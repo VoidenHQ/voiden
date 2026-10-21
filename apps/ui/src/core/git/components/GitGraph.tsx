@@ -1,4 +1,4 @@
-import { KeyboardEvent, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { KeyboardEvent, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { FileDiff, Loader2, Tag } from "lucide-react";
 import { useGetGitLog } from "@/core/git/hooks";
@@ -37,16 +37,61 @@ const RefBadges = ({ refs }: { refs: string }) => {
   );
 };
 
+const FILES_TRANSITION = { duration: 0.15, ease: "easeOut" } as const;
+const FILES_VARIANTS = {
+  // Switching to another commit closes this one at once, so rows don't slide under the pointer.
+  closed: (instant: boolean) => ({ height: 0, transition: instant ? { duration: 0 } : FILES_TRANSITION }),
+};
+
+/**
+ * Files under an expanded commit. The height follows the measured content, so
+ * the switch from the loading placeholder to the real list animates instead of
+ * snapping, which a one-off "auto" height would do.
+ */
+const ExpandedFiles = ({ node, indent }: { node: GraphNode; indent: number }) => {
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [height, setHeight] = useState<number | "auto">("auto");
+
+  useLayoutEffect(() => {
+    const el = contentRef.current;
+    if (!el) return;
+    const measure = () => setHeight(el.offsetHeight);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <motion.div
+      initial={{ height: 0 }}
+      animate={{ height }}
+      exit="closed"
+      variants={FILES_VARIANTS}
+      transition={FILES_TRANSITION}
+      className="relative overflow-hidden"
+      style={{ paddingLeft: indent }}
+    >
+      <LaneContinuation node={node} graphWidth={indent} />
+      <div ref={contentRef}>
+        <CommitFileList commitHash={node.commit.hash} shortHash={node.commit.shortHash} />
+      </div>
+    </motion.div>
+  );
+};
+
 interface CommitRowProps {
   node: GraphNode;
   prevActiveLanes: number[];
   selected: boolean;
   expanded: boolean;
+  /** Another commit is open, so this one closes instantly instead of sliding shut. */
+  otherExpanded: boolean;
   onRowClick: (hash: string) => void;
   onOpenChanges: (hash: string, shortHash: string) => void;
 }
 
-const CommitRow = memo(({ node, prevActiveLanes, selected, expanded, onRowClick, onOpenChanges }: CommitRowProps) => {
+const CommitRow = memo(({ node, prevActiveLanes, selected, expanded, otherExpanded, onRowClick, onOpenChanges }: CommitRowProps) => {
   const { commit } = node;
   const graphWidth = rowGraphWidth(node, prevActiveLanes);
   const filesIndent = continuationWidth(node);
@@ -86,21 +131,8 @@ const CommitRow = memo(({ node, prevActiveLanes, selected, expanded, onRowClick,
       </CommitHoverCard>
 
       {/* Only one commit is expanded at a time, so this is a single animated element. */}
-      <AnimatePresence initial={false}>
-        {expanded && (
-          <motion.div
-            key="files"
-            initial={{ height: 0 }}
-            animate={{ height: "auto" }}
-            exit={{ height: 0 }}
-            transition={{ duration: 0.15, ease: "easeOut" }}
-            className="relative overflow-hidden"
-            style={{ paddingLeft: filesIndent }}
-          >
-            <LaneContinuation node={node} graphWidth={filesIndent} />
-            <CommitFileList commitHash={commit.hash} shortHash={commit.shortHash} />
-          </motion.div>
-        )}
+      <AnimatePresence initial={false} custom={otherExpanded}>
+        {expanded && <ExpandedFiles key="files" node={node} indent={filesIndent} />}
       </AnimatePresence>
     </div>
   );
@@ -208,7 +240,10 @@ export const GitGraph = ({ revealHead = 0 }: { revealHead?: number }) => {
       aria-label="Commit history"
       tabIndex={0}
       onKeyDown={handleKeyDown}
-      className="flex-1 overflow-auto relative outline-none py-0.5"
+      className="flex-grow flex-shrink min-h-0 overflow-auto relative outline-none py-0.5"
+      // Sized by the commit rows alone, so opening a commit scrolls inside the list
+      // instead of growing the panel and moving the rows under the pointer.
+      style={{ flexBasis: (graphNodes.length + (hasMore ? 1 : 0)) * ROW_HEIGHT + 4 }}
     >
       {graphNodes.map((node, index) => (
         <CommitRow
@@ -217,6 +252,7 @@ export const GitGraph = ({ revealHead = 0 }: { revealHead?: number }) => {
           prevActiveLanes={index > 0 ? graphNodes[index - 1].activeLanesAfter : EMPTY_LANES}
           selected={selectedHash === node.commit.hash}
           expanded={expandedHash === node.commit.hash}
+          otherExpanded={expandedHash !== null && expandedHash !== node.commit.hash}
           onRowClick={handleRowClick}
           onOpenChanges={openChanges}
         />
