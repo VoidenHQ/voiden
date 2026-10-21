@@ -1,7 +1,7 @@
 import { ReactNode, useEffect, useState } from "react";
 import * as HoverCardPrimitive from "@radix-ui/react-hover-card";
 import { Check, Clock, Copy, ExternalLink, GitCommitVertical, Github, Gitlab, UserRound } from "lucide-react";
-import { useGetCommitDetails, useGetCommitFiles, useGetGitRemote } from "@/core/git/hooks";
+import { useGetAuthorAvatar, useGetCommitDetails, useGetCommitFiles, useGetGitRemote } from "@/core/git/hooks";
 import {
   formatAbsoluteDate,
   formatRelativeTime,
@@ -10,6 +10,7 @@ import {
   reflowCommitMessage,
   toCommitWebLink,
 } from "@/core/git/utils/commitInfo";
+import { cn } from "@/core/lib/utils";
 
 /** The commit fields the hover card needs (one entry of the commit history log). */
 export interface HoverCardCommit {
@@ -53,6 +54,34 @@ const CopyHashButton = ({ hash }: { hash: string }) => {
   );
 };
 
+/** Author photo from GitHub/Gravatar over an initials fallback, which stays if the photo is missing. */
+const AuthorAvatar = ({ name, email, commitHash, color }: { name: string; email?: string; commitHash: string; color: string }) => {
+  const { data: avatarUrl } = useGetAuthorAvatar(email, commitHash);
+  const [status, setStatus] = useState<"loading" | "loaded" | "failed">("loading");
+  useEffect(() => setStatus("loading"), [avatarUrl]);
+
+  return (
+    <span
+      className="relative w-5 h-5 rounded overflow-hidden flex items-center justify-center text-[9px] font-semibold text-bg flex-shrink-0"
+      style={{ background: color }}
+      aria-hidden
+    >
+      {getInitials(name)}
+      {avatarUrl && status !== "failed" && (
+        <img
+          src={avatarUrl}
+          alt=""
+          referrerPolicy="no-referrer"
+          draggable={false}
+          onLoad={() => setStatus("loaded")}
+          onError={() => setStatus("failed")}
+          className={cn("absolute inset-0 w-full h-full object-cover transition-opacity duration-150", status === "loaded" ? "opacity-100" : "opacity-0")}
+        />
+      )}
+    </span>
+  );
+};
+
 /** Card body; only mounted while open, so details and files load on demand. */
 const CommitHoverCardBody = ({ commit, color }: { commit: HoverCardCommit; color: string }) => {
   const { data: details } = useGetCommitDetails(commit.hash);
@@ -71,13 +100,7 @@ const CommitHoverCardBody = ({ commit, color }: { commit: HoverCardCommit; color
   return (
     <div className="flex flex-col text-xs text-text">
       <div className="flex items-center gap-2 flex-wrap">
-        <span
-          className="w-5 h-5 rounded flex items-center justify-center text-[9px] font-semibold text-bg flex-shrink-0"
-          style={{ background: color }}
-          aria-hidden
-        >
-          {getInitials(author)}
-        </span>
+        <AuthorAvatar name={author} email={details?.authorEmail} commitHash={commit.hash} color={color} />
         <span className="font-semibold text-accent" title={details?.authorEmail}>{author}</span>
         <span className="flex items-center gap-1 text-comment">
           <Clock size={11} />

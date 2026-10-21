@@ -15,6 +15,7 @@ import {
   parseNameStatusZ,
   parseNumstatZ,
 } from "./gitCommitParsers";
+import { resolveAuthorAvatar } from "./gitAvatars";
 
 // In-flight deduplication: prevents polling intervals from stacking up
 // concurrent git processes when a call takes longer than the poll interval.
@@ -853,6 +854,27 @@ export function registerGitIpcHandlers() {
       return parseCommitDetails(raw);
     } catch (error) {
       console.error("Error getting commit details:", error);
+      return null;
+    }
+  });
+
+  // Avatar URL for a commit author (GitHub, then Gravatar); null when unknown
+  ipcMain.handle("git:getAuthorAvatar", async (event, email: string, commitHash: string) => {
+    const activeProject = await getActiveProject(event);
+    if (!activeProject || !email) return null;
+
+    try {
+      if (!await getCachedIsRepo(activeProject)) return await resolveAuthorAvatar(email, commitHash, null);
+      const git = getSharedGit(activeProject);
+      const remotes = await git.getRemotes(true);
+      const remote = remotes.find((r) => r.name === 'origin') ?? remotes[0];
+      const remoteUrl = remote?.refs?.fetch || remote?.refs?.push || null;
+      // Latest commit by this author on any remote branch (email matched literally, not as a regex).
+      const findPushedCommit = async () =>
+        (await git.raw(['log', '--remotes', '-n', '1', '--format=%H', '--fixed-strings', `--author=<${email}>`])).trim() || null;
+      return await resolveAuthorAvatar(email, commitHash, remoteUrl, findPushedCommit);
+    } catch (error) {
+      console.error("Error resolving author avatar:", error);
       return null;
     }
   });
