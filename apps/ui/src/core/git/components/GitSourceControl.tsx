@@ -13,6 +13,22 @@ import { ConflictResolver } from "./ConflictResolver";
 import { Tip } from "@/core/components/ui/Tip";
 import { getGitErrorMessage, getGitErrorSummary } from "@/core/git/utils/gitErrorMessage";
 
+/** Rows rendered per list before "Show more". */
+const ROW_PAGE = 200;
+
+const ShowMoreRows = ({ shown, total, onShowMore }: { shown: number; total: number; onShowMore: () => void }) => {
+  if (total <= shown) return null;
+  const next = Math.min(ROW_PAGE, total - shown);
+  return (
+    <button
+      onClick={onShowMore}
+      className="ml-2 w-[calc(100%-0.5rem)] px-3 py-1.5 text-left text-xs text-accent hover:bg-active/50"
+    >
+      Show {next} more ({total - shown} not shown)
+    </button>
+  );
+};
+
 export const GitSourceControl = () => {
 
   const { data: status, isLoading, refetch: refetchStatus } = useGetGitStatus();
@@ -70,6 +86,9 @@ export const GitSourceControl = () => {
   const [stagedOpen, setStagedOpen] = useState(true);
   const [changesOpen, setChangesOpen] = useState(true);
   const [historyOpen, setHistoryOpen] = useState(true);
+  // Huge change lists (e.g. an untracked node_modules) would freeze the panel if every row rendered.
+  const [stagedLimit, setStagedLimit] = useState(ROW_PAGE);
+  const [changesLimit, setChangesLimit] = useState(ROW_PAGE);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
@@ -604,10 +623,13 @@ export const GitSourceControl = () => {
 
   // Index and working-tree changes are independent, including partially staged files.
   const conflictedFiles = status.conflicted ?? [];
+  const conflictedSet = new Set(conflictedFiles);
+  // One lookup table per render; a per-row .find over status.files is quadratic.
+  const entryByPath = new Map(status.files.map((entry) => [entry.path, entry]));
   const unstagedChanges = status.files
-    .filter((file) => file.workingTree.trim() !== '' && !conflictedFiles.includes(file.path))
+    .filter((file) => file.workingTree.trim() !== '' && !conflictedSet.has(file.path))
     .map((file) => file.path);
-  const stagedChanges = status.staged.filter((f) => !conflictedFiles.includes(f));
+  const stagedChanges = status.staged.filter((f) => !conflictedSet.has(f));
 
   const hasConflicts = conflictedFiles.length > 0;
   const hasStagedChanges = stagedChanges.length > 0;
@@ -899,13 +921,13 @@ export const GitSourceControl = () => {
               </div>
               {stagedOpen && (
                 <div>
-                  {stagedChanges.map((file) => (
+                  {stagedChanges.slice(0, stagedLimit).map((file) => (
                     <div
                       key={file}
                       onClick={() => handleFileClick(file, true)}
                       className="ml-2 flex items-center gap-2 px-3 py-1.5 hover:bg-active/50 group cursor-pointer"
                     >
-                      {getFileIcon(file, status.files.find((entry) => entry.path === file)?.index === 'D' ? 'deleted' : undefined)}
+                      {getFileIcon(file, entryByPath.get(file)?.index === 'D' ? 'deleted' : undefined)}
                       <span className="text-xs text-text flex-1 truncate">{file.split('/').pop() || file}</span>
                       <Tip label="Unstage" side="bottom">
                         <button
@@ -918,9 +940,10 @@ export const GitSourceControl = () => {
                           <Minus size={13} />
                         </button>
                       </Tip>
-                      <GitFileStatusBadge code={status.files.find((entry) => entry.path === file)?.index} />
+                      <GitFileStatusBadge code={entryByPath.get(file)?.index} />
                     </div>
                   ))}
+                  <ShowMoreRows shown={stagedLimit} total={stagedChanges.length} onShowMore={() => setStagedLimit((n) => n + ROW_PAGE)} />
                 </div>
               )}
             </div>
@@ -960,8 +983,8 @@ export const GitSourceControl = () => {
               </div>
               {changesOpen && (
                 <div>
-                  {unstagedChanges.map((file) => {
-                    const workingTreeCode = status.files.find((entry) => entry.path === file)?.workingTree;
+                  {unstagedChanges.slice(0, changesLimit).map((file) => {
+                    const workingTreeCode = entryByPath.get(file)?.workingTree;
                     const fileStatus = workingTreeCode === '?' ? 'untracked'
                       : workingTreeCode === 'D' ? 'deleted' : 'modified';
                     return (
@@ -1000,6 +1023,7 @@ export const GitSourceControl = () => {
                       </div>
                     );
                   })}
+                  <ShowMoreRows shown={changesLimit} total={unstagedChanges.length} onShowMore={() => setChangesLimit((n) => n + ROW_PAGE)} />
                 </div>
               )}
             </div>
