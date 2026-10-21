@@ -1,5 +1,55 @@
 [
   {
+    "version": "v2.3.3",
+    "date": "21/10/2026",
+    "title": "Stable: Commit History, Folder Environments & Startup Options",
+    "description": "Stable release rolling up v2.3.3-beta.1 plus newer changes: a reworked Commit History panel, folder-level .env inheritance, optional request fields, an On startup window preference, and fixes across Git, environments, gRPC, and saving.",
+    "icon": "Sparkles",
+    "iconColor": "text-emerald-400",
+    "bgColor": "bg-gradient-to-br from-slate-900 to-emerald-950",
+    "changes": {
+      "Added": [
+        "Hovering a commit in Commit History shows its author, co-authors, full message, changed files, and a link to the commit on GitHub, GitLab, or Bitbucket (#602) — contributed by [@simranxdhindsa](https://github.com/simranxdhindsa)",
+        "Clicking a commit expands its changed files inline, with keyboard navigation and Load More Commits (#603) — contributed by [@simranxdhindsa](https://github.com/simranxdhindsa)",
+        "The commit hover card shows the author's profile photo (#604) — contributed by [@simranxdhindsa](https://github.com/simranxdhindsa)",
+        "Settings > General > On startup chooses whether Voiden reopens all windows, the last window, or a new window (#581)",
+        "Requests inherit .env files from their own folder and its parent folders (#576) — contributed by [@vianmangal](https://github.com/vianmangal)",
+        "Request table rows have a Required checkbox, and optional rows with unresolved variables are left out of the request (#552) — contributed by [@moonlander101](https://github.com/moonlander101)",
+        "Tab accepts the highlighted suggestion in the slash menu, variable and file suggestions, and code completions (#566)",
+        "The plugin registry is re-checked every hour, so new plugins and updates show up without a restart",
+        "Update All in the Plugin Manager also updates community plugins"
+      ],
+      "Improved": [
+        "Commit History uses compact single-line rows with theme-colored branch lanes (#603) — contributed by [@simranxdhindsa](https://github.com/simranxdhindsa)",
+        "Git error messages name the cause and the next step, and Stage All / Unstage All report failures (#596)",
+        "Cloned repositories include full history, and existing shallow clones are completed on the next fetch (#596)",
+        "The menu's Close Window item is renamed Close and Forget Window",
+        "The plugin registry loads from voiden.md and falls back to GitHub when it is unreachable",
+        "The daily plugin registry request reports anonymous activity and a hashed install code so active installs can be counted"
+      ],
+      "Fixed": [
+        "Cloning a repository with an access token or SSH key no longer fails (#596)",
+        "Staged renames stay visible in Staged Changes (#596)",
+        ".voiden folders in nested sub-projects are ignored by Git",
+        "Discarding .gitignore changes is no longer undone immediately",
+        "Hiding an environment also hides its child environments",
+        "The rename field is focused after Duplicate, Add child, or Rename in the environment editor",
+        "Folder environments refresh when a .env file is added or removed",
+        "A folder that only contains a .env file appears in the environment selector",
+        "gRPC services in dotted proto packages resolve correctly",
+        "The Required checkbox is locked on disabled table rows",
+        "The initial commit shows its files in the commit graph (#578) — contributed by [@muhammadlutf1](https://github.com/muhammadlutf1)",
+        "Dropdown options are readable on dark themes (#575) — contributed by [@Prithvi-gif](https://github.com/Prithvi-gif)",
+        "Selecting text in a code editor no longer scrolls the view on its own (#559) — contributed by [@igorzelaya-io](https://github.com/igorzelaya-io)",
+        "Response and terminal panel resize handles follow the cursor without sticking or jumping",
+        "The file tree's reveal item reads \"Reveal in File Explorer\" on Windows, with the correct shortcut shown on Windows and Linux",
+        "Save All & Quit saves untitled files and waits for every window to finish saving",
+        "An untitled file saved from a background window is offered its own project folder",
+        "Closing a window asks about unsaved changes, so the close button and taskbar Quit no longer discard edits on Windows and Linux"
+      ]
+    }
+  },
+  {
     "version": "v2.3.3-beta.1",
     "date": "13/10/2026",
     "title": "Folder Environments, Optional Fields & gRPC Fixes",
