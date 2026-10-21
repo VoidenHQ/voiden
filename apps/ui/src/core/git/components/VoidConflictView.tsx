@@ -1,4 +1,5 @@
 import { memo, useMemo } from "react";
+import type { JSONContent } from "@tiptap/core";
 import { AlertTriangle, ArrowDown, ArrowUp, CheckCircle2, ChevronsUpDown, Code } from "lucide-react";
 import { cn } from "@/core/lib/utils";
 import { BlocksPreview, Extensions, Side, VoidFileView, parseVoidBlocks, usePreviewExtensions } from "./VoidDiffView";
@@ -46,12 +47,17 @@ interface GroupView {
   canKeepBoth: boolean;
 }
 
-const sideBlocks = (sections: VoidDiffSection[], side: "current" | "incoming") =>
-  sections.flatMap((s) => {
+interface SidePart {
+  blocks: JSONContent[];
+  other?: JSONContent[];
+}
+
+const sideBlocks = (sections: VoidDiffSection[], side: "current" | "incoming"): SidePart[] =>
+  sections.flatMap((s): SidePart[] => {
     if (s.kind === "modified") return [{ blocks: [side === "current" ? s.before : s.after], other: [side === "current" ? s.after : s.before] }];
     if (s.kind === "changed") {
       const blocks = side === "current" ? s.removed : s.added;
-      return blocks.length ? [{ blocks, other: undefined }] : [];
+      return blocks.length ? [{ blocks }] : [];
     }
     return [];
   });

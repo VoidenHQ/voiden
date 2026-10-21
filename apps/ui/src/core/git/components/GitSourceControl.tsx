@@ -10,6 +10,7 @@ import { useAddPanelTab } from "@/core/layout/hooks";
 import { GitGraph } from "./GitGraph";
 import { GitFileStatusBadge } from "./GitFileStatusBadge";
 import { CommitHistoryResizer } from "./CommitHistoryResizer";
+import { CommitHistoryActions } from "./CommitHistoryActions";
 import { Collapse, SectionChevron } from "./Collapse";
 import { useCommitHistoryHeight } from "@/core/stores/commitHistoryHeight";
 import { ConflictResolver } from "./ConflictResolver";
@@ -90,6 +91,8 @@ export const GitSourceControl = () => {
   const [changesOpen, setChangesOpen] = useState(true);
   const [historyOpen, setHistoryOpen] = useState(true);
   const historyPanelRef = useRef<HTMLDivElement>(null);
+  // Bumped by "Go to current commit"; the graph selects HEAD each time it changes.
+  const [revealHead, setRevealHead] = useState(0);
   const historyHeight = useCommitHistoryHeight((s) => s.height);
   // Huge change lists (e.g. an untracked node_modules) would freeze the panel if every row rendered.
   const [stagedLimit, setStagedLimit] = useState(ROW_PAGE);
@@ -1054,7 +1057,21 @@ export const GitSourceControl = () => {
           >
             <SectionChevron open={historyOpen} />
             <GitCommit size={11} className="text-accent" />
-            <span className="text-[10px] uppercase tracking-wide text-comment">Commit History</span>
+            <span className="text-[10px] uppercase tracking-wide text-comment truncate min-w-0">Commit History</span>
+            {historyOpen && (
+              <CommitHistoryActions
+                hasRemote={!!remoteUrl}
+                isFetching={isFetchingAll}
+                isPulling={isPulling}
+                isPushing={isPushing}
+                isRefreshing={isRefreshing}
+                onGoToCurrent={() => setRevealHead((n) => n + 1)}
+                onFetch={handleFetchAll}
+                onPull={handlePull}
+                onPush={handlePush}
+                onRefresh={handleRefresh}
+              />
+            )}
           </div>
           <Collapse open={historyOpen}>
             {/* Auto size fits short histories and never takes more than 40% of the window,
@@ -1065,7 +1082,7 @@ export const GitSourceControl = () => {
               className={cn("flex flex-col overflow-hidden border-b border-border", historyHeight === null && "max-h-[min(18rem,40vh)]")}
               style={historyHeight === null ? undefined : { height: `min(${historyHeight}px, 70vh)` }}
             >
-              <GitGraph />
+              <GitGraph revealHead={revealHead} />
             </div>
           </Collapse>
         </div>

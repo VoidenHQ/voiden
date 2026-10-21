@@ -259,6 +259,7 @@ const SplitSection = memo(({ section, extensions, extensionsKey }: SectionProps)
       </>
     );
   }
+  if (section.kind !== "changed") return null;
   return (
     <>
       {section.removed.length ? <DiffCell blocks={section.removed} tone="removed" label="Removed" {...cell} /> : <EmptyCell />}
@@ -280,6 +281,7 @@ const UnifiedSection = memo(({ section, extensions, extensionsKey }: SectionProp
       </>
     );
   }
+  if (section.kind !== "changed") return null;
   return (
     <>
       {section.removed.length > 0 && <DiffCell blocks={section.removed} tone="removed" label="Removed" {...cell} />}

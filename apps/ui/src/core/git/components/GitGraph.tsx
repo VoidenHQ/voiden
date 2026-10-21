@@ -118,7 +118,8 @@ const GitGraphSkeleton = () => (
   </div>
 );
 
-export const GitGraph = () => {
+/** Each change of `revealHead` selects the commit HEAD points at and scrolls to it. */
+export const GitGraph = ({ revealHead = 0 }: { revealHead?: number }) => {
   const [limit, setLimit] = useState(PAGE_SIZE);
   const { data: log, isLoading, isPlaceholderData } = useGetGitLog(limit);
   const [selectedHash, setSelectedHash] = useState<string | null>(null);
@@ -134,6 +135,18 @@ export const GitGraph = () => {
     setExpandedHash((current) => (current === hash ? null : hash));
     listRef.current?.focus({ preventScroll: true });
   }, []);
+
+  const handledReveal = useRef(revealHead);
+  useEffect(() => {
+    if (revealHead === handledReveal.current) return;
+    handledReveal.current = revealHead;
+    // The log follows HEAD, so it is normally the first row.
+    const head = graphNodes.find((n) => parseRefs(n.commit.refs).some((r) => r.kind === "head")) ?? graphNodes[0];
+    if (!head) return;
+    setSelectedHash(head.commit.hash);
+    listRef.current?.querySelector(`[data-hash="${head.commit.hash}"]`)?.scrollIntoView({ block: "center" });
+    listRef.current?.focus({ preventScroll: true });
+  }, [revealHead, graphNodes]);
 
   // Keep the selected row visible when it moves via the keyboard.
   useEffect(() => {
