@@ -408,7 +408,7 @@ export const ConflictEditorTab = ({ tab }: { tab: any }) => {
           {!isLoading && (
             <span
               className={cn(
-                "text-[10px] px-1.5 py-0.5 rounded font-medium",
+                "text-[10px] px-1.5 py-0.5 rounded font-medium whitespace-nowrap",
                 allResolved
                   ? "bg-green-500/15 text-green-400"
                   : "bg-orange-500/15 text-orange-400",
@@ -427,7 +427,7 @@ export const ConflictEditorTab = ({ tab }: { tab: any }) => {
               <Tip label="Accept all current (HEAD) changes" side="bottom">
                 <button
                   onClick={() => applyResolution("current")}
-                  className="flex items-center gap-1 text-[11px] text-green-400 bg-green-500/10 hover:bg-green-500/20 border border-green-500/20 px-2.5 py-1 rounded transition-colors"
+                  className="flex items-center gap-1 whitespace-nowrap text-[11px] text-green-400 bg-green-500/10 hover:bg-green-500/20 border border-green-500/20 px-2.5 py-1 rounded transition-colors"
                 >
                   <ArrowUp size={11} /> All Current
                 </button>
@@ -435,7 +435,7 @@ export const ConflictEditorTab = ({ tab }: { tab: any }) => {
               <Tip label="Accept all incoming changes" side="bottom">
                 <button
                   onClick={() => applyResolution("incoming")}
-                  className="flex items-center gap-1 text-[11px] text-blue-400 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/20 px-2.5 py-1 rounded transition-colors"
+                  className="flex items-center gap-1 whitespace-nowrap text-[11px] text-blue-400 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/20 px-2.5 py-1 rounded transition-colors"
                 >
                   <ArrowDown size={11} /> All Incoming
                 </button>
@@ -443,7 +443,7 @@ export const ConflictEditorTab = ({ tab }: { tab: any }) => {
               <Tip label="Accept all — keep both" side="bottom">
                 <button
                   onClick={() => applyResolution("both")}
-                  className="flex items-center gap-1 text-[11px] text-comment hover:text-text bg-active/40 hover:bg-active border border-border px-2.5 py-1 rounded transition-colors"
+                  className="flex items-center gap-1 whitespace-nowrap text-[11px] text-comment hover:text-text bg-active/40 hover:bg-active border border-border px-2.5 py-1 rounded transition-colors"
                 >
                   <ChevronsUpDown size={11} /> Both
                 </button>
