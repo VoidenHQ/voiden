@@ -1,6 +1,22 @@
 {
   "releases": [
     {
+      "version": "2.3.4",
+      "date": "October 2026",
+      "whatsnew": [
+        {
+          "icon": "👁️",
+          "title": "Show Child Environments on Their Own",
+          "description": "Hiding a parent environment still hides its children from the env picker, but now you can show any single child anyway. Hide the parent again and all of its children are hidden."
+        },
+        {
+          "icon": "🐛",
+          "title": "Environment Fixes",
+          "description": "Changes made in the Environment Editor are no longer lost when the env YAML file is open in another tab, and searching the env selector now finds environments by their display name."
+        }
+      ]
+    },
+    {
       "version": "2.3.3",
       "date": "October 2026",
       "whatsnew": [
