@@ -37,6 +37,7 @@ import { getSettings } from "./settings";
 import { recomposeAndInstall } from "./skillsInstaller";
 import { reloadMainProcessExtension } from "./extensionLoader";
 import { logger } from "./logger";
+import { SNIFF_BYTES, looksBinary } from "./fileKind";
 
 // Mirrors CodeEditor.tsx's LONG_LINE_THRESHOLD/hasVeryLongLine — a single line
 // this long is its own layout/perf cliff for the editor regardless of total
@@ -72,6 +73,22 @@ export const updateWindowState = () => {
     // Window state may not be available yet during initialization
   }
 };
+/** True when the first bytes of a file contain a NUL byte, the same check git uses. */
+async function startsLikeBinary(filePath: string): Promise<boolean> {
+  try {
+    const handle = await fs.open(filePath, "r");
+    try {
+      const head = Buffer.alloc(SNIFF_BYTES);
+      const { bytesRead } = await handle.read(head, 0, SNIFF_BYTES, 0);
+      return looksBinary(head.subarray(0, bytesRead));
+    } finally {
+      await handle.close();
+    }
+  } catch {
+    return false;
+  }
+}
+
 export const initializeState = async (
   skipDefault?: boolean,
 ): Promise<AppState> => {
@@ -798,6 +815,11 @@ export const ipcStateHandlers = () => {
           // streamed in here — one consistent line for "big enough to need a
           // loading indicator instead of a single blocking payload".
           const STREAM_THRESHOLD = 512 * 1024;
+          // Binary files without a known extension (no file type, .bin, ...)
+          // would show as garbage in the code editor; show the file card instead (#610).
+          if (!isVoidenFile && (await startsLikeBinary(source))) {
+            return { type: "document", tabId, title, content: null, source, unsupported: true };
+          }
           const stat = await fs.stat(source);
           if (!isVoidenFile && stat.size > STREAM_THRESHOLD) {
             return { type: "document", tabId, title, content: null, source, streamable: true, fullSize: stat.size };

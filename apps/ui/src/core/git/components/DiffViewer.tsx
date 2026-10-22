@@ -1,4 +1,4 @@
-import { useGetBranchDiff, useGetFileAtBranch } from "@/core/git/hooks";
+import { useGetBranchDiff, useGetFileAtBranch, useGetFileBlob } from "@/core/git/hooks";
 import { Loader2, FileIcon, GitCompareArrows, Split, FileText, ArrowRight } from "lucide-react";
 import { cn } from "@/core/lib/utils";
 import { useState, useRef, useCallback, useEffect } from "react";
@@ -6,6 +6,11 @@ import * as Diff from "diff";
 import { useQuery } from "@tanstack/react-query";
 import { isVoidFile } from "../utils/voidBlockDiff";
 import { VoidDiffSkeleton, VoidDiffView, VoidFileView, VoidView, VoidViewToggle } from "./VoidDiffView";
+import { BinaryFileCard, BlobDiffSkeleton, ImageDiff, ImageFileView, TooLargeCard, pickBlobView } from "./BinaryDiffView";
+
+/** SVG images get the same Rendered/Source switch as .void files. */
+const isSvgFile = (filePath?: string | null) => !!filePath && /\.svg$/i.test(filePath);
+const hasRenderedView = (filePath?: string | null) => isVoidFile(filePath) || isSvgFile(filePath);
 
 // Hook to get git repository root
 const useGetGitRepoRoot = () => {
@@ -50,6 +55,17 @@ interface DiffViewerProps {
 type DiffMode = "split" | "unified";
 // Simple read-only file viewer for a file at a specific commit
 const FileAtCommitViewer = ({ branch, filePath, voidView }: { branch: string; filePath: string; voidView: VoidView }) => {
+  // Check what kind of file it is first, so pictures and other binary files are never loaded as text (#610).
+  const { data: blob, isLoading: blobLoading } = useGetFileBlob(branch, filePath);
+  if (blobLoading) return <BlobDiffSkeleton columns={1} />;
+  const view = pickBlobView(blob, blob);
+  if (view === "image" && !(isSvgFile(filePath) && voidView === "source")) return <ImageFileView blob={blob!} label={branch} />;
+  if (view === "binary") return <BinaryFileCard base={blob} compare={blob} filePath={filePath} single />;
+  if (view === "tooLarge") return <TooLargeCard base={blob} compare={blob} filePath={filePath} single />;
+  return <TextFileAtCommit branch={branch} filePath={filePath} voidView={voidView} />;
+};
+
+const TextFileAtCommit = ({ branch, filePath, voidView }: { branch: string; filePath: string; voidView: VoidView }) => {
   const { data: content, isLoading } = useGetFileAtBranch(branch, filePath);
 
   if (isVoidFile(filePath) && voidView === "rendered") {
@@ -127,7 +143,7 @@ export const DiffViewer = ({ tab }: DiffViewerProps) => {
         <div className="px-4 py-2 border-b border-border flex items-center gap-2">
           <FileIcon size={14} className="text-comment flex-shrink-0" />
           <span className="text-xs font-mono text-text flex-1 truncate">{singleFilePath}</span>
-          {isVoidFile(singleFilePath) && <VoidViewToggle value={voidView} onChange={setVoidView} />}
+          {hasRenderedView(singleFilePath) && <VoidViewToggle value={voidView} onChange={setVoidView} />}
         </div>
         <FileAtCommitViewer branch={compareBranch} filePath={singleFilePath} voidView={voidView} />
       </div>
@@ -145,7 +161,7 @@ export const DiffViewer = ({ tab }: DiffViewerProps) => {
             <span className="text-sm font-mono text-text">{singleFilePath}</span>
           </div>
           <div className="flex items-center gap-2">
-            {isVoidFile(singleFilePath) && <VoidViewToggle value={voidView} onChange={setVoidView} />}
+            {hasRenderedView(singleFilePath) && <VoidViewToggle value={voidView} onChange={setVoidView} />}
             <button
               onClick={() => setDiffMode("split")}
               className={cn(
@@ -223,7 +239,7 @@ export const DiffViewer = ({ tab }: DiffViewerProps) => {
             <span className="text-red-500">-{diffData.summary.deletions}</span>
           )}
         </div>
-        {isVoidFile(selectedFile) && <VoidViewToggle value={voidView} onChange={setVoidView} />}
+        {hasRenderedView(selectedFile) && <VoidViewToggle value={voidView} onChange={setVoidView} />}
         {/* Diff mode toggle */}
         <div className="flex items-center gap-1 flex-shrink-0">
           <button
@@ -290,6 +306,7 @@ export const DiffViewer = ({ tab }: DiffViewerProps) => {
               baseBranch={baseBranch}
               compareBranch={compareBranch}
               filePath={selectedFile}
+              basePath={diffData?.files?.find((file) => file.path === selectedFile)?.oldPath ?? undefined}
               mode={diffMode}
               isWorkingDirectory={false}
               voidView={voidView}
@@ -315,10 +332,34 @@ interface FileDiffContentProps {
   mode: DiffMode;
   isWorkingDirectory?: boolean;
   voidView: VoidView;
+  /** The file's old path when it was renamed, so the old version can be found. */
+  basePath?: string;
 }
 
-const FileDiffContent = ({ baseBranch, compareBranch, filePath, mode, isWorkingDirectory, voidView }: FileDiffContentProps) => {
-  const { data: baseContent, isLoading: baseLoading } = useGetFileAtBranch(baseBranch, filePath);
+/**
+ * Looks at both sides first and picks the view: pictures for images, a card
+ * for other binary files and very large files, the line diff for text (#610).
+ */
+const FileDiffContent = (props: FileDiffContentProps) => {
+  const { baseBranch, compareBranch, filePath, mode, isWorkingDirectory, voidView } = props;
+  const basePath = props.basePath ?? filePath;
+  const renamedFrom = basePath !== filePath ? basePath : undefined;
+  const { data: base, isLoading: baseLoading } = useGetFileBlob(baseBranch, basePath);
+  const { data: compare, isLoading: compareLoading } = useGetFileBlob(isWorkingDirectory ? null : compareBranch, filePath);
+  if (baseLoading || compareLoading) return <BlobDiffSkeleton columns={mode === "split" ? 2 : 1} />;
+
+  const view = pickBlobView(base, compare);
+  const compareLabel = isWorkingDirectory ? "Working Directory" : compareBranch;
+  if (view === "image" && !(isSvgFile(filePath) && voidView === "source")) {
+    return <ImageDiff base={base} compare={compare} baseLabel={baseBranch} compareLabel={compareLabel} mode={mode} renamedFrom={renamedFrom} />;
+  }
+  if (view === "binary") return <BinaryFileCard base={base} compare={compare} filePath={filePath} renamedFrom={renamedFrom} />;
+  if (view === "tooLarge") return <TooLargeCard base={base} compare={compare} filePath={filePath} />;
+  return <TextFileDiff {...props} />;
+};
+
+const TextFileDiff = ({ baseBranch, compareBranch, filePath, mode, isWorkingDirectory, voidView, basePath }: FileDiffContentProps) => {
+  const { data: baseContent, isLoading: baseLoading } = useGetFileAtBranch(baseBranch, basePath ?? filePath);
 
   // For working directory, read file from filesystem instead of git
   const { data: workingFileContent, isLoading: workingFileLoading } = useReadFile(

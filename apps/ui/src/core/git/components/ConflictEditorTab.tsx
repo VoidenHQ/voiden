@@ -22,6 +22,9 @@ import { getGitErrorMessage } from "@/core/git/utils/gitErrorMessage";
 import { groupConflictsByBlock, keepBothWherePossible, resolveAll, resolveConflicts, validateVoidContent } from "@/core/git/utils/conflictMarkers";
 import { VoidView, VoidViewToggle } from "./VoidDiffView";
 import { VoidConflictView } from "./VoidConflictView";
+import { BinaryConflictView } from "./BinaryConflictView";
+import { BlobDiffSkeleton } from "./BinaryDiffView";
+import { useGetFileBlob } from "@/core/git/hooks";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -231,7 +234,24 @@ const revealConflict = (view: EditorView, direction: "first" | "next" | "previou
 
 // ── Main component ────────────────────────────────────────────────────────────
 
+/**
+ * Binary files (images, PDFs, ...) are resolved by keeping one whole version;
+ * text files open in the editor below (#610).
+ */
 export const ConflictEditorTab = ({ tab }: { tab: any }) => {
+  const file: string = tab.source ?? tab.meta?.file ?? "";
+  const tabId: string = tab.tabId ?? tab.id ?? "";
+  // Git keeps the two sides of a conflict as stages 2 (current) and 3 (incoming).
+  const { data: current, isLoading: currentLoading } = useGetFileBlob(file ? ":2" : undefined, file);
+  const { data: incoming, isLoading: incomingLoading } = useGetFileBlob(file ? ":3" : undefined, file);
+  if (currentLoading || incomingLoading) return <BlobDiffSkeleton columns={2} />;
+  if (current?.binary || incoming?.binary) {
+    return <BinaryConflictView file={file} tabId={tabId} current={current} incoming={incoming} />;
+  }
+  return <TextConflictEditor tab={tab} />;
+};
+
+const TextConflictEditor = ({ tab }: { tab: any }) => {
   const file: string = tab.source ?? tab.meta?.file ?? "";
   const tabId: string = tab.tabId ?? tab.id ?? "";
   const fileName = file.split("/").pop() || file;
