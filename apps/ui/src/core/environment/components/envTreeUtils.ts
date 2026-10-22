@@ -105,13 +105,15 @@ function mergeNode(pubNode?: YamlEnvNode, privNode?: YamlEnvNode): EditableEnvNo
     children[ck] = mergeNode(pubNode?.children?.[ck], privNode?.children?.[ck]);
   }
 
-  const intermediate = pubNode?.intermediate || privNode?.intermediate || false;
+  // Kept as true / false / unset: an explicit `false` shows a child even
+  // though a parent is hidden, so it must survive the round trip.
+  const intermediate = pubNode?.intermediate ?? privNode?.intermediate;
   const displayName = pubNode?.displayName || privNode?.displayName;
 
   return {
     variables,
     children,
-    ...(intermediate ? { intermediate } : {}),
+    ...(typeof intermediate === "boolean" ? { intermediate } : {}),
     ...(displayName ? { displayName } : {}),
   };
 }
@@ -209,13 +211,13 @@ function splitNode(node: EditableEnvNode): { pub: YamlEnvNode | null; priv: Yaml
 
   // Ensure the node exists in at least the public tree for structure.
   // Also force a public node when metadata flags are set so they are persisted.
-  const hasMetadata = node.intermediate || node.displayName;
+  const hasMetadata = typeof node.intermediate === "boolean" || node.displayName;
   const pub: YamlEnvNode | null =
     hasPubVars || hasPubChildren || hasMetadata || (!hasPrivVars && !hasPrivChildren)
       ? {
         ...(hasPubVars ? { variables: pubVars } : {}),
         ...(hasPubChildren ? { children: pubChildren } : {}),
-        ...(node.intermediate ? { intermediate: true } : {}),
+        ...(typeof node.intermediate === "boolean" ? { intermediate: node.intermediate } : {}),
         ...(node.displayName ? { displayName: node.displayName } : {}),
       }
       : null;

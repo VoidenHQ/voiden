@@ -54,8 +54,13 @@ interface FlatEnvEntry {
   privateCount: number;
   hasChildren: boolean;
   intermediate?: boolean;
-  // An ancestor is hidden, which hides this env from the picker too.
-  hiddenByParent?: boolean;
+  // Effective picker visibility: an env inherits a hidden parent unless it
+  // sets `intermediate: false` itself.
+  hidden: boolean;
+  // Hidden only because a parent is hidden.
+  hiddenByParent: boolean;
+  // Shown in the picker even though a parent is hidden.
+  shownDespiteParent: boolean;
 }
 
 function flattenTree(tree: EditableEnvTree, parentPath = "", depth = 0, parentHidden = false): FlatEnvEntry[] {
@@ -63,6 +68,7 @@ function flattenTree(tree: EditableEnvTree, parentPath = "", depth = 0, parentHi
   for (const [name, node] of Object.entries(tree)) {
     const path = parentPath ? `${parentPath}.${name}` : name;
     const hasChildren = Object.keys(node.children).length > 0;
+    const hidden = node.intermediate ?? parentHidden;
     entries.push({
       path,
       name,
@@ -72,10 +78,12 @@ function flattenTree(tree: EditableEnvTree, parentPath = "", depth = 0, parentHi
       privateCount: node.variables.filter((v) => v.isPrivate).length,
       hasChildren,
       intermediate: node.intermediate,
-      hiddenByParent: parentHidden,
+      hidden,
+      hiddenByParent: hidden && node.intermediate === undefined,
+      shownDespiteParent: parentHidden && node.intermediate === false,
     });
     if (hasChildren) {
-      entries.push(...flattenTree(node.children, path, depth + 1, parentHidden || !!node.intermediate));
+      entries.push(...flattenTree(node.children, path, depth + 1, hidden));
     }
   }
   return entries;
@@ -106,14 +114,33 @@ function getNodeAtPath(tree: EditableEnvTree, path: string): EditableEnvNode | n
   return node ?? null;
 }
 
-function hasHiddenAncestor(tree: EditableEnvTree, path: string): boolean {
+// Drop every descendant's "show anyway" override (`intermediate: false`), so
+// re-hiding a parent hides all of its children again. Children hidden on
+// their own (`intermediate: true`) keep that.
+function clearShownOverrides(children: EditableEnvTree): EditableEnvTree {
+  const result: EditableEnvTree = {};
+  for (const [name, child] of Object.entries(children)) {
+    const { intermediate, ...rest } = child;
+    result[name] = {
+      ...rest,
+      ...(intermediate === true ? { intermediate } : {}),
+      children: clearShownOverrides(child.children),
+    };
+  }
+  return result;
+}
+
+// Whether the env's parent is effectively hidden from the picker (hidden
+// itself, or inheriting a hidden ancestor without opting back in).
+function isParentHidden(tree: EditableEnvTree, path: string): boolean {
   const segments = path.split(".");
+  let hidden = false;
   let node: EditableEnvNode | undefined = tree[segments[0]];
   for (let i = 1; i < segments.length && node; i++) {
-    if (node.intermediate) return true;
+    hidden = node.intermediate ?? hidden;
     node = node.children[segments[i]];
   }
-  return false;
+  return hidden;
 }
 
 function updateNodeAtPath(tree: EditableEnvTree, path: string, updated: EditableEnvNode): EditableEnvTree {
@@ -994,7 +1021,7 @@ const EnvSidebarItem = ({
     { label: "Rename", icon: <Pencil size={12} className="text-comment" />, onSelect: onRename },
     { label: "Duplicate", icon: <Copy size={12} className="text-comment" />, onSelect: onDuplicate },
     { label: "Add child environment", icon: <Plus size={12} className="text-comment" />, onSelect: onAddChild },
-    entry.intermediate
+    entry.hidden
       ? { label: "Show in env picker", icon: <Eye size={12} className="text-comment" />, onSelect: onToggleIntermediate }
       : { label: "Hide from env picker", icon: <EyeOff size={12} className="text-comment" />, onSelect: onToggleIntermediate },
     { label: "separator", separator: true },
@@ -1050,8 +1077,8 @@ const EnvSidebarItem = ({
             <span className="truncate text-[9px] text-comment">{entry.displayName}</span>
           )}
         </span>
-        {/* Hidden-from-picker marker — only shown when hidden; the toggle itself lives in the menu */}
-        {entry.intermediate && (
+        {/* Picker-visibility marker — only shown when it differs from plain "visible"; the toggle also lives in the menu */}
+        {entry.hidden && !entry.hiddenByParent && (
           <button
             title="Hidden from env picker — click to show"
             onClick={(e) => { e.stopPropagation(); onToggleIntermediate(); }}
@@ -1060,10 +1087,23 @@ const EnvSidebarItem = ({
             <EyeOff size={11} style={{ color: "var(--icon-warning)" }} />
           </button>
         )}
-        {!entry.intermediate && entry.hiddenByParent && (
-          <span title="Hidden from env picker because a parent environment is hidden" className="p-0.5 flex-shrink-0">
+        {entry.hiddenByParent && (
+          <button
+            title="Hidden from env picker because a parent environment is hidden — click to show it anyway"
+            onClick={(e) => { e.stopPropagation(); onToggleIntermediate(); }}
+            className="p-0.5 rounded hover:bg-border transition-colors flex-shrink-0"
+          >
             <EyeOff size={11} className="text-comment/50" />
-          </span>
+          </button>
+        )}
+        {entry.shownDespiteParent && (
+          <button
+            title="Shown in env picker even though a parent environment is hidden — click to hide it with its parent"
+            onClick={(e) => { e.stopPropagation(); onToggleIntermediate(); }}
+            className="p-0.5 rounded hover:bg-border transition-colors flex-shrink-0"
+          >
+            <Eye size={11} className="text-comment/70" />
+          </button>
         )}
         <span className="text-xs text-comment/60 tabular-nums flex-shrink-0 opacity-0 group-hover/item:opacity-100 transition-opacity">{entry.varCount}</span>
         {/* All row actions live in this menu (same items as the right-click menu) */}
@@ -1709,7 +1749,16 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
   const handleToggleIntermediate = useCallback((path: string) => {
     const node = getNodeAtPath(tree, path);
     if (!node) return;
-    handleUpdateTree(updateNodeAtPath(tree, path, { ...node, intermediate: !node.intermediate }));
+    // Flip the env's effective visibility, storing only what differs from
+    // what it would inherit: under a hidden parent, showing writes `false`
+    // and hiding again just drops the flag (and vice versa at the top level).
+    const parentHidden = isParentHidden(tree, path);
+    const hidden = node.intermediate ?? parentHidden;
+    // Toggling also resets children's "show anyway" choices, so hiding a
+    // parent again always starts with all of its children hidden.
+    const { intermediate: _intermediate, ...rest } = { ...node, children: clearShownOverrides(node.children) };
+    const next = hidden === parentHidden ? !parentHidden : undefined;
+    handleUpdateTree(updateNodeAtPath(tree, path, next === undefined ? rest : { ...rest, intermediate: next }));
   }, [tree, handleUpdateTree]);
 
   const handleBulkDeleteEnvs = useCallback(() => {
@@ -1830,7 +1879,8 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
     : selectedOwner
       ? getNodeAtPath(nestedTrees[selectedOwner] ?? {}, selectedEnvPath)
       : getNodeAtPath(tree, selectedEnvPath);
-  const selectedHiddenByParent = !!selectedEnvPath && !selectedOwner && hasHiddenAncestor(tree, selectedEnvPath);
+  const selectedParentHidden = !!selectedEnvPath && !selectedOwner && isParentHidden(tree, selectedEnvPath);
+  const selectedHidden = selectedNode?.intermediate ?? selectedParentHidden;
   const runtimeCount = Object.keys(runtimeVars).length;
 
   // Reload YAML when external file changes detected (git pull, external editor, etc.)
@@ -2158,13 +2208,15 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
                   {!selectedOwner && (
                     <button
                       onClick={() => handleToggleIntermediate(selectedEnvPath)}
-                      title={selectedNode.intermediate
-                        ? "Show in env picker (currently hidden)"
-                        : selectedHiddenByParent
-                          ? "Hidden from env picker because a parent environment is hidden"
-                          : "Hide from env picker"}
+                      title={!selectedHidden
+                        ? selectedParentHidden
+                          ? "Shown in env picker even though a parent environment is hidden — click to hide it with its parent"
+                          : "Hide from env picker"
+                        : selectedNode.intermediate === undefined
+                          ? "Hidden from env picker because a parent environment is hidden — click to show it anyway"
+                          : "Show in env picker (currently hidden)"}
                       className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-md border transition-colors"
-                      style={selectedNode.intermediate ? {
+                      style={selectedHidden ? {
                         backgroundColor: "color-mix(in srgb, var(--icon-warning) 10%, transparent)",
                         borderColor: "color-mix(in srgb, var(--icon-warning) 30%, transparent)",
                         color: "var(--icon-warning)",
@@ -2173,8 +2225,10 @@ export const EnvironmentEditor = ({ tabId }: { tabId: string }) => {
                         color: "var(--syntax-comment)",
                       }}
                     >
-                      {selectedNode.intermediate || selectedHiddenByParent ? <EyeOff size={11} /> : <Eye size={11} />}
-                      {selectedNode.intermediate ? "hidden" : selectedHiddenByParent ? "hidden by parent" : "visible"}
+                      {selectedHidden ? <EyeOff size={11} /> : <Eye size={11} />}
+                      {!selectedHidden
+                        ? selectedParentHidden ? "visible (parent hidden)" : "visible"
+                        : selectedNode.intermediate === undefined ? "hidden by parent" : "hidden"}
                     </button>
                   )}
                 </div>

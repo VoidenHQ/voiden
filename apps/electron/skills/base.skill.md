@@ -552,7 +552,7 @@ staging:
 | `variables` | Flat key→string map of variables for this environment node |
 | `children` | Nested sub-environments (dot-separated path, e.g. `staging.eu`), inheriting the parent's variables |
 | `displayName` | Optional friendly label shown in the UI; the tree key itself stays filesystem/path-safe |
-| `intermediate` | If `true`, hides this node from the environment selector dropdown (used as a pure grouping/inheritance node) |
+| `intermediate` | If `true`, hides this node from the environment selector dropdown (used as a pure grouping/inheritance node). Children inherit it and are hidden too, unless a child sets `intermediate: false` to stay visible |
 
 Environment **node names** (the tree keys, e.g. `staging`, `eu`) use `.` as the path separator, so a literal dot typed into a name is automatically converted to a hyphen — there's no separate validation step to apply when generating these by hand, just avoid dots in the key itself.
 

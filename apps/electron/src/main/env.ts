@@ -13,6 +13,8 @@ import { loadFolderEnv, parseEnvContent } from "./folderEnv";
 interface YamlEnvNode {
   variables?: Record<string, string>;
   children?: Record<string, YamlEnvNode>;
+  // Hidden from the env selector. Children inherit a hidden ancestor unless
+  // they set this to `false` explicitly, which shows them anyway.
   intermediate?: boolean;
   displayName?: string;
 }
@@ -117,7 +119,8 @@ interface FlattenResult {
 function flattenYamlEnvironments(
   tree: YamlEnvTree,
   prefix: string | null = null,
-  parentVars: Record<string, string> = {}
+  parentVars: Record<string, string> = {},
+  parentHidden = false
 ): FlattenResult {
   const data: Record<string, Record<string, string>> = {};
   const displayNames: Record<string, string> = {};
@@ -125,17 +128,20 @@ function flattenYamlEnvironments(
   for (const [key, node] of Object.entries(tree)) {
     const envName = prefix ? `${prefix}.${key}` : key;
     const currentVars = { ...parentVars, ...(node.variables || {}) };
-    // Hidden ("intermediate") environments are left out of the env selector
-    // together with their whole subtree — hiding a parent hides its children.
-    if (node.intermediate) continue;
+    // Hidden ("intermediate") environments are left out of the env selector.
+    // Hiding a parent hides its children too, unless a child opts back in
+    // with an explicit `intermediate: false`.
+    const hidden = node.intermediate ?? parentHidden;
 
-    data[envName] = currentVars;
-    if (node.displayName) {
-      displayNames[envName] = node.displayName;
+    if (!hidden) {
+      data[envName] = currentVars;
+      if (node.displayName) {
+        displayNames[envName] = node.displayName;
+      }
     }
 
     if (node.children) {
-      const childResult = flattenYamlEnvironments(node.children, envName, currentVars);
+      const childResult = flattenYamlEnvironments(node.children, envName, currentVars, hidden);
       Object.assign(data, childResult.data);
       Object.assign(displayNames, childResult.displayNames);
     }
