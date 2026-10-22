@@ -404,8 +404,10 @@ input[type="week"]::-webkit-datetime-edit-year-field:focus {
     --http-post-bg: color-mix(in srgb, var(--http-post) 15%, transparent);
     --http-head: var(--status-info, #73d0ff);
     --http-options: var(--syntax-comment, #8a9199);
+    --http-query: #7DD3FC;
     --http-head-bg: color-mix(in srgb, var(--http-head) 15%, transparent);
     --http-options-bg: color-mix(in srgb, var(--http-options) 15%, transparent);
+    --http-query-bg: color-mix(in srgb, var(--http-query) 15%, transparent);
     --vcs-modified: var(--info, #73d0ff);
 
     /* Accent color aliases */
