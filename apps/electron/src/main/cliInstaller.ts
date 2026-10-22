@@ -8,6 +8,13 @@ import * as sudo from "sudo-prompt";
 import * as semver from "semver";
 import { getSettings, saveSettings } from "./settings";
 
+/** Result of an install or uninstall. `command` is shown in a copyable box when the user has to run it. */
+export interface CliResult {
+  success: boolean;
+  message: string;
+  command?: string;
+}
+
 const execAsync = promisify(exec);
 
 // Promisify sudo.exec
@@ -104,7 +111,7 @@ export async function isCliInstalled(): Promise<boolean> {
 /**
  * Install CLI to PATH
  */
-export async function installCli(): Promise<{ success: boolean; message: string }> {
+export async function installCli(): Promise<CliResult> {
   const scriptPath = getCliScriptPath();
   const targetPath = getTargetPath();
 
@@ -120,16 +127,12 @@ export async function installCli(): Promise<{ success: boolean; message: string 
     // Windows: Provide manual instructions
     return {
       success: false,
-      message: `To install the CLI on Windows:
+      message: `To install the CLI on Windows, add this folder to your PATH:
+${path.dirname(scriptPath)}
 
-1. Add this path to your system PATH:
-   ${path.dirname(scriptPath)}
-
-2. Restart your terminal
-
-Or run this in PowerShell (as Administrator):
-   $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
-   [Environment]::SetEnvironmentVariable("Path", "$userPath;${path.dirname(scriptPath)}", "User")`,
+Or run this command in PowerShell, then restart your terminal.`,
+      command: `$userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+[Environment]::SetEnvironmentVariable("Path", "$userPath;${path.dirname(scriptPath)}", "User")`,
     };
   } else {
     // macOS/Linux: Create symlink using sudo-prompt
@@ -184,11 +187,8 @@ Or run this in PowerShell (as Administrator):
         // User cancelled the password dialog or sudo failed
         return {
           success: false,
-          message: `Installation cancelled or failed. You can install manually by running:
-
-  sudo ln -sf "${scriptPath}" "${targetPath}"
-
-Then restart your terminal.`,
+          message: "Installation cancelled or failed. Run this command in your terminal, then restart it.",
+          command: `sudo ln -sf "${scriptPath}" "${targetPath}"`,
         };
       }
     } catch (error: any) {
@@ -267,7 +267,7 @@ export async function reconcileCliInstall(): Promise<void> {
 /**
  * Uninstall CLI from PATH
  */
-export async function uninstallCli(): Promise<{ success: boolean; message: string }> {
+export async function uninstallCli(): Promise<CliResult> {
   const targetPath = getTargetPath();
 
   if (platform === "win32") {
@@ -312,9 +312,8 @@ ${path.dirname(getCliScriptPath())}`,
           } catch (sudoError: any) {
             return {
               success: false,
-              message: `Uninstallation cancelled or failed. You can uninstall manually by running:
-
-  sudo rm "${targetPath}"`,
+              message: "Uninstallation cancelled or failed. Run this command in your terminal.",
+              command: `sudo rm "${targetPath}"`,
             };
           }
         }

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import { usePluginStore, type PluginSettingsSection } from "@/plugins";
 import { loadThemeById, getAvailableThemes } from "@/utils/themeLoader";
 import { Kbd } from "@/core/components/ui/kbd";
+import { CliCommandMessage, type CliResultMessage } from "@/core/settings/components/CliCommandMessage";
 
 const FONT_SIZE_MIN = 10;
 const FONT_SIZE_MAX = 20;
@@ -198,7 +199,7 @@ export const SettingsScreen = () => {
   const [isSyncingThemes, setIsSyncingThemes] = useState(false);
   const [themeSyncError, setThemeSyncError] = useState<string | null>(null);
   const [isInstallingCli, setIsInstallingCli] = useState(false);
-  const [cliMessage, setCliMessage] = useState<string | null>(null);
+  const [cliResult, setCliResult] = useState<CliResultMessage | null>(null);
 
   const commonFonts = useMemo(() => VALID_FONT_FAMILIES, []);
 
@@ -635,22 +636,22 @@ export const SettingsScreen = () => {
 
   const handleCliInstall = async () => {
     setIsInstallingCli(true);
-    setCliMessage(null);
+    setCliResult(null);
 
     try {
       const result = await window.electron?.cli?.install();
       if (result?.success) {
-        setCliMessage(result.message);
+        setCliResult(result);
         await saveImmediate({
           cli: {
             installed: true,
           },
         });
       } else {
-        setCliMessage(result?.message || "Installation failed");
+        setCliResult({ message: result?.message || "Installation failed", command: result?.command });
       }
     } catch (error) {
-      setCliMessage(error instanceof Error ? error.message : "Unknown error");
+      setCliResult({ message: error instanceof Error ? error.message : "Unknown error" });
     } finally {
       setIsInstallingCli(false);
     }
@@ -658,22 +659,22 @@ export const SettingsScreen = () => {
 
   const handleCliUninstall = async () => {
     setIsInstallingCli(true);
-    setCliMessage(null);
+    setCliResult(null);
 
     try {
       const result = await window.electron?.cli?.uninstall();
       if (result?.success) {
-        setCliMessage(result.message);
+        setCliResult(result);
         await saveImmediate({
           cli: {
             installed: false,
           },
         });
       } else {
-        setCliMessage(result?.message || "Uninstallation failed");
+        setCliResult({ message: result?.message || "Uninstallation failed", command: result?.command });
       }
     } catch (error) {
-      setCliMessage(error instanceof Error ? error.message : "Unknown error");
+      setCliResult({ message: error instanceof Error ? error.message : "Unknown error" });
     } finally {
       setIsInstallingCli(false);
     }
@@ -1418,13 +1419,7 @@ export const SettingsScreen = () => {
                     </div>
                   </div>
 
-                  {cliMessage && (
-                    <div className="mt-2.5 p-2.5 rounded text-xs" style={{ backgroundColor: 'color-mix(in srgb, var(--icon-primary) 10%, transparent)', borderColor: 'color-mix(in srgb, var(--icon-primary) 30%, transparent)', borderWidth: '1px' }}>
-                      <pre className="whitespace-pre-wrap text-[11px] font-mono" style={{ color: 'var(--icon-primary)' }}>
-                        {cliMessage}
-                      </pre>
-                    </div>
-                  )}
+{cliResult && <CliCommandMessage message={cliResult.message} command={cliResult.command} />}
                 </div>
               )}
             </Card>
