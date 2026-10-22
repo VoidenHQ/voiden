@@ -16,7 +16,7 @@ import { FrontmatterChange, VoidDiffSection, diffFrontmatter, diffVoidBlocks, ha
 export type VoidView = "rendered" | "source";
 
 export const VoidViewToggle = ({ value, onChange }: { value: VoidView; onChange: (view: VoidView) => void }) => (
-  <div className="flex items-center gap-1 flex-shrink-0" role="group" aria-label=".void file view">
+  <div className="flex items-center gap-1 flex-shrink-0" role="group" aria-label="File view">
     {([
       { view: "rendered", label: "Rendered", Icon: Eye },
       { view: "source", label: "Source", Icon: Code },

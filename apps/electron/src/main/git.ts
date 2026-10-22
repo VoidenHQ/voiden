@@ -4,6 +4,7 @@ import simpleGit from "simple-git";
 import * as fs from "fs";
 import * as path from "path";
 import { logger } from "./logger";
+import { readCommittedBlob, readWorkingBlob } from "./gitBlob";
 
 interface GitStatusCache {
   timestamp: number;
@@ -400,6 +401,20 @@ ipcMain.handle("git:diffFile", async (event:IpcMainInvokeEvent, baseBranch: stri
   } catch (error) {
     console.error("Error getting file diff:", error);
     throw error;
+  }
+});
+
+// Size, kind and (for small images) the picture of one side of a diff, so
+// binary files are never read as text. `ref` null means the working copy (#610).
+ipcMain.handle("git:getFileBlob", async (event: IpcMainInvokeEvent, ref: string | null, filePath: string) => {
+  const projectPath = await getActiveProject(event);
+  if (!projectPath || !(await getCachedIsRepo(projectPath))) return null;
+  try {
+    const repoRoot = (await getSharedGit(projectPath).revparse(["--show-toplevel"])).trim();
+    return ref ? await readCommittedBlob(repoRoot, ref, filePath) : await readWorkingBlob(repoRoot, filePath);
+  } catch (error) {
+    logger.warn("git", "getFileBlob failed", { ref, filePath, error: (error as Error)?.message });
+    return null;
   }
 });
 
