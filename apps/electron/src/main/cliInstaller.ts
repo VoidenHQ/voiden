@@ -1,12 +1,13 @@
 import { app, dialog } from "electron";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { exec } from "node:child_process";
+import { exec, execFile } from "node:child_process";
 import { promisify } from "node:util";
 // @ts-ignore - sudo-prompt doesn't have types
 import * as sudo from "sudo-prompt";
 import * as semver from "semver";
 import { getSettings, saveSettings } from "./settings";
+import { isPromptCancelled, macAdminArgs, promptFailureReason } from "./adminPrompt";
 
 /** Result of an install or uninstall. `command` is shown in a copyable box when the user has to run it. */
 export interface CliResult {
@@ -30,7 +31,22 @@ const sudoExec = (command: string, options: any): Promise<{ stdout?: string; std
   });
 };
 
+const execFileAsync = promisify(execFile);
+
 const platform = process.platform;
+
+/**
+ * Run a shell command as an administrator behind the system password dialog.
+ * macOS uses its own dialog (see adminPrompt.ts for why not sudo-prompt);
+ * Linux keeps sudo-prompt.
+ */
+async function runAsAdmin(command: string, prompt: string): Promise<void> {
+  if (platform === "darwin") {
+    await execFileAsync("osascript", macAdminArgs(command, prompt));
+    return;
+  }
+  await sudoExec(command, { name: "Voiden" });
+}
 
 /** Symmetric with installCli()'s own settings write — single source of
  *  truth for "which version last (re)installed this," cleared on removal
@@ -162,13 +178,8 @@ Or run this command in PowerShell, then restart your terminal.`,
 
       const command = commands.join(' && ');
 
-      // Try with sudo-prompt (shows native password dialog)
-      const options = {
-        name: 'Voiden',
-      };
-
       try {
-        await sudoExec(command, options);
+        await runAsAdmin(command, "Voiden wants to install the voiden command so you can open projects from your terminal.");
 
         // Single source of truth for "which version last (re)installed
         // this" — every caller (the explicit Settings button, and the
@@ -183,11 +194,12 @@ Or run this command in PowerShell, then restart your terminal.`,
           success: true,
           message: `CLI installed successfully! You can now use 'voiden' in your terminal.`,
         };
-      } catch (sudoError: any) {
-        // User cancelled the password dialog or sudo failed
+      } catch (sudoError: unknown) {
         return {
           success: false,
-          message: "Installation cancelled or failed. Run this command in your terminal, then restart it.",
+          message: isPromptCancelled(sudoError)
+            ? "Installation cancelled. To install it yourself, run this command in your terminal, then restart it."
+            : `Installation failed: ${promptFailureReason(sudoError)}. Run this command in your terminal, then restart it.`,
           command: `sudo ln -sf "${scriptPath}" "${targetPath}"`,
         };
       }
@@ -256,8 +268,8 @@ export async function reconcileCliInstall(): Promise<void> {
   try {
     await installCli();
   } catch {
-    // Best-effort — a failed silent repair (e.g. sudo-prompt dismissed,
-    // since sudo-prompt can't distinguish "user-initiated" from
+    // Best-effort — a failed silent repair (e.g. the password dialog dismissed,
+    // since the dialog can't distinguish "user-initiated" from
     // "background repair" once it shows its native dialog) just leaves the
     // stale symlink in place; the user can still repair manually from
     // Settings, same as before this existed.
@@ -298,21 +310,20 @@ ${path.dirname(getCliScriptPath())}`,
         // If permission denied, use sudo-prompt
         if (error.code === "EACCES" || error.code === "EPERM") {
           const command = `rm -f "${targetPath}"`;
-          const options = {
-            name: 'Voiden',
-          };
 
           try {
-            await sudoExec(command, options);
+            await runAsAdmin(command, "Voiden wants to remove the voiden command from your terminal.");
             clearInstalledVersion();
             return {
               success: true,
               message: "CLI uninstalled successfully.",
             };
-          } catch (sudoError: any) {
+          } catch (sudoError: unknown) {
             return {
               success: false,
-              message: "Uninstallation cancelled or failed. Run this command in your terminal.",
+              message: isPromptCancelled(sudoError)
+                ? "Uninstallation cancelled. To remove it yourself, run this command in your terminal."
+                : `Uninstallation failed: ${promptFailureReason(sudoError)}. Run this command in your terminal.`,
               command: `sudo rm "${targetPath}"`,
             };
           }
