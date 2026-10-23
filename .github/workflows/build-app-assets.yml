@@ -97,8 +97,10 @@ jobs:
               windows: [
                 { label: 'Windows (x64)', os: 'windows-2022', arch_flag: '', artifact_name: 'win32-x64' },
               ],
+              // ubuntu-24.04, not ubuntu-latest: 26.04's rpmbuild breaks
+              // electron-installer-redhat (see release-app.yml).
               linux: [
-                { label: 'Linux (x64)', os: 'ubuntu-latest', arch_flag: '', artifact_name: 'linux-x64' },
+                { label: 'Linux (x64)', os: 'ubuntu-24.04', arch_flag: '', artifact_name: 'linux-x64' },
               ],
             };
             const enabled = {

@@ -121,8 +121,12 @@ jobs:
             arch_flag: ''
             artifact_name: win32-x64
 
+          # Pinned to ubuntu-24.04 (not ubuntu-latest) — ubuntu-latest moved to
+          # 26.04, whose newer rpmbuild uses a different BUILD directory layout,
+          # so electron-installer-redhat's spec fails with "cp: cannot stat
+          # 'usr/*'" and the .rpm step breaks the whole Linux make.
           - label: Linux (x64)
-            os: ubuntu-latest
+            os: ubuntu-24.04
             arch_flag: ''
             artifact_name: linux-x64
 
