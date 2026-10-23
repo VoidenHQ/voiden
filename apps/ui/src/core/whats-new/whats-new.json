@@ -1,6 +1,37 @@
 {
   "releases": [
     {
+      "version": "2.3.3",
+      "date": "October 2026",
+      "whatsnew": [
+        {
+          "icon": "🌳",
+          "title": "A Better Commit History",
+          "description": "Hover a commit to see who wrote it, the full message and every changed file, with a link to open it on GitHub, GitLab or Bitbucket. Click a commit to expand its files and open their diffs, or move through history with the keyboard."
+        },
+        {
+          "icon": "📁",
+          "title": "Folder Environments",
+          "description": "Put a .env file in any folder and the requests inside it pick up those variables, on top of the ones from parent folders. Each service can keep its own values without switching environments."
+        },
+        {
+          "icon": "☑️",
+          "title": "Optional Request Fields",
+          "description": "Table rows now have a Required checkbox. Untick it and a row whose variable has no value is simply left out of the request instead of blocking it."
+        },
+        {
+          "icon": "🪟",
+          "title": "Choose What Opens on Startup",
+          "description": "Settings > General > On startup lets you reopen all your windows, just the last one, or start fresh with a new window."
+        },
+        {
+          "icon": "🐛",
+          "title": "Git, Environment & Saving Fixes",
+          "description": "Token and SSH clones work, staged renames stay visible, Git errors tell you what to do next, nested .voiden folders stay out of commits, and closing or quitting no longer loses unsaved edits."
+        }
+      ]
+    },
+    {
       "version": "2.3.3-beta.1",
       "date": "October 2026",
       "whatsnew": [

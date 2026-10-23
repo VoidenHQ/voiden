@@ -135,15 +135,14 @@ function startWatching(projectPath: string, watcherId: string) {
   const isVoidenYaml = (f: string) => f.includes(`${path.sep}.voiden${path.sep}`) && f.endsWith(".yaml");
   const isGitignoreFile = (f: string) => path.basename(f) === ".gitignore" && path.dirname(f) === projectPath;
 
+  // Only refresh caches on .gitignore edits — never re-write it here. Re-adding
+  // the Voiden block on every change made "Discard" on .gitignore impossible:
+  // the restore itself fired this handler and the lines came straight back.
+  // The block is still ensured on project open, git init, env writes and commit.
   const refreshGitignoreState = (filePath: string) => {
     invalidateGitCache(projectPath);
     clearTreeResultCache();
     emit("git:changed", { path: filePath, project: projectPath, watcherId });
-  };
-
-  const handleGitignoreChange = (filePath: string) => {
-    ensureVoidenGitignore(projectPath).catch(() => {});
-    refreshGitignoreState(filePath);
   };
 
   watcher
@@ -152,7 +151,7 @@ function startWatching(projectPath: string, watcherId: string) {
       if (isCloningActive(filePath)) return;
       if (isGitRelated(filePath)) emitGitChangedDebounced({ path: filePath });
       else {
-        if (isGitignoreFile(filePath)) handleGitignoreChange(filePath);
+        if (isGitignoreFile(filePath)) refreshGitignoreState(filePath);
         emit("file:new", { path: filePath, project: projectPath, watcherId });
         // A .env that appears with its content already written (created outside
         // the app, copied, or written atomically) is reported as "add" with no
@@ -179,7 +178,7 @@ function startWatching(projectPath: string, watcherId: string) {
       } else if (isGitRelated(filePath)) {
         emitGitChangedDebounced({ path: filePath });
       } else if (isGitignoreFile(filePath)) {
-        handleGitignoreChange(filePath);
+        refreshGitignoreState(filePath);
         emit("file:changed", { path: filePath, project: projectPath, watcherId });
       } else {
         emit("file:changed", { path: filePath, project: projectPath, watcherId });

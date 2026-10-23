@@ -217,6 +217,16 @@ export const useGetCommitDetails = (commitHash: string | null) => {
   });
 };
 
+/** Avatar URL for a commit author, keyed by email so each author is looked up once. */
+export const useGetAuthorAvatar = (email: string | undefined, commitHash: string) => {
+  return useQuery({
+    queryKey: ["git:authorAvatar", email?.toLowerCase()],
+    queryFn: async () => (email ? (await window.electron?.git.getAuthorAvatar(email, commitHash)) ?? null : null),
+    enabled: !!email,
+    staleTime: Infinity,
+  });
+};
+
 export const useGetGitStatus = () => {
   const { data: isGitRepo } = useIsGitRepo();
   return useQuery({

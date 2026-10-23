@@ -318,6 +318,7 @@ declare global {
           subject: string;
           body: string;
         } | null>;
+        getAuthorAvatar: (email: string, commitHash: string) => Promise<string | null>;
         fetchRemote: () => Promise<boolean | null>;
         push: () => Promise<{ branch: string }>;
         pull: () => Promise<any>;
