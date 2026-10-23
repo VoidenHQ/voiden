@@ -242,7 +242,7 @@ declare global {
         ) => Promise<string | null>;
         getRepoRoot: () => Promise<string | null>;
         getStatus: () => Promise<{
-          files: { path: string; status: string }[];
+          files: { path: string; status: string; index: string; workingTree: string }[];
           staged: string[];
           modified: string[];
           untracked: string[];
