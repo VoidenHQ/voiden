@@ -37,6 +37,7 @@ import { getSchema } from "@tiptap/core";
 import { voidenExtensions } from "@/core/editors/voiden/extensions";
 import { prosemirrorToMarkdown } from "@/core/file-system/hooks";
 import { confirmAndSaveTab } from "@/core/stores/unsavedChangesDialogStore";
+import { BinaryFilePreview } from "./BinaryFilePreview";
 
 // Stable fallback so the `activeEditor` selector below can bail out to a
 // reference-equal value (see its useCallback) instead of a fresh object,
@@ -60,12 +61,6 @@ function isBinaryFile(name: string): boolean {
   return BINARY_EXTENSIONS.has(ext);
 }
 
-const UnsupportedFile = ({ title }: { title: string }) => (
-  <div className="flex flex-col items-center justify-center h-full gap-2 text-comment select-none">
-    <span className="text-sm font-medium">{title}</span>
-    <span className="text-xs">This file type cannot be opened in the editor.</span>
-  </div>
-);
 
 // TypeScript interface for md-preview plugin helpers
 interface MdPreviewHelpers {
@@ -940,8 +935,8 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
                     hasSearch
                     isActive={docTab.tabId === panelActiveTabId}
                   />
-                ) : isBinaryFile(docTab.source || docTab.title) ? (
-                  <UnsupportedFile title={docTab.title} />
+                ) : docTab.unsupported || isBinaryFile(docTab.source || docTab.title) ? (
+                  <BinaryFilePreview source={docTab.source} title={docTab.title} />
                 ) : (
                   <CodeEditor
                     tabId={docTab.tabId}
@@ -1041,8 +1036,8 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
 
   if (tabContent.type === "document") {
     if (tabContent.content === null && !tabContent.streamable) {
-      if (isBinaryFile(tabContent.source || tabContent.title)) {
-        return <UnsupportedFile title={tabContent.title} />;
+      if (tabContent.unsupported || isBinaryFile(tabContent.source || tabContent.title)) {
+        return <BinaryFilePreview source={tabContent.source} title={tabContent.title} />;
       }
       return <div>This file is not available</div>;
     }
