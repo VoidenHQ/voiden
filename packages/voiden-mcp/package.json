@@ -38,7 +38,7 @@
     "smoke-test": "node scripts/smoke-test.mjs"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "@voiden/runner": "workspace:*",
     "commander": "^12.0.0",
     "express": "^5.2.1"

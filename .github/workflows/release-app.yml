@@ -150,8 +150,9 @@ jobs:
         shell: cmd
         run: cleanup.bat
 
-      # cleanup.bat installs with --mode=skip-build — node-pty's unpatched source
-      # fails to compile under MSVC 2022 + C++20. Patch it, then force a rebuild.
+      # cleanup.bat installs with --mode=skip-build — node-gyp's delay-load hook
+      # fails to compile under MSVC 2022. Patch it, then force a rebuild.
+      # (node-pty's own fix is a yarn patch, applied during install.)
       - name: Apply Windows native build patches
         if: runner.os == 'Windows'
         shell: bash

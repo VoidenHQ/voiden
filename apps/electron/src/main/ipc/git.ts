@@ -1,5 +1,5 @@
 import { ipcMain, IpcMainInvokeEvent, dialog, BrowserWindow } from "electron";
-import simpleGit, { StatusResult } from "simple-git";
+import { simpleGit, StatusResult } from "simple-git";
 import { getActiveProject } from "../state";
 import * as fs from "fs";
 import * as path from "path";
@@ -123,23 +123,21 @@ function classifyStatusFiles(status: StatusResult) {
 }
 
 // Env vars simple-git refuses to spawn with unless each is explicitly allowed,
-// because they can make git run arbitrary programs. Clone passes a custom env,
-// so anything inherited from the user's shell (EDITOR, PAGER, a GIT_ASKPASS left
+// because they can make git run arbitrary programs. simple-git v4 guards every
+// GIT_-prefixed key plus a few non-prefixed ones. Clone passes a custom env, so
+// anything inherited from the user's shell (EDITOR, PAGER, a GIT_ASKPASS left
 // by an IDE terminal, …) aborted the clone before git even ran. None of them
-// matter for a clone; strip them and allow only what the auth mode itself sets.
-const SIMPLE_GIT_GUARDED_ENV = new Set([
-  'editor', 'pager', 'prefix', 'ssh_askpass',
-  'git_askpass', 'git_editor', 'git_pager', 'git_sequence_editor',
-  'git_ssh', 'git_ssh_command', 'git_proxy_command', 'git_external_diff',
-  'git_template_dir', 'git_exec_path',
-  'git_config', 'git_config_global', 'git_config_system', 'git_config_count',
-]);
+// matter for a clone; strip them and allow only what the auth mode itself sets
+// (see CLONE_ALLOWED_ENV).
+const SIMPLE_GIT_GUARDED_ENV = new Set(['editor', 'pager', 'prefix', 'ssh_askpass', 'visual']);
+
+const CLONE_ALLOWED_ENV = ['GIT_TERMINAL_PROMPT', 'GIT_ASKPASS', 'SSH_ASKPASS', 'GIT_SSH_COMMAND'];
 
 function cloneBaseEnv(): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
   for (const [key, value] of Object.entries(process.env)) {
     const lower = key.toLowerCase();
-    if (SIMPLE_GIT_GUARDED_ENV.has(lower) || /^git_config_(key|value)_\d+$/.test(lower)) continue;
+    if (SIMPLE_GIT_GUARDED_ENV.has(lower) || lower.startsWith('git_')) continue;
     env[key] = value;
   }
   // Always suppress interactive terminal prompts regardless of auth mode.
@@ -305,6 +303,7 @@ export function registerGitIpcHandlers() {
         simpleGit({
           baseDir,
           config: cloneConfig,
+          allowEnvironment: CLONE_ALLOWED_ENV.filter((key) => cloneEnv[key] !== undefined),
           unsafe: {
             allowUnsafeCredentialHelper: cloneConfig.length > 0,
             allowUnsafeAskPass: !!(cloneEnv.GIT_ASKPASS || cloneEnv.SSH_ASKPASS),

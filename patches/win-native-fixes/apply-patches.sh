@@ -1,11 +1,15 @@
 #!/bin/bash
 # Apply Windows native module build patches after yarn install
-# These fix MSVC 2022 + C++20 compilation issues in node-pty and node-gyp
+# These fix MSVC 2022 compilation issues in node-gyp
 #
 # Patches:
 #   1. win_delay_load_hook.cc - GetModuleHandle -> GetModuleHandleA
-#   2. conpty.cc - Move PFN* typedefs outside #ifndef guard (newer Windows SDK)
-#   3. winpty.cc - Hoist variable declarations before goto (C++20 compliance)
+#
+# node-pty used to be patched here too, by copying over whole node-pty 1.0.0
+# source files. node-pty 1.1.0 is N-API (no nan), so those copies no longer
+# compile against it. Its conpty.cc typedef fix now lives in
+# .yarn/patches/node-pty-npm-1.1.0-*.patch (applied by yarn install), and
+# 1.1.0's winpty.cc no longer has the goto that needed hoisting.
 #
 # Usage: bash patches/win-native-fixes/apply-patches.sh
 
@@ -23,19 +27,5 @@ for target in \
     echo "  Patched: $target"
   fi
 done
-
-# 2. node-pty conpty.cc
-TARGET="$ROOT_DIR/apps/electron/node_modules/node-pty/src/win/conpty.cc"
-if [ -f "$TARGET" ]; then
-  cp "$SCRIPT_DIR/conpty.cc" "$TARGET"
-  echo "  Patched: $TARGET"
-fi
-
-# 3. node-pty winpty.cc
-TARGET="$ROOT_DIR/apps/electron/node_modules/node-pty/src/win/winpty.cc"
-if [ -f "$TARGET" ]; then
-  cp "$SCRIPT_DIR/winpty.cc" "$TARGET"
-  echo "  Patched: $TARGET"
-fi
 
 echo "Done. Now run: yarn rebuild"

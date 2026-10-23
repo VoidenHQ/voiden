@@ -3,6 +3,7 @@ import { MakerZIP } from "@electron-forge/maker-zip";
 import { MakerDeb } from "@electron-forge/maker-deb";
 import { MakerDMG } from "@electron-forge/maker-dmg";
 import { MakerRpm } from "@electron-forge/maker-rpm";
+import { MakerAppImage } from "./makers/MakerAppImage";
 import { VitePlugin } from "@electron-forge/plugin-vite";
 import { FusesPlugin } from "@electron-forge/plugin-fuses";
 import { FuseV1Options, FuseVersion } from "@electron/fuses";
@@ -136,48 +137,53 @@ if (isMac) {
           // (a service principal), picked up automatically by DefaultAzureCredential.
           // Required env vars: AZURE_CODE_SIGNING_ENDPOINT, AZURE_CODE_SIGNING_ACCOUNT_NAME,
           // AZURE_CODE_SIGNING_CERT_PROFILE, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_TENANT_ID
-          sign: async (config: { path: string }) => {
-            const endpoint     = process.env.AZURE_CODE_SIGNING_ENDPOINT;
-            const accountName  = process.env.AZURE_CODE_SIGNING_ACCOUNT_NAME;
-            const certProfile  = process.env.AZURE_CODE_SIGNING_CERT_PROFILE;
+          //
+          // electron-builder 25+ only accepts a custom sign hook under
+          // win.signtoolOptions; a top-level win.sign fails schema validation.
+          signtoolOptions: {
+            sign: async (config: { path: string }) => {
+              const endpoint     = process.env.AZURE_CODE_SIGNING_ENDPOINT;
+              const accountName  = process.env.AZURE_CODE_SIGNING_ACCOUNT_NAME;
+              const certProfile  = process.env.AZURE_CODE_SIGNING_CERT_PROFILE;
 
-            if (!endpoint || !accountName || !certProfile) {
-              throw new Error(
-                "Missing Azure Trusted Signing env vars. Required: " +
-                "AZURE_CODE_SIGNING_ENDPOINT, AZURE_CODE_SIGNING_ACCOUNT_NAME, " +
-                "AZURE_CODE_SIGNING_CERT_PROFILE"
-              );
-            }
+              if (!endpoint || !accountName || !certProfile) {
+                throw new Error(
+                  "Missing Azure Trusted Signing env vars. Required: " +
+                  "AZURE_CODE_SIGNING_ENDPOINT, AZURE_CODE_SIGNING_ACCOUNT_NAME, " +
+                  "AZURE_CODE_SIGNING_CERT_PROFILE"
+                );
+              }
 
-            const signtoolPath = process.env.SIGNTOOL_PATH || "signtool";
-            const dlibPath = process.env.SIGNING_DLIB_PATH
-              || `${process.env.ProgramFiles}\\Trusted Signing Client\\bin\\x64\\Azure.CodeSigning.Dlib.dll`;
+              const signtoolPath = process.env.SIGNTOOL_PATH || "signtool";
+              const dlibPath = process.env.SIGNING_DLIB_PATH
+                || `${process.env.ProgramFiles}\\Trusted Signing Client\\bin\\x64\\Azure.CodeSigning.Dlib.dll`;
 
-            const metadata = {
-              Endpoint: endpoint,
-              CodeSigningAccountName: accountName,
-              CertificateProfileName: certProfile,
-              CorrelationId: crypto.randomUUID(),
-            };
-            const metadataPath = path.join(os.tmpdir(), `trusted-signing-metadata-${crypto.randomUUID()}.json`);
-            fs.writeFileSync(metadataPath, JSON.stringify(metadata, null, 2));
+              const metadata = {
+                Endpoint: endpoint,
+                CodeSigningAccountName: accountName,
+                CertificateProfileName: certProfile,
+                CorrelationId: crypto.randomUUID(),
+              };
+              const metadataPath = path.join(os.tmpdir(), `trusted-signing-metadata-${crypto.randomUUID()}.json`);
+              fs.writeFileSync(metadataPath, JSON.stringify(metadata, null, 2));
 
-            try {
-              const cmd = [
-                `"${signtoolPath}" sign`,
-                `/v /fd SHA256`,
-                `/tr http://timestamp.acs.microsoft.com`,
-                `/td SHA256`,
-                `/dlib "${dlibPath}"`,
-                `/dmdf "${metadataPath}"`,
-                `"${config.path}"`,
-              ].join(" ");
+              try {
+                const cmd = [
+                  `"${signtoolPath}" sign`,
+                  `/v /fd SHA256`,
+                  `/tr http://timestamp.acs.microsoft.com`,
+                  `/td SHA256`,
+                  `/dlib "${dlibPath}"`,
+                  `/dmdf "${metadataPath}"`,
+                  `"${config.path}"`,
+                ].join(" ");
 
-              execSync(cmd, { stdio: "inherit" });
-              console.log(`Signed: ${path.basename(config.path)}`);
-            } finally {
-              fs.unlinkSync(metadataPath);
-            }
+                execSync(cmd, { stdio: "inherit" });
+                console.log(`Signed: ${path.basename(config.path)}`);
+              } finally {
+                fs.unlinkSync(metadataPath);
+              }
+            },
           },
         },
         fileAssociations: [
@@ -279,18 +285,8 @@ if (isMac) {
         ],
       },
     }),
-    {
-      name: '@pengx17/electron-forge-maker-appimage',
-      platforms: ['linux'],
-      config: {
-        options: {
-          bin: 'Voiden',
-          name: 'Voiden',
-          icon: './src/images/icon.png',
-          categories: ['Development'],
-        }
-      }
-    }
+    // Icon and category come from package.json's "build.linux" block.
+    new MakerAppImage()
   );
 }
 
