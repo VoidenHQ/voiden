@@ -16,6 +16,7 @@ import {
   parseNumstatZ,
 } from "./gitCommitParsers";
 import { resolveAuthorAvatar } from "./gitAvatars";
+import { SNIFF_BYTES, fileCategory, isBinaryCategory } from "../fileKind";
 
 // In-flight deduplication: prevents polling intervals from stacking up
 // concurrent git processes when a call takes longer than the poll interval.
@@ -166,6 +167,25 @@ const REMOTE_URL_TTL = 600_000; // 10 minutes
 function invalidateRemoteUrlCache(projectPath: string): void {
   remoteUrlCache.delete(projectPath);
 }
+
+
+/** True for files that must never be read or written as text, like images (#610). */
+async function isBinaryOnDisk(filePath: string): Promise<boolean> {
+  try {
+    const handle = await fs.promises.open(filePath, "r");
+    try {
+      const head = Buffer.alloc(SNIFF_BYTES);
+      const { bytesRead } = await handle.read(head, 0, SNIFF_BYTES, 0);
+      return isBinaryCategory(fileCategory(filePath, head.subarray(0, bytesRead)), filePath);
+    } finally {
+      await handle.close();
+    }
+  } catch {
+    return false;
+  }
+}
+
+const BINARY_TEXT_SAVE = "This is a binary file, so it cannot be resolved as text. Keep the Current or the Incoming version instead.";
 
 export function registerGitIpcHandlers() {
   // Get git repository root directory
@@ -552,10 +572,13 @@ export function registerGitIpcHandlers() {
       }
 
       const { staged, modified, untracked, deleted, renamed, conflicted } = classifyStatusFiles(status);
+      const fileStatuses = new Map(status.files.map((file) => [file.path, file]));
 
       return {
         files: [...new Set([...staged, ...modified, ...untracked, ...deleted])].map((file) => ({
           path: file,
+          index: fileStatuses.get(file)?.index ?? ' ',
+          workingTree: fileStatuses.get(file)?.working_dir ?? ' ',
           status: staged.includes(file)
             ? "staged"
             : modified.includes(file)
@@ -1279,6 +1302,7 @@ export function registerGitIpcHandlers() {
       if (!activeProject) throw new Error("No active project selected.");
 
       const filePath = path.join(activeProject, file);
+      if (await isBinaryOnDisk(filePath)) throw new Error(BINARY_TEXT_SAVE);
       const content = await fs.promises.readFile(filePath, 'utf8');
       const resolved = resolveConflictContent(content, resolution, sectionIndex);
       await fs.promises.writeFile(filePath, resolved, 'utf8');
@@ -1305,9 +1329,34 @@ export function registerGitIpcHandlers() {
     const activeProject = await getActiveProject(event);
     if (!activeProject) throw new Error("No active project selected.");
     const filePath = path.join(activeProject, file);
+    // Writing text over an image or other binary file would break it.
+    if (await isBinaryOnDisk(filePath)) throw new Error(BINARY_TEXT_SAVE);
     fs.writeFileSync(filePath, content, 'utf8');
     const git = getSharedGit(activeProject);
     await git.add(file);
+    invalidateGitCache(activeProject);
+    return { success: true };
+  });
+
+  // Resolve a conflict in a binary file by keeping one whole version (#610).
+  // When the chosen side deleted the file, keeping it means removing the file.
+  ipcMain.handle("git:resolveBinaryConflict", async (event: IpcMainInvokeEvent, file: string, side: "current" | "incoming") => {
+    const activeProject = await getActiveProject(event);
+    if (!activeProject) throw new Error("No active project selected.");
+    const git = getSharedGit(activeProject);
+    const stage = side === "current" ? ":2" : ":3";
+    let sideExists = true;
+    try {
+      await git.raw(["cat-file", "-e", `${stage}:${file}`]);
+    } catch {
+      sideExists = false;
+    }
+    if (sideExists) {
+      await git.raw(["checkout", side === "current" ? "--ours" : "--theirs", "--", file]);
+      await git.add(file);
+    } else {
+      await git.raw(["rm", "--quiet", "--", file]);
+    }
     invalidateGitCache(activeProject);
     return { success: true };
   });

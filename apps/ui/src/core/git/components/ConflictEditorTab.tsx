@@ -1,11 +1,11 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useAddPanelTab, useClosePanelTab } from "@/core/layout/hooks";
+import { useClosePanelTab } from "@/core/layout/hooks";
 import { toast } from "@/core/components/ui/sonner";
 import { cn } from "@/core/lib/utils";
 import {
-  AlertTriangle, Check, Eye, ArrowUp, ArrowDown,
-  ChevronsUpDown, Loader2, RefreshCw,
+  AlertTriangle, Check, ArrowUp, ArrowDown,
+  ChevronsUpDown, ChevronUp, ChevronDown, Loader2, RefreshCw, Undo2,
 } from "lucide-react";
 import { Tip } from "@/core/components/ui/Tip";
 
@@ -19,55 +19,29 @@ import {
 import { StateField, RangeSetBuilder, Text } from "@codemirror/state";
 import { voidenTheme } from "@/core/editors/code/CodeEditor.tsx";
 import { getGitErrorMessage } from "@/core/git/utils/gitErrorMessage";
+import { groupConflictsByBlock, keepBothWherePossible, resolveAll, resolveConflicts, validateVoidContent } from "@/core/git/utils/conflictMarkers";
+import { VoidView, VoidViewToggle } from "./VoidDiffView";
+import { VoidConflictView } from "./VoidConflictView";
+import { BinaryConflictView } from "./BinaryConflictView";
+import { BlobDiffSkeleton } from "./BinaryDiffView";
+import { useGetFileBlob } from "@/core/git/hooks";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 type Resolution = "current" | "incoming" | "both";
 
-// ── In-memory bulk resolution ─────────────────────────────────────────────────
+// ── In-memory resolution ─────────────────────────────────────────────────────
+// Unresolved conflicts are left exactly as they are, branch labels included.
 
 function applyResolutionInMemory(
   content: string,
   resolution: Resolution,
   sectionIndex?: number,
+  separateBoth = false,
 ): string {
-  const lines = content.split("\n");
-  const result: string[] = [];
-  let i = 0;
-  let cur = 0;
-
-  while (i < lines.length) {
-    if (lines[i].startsWith("<<<<<<<")) {
-      const currentLines: string[] = [];
-      const incomingLines: string[] = [];
-      let state: "current" | "base" | "incoming" = "current";
-      i++;
-      while (i < lines.length && !lines[i].startsWith(">>>>>>>")) {
-        if (lines[i].startsWith("=======")) state = "incoming";
-        else if (lines[i].startsWith("|||||||")) state = "base";
-        else if (state === "current") currentLines.push(lines[i]);
-        else if (state === "incoming") incomingLines.push(lines[i]);
-        i++;
-      }
-      const shouldResolve = sectionIndex === undefined || sectionIndex === cur;
-      if (shouldResolve) {
-        if (resolution === "current") result.push(...currentLines);
-        else if (resolution === "incoming") result.push(...incomingLines);
-        else { result.push(...currentLines); result.push(...incomingLines); }
-      } else {
-        result.push("<<<<<<< HEAD");
-        result.push(...currentLines);
-        result.push("=======");
-        result.push(...incomingLines);
-        result.push(">>>>>>> incoming");
-      }
-      cur++;
-    } else {
-      result.push(lines[i]);
-    }
-    i++;
-  }
-  return result.join("\n");
+  return sectionIndex === undefined
+    ? resolveAll(content, resolution, { separateBoth })
+    : resolveConflicts(content, new Map([[sectionIndex, resolution]]), { separateBoth });
 }
 
 // ── Conflict editor theme ─────────────────────────────────────────────────────
@@ -91,6 +65,7 @@ class ConflictActionWidget extends WidgetType {
   constructor(
     private readonly getView: () => EditorView | null,
     private readonly conflictIndex: number,
+    private readonly separateBoth: boolean,
   ) {
     super();
   }
@@ -124,7 +99,7 @@ class ConflictActionWidget extends WidgetType {
         const view = this.getView();
         if (!view) return;
         const content = view.state.doc.toString();
-        const resolved = applyResolutionInMemory(content, resolution, this.conflictIndex);
+        const resolved = applyResolutionInMemory(content, resolution, this.conflictIndex, this.separateBoth);
         view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: resolved } });
       });
       return btn;
@@ -154,6 +129,7 @@ class ConflictActionWidget extends WidgetType {
 function buildConflictDecos(
   doc: Text,
   getView: () => EditorView | null,
+  separateBoth: boolean,
 ): DecorationSet {
   const builder = new RangeSetBuilder<Decoration>();
   const lines = doc.toString().split("\n");
@@ -171,7 +147,7 @@ function buildConflictDecos(
         headerLine.from,
         headerLine.from,
         Decoration.widget({
-          widget: new ConflictActionWidget(getView, conflictIdx),
+          widget: new ConflictActionWidget(getView, conflictIdx, separateBoth),
           side: -1,
           block: true,
         }),
@@ -234,9 +210,48 @@ function buildConflictDecos(
   return builder.finish();
 }
 
+/** Start offsets of every `<<<<<<<` line. */
+const conflictStarts = (doc: Text): number[] => {
+  const starts: number[] = [];
+  for (let n = 1; n <= doc.lines; n++) {
+    const line = doc.line(n);
+    if (line.text.startsWith("<<<<<<<")) starts.push(line.from);
+  }
+  return starts;
+};
+
+/** Moves the cursor to a conflict and scrolls it to the middle of the editor. */
+const revealConflict = (view: EditorView, direction: "first" | "next" | "previous") => {
+  const starts = conflictStarts(view.state.doc);
+  if (!starts.length) return;
+  const head = view.state.selection.main.head;
+  const target =
+    direction === "first" ? starts[0]
+    : direction === "next" ? starts.find((pos) => pos > head) ?? starts[0]
+    : [...starts].reverse().find((pos) => pos < head) ?? starts[starts.length - 1];
+  view.dispatch({ selection: { anchor: target }, effects: EditorView.scrollIntoView(target, { y: "center" }) });
+};
+
 // ── Main component ────────────────────────────────────────────────────────────
 
+/**
+ * Binary files (images, PDFs, ...) are resolved by keeping one whole version;
+ * text files open in the editor below (#610).
+ */
 export const ConflictEditorTab = ({ tab }: { tab: any }) => {
+  const file: string = tab.source ?? tab.meta?.file ?? "";
+  const tabId: string = tab.tabId ?? tab.id ?? "";
+  // Git keeps the two sides of a conflict as stages 2 (current) and 3 (incoming).
+  const { data: current, isLoading: currentLoading } = useGetFileBlob(file ? ":2" : undefined, file);
+  const { data: incoming, isLoading: incomingLoading } = useGetFileBlob(file ? ":3" : undefined, file);
+  if (currentLoading || incomingLoading) return <BlobDiffSkeleton columns={2} />;
+  if (current?.binary || incoming?.binary) {
+    return <BinaryConflictView file={file} tabId={tabId} current={current} incoming={incoming} />;
+  }
+  return <TextConflictEditor tab={tab} />;
+};
+
+const TextConflictEditor = ({ tab }: { tab: any }) => {
   const file: string = tab.source ?? tab.meta?.file ?? "";
   const tabId: string = tab.tabId ?? tab.id ?? "";
   const fileName = file.split("/").pop() || file;
@@ -249,14 +264,38 @@ export const ConflictEditorTab = ({ tab }: { tab: any }) => {
   const [loadKey, setLoadKey] = useState(0);
 
   const editorRef = useRef<EditorView | null>(null);
-  const { mutate: addPanelTab } = useAddPanelTab();
   const { mutate: closeTab } = useClosePanelTab();
+
+  // .void files open as rendered blocks; Source is the text resolver below.
+  const [voidView, setVoidView] = useState<VoidView>("rendered");
+  const showRendered = isVoid && voidView === "rendered";
+  // Earlier versions of the content, for undoing choices made in the rendered view.
+  const [history, setHistory] = useState<string[]>([]);
+  const changeContent = (next: string) => {
+    setHistory((h) => [...h, localContent]);
+    setLocalContent(next);
+  };
+  const undo = () => {
+    if (!history.length) return;
+    setLocalContent(history[history.length - 1]);
+    setHistory(history.slice(0, -1));
+  };
 
   const conflictCount = useMemo(
     () => (localContent.match(/^<{7}/gm) ?? []).length,
     [localContent],
   );
   const allResolved = !isLoading && conflictCount === 0;
+  // In the rendered view one card can hold several conflicts (e.g. method and URL of one request).
+  const remaining = useMemo(
+    () => (showRendered ? groupConflictsByBlock(localContent).length : conflictCount),
+    [showRendered, localContent, conflictCount],
+  );
+  // A merged .void file that does not parse must not look resolved.
+  const voidInvalid = useMemo(
+    () => isVoid && allResolved && !validateVoidContent(localContent).valid,
+    [isVoid, allResolved, localContent],
+  );
 
   // ── StateField for conflict decorations (stable, created once per mount) ───
 
@@ -264,10 +303,10 @@ export const ConflictEditorTab = ({ tab }: { tab: any }) => {
     const getView = () => editorRef.current;
     return StateField.define<DecorationSet>({
       create(state) {
-        return buildConflictDecos(state.doc, getView);
+        return buildConflictDecos(state.doc, getView, isVoid);
       },
       update(decos, tr) {
-        if (tr.docChanged) return buildConflictDecos(tr.state.doc, getView);
+        if (tr.docChanged) return buildConflictDecos(tr.state.doc, getView, isVoid);
         return decos.map(tr.changes);
       },
       provide: (f) => EditorView.decorations.from(f),
@@ -288,6 +327,7 @@ export const ConflictEditorTab = ({ tab }: { tab: any }) => {
       const raw = await window.electron?.git.getFileContent(file);
       if (raw != null) {
         setLocalContent(raw);
+        setHistory([]);
         setLoadKey((k) => k + 1);
       }
     } catch (err: any) {
@@ -304,10 +344,24 @@ export const ConflictEditorTab = ({ tab }: { tab: any }) => {
   // ── Bulk accept all conflicts ──────────────────────────────────────────────
 
   const applyResolution = (resolution: Resolution) => {
+    if (showRendered) {
+      if (resolution !== "both") {
+        changeContent(resolveAll(localContent, resolution));
+        return;
+      }
+      const { content, skipped } = keepBothWherePossible(localContent);
+      if (content !== localContent) changeContent(content);
+      if (skipped > 0) {
+        toast.info(`${skipped} conflict${skipped === 1 ? "" : "s"} still need${skipped === 1 ? "s" : ""} a choice`, {
+          description: "Keeping both sides there would break the file, so pick Current or Incoming for them.",
+        });
+      }
+      return;
+    }
     const view = editorRef.current;
     if (!view) return;
     const content = view.state.doc.toString();
-    const resolved = applyResolutionInMemory(content, resolution);
+    const resolved = applyResolutionInMemory(content, resolution, undefined, isVoid);
     view.dispatch({
       changes: { from: 0, to: view.state.doc.length, insert: resolved },
     });
@@ -315,9 +369,22 @@ export const ConflictEditorTab = ({ tab }: { tab: any }) => {
 
   // ── Save, stage & close tab ───────────────────────────────────────────────
 
+  const resolveGroup = (indices: number[], resolution: Resolution) =>
+    changeContent(resolveConflicts(localContent, new Map(indices.map((i) => [i, resolution]))));
+
   const handleResolved = async () => {
     const view = editorRef.current;
-    const content = view?.state.doc.toString() ?? localContent;
+    const content = showRendered ? localContent : view?.state.doc.toString() ?? localContent;
+    if (isVoid) {
+      // Never stage a .void file the app cannot open again.
+      const { valid, invalidBlocks } = validateVoidContent(content);
+      if (!valid) {
+        toast.error("This .void file is not valid yet", {
+          description: `${invalidBlocks} block${invalidBlocks === 1 ? " does" : "s do"} not parse. Fix ${invalidBlocks === 1 ? "it" : "them"} in Source, then try again.`,
+        });
+        return;
+      }
+    }
     setIsSaving(true);
     try {
       await window.electron?.git.saveResolvedFile(file, content);
@@ -333,28 +400,6 @@ export const ConflictEditorTab = ({ tab }: { tab: any }) => {
     }
   };
 
-  // ── Preview .void ─────────────────────────────────────────────────────────
-
-  const handlePreview = async () => {
-    try {
-      const root = await window.electron?.git.getRepoRoot();
-      if (!root) { toast.error("Could not resolve project path"); return; }
-      const absolutePath = await window.electron?.utils.pathJoin(root, file);
-      if (!absolutePath) return;
-      addPanelTab({
-        panelId: "main",
-        tab: {
-          id: `preview-resolved-${file}`,
-          type: "document",
-          title: fileName,
-          source: absolutePath,
-        } as any,
-      });
-    } catch {
-      toast.error("Could not open preview");
-    }
-  };
-
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
@@ -365,7 +410,7 @@ export const ConflictEditorTab = ({ tab }: { tab: any }) => {
         <div className="flex items-center gap-2">
           <AlertTriangle
             size={13}
-            className={cn(allResolved ? "text-green-400" : "text-orange-400")}
+            className={cn(voidInvalid ? "text-vcs-removed" : allResolved ? "text-green-400" : "text-orange-400")}
           />
           <span className="text-sm font-medium text-text truncate max-w-[200px]">
             {fileName}
@@ -373,15 +418,19 @@ export const ConflictEditorTab = ({ tab }: { tab: any }) => {
           {!isLoading && (
             <span
               className={cn(
-                "text-[10px] px-1.5 py-0.5 rounded font-medium",
-                allResolved
-                  ? "bg-green-500/15 text-green-400"
-                  : "bg-orange-500/15 text-orange-400",
+                "text-[10px] px-1.5 py-0.5 rounded font-medium whitespace-nowrap",
+                voidInvalid
+                  ? "bg-[color-mix(in_srgb,var(--vcs-removed)_15%,transparent)] text-vcs-removed"
+                  : allResolved
+                    ? "bg-green-500/15 text-green-400"
+                    : "bg-orange-500/15 text-orange-400",
               )}
             >
-              {allResolved
-                ? "Resolved"
-                : `${conflictCount} conflict${conflictCount !== 1 ? "s" : ""}`}
+              {voidInvalid
+                ? "Not valid"
+                : allResolved
+                  ? "Resolved"
+                  : `${remaining} conflict${remaining !== 1 ? "s" : ""} left`}
             </span>
           )}
         </div>
@@ -392,7 +441,7 @@ export const ConflictEditorTab = ({ tab }: { tab: any }) => {
               <Tip label="Accept all current (HEAD) changes" side="bottom">
                 <button
                   onClick={() => applyResolution("current")}
-                  className="flex items-center gap-1 text-[11px] text-green-400 bg-green-500/10 hover:bg-green-500/20 border border-green-500/20 px-2.5 py-1 rounded transition-colors"
+                  className="flex items-center gap-1 whitespace-nowrap text-[11px] text-green-400 bg-green-500/10 hover:bg-green-500/20 border border-green-500/20 px-2.5 py-1 rounded transition-colors"
                 >
                   <ArrowUp size={11} /> All Current
                 </button>
@@ -400,15 +449,15 @@ export const ConflictEditorTab = ({ tab }: { tab: any }) => {
               <Tip label="Accept all incoming changes" side="bottom">
                 <button
                   onClick={() => applyResolution("incoming")}
-                  className="flex items-center gap-1 text-[11px] text-blue-400 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/20 px-2.5 py-1 rounded transition-colors"
+                  className="flex items-center gap-1 whitespace-nowrap text-[11px] text-blue-400 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/20 px-2.5 py-1 rounded transition-colors"
                 >
                   <ArrowDown size={11} /> All Incoming
                 </button>
               </Tip>
-              <Tip label="Accept all — keep both" side="bottom">
+              <Tip label={showRendered ? "Keep both where the file stays valid" : "Accept all, keep both"} side="bottom">
                 <button
                   onClick={() => applyResolution("both")}
-                  className="flex items-center gap-1 text-[11px] text-comment hover:text-text bg-active/40 hover:bg-active border border-border px-2.5 py-1 rounded transition-colors"
+                  className="flex items-center gap-1 whitespace-nowrap text-[11px] text-comment hover:text-text bg-active/40 hover:bg-active border border-border px-2.5 py-1 rounded transition-colors"
                 >
                   <ChevronsUpDown size={11} /> Both
                 </button>
@@ -417,6 +466,36 @@ export const ConflictEditorTab = ({ tab }: { tab: any }) => {
             </>
           )}
 
+          {!showRendered && !allResolved && !isLoading && conflictCount > 1 && (
+            <>
+              <Tip label="Previous conflict" side="bottom">
+                <button
+                  onClick={() => editorRef.current && revealConflict(editorRef.current, "previous")}
+                  className="p-1.5 text-comment hover:text-text hover:bg-active/50 rounded transition-colors"
+                >
+                  <ChevronUp size={13} />
+                </button>
+              </Tip>
+              <Tip label="Next conflict" side="bottom">
+                <button
+                  onClick={() => editorRef.current && revealConflict(editorRef.current, "next")}
+                  className="p-1.5 text-comment hover:text-text hover:bg-active/50 rounded transition-colors"
+                >
+                  <ChevronDown size={13} />
+                </button>
+              </Tip>
+            </>
+          )}
+          {showRendered && history.length > 0 && (
+            <Tip label="Undo last choice" side="bottom">
+              <button
+                onClick={undo}
+                className="p-1.5 text-comment hover:text-text hover:bg-active/50 rounded transition-colors"
+              >
+                <Undo2 size={13} />
+              </button>
+            </Tip>
+          )}
           <Tip label="Reload from disk" side="bottom">
             <button
               onClick={loadContent}
@@ -435,6 +514,10 @@ export const ConflictEditorTab = ({ tab }: { tab: any }) => {
           <div className="flex items-center justify-center h-full">
             <Loader2 size={20} className="animate-spin text-comment" />
           </div>
+        ) : showRendered ? (
+          <div className="h-full flex flex-col">
+            <VoidConflictView content={localContent} onResolve={resolveGroup} onShowSource={() => setVoidView("source")} />
+          </div>
         ) : (
           <CodeMirror
             key={loadKey}
@@ -442,7 +525,11 @@ export const ConflictEditorTab = ({ tab }: { tab: any }) => {
             theme={voidenTheme}
             extensions={extensions}
             basicSetup={{ lineNumbers: true, highlightActiveLine: true }}
-            onCreateEditor={(view) => { editorRef.current = view; }}
+            onCreateEditor={(view) => {
+              editorRef.current = view;
+              // Start at the first conflict instead of wherever the file happens to scroll.
+              requestAnimationFrame(() => revealConflict(view, "first"));
+            }}
             onChange={(val) => setLocalContent(val)}
             style={{ height: "100%" }}
             height="100%"
@@ -453,17 +540,7 @@ export const ConflictEditorTab = ({ tab }: { tab: any }) => {
       {/* ── Bottom bar ── */}
       {!isLoading && (
         <div className="flex-shrink-0 px-4 py-2 border-t border-border bg-panel flex items-center justify-between gap-2">
-          {isVoid ? (
-            <button
-              onClick={handlePreview}
-              className="flex items-center gap-1.5 text-xs text-comment hover:text-text border border-border hover:bg-active/50 px-3 py-1.5 rounded transition-colors"
-            >
-              <Eye size={12} />
-              Preview .void file
-            </button>
-          ) : (
-            <span />
-          )}
+          {isVoid ? <VoidViewToggle value={voidView} onChange={setVoidView} /> : <span />}
 
           {allResolved ? (
             <button
@@ -480,7 +557,7 @@ export const ConflictEditorTab = ({ tab }: { tab: any }) => {
             </button>
           ) : (
             <span className="text-[10px] text-comment">
-              Resolve all {conflictCount} conflict{conflictCount !== 1 ? "s" : ""} to continue
+              Resolve all {remaining} conflict{remaining !== 1 ? "s" : ""} to continue
             </span>
           )}
         </div>

@@ -141,7 +141,8 @@ const CommitFileRow = memo(({ file, commitHash, shortHash }: { file: CommitFile;
 });
 CommitFileRow.displayName = "CommitFileRow";
 
-const SKELETON_WIDTHS = [55, 70, 45];
+// One line: every commit shows at least one row, so the row only grows once files load.
+const SKELETON_WIDTHS = [55];
 
 /** Files changed by a commit, shown inline under an expanded history row. */
 export const CommitFileList = ({ commitHash, shortHash }: { commitHash: string; shortHash: string }) => {

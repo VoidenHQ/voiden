@@ -111,6 +111,15 @@ declare global {
         flatList: (rootDir: string, sessionId?: string | null, query?: string, currentFilePath?: string) => Promise<{ name: string; path: string }[]>;
         flatListCloseSession: (sessionId: string) => Promise<void>;
         read: (path: string) => Promise<string>;
+        /** Size, kind and (for small images) the picture of a file, so binary files can be shown. */
+        readBlob: (path: string) => Promise<{
+          exists: boolean;
+          size: number;
+          binary: boolean;
+          category: "image" | "document" | "audio" | "video" | "font" | "archive" | "executable" | "database" | "binary" | "text";
+          label: string;
+          dataUrl?: string;
+        } | null>;
         write: (
           path: string | null,
           content: string,
@@ -240,9 +249,20 @@ declare global {
           branch: string,
           filePath: string,
         ) => Promise<string | null>;
+        /** One side of a diff, described without reading binary files as text. `ref` null is the working copy. */
+        getFileBlob: (ref: string | null, filePath: string) => Promise<{
+          exists: boolean;
+          size: number;
+          binary: boolean;
+          category: "image" | "document" | "audio" | "video" | "font" | "archive" | "executable" | "database" | "binary" | "text";
+          label: string;
+          dataUrl?: string;
+        } | null>;
+        /** Resolve a binary conflict by keeping one whole version. */
+        resolveBinaryConflict: (file: string, side: "current" | "incoming") => Promise<{ success: boolean }>;
         getRepoRoot: () => Promise<string | null>;
         getStatus: () => Promise<{
-          files: { path: string; status: string }[];
+          files: { path: string; status: string; index: string; workingTree: string }[];
           staged: string[];
           modified: string[];
           untracked: string[];
