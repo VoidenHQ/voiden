@@ -1,6 +1,7 @@
 import { useSettings } from "@/core/settings/hooks";
 import { useState, useEffect } from "react";
 import { usePluginStore } from "@/plugins";
+import { CliCommandMessage, type CliResultMessage } from "@/core/settings/components/CliCommandMessage";
 
 export const SettingsContent = () => {
   const { settings, save } = useSettings();
@@ -8,7 +9,7 @@ export const SettingsContent = () => {
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const [cliInstalling, setCliInstalling] = useState(false);
-  const [cliMessage, setCliMessage] = useState<string | null>(null);
+  const [cliResult, setCliResult] = useState<CliResultMessage | null>(null);
   const [cliActuallyInstalled, setCliActuallyInstalled] = useState<boolean | null>(null);
   const [skillsToggling, setSkillsToggling] = useState(false);
 
@@ -118,12 +119,12 @@ export const SettingsContent = () => {
 
   const handleCliInstall = async () => {
     setCliInstalling(true);
-    setCliMessage(null);
+    setCliResult(null);
 
     try {
       const result = await window.electron?.cli?.install();
       if (result?.success) {
-        setCliMessage(result.message);
+        setCliResult(result);
         setCliActuallyInstalled(true);
         await save({
           cli: {
@@ -131,10 +132,10 @@ export const SettingsContent = () => {
           },
         });
       } else {
-        setCliMessage(result?.message || "Installation failed");
+        setCliResult({ message: result?.message || "Installation failed", command: result?.command });
       }
     } catch (error) {
-      setCliMessage(error instanceof Error ? error.message : "Unknown error");
+      setCliResult({ message: error instanceof Error ? error.message : "Unknown error" });
     } finally {
       setCliInstalling(false);
     }
@@ -142,12 +143,12 @@ export const SettingsContent = () => {
 
   const handleCliUninstall = async () => {
     setCliInstalling(true);
-    setCliMessage(null);
+    setCliResult(null);
 
     try {
       const result = await window.electron?.cli?.uninstall();
       if (result?.success) {
-        setCliMessage(result.message);
+        setCliResult(result);
         setCliActuallyInstalled(false);
         await save({
           cli: {
@@ -155,10 +156,10 @@ export const SettingsContent = () => {
           },
         });
       } else {
-        setCliMessage(result?.message || "Uninstallation failed");
+        setCliResult({ message: result?.message || "Uninstallation failed", command: result?.command });
       }
     } catch (error) {
-      setCliMessage(error instanceof Error ? error.message : "Unknown error");
+      setCliResult({ message: error instanceof Error ? error.message : "Unknown error" });
     } finally {
       setCliInstalling(false);
     }
@@ -313,13 +314,7 @@ export const SettingsContent = () => {
             )}
           </div>
 
-          {cliMessage && (
-            <div className="mt-3 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded text-sm">
-              <pre className="text-blue-700 dark:text-blue-300 whitespace-pre-wrap text-xs font-mono">
-                {cliMessage}
-              </pre>
-            </div>
-          )}
+{cliResult && <CliCommandMessage message={cliResult.message} command={cliResult.command} />}
 
           <div className="mt-4 p-3 bg-muted rounded text-xs">
             <p className="font-medium mb-1">Usage Examples:</p>
