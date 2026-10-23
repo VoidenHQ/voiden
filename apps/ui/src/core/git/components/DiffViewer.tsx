@@ -4,6 +4,8 @@ import { cn } from "@/core/lib/utils";
 import { useState, useRef, useCallback, useEffect } from "react";
 import * as Diff from "diff";
 import { useQuery } from "@tanstack/react-query";
+import { isVoidFile } from "../utils/voidBlockDiff";
+import { VoidDiffSkeleton, VoidDiffView, VoidFileView, VoidView, VoidViewToggle } from "./VoidDiffView";
 
 // Hook to get git repository root
 const useGetGitRepoRoot = () => {
@@ -46,10 +48,13 @@ interface DiffViewerProps {
 }
 
 type DiffMode = "split" | "unified";
-
 // Simple read-only file viewer for a file at a specific commit
-const FileAtCommitViewer = ({ branch, filePath }: { branch: string; filePath: string }) => {
+const FileAtCommitViewer = ({ branch, filePath, voidView }: { branch: string; filePath: string; voidView: VoidView }) => {
   const { data: content, isLoading } = useGetFileAtBranch(branch, filePath);
+
+  if (isVoidFile(filePath) && voidView === "rendered") {
+    return isLoading ? <VoidDiffSkeleton columns={1} /> : <VoidFileView content={content} />;
+  }
 
   if (isLoading) {
     return (
@@ -82,6 +87,7 @@ export const DiffViewer = ({ tab }: DiffViewerProps) => {
   );
   const [selectedFile, setSelectedFile] = useState<string | null>(singleFilePath || null);
   const [diffMode, setDiffMode] = useState<DiffMode>("split");
+  const [voidView, setVoidView] = useState<VoidView>("rendered");
   const [panelWidth, setPanelWidth] = useState(30); // percentage
   const isDraggingRef = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -120,9 +126,10 @@ export const DiffViewer = ({ tab }: DiffViewerProps) => {
       <div className="flex flex-col h-full bg-bg">
         <div className="px-4 py-2 border-b border-border flex items-center gap-2">
           <FileIcon size={14} className="text-comment flex-shrink-0" />
-          <span className="text-xs font-mono text-text">{singleFilePath}</span>
+          <span className="text-xs font-mono text-text flex-1 truncate">{singleFilePath}</span>
+          {isVoidFile(singleFilePath) && <VoidViewToggle value={voidView} onChange={setVoidView} />}
         </div>
-        <FileAtCommitViewer branch={compareBranch} filePath={singleFilePath} />
+        <FileAtCommitViewer branch={compareBranch} filePath={singleFilePath} voidView={voidView} />
       </div>
     );
   }
@@ -138,6 +145,7 @@ export const DiffViewer = ({ tab }: DiffViewerProps) => {
             <span className="text-sm font-mono text-text">{singleFilePath}</span>
           </div>
           <div className="flex items-center gap-2">
+            {isVoidFile(singleFilePath) && <VoidViewToggle value={voidView} onChange={setVoidView} />}
             <button
               onClick={() => setDiffMode("split")}
               className={cn(
@@ -172,6 +180,7 @@ export const DiffViewer = ({ tab }: DiffViewerProps) => {
           filePath={singleFilePath}
           mode={diffMode}
           isWorkingDirectory={isWorkingDirectory}
+          voidView={voidView}
         />
       </div>
     );
@@ -214,6 +223,7 @@ export const DiffViewer = ({ tab }: DiffViewerProps) => {
             <span className="text-red-500">-{diffData.summary.deletions}</span>
           )}
         </div>
+        {isVoidFile(selectedFile) && <VoidViewToggle value={voidView} onChange={setVoidView} />}
         {/* Diff mode toggle */}
         <div className="flex items-center gap-1 flex-shrink-0">
           <button
@@ -282,6 +292,7 @@ export const DiffViewer = ({ tab }: DiffViewerProps) => {
               filePath={selectedFile}
               mode={diffMode}
               isWorkingDirectory={false}
+              voidView={voidView}
             />
           ) : (
             <div className="flex-1 flex items-center justify-center text-comment">
@@ -303,9 +314,10 @@ interface FileDiffContentProps {
   filePath: string;
   mode: DiffMode;
   isWorkingDirectory?: boolean;
+  voidView: VoidView;
 }
 
-const FileDiffContent = ({ baseBranch, compareBranch, filePath, mode, isWorkingDirectory }: FileDiffContentProps) => {
+const FileDiffContent = ({ baseBranch, compareBranch, filePath, mode, isWorkingDirectory, voidView }: FileDiffContentProps) => {
   const { data: baseContent, isLoading: baseLoading } = useGetFileAtBranch(baseBranch, filePath);
 
   // For working directory, read file from filesystem instead of git
@@ -367,6 +379,19 @@ const FileDiffContent = ({ baseBranch, compareBranch, filePath, mode, isWorkingD
     document.addEventListener("mousemove", onMouseMove);
     document.addEventListener("mouseup", onMouseUp);
   }, []);
+
+  if (isVoidFile(filePath) && voidView === "rendered") {
+    if (baseLoading || finalCompareLoading) return <VoidDiffSkeleton columns={mode === "split" ? 2 : 1} />;
+    return (
+      <VoidDiffView
+        baseContent={baseContent}
+        compareContent={finalCompareContent}
+        mode={mode}
+        baseLabel={baseBranch}
+        compareLabel={isWorkingDirectory ? "Working Directory" : compareBranch}
+      />
+    );
+  }
 
   if (baseLoading || finalCompareLoading) {
     return (
