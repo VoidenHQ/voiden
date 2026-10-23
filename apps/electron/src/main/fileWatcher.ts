@@ -173,6 +173,10 @@ function startWatching(projectPath: string, watcherId: string) {
         validateExternalVoidChange(filePath);
       } else if (isVoidenYaml(filePath)) {
         emit("voiden:yaml-changed", { path: filePath, project: projectPath, watcherId });
+        // Also refresh an open text tab of this file — without it, a tab left
+        // open beside the Environment Editor keeps the old content, and saving
+        // that tab writes it back over the editor's changes.
+        emit("file:changed", { path: filePath, project: projectPath, watcherId });
       } else if (isEnvFile(filePath)) {
         emit("env:changed", { path: filePath, project: projectPath, watcherId });
       } else if (isGitRelated(filePath)) {

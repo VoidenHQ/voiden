@@ -1,5 +1,26 @@
 [
   {
+    "version": "v2.3.4",
+    "date": "22/10/2026",
+    "title": "Environment Visibility & Saving Fix",
+    "description": "Patch release: child environments can be shown in the env picker while their parent is hidden, the env selector search matches display names, and an open env YAML tab now stays in sync with the Environment Editor.",
+    "icon": "Wrench",
+    "iconColor": "text-sky-400",
+    "bgColor": "bg-gradient-to-br from-slate-900 to-sky-950",
+    "changes": {
+      "Added": [
+        "A child environment can be shown in the env picker while its parent is hidden"
+      ],
+      "Improved": [
+        "Hiding or unhiding a parent environment resets its children, so hiding it again hides all of them"
+      ],
+      "Fixed": [
+        "Environment changes are no longer overwritten when the env YAML file is open in another tab",
+        "Searching the env selector finds environments by their display name"
+      ]
+    }
+  },
+  {
     "version": "v2.3.3",
     "date": "21/10/2026",
     "title": "Stable: Commit History, Folder Environments & Startup Options",

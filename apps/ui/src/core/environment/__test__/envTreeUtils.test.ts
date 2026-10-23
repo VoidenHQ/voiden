@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { cloneEnvNode, insertAfterKey, splitFromEditable } from "../components/envTreeUtils";
+import { cloneEnvNode, insertAfterKey, mergeToEditable, splitFromEditable } from "../components/envTreeUtils";
 import type { EditableEnvNode } from "../components/EnvironmentNode";
 
 describe("insertAfterKey", () => {
@@ -52,5 +52,30 @@ describe("cloneEnvNode", () => {
     copy.children.eu.variables.push({ id: "x", key: "K", value: "V", isPrivate: false });
     expect(original.variables[0].value).toBe("https://staging");
     expect(original.children.eu.variables).toHaveLength(1);
+  });
+});
+
+describe("env picker visibility round-trip", () => {
+  it("keeps a child's explicit intermediate: false under a hidden parent", () => {
+    const editable = mergeToEditable(
+      {
+        base: {
+          intermediate: true,
+          children: {
+            dev: { intermediate: false, variables: { HOST: "dev" } },
+            qa: { variables: { HOST: "qa" } },
+          },
+        },
+      },
+      {},
+    );
+    expect(editable.base.intermediate).toBe(true);
+    expect(editable.base.children.dev.intermediate).toBe(false);
+    expect(editable.base.children.qa.intermediate).toBeUndefined();
+
+    const { publicTree } = splitFromEditable(editable);
+    expect(publicTree.base.intermediate).toBe(true);
+    expect(publicTree.base.children?.dev.intermediate).toBe(false);
+    expect(publicTree.base.children?.qa).not.toHaveProperty("intermediate");
   });
 });
