@@ -3,6 +3,7 @@ import fs from "fs/promises";
 import path from "path";
 import { AppState, AppSettings, PanelElement } from "src/shared/types";
 import { windowManager } from "./windowManager";
+import { isUsableState, repairState } from "./stateRepair";
 
 const apiReadme = `# Voiden API Extension
 
@@ -113,8 +114,21 @@ export async function loadState(skipDefault?: boolean): Promise<AppState> {
   try {
     const STATE_FILE = windowManager.getStateFilePath();
     const data = await fs.readFile(STATE_FILE, "utf8");
-    const state = JSON.parse(data) as AppState;
+    const parsed: unknown = JSON.parse(data);
 
+    // A window whose saved state lost its sidebars or layout would open blank
+    // (#608). Rebuild it from the defaults, keeping the project it was on.
+    if (!isUsableState(parsed)) {
+      const defaults = await getDefaultState(skipDefault);
+      const repaired = repairState(parsed, defaults, getDefaultLayout);
+      repaired.id = windowManager.activeWindowId;
+      repaired.onboarding = await loadOnboardingState();
+      repaired.showOnboarding = false;
+      await saveState(repaired);
+      return repaired;
+    }
+
+    const state = parsed;
     state.onboarding = await loadOnboardingState();
 
     if (

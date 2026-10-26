@@ -2,7 +2,6 @@ import { ipcMain, BrowserWindow } from "electron";
 import { getActiveStates, saveActiveStates } from "../tabs";
 import { addRecentPath } from "../fileSystem";
 import { createMenuWithRecent } from "../window";
-import { saveState } from "../persistState";
 
 export async function getActiveDirectory() {
   const states = await getActiveStates();
@@ -18,8 +17,9 @@ export async function setActiveDirectory(directoryPath: string, window: BrowserW
       tabs: [],
     };
   }
+  // Only the tab list is saved here. Writing it with saveState() replaced the
+  // window's full state and the window reopened blank (#608).
   await saveActiveStates(states);
-  await saveState(states);
   window.webContents.send("directory:changed", directoryPath);
   await addRecentPath(directoryPath);
   createMenuWithRecent(window);

@@ -228,7 +228,6 @@ export const EnvSelector = () => {
                           <Command.Item
                             key={`profile-${profile}`}
                             value={`profile:${profile}`}
-                            keywords={["profile", profile]}
                             className="cursor-pointer px-3 py-2 rounded-md mb-1 text-text data-[selected=true]:bg-active hover:bg-active flex items-center gap-3 outline-none"
                             onSelect={() => {
                               setActiveProfile(profile);
@@ -263,7 +262,6 @@ export const EnvSelector = () => {
                           <Command.Item
                             key={`nested-profile-${src.projectPath}-${src.profile}`}
                             value={`nested-profile:${src.projectPath}:${src.profile}`}
-                            keywords={[src.relPath, src.profile]}
                             className="cursor-pointer px-3 py-2 rounded-md mb-1 text-text data-[selected=true]:bg-active hover:bg-active flex items-center gap-3 outline-none"
                             onSelect={() => setSelectedNestedKey(isSelected ? null : key)}
                           >
@@ -289,8 +287,8 @@ export const EnvSelector = () => {
                   }>
                     {/* Option to clear environment */}
                     <Command.Item
-                      value="none"
-                      keywords={["none", "clear", "disable", "no"]}
+                      // cmdk 0.2 has no `keywords`; the search terms live in the value
+                      value="none clear disable"
                       className="cursor-pointer px-3 py-2.5 rounded-md mb-1 text-text data-[selected=true]:bg-active hover:bg-active flex items-center gap-3 outline-none"
                       onSelect={() => handleEnvSelect("")}
                     >
@@ -330,8 +328,9 @@ export const EnvSelector = () => {
                         return (
                           <Command.Item
                             key={fileName}
-                            value={fileName}
-                            keywords={hasCustomName ? [fallbackName, displayName] : undefined}
+                            // cmdk 0.2 ignores `keywords` and only filters on `value`,
+                            // so the display name has to be part of it to be searchable.
+                            value={hasCustomName ? `${fileName} ${displayName}` : fileName}
                             className="cursor-pointer px-3 py-2.5 rounded-md mb-1 text-text data-[selected=true]:bg-active hover:bg-active flex items-center gap-3 outline-none"
                             onSelect={() => handleEnvSelect(fileName)}
                           >

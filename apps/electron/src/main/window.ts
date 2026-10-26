@@ -476,7 +476,13 @@ export async function createMenuWithRecent(mainWindow: BrowserWindow) {
             label: path.basename(projectPath),
             sublabel: projectPath,
             click: async () => {
-              await setActiveDirectory(projectPath, mainWindow);
+              // Same path as Open Folder: switch the window's saved project, then
+              // update the recent list and refresh the window (#608).
+              if (windowManager.focusWindowByProject(projectPath)) return;
+              await setActiveProject(projectPath);
+              const target = windowManager.browserWindow ?? mainWindow;
+              await setActiveDirectory(projectPath, target);
+              target.webContents.send("folder:opened", { path: projectPath });
             },
           })),
           { type: "separator" as const },
