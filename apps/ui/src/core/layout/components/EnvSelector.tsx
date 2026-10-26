@@ -174,7 +174,7 @@ export const EnvSelector = () => {
       {
         open && (
           <div
-            className="fixed inset-0 z-[9999] flex items-start justify-center pt-[20vh] bg-black/50"
+            className="fixed inset-0 z-[9999] flex items-start justify-center pt-[20vh] bg-black/50 no-drag"
             onClick={() => setOpen(false)}
           >
             <div className="w-full max-w-2xl mx-4" onClick={(e) => e.stopPropagation()}>
