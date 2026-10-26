@@ -161,6 +161,22 @@ export const useGetFileAtBranch = (branch?: string, filePath?: string) => {
   });
 };
 
+export type FileBlob = NonNullable<Awaited<ReturnType<NonNullable<typeof window.electron>["git"]["getFileBlob"]>>>;
+
+/**
+ * Size, kind and (for small images) the picture of one side of a diff.
+ * `ref` null reads the working copy; undefined skips the query.
+ */
+export const useGetFileBlob = (ref: string | null | undefined, filePath?: string) => {
+  return useQuery({
+    queryKey: ["git:file:blob", ref, filePath],
+    queryFn: async () => (filePath && ref !== undefined ? (await window.electron?.git.getFileBlob(ref, filePath)) ?? null : null),
+    enabled: ref !== undefined && !!filePath,
+    // The working copy changes on disk; committed files never do.
+    staleTime: ref === null ? 0 : Infinity,
+  });
+};
+
 export const useGetGitLog = (limit: number = 50) => {
   const { data: isGitRepo } = useIsGitRepo();
   return useQuery({
