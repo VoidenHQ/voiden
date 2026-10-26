@@ -2,11 +2,12 @@ import { ipcMain, app, BrowserWindow } from 'electron'
 import path from 'node:path'
 import fs from 'node:fs/promises'
 import { existsSync, watch, readFileSync } from 'node:fs'
-import { coreExtensions, fetchAndUpdateCoreRegistry, remoteVersions, remoteVoidenVersions, remoteNewPlugins } from '../config/coreExtensions'
+import { coreExtensions, fetchAndUpdateCoreRegistry, remoteVersions, remoteVoidenVersions, remoteNewPlugins, remoteCommunityIds } from '../config/coreExtensions'
 import { getMainProcessExtensionResults } from '../extensionLoader'
 import { coreCacheDir, githubCachePath, coreUninstalledPath } from '../extension/paths'
 import { fetchPluginRegistry } from '../extension/pluginRegistry'
 import { markRestoreWindowsOnRelaunch } from '../launchRestore'
+import { getSettings, saveSettings } from '../settings'
 
 // builtInRegistry reflects what's actually loaded (remote if fetched, otherwise local fallback)
 const builtInRegistry = {
@@ -450,6 +451,27 @@ interface PluginReleaseInfo {
 }
 
 
+/**
+ * Counts community plugins released since the last registry fetch and records
+ * them as seen, so each one is announced once. The first run only records what
+ * is already there.
+ */
+function countNewCommunityPlugins(): number {
+  // Empty means the registry couldn't be read; recording that would announce
+  // every community plugin on the next successful fetch.
+  if (remoteCommunityIds.length === 0) return 0
+  const seen = getSettings().plugins?.seen_community
+  const fresh = seen ? remoteCommunityIds.filter((id) => !seen.includes(id)) : []
+  if (!seen || fresh.length > 0) {
+    try {
+      saveSettings({ plugins: { seen_community: seen ? [...seen, ...fresh] : [...remoteCommunityIds] } })
+    } catch {
+      // Not being able to save only means these are announced again.
+    }
+  }
+  return fresh.length
+}
+
 export function registerCoreExtensionsIpcHandlers(): void {
   ipcMain.handle('coreExtensions:getMainProcessResults', () => getMainProcessExtensionResults())
 
@@ -639,7 +661,7 @@ export function registerCoreExtensionsIpcHandlers(): void {
       }
       // Clear the local cachedRegistry so it's re-built from the now-updated coreExtensions array
       cachedRegistry = null;
-      return { newPluginCount: remoteNewPlugins.length };
+      return { newPluginCount: remoteNewPlugins.length + countNewCommunityPlugins() };
     } catch (err) {
       console.warn('[CoreExtensions] fetchRegistry IPC failed:', err);
       return { newPluginCount: 0 };

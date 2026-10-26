@@ -74,6 +74,9 @@ export type Settings = {
     first_seen?: string; // UTC day of the first run; absent for installs older than activity counting
     last_active?: string; // UTC day last reported to voiden.md
   };
+  plugins?: {
+    seen_community?: string[]; // community plugin IDs already in the registry, so only later releases are announced
+  };
   ui?: {
     last_seen_version?: string;
     show_whats_new_after_update?: boolean;
