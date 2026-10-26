@@ -405,9 +405,9 @@ export const fontsApi = {
 
 export const cliApi = {
   isInstalled: (): Promise<boolean> => ipcRenderer.invoke("cli:isInstalled"),
-  install: (): Promise<{ success: boolean; message: string }> =>
+  install: (): Promise<{ success: boolean; message: string; command?: string }> =>
     ipcRenderer.invoke("cli:install"),
-  uninstall: (): Promise<{ success: boolean; message: string }> =>
+  uninstall: (): Promise<{ success: boolean; message: string; command?: string }> =>
     ipcRenderer.invoke("cli:uninstall"),
   showInstructions: (): Promise<void> =>
     ipcRenderer.invoke("cli:showInstructions"),
