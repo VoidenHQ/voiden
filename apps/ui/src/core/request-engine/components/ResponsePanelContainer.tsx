@@ -790,12 +790,15 @@ export function ResponsePanelContainer() {
                               {singleElapsed < 1000 ? `${Math.round(singleElapsed)}ms` : `${(singleElapsed / 1000).toFixed(1)}s`}
                             </span>
                           )}
-                          <span
-                            className="text-xs font-semibold uppercase flex-shrink-0"
-                            style={{ color: singleBorderColor, letterSpacing: "0.5px" }}
-                          >
-                            {singleLabel || "Request 1"}
-                          </span>
+                          {/* No label without a request separator — a lone request has no section name */}
+                          {singleLabel && (
+                            <span
+                              className="text-xs font-semibold uppercase flex-shrink-0"
+                              style={{ color: singleBorderColor, letterSpacing: "0.5px" }}
+                            >
+                              {singleLabel}
+                            </span>
+                          )}
                           <span className="text-comment text-xs truncate flex-1">
                             {singleUrl}
                           </span>
