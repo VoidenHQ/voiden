@@ -1,0 +1,26 @@
+diff --git a/src/win/conpty.cc b/src/win/conpty.cc
+index 7b286d3d644c26141df516929703aa6e129df4b2..28189b47350628b950f31c959a4c633d9f87eaab 100644
+--- a/src/win/conpty.cc
++++ b/src/win/conpty.cc
+@@ -28,7 +28,12 @@
+ #ifndef PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE
+ #define PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE \
+   ProcThreadAttributeValue(22, FALSE, TRUE, FALSE)
++#endif
+ 
++// Voiden patch: keep these typedefs outside the guard. Newer Windows SDKs
++// define PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE but not the PFN* types, so the
++// guarded version fails to compile with MSVC 2022. Repeating an identical
++// typedef (HPCON) is legal C++.
+ typedef VOID* HPCON;
+ typedef HRESULT (__stdcall *PFNCREATEPSEUDOCONSOLE)(COORD c, HANDLE hIn, HANDLE hOut, DWORD dwFlags, HPCON* phpcon);
+ typedef HRESULT (__stdcall *PFNRESIZEPSEUDOCONSOLE)(HPCON hpc, COORD newSize);
+@@ -36,8 +41,6 @@ typedef HRESULT (__stdcall *PFNCLEARPSEUDOCONSOLE)(HPCON hpc);
+ typedef void (__stdcall *PFNCLOSEPSEUDOCONSOLE)(HPCON hpc);
+ typedef void (__stdcall *PFNRELEASEPSEUDOCONSOLE)(HPCON hpc);
+ 
+-#endif
+-
+ struct pty_baton {
+   int id;
+   HANDLE hIn;

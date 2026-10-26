@@ -121,8 +121,12 @@ jobs:
             arch_flag: ''
             artifact_name: win32-x64
 
+          # Pinned to ubuntu-24.04 (not ubuntu-latest) — ubuntu-latest moved to
+          # 26.04, whose newer rpmbuild uses a different BUILD directory layout,
+          # so electron-installer-redhat's spec fails with "cp: cannot stat
+          # 'usr/*'" and the .rpm step breaks the whole Linux make.
           - label: Linux (x64)
-            os: ubuntu-latest
+            os: ubuntu-24.04
             arch_flag: ''
             artifact_name: linux-x64
 
@@ -150,8 +154,9 @@ jobs:
         shell: cmd
         run: cleanup.bat
 
-      # cleanup.bat installs with --mode=skip-build — node-pty's unpatched source
-      # fails to compile under MSVC 2022 + C++20. Patch it, then force a rebuild.
+      # cleanup.bat installs with --mode=skip-build — node-gyp's delay-load hook
+      # fails to compile under MSVC 2022. Patch it, then force a rebuild.
+      # (node-pty's own fix is a yarn patch, applied during install.)
       - name: Apply Windows native build patches
         if: runner.os == 'Windows'
         shell: bash

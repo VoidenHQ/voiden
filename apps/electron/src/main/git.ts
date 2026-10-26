@@ -1,6 +1,6 @@
 import { ipcMain, IpcMainInvokeEvent, BrowserWindow } from "electron";
 import { getActiveProject } from "./state";
-import simpleGit from "simple-git";
+import { simpleGit } from "simple-git";
 import * as fs from "fs";
 import * as path from "path";
 import { logger } from "./logger";
