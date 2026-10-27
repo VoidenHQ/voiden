@@ -124,14 +124,13 @@ function pruneEntriesByRetention(entries: HistoryEntry[], retentionDays?: number
 }
 
 /** Ensure .voiden/history directory exists, only creating what is missing */
-async function ensureHistoryDir(projectPath: string, filePath?: string): Promise<void> {
+async function ensureHistoryDir(projectPath: string): Promise<void> {
   try {
     // Keep runtime artifacts out of VCS for the active project when .gitignore exists.
-    const gitignorePatterns = ['.voiden/*', '.voiden/**'];
-    if (filePath) {
-      gitignorePatterns.push(`.voiden/history/${getHistoryFileName(filePath)}`);
-    }
-    await electronAny()?.git?.updateGitignore?.(gitignorePatterns, projectPath);
+    // .voiden/* already covers every history file. A line per file would rewrite
+    // .gitignore on the first send from each file, and that write makes the
+    // watcher reload the whole file tree.
+    await electronAny()?.git?.updateGitignore?.(['.voiden/*', '.voiden/**'], projectPath);
 
     const voidenExists = await electronAny()?.files?.getDirectoryExist(projectPath, '.voiden');
     if (!voidenExists) {
@@ -221,7 +220,7 @@ export function appendToHistory(
 ): Promise<HistoryFile> {
   const lockKey = `${projectPath}::${getHistoryFileName(filePath)}`;
   return withWriteLock(lockKey, async () => {
-    await ensureHistoryDir(projectPath, filePath);
+    await ensureHistoryDir(projectPath);
     const history = await readHistory(projectPath, filePath, retentionDays);
 
     history.entries.unshift(entry);
@@ -244,7 +243,7 @@ export function appendToHistory(
 
 /** Clear all history for a given .void file */
 export async function clearHistory(projectPath: string, filePath: string): Promise<void> {
-  await ensureHistoryDir(projectPath, filePath);
+  await ensureHistoryDir(projectPath);
   const fileName = getHistoryFileName(filePath);
   const historyPath = await electronAny()?.utils?.pathJoin(
     projectPath,

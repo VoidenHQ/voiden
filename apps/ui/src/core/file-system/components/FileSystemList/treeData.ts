@@ -43,6 +43,22 @@ export function injectChildren(
   });
 }
 
+/**
+ * Inject several folders' freshly fetched children in one pass, parents first.
+ * Injecting a parent replaces its whole subtree with unloaded child folders, so
+ * a parent applied after one of its children would wipe that child's contents
+ * and the open folder would show empty until it reloads.
+ */
+export function injectChildrenBatch(
+  nodes: ExtendedFileTree[],
+  results: { dirPath: string; children: ExtendedFileTree[] }[],
+): ExtendedFileTree[] {
+  const depth = (p: string) => p.split(/[/\\]/).length;
+  return [...results]
+    .sort((a, b) => depth(a.dirPath) - depth(b.dirPath))
+    .reduce((updated, { dirPath, children }) => injectChildren(updated, dirPath, children), nodes);
+}
+
 export function getParentPath(path: string): string {
   if (!path) return "";
   const sep = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));

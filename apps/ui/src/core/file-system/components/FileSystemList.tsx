@@ -30,6 +30,7 @@ import {
   findNodeByPath,
   getParentPath,
   injectChildren,
+  injectChildrenBatch,
   removeNodeByPath,
   removeNodeFromTreeData,
   updateTreeData,
@@ -548,13 +549,7 @@ export const FileSystemList = () => {
           }),
         );
         if (results.length === 0) return;
-        setTreeData((prev) => {
-          let updated = prev;
-          for (const { dirPath, children } of results) {
-            updated = injectChildren(updated, dirPath, children);
-          }
-          return updated;
-        });
+        setTreeData((prev) => injectChildrenBatch(prev, results));
         setTimeout(() => {
           for (const { dirPath } of results) {
             treeRef.current?.get(dirPath)?.open();
@@ -618,13 +613,7 @@ export const FileSystemList = () => {
             }),
           );
           if (results.length === 0) return;
-          setTreeData((prev) => {
-            let updated = prev;
-            for (const { dirPath, children } of results) {
-              updated = injectChildren(updated, dirPath, children);
-            }
-            return updated;
-          });
+          setTreeData((prev) => injectChildrenBatch(prev, results));
           setTimeout(() => {
             for (const { dirPath } of results) {
               const node = treeRef.current?.get(dirPath);
