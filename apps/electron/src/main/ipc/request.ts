@@ -1436,7 +1436,9 @@ export function registerRequestIpcHandler() {
 
       switch (callType) {
         case 'server_streaming':
-          await handleServerStreamingCall(grpcId, client, protoFilePath, packageName, service, method, "", metadata, entry);
+          // Opens the stream with an empty request message. It must be an
+          // object: protobufjs 8 rejects "" with "object expected".
+          await handleServerStreamingCall(grpcId, client, protoFilePath, packageName, service, method, {}, metadata, entry);
           break;
 
         case 'client_streaming':
