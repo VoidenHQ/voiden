@@ -74,7 +74,7 @@ const TextFileAtCommit = ({ branch, filePath, voidView }: { branch: string; file
 
   if (isLoading) {
     return (
-      <div className="flex-1 flex items-center justify-center">
+      <div className="flex-1 flex items-center justify-center animate-in fade-in duration-150 delay-200 fill-mode-both">
         <Loader2 className="animate-spin text-comment" size={20} />
       </div>
     );
@@ -204,7 +204,7 @@ export const DiffViewer = ({ tab }: DiffViewerProps) => {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-full">
+      <div className="flex items-center justify-center h-full animate-in fade-in duration-150 delay-200 fill-mode-both">
         <Loader2 className="animate-spin text-comment" size={24} />
       </div>
     );
@@ -436,7 +436,7 @@ const TextFileDiff = ({ baseBranch, compareBranch, filePath, mode, isWorkingDire
 
   if (baseLoading || finalCompareLoading) {
     return (
-      <div className="flex-1 flex items-center justify-center">
+      <div className="flex-1 flex items-center justify-center animate-in fade-in duration-150 delay-200 fill-mode-both">
         <Loader2 className="animate-spin text-comment" size={20} />
       </div>
     );
