@@ -30,6 +30,7 @@
         "Large binary files no longer freeze the window in diffs (#614) — contributed by [@simranxdhindsa](https://github.com/simranxdhindsa)",
         "No loader flash when switching files in Commit History (#618) — contributed by [@simranxdhindsa](https://github.com/simranxdhindsa)",
         "The file tree no longer jumps or collapses open folders when a request is sent",
+        "Methods typed in lowercase, like patch, are sent in uppercase instead of failing with 400 Bad Request",
         "A file with a single request no longer shows a default \"Request 1\" name in the response panel"
       ]
     }
