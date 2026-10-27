@@ -2,15 +2,20 @@
   {
     "version": "v2.3.5-beta.1",
     "date": "27/10/2026",
-    "title": "Block Diffs, .void Conflict Resolution & Binary Previews",
-    "description": "Beta release: .void diffs and merge conflicts shown as native Voiden blocks, image and binary file previews in Git, Source Control improvements, an Electron 44 upgrade, and fixes for Open Recent, CLI install and the file tree.",
+    "title": "Git Diffs for .void Files, Block by Block",
+    "description": "Beta release led by @simranxdhindsa's work on Git: .void diffs and merge conflicts now show as real Voiden blocks instead of raw Markdown, plus image and binary previews, Source Control upgrades, Electron 44, and fixes across requests, gRPC and the CLI.",
     "icon": "Sparkles",
     "iconColor": "text-violet-400",
     "bgColor": "bg-gradient-to-br from-slate-900 to-violet-950",
     "changes": {
       "Added": [
-        "Diffs of .void files show as native Voiden blocks, with Added/Removed/Modified markers and word highlights (#606) — contributed by [@simranxdhindsa](https://github.com/simranxdhindsa)",
-        "Merge conflicts in .void files can be resolved block by block with Keep Current, Keep Incoming or Keep Both (#607) — contributed by [@simranxdhindsa](https://github.com/simranxdhindsa)",
+        "Diffs of .void files show as native Voiden blocks instead of raw Markdown (#606) — contributed by [@simranxdhindsa](https://github.com/simranxdhindsa)",
+        "Changed blocks are marked Added, Removed or Modified, with the changed words highlighted inside each block (#606) — contributed by [@simranxdhindsa](https://github.com/simranxdhindsa)",
+        "Split and Unified views keep the old and new blocks aligned, with a Rendered/Source toggle for .void files (#606) — contributed by [@simranxdhindsa](https://github.com/simranxdhindsa)",
+        "Block diffs work in Commit History, branch comparison, uncommitted changes and Open File at This Commit (#606) — contributed by [@simranxdhindsa](https://github.com/simranxdhindsa)",
+        "File header changes, like version, are listed in a separate note instead of mixed into the blocks (#606) — contributed by [@simranxdhindsa](https://github.com/simranxdhindsa)",
+        "Merge conflicts in .void files show as block cards with Keep Current, Keep Incoming and Keep Both (#607) — contributed by [@simranxdhindsa](https://github.com/simranxdhindsa)",
+        "The conflict view checks the result is a valid .void file before saving, with All Current/All Incoming/Both bulk actions (#607) — contributed by [@simranxdhindsa](https://github.com/simranxdhindsa)",
         "Images and other binary files show as previews or file cards in diffs, file previews and conflicts (#614) — contributed by [@simranxdhindsa](https://github.com/simranxdhindsa)",
         "Source Control shows status letters (M, U, A, D, R) next to changed files (#607) — contributed by [@simranxdhindsa](https://github.com/simranxdhindsa)",
         "Commit History is resizable and has a toolbar for Go to current commit, Fetch, Pull, Push and Refresh (#607) — contributed by [@simranxdhindsa](https://github.com/simranxdhindsa)",
@@ -19,19 +24,20 @@
         "Newly released community plugins are announced in the new plugins toast"
       ],
       "Improved": [
+        "Commit History animates open and closed, and expanding a commit no longer makes the panel jump (#607) — contributed by [@simranxdhindsa](https://github.com/simranxdhindsa)",
         "Upgraded to Electron 44 and resolved Dependabot alerts",
-        "Smaller app package by dropping unused terminal prebuilds",
-        "Commit History animates open and closed, and expanding a commit no longer makes the panel jump (#607) — contributed by [@simranxdhindsa](https://github.com/simranxdhindsa)"
+        "Smaller app package by dropping unused terminal prebuilds"
       ],
       "Fixed": [
         "Source Control no longer freezes on repos with many untracked files (#607) — contributed by [@simranxdhindsa](https://github.com/simranxdhindsa)",
-        "Windows no longer open blank after using File > Open Recent, and already-broken windows are repaired on start (#611) — contributed by [@simranxdhindsa](https://github.com/simranxdhindsa)",
-        "Installing the voiden terminal command works on Apple chip Macs (#613) — contributed by [@simranxdhindsa](https://github.com/simranxdhindsa)",
         "Large binary files no longer freeze the window in diffs (#614) — contributed by [@simranxdhindsa](https://github.com/simranxdhindsa)",
         "No loader flash when switching files in Commit History (#618) — contributed by [@simranxdhindsa](https://github.com/simranxdhindsa)",
-        "The file tree no longer jumps or collapses open folders when a request is sent",
+        "Windows no longer open blank after using File > Open Recent, and already-broken windows are repaired on start (#611) — contributed by [@simranxdhindsa](https://github.com/simranxdhindsa)",
+        "Installing the voiden terminal command works on Apple chip Macs (#613) — contributed by [@simranxdhindsa](https://github.com/simranxdhindsa)",
+        "Cancelling the terminal command password prompt no longer brings it back on every startup",
         "Methods typed in lowercase, like patch, are sent in uppercase instead of failing with 400 Bad Request",
         "Connecting to a server-streaming gRPC method no longer fails with \"object expected\"",
+        "The file tree no longer jumps or collapses open folders when a request is sent",
         "A file with a single request no longer shows a default \"Request 1\" name in the response panel"
       ]
     }

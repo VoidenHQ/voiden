@@ -6,8 +6,8 @@
       "whatsnew": [
         {
           "icon": "🧩",
-          "title": "See .void Changes as Blocks",
-          "description": "Diffs of .void files now look like they do in Voiden: requests, headers and text blocks marked as added, removed or modified, with the changed words highlighted."
+          "title": ".void Diffs as Real Blocks",
+          "description": "Git diffs of .void files now look the way the file looks in Voiden. Requests, headers and text show as blocks marked Added, Removed or Modified, with the changed words highlighted, so you can see what changed in a request at a glance. Built by community contributor @simranxdhindsa."
         },
         {
           "icon": "🤝",
@@ -22,7 +22,7 @@
         {
           "icon": "🐛",
           "title": "Source Control & Stability Fixes",
-          "description": "Source Control no longer freezes on large repos, Open Recent no longer leaves a blank window, the voiden terminal command installs on Apple chip Macs, and the file tree stays put when you send a request."
+          "description": "Source Control no longer freezes on large repos, Open Recent no longer leaves a blank window, the voiden terminal command installs on Apple chip Macs, and lowercase methods like patch and server-streaming gRPC connects now work."
         }
       ]
     },
