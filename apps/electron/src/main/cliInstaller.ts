@@ -236,6 +236,10 @@ Or run this command in PowerShell, then restart your terminal.`,
  */
 export async function reconcileCliInstall(): Promise<void> {
   if (platform === "win32") return;
+  // A dev build must never repoint the shared /usr/local/bin/voiden at a
+  // source checkout — and it shares settings.json with the installed app, so
+  // its version would otherwise look like an update and prompt every launch.
+  if (!app.isPackaged) return;
 
   const targetPath = getTargetPath();
   try {
@@ -265,14 +269,23 @@ export async function reconcileCliInstall(): Promise<void> {
     return; // already current (or unparseable — don't guess into a surprise prompt)
   }
 
+  // Asked once for this version already and the user cancelled (or it failed).
+  // installCli() only records installedVersion on success, so without this
+  // the same version would ask again on every startup.
+  if (settings.cli.declinedVersion === currentVersion) return;
+
+  let result: CliResult | undefined;
   try {
-    await installCli();
+    result = await installCli();
   } catch {
-    // Best-effort — a failed silent repair (e.g. the password dialog dismissed,
-    // since the dialog can't distinguish "user-initiated" from
-    // "background repair" once it shows its native dialog) just leaves the
-    // stale symlink in place; the user can still repair manually from
-    // Settings, same as before this existed.
+    // Best-effort — falls through to recording the decline below.
+  }
+  if (!result?.success) {
+    // Leave the stale symlink in place; the user can still repair it from
+    // Settings, which doesn't go through this check.
+    const latest = getSettings();
+    latest.cli.declinedVersion = currentVersion;
+    saveSettings(latest);
   }
 }
 
