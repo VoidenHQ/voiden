@@ -197,8 +197,16 @@ export const ImageFileView = ({ blob, label, note = "at this commit" }: { blob: 
   </div>
 );
 
+// Hidden for the first 200ms: switching files usually loads in ~50ms, and showing
+// the skeleton for that long reads as a flash. Slow loads still fade it in.
 export const BlobDiffSkeleton = ({ columns = 2 }: { columns?: 1 | 2 }) => (
-  <div className={cn("flex-1 grid overflow-hidden", columns === 2 ? "grid-cols-2 divide-x divide-border" : "grid-cols-1")} aria-busy="true">
+  <div
+    className={cn(
+      "flex-1 grid overflow-hidden animate-in fade-in duration-150 delay-200 fill-mode-both",
+      columns === 2 ? "grid-cols-2 divide-x divide-border" : "grid-cols-1",
+    )}
+    aria-busy="true"
+  >
     {Array.from({ length: columns }, (_, col) => (
       <div key={col} className="flex flex-col">
         <div className="h-8 border-b border-border px-4 flex items-center">
