@@ -1,6 +1,32 @@
 {
   "releases": [
     {
+      "version": "2.3.5-beta.1",
+      "date": "October 2026",
+      "whatsnew": [
+        {
+          "icon": "🧩",
+          "title": "See .void Changes as Blocks",
+          "description": "Diffs of .void files now look like they do in Voiden: requests, headers and text blocks marked as added, removed or modified, with the changed words highlighted."
+        },
+        {
+          "icon": "🤝",
+          "title": "Resolve .void Conflicts Block by Block",
+          "description": "Merge conflicts in .void files show each conflict as a card with both versions side by side. Keep Current, Keep Incoming or Keep Both, and Voiden checks the file is still valid before you save."
+        },
+        {
+          "icon": "🖼️",
+          "title": "Image and Binary Previews in Git",
+          "description": "Changed images show old and new side by side, and other binary files show a card with their type and size instead of broken text."
+        },
+        {
+          "icon": "🐛",
+          "title": "Source Control & Stability Fixes",
+          "description": "Source Control no longer freezes on large repos, Open Recent no longer leaves a blank window, the voiden terminal command installs on Apple chip Macs, and the file tree stays put when you send a request."
+        }
+      ]
+    },
+    {
       "version": "2.3.4",
       "date": "October 2026",
       "whatsnew": [

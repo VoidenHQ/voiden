@@ -1,5 +1,40 @@
 [
   {
+    "version": "v2.3.5-beta.1",
+    "date": "27/10/2026",
+    "title": "Block Diffs, .void Conflict Resolution & Binary Previews",
+    "description": "Beta release: .void diffs and merge conflicts shown as native Voiden blocks, image and binary file previews in Git, Source Control improvements, an Electron 44 upgrade, and fixes for Open Recent, CLI install and the file tree.",
+    "icon": "Sparkles",
+    "iconColor": "text-violet-400",
+    "bgColor": "bg-gradient-to-br from-slate-900 to-violet-950",
+    "changes": {
+      "Added": [
+        "Diffs of .void files show as native Voiden blocks, with Added/Removed/Modified markers and word highlights (#606) — contributed by [@simranxdhindsa](https://github.com/simranxdhindsa)",
+        "Merge conflicts in .void files can be resolved block by block with Keep Current, Keep Incoming or Keep Both (#607) — contributed by [@simranxdhindsa](https://github.com/simranxdhindsa)",
+        "Images and other binary files show as previews or file cards in diffs, file previews and conflicts (#614) — contributed by [@simranxdhindsa](https://github.com/simranxdhindsa)",
+        "Source Control shows status letters (M, U, A, D, R) next to changed files (#607) — contributed by [@simranxdhindsa](https://github.com/simranxdhindsa)",
+        "Commit History is resizable and has a toolbar for Go to current commit, Fetch, Pull, Push and Refresh (#607) — contributed by [@simranxdhindsa](https://github.com/simranxdhindsa)",
+        "The CLI install command in Settings has a Copy button (#613) — contributed by [@simranxdhindsa](https://github.com/simranxdhindsa)",
+        "The HTTP QUERY method has its own color (#599) — contributed by [@muhammadlutf1](https://github.com/muhammadlutf1)",
+        "Newly released community plugins are announced in the new plugins toast"
+      ],
+      "Improved": [
+        "Upgraded to Electron 44 and resolved Dependabot alerts",
+        "Smaller app package by dropping unused terminal prebuilds",
+        "Commit History animates open and closed, and expanding a commit no longer makes the panel jump (#607) — contributed by [@simranxdhindsa](https://github.com/simranxdhindsa)"
+      ],
+      "Fixed": [
+        "Source Control no longer freezes on repos with many untracked files (#607) — contributed by [@simranxdhindsa](https://github.com/simranxdhindsa)",
+        "Windows no longer open blank after using File > Open Recent, and already-broken windows are repaired on start (#611) — contributed by [@simranxdhindsa](https://github.com/simranxdhindsa)",
+        "Installing the voiden terminal command works on Apple chip Macs (#613) — contributed by [@simranxdhindsa](https://github.com/simranxdhindsa)",
+        "Large binary files no longer freeze the window in diffs (#614) — contributed by [@simranxdhindsa](https://github.com/simranxdhindsa)",
+        "No loader flash when switching files in Commit History (#618) — contributed by [@simranxdhindsa](https://github.com/simranxdhindsa)",
+        "The file tree no longer jumps or collapses open folders when a request is sent",
+        "A file with a single request no longer shows a default \"Request 1\" name in the response panel"
+      ]
+    }
+  },
+  {
     "version": "v2.3.4",
     "date": "22/10/2026",
     "title": "Environment Visibility & Saving Fix",
