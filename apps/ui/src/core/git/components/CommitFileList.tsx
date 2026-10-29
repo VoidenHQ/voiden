@@ -1,6 +1,6 @@
 import { memo, useCallback } from "react";
 import { Eye, FileDiff, Infinity } from "lucide-react";
-import { useGetCommitFiles } from "@/core/git/hooks";
+import { useGetCommitFiles, useSelectedGitRepo } from "@/core/git/hooks";
 import { useAddPanelTab } from "@/core/layout/hooks";
 import { VSCodeFileIcon } from "@/core/lib/vscodeFileIcon";
 import { Tip } from "@/core/components/ui/Tip";
@@ -27,6 +27,7 @@ const FileTypeIcon = ({ name }: { name: string }) =>
 /** Opens the diff of one file in a commit against its first parent. */
 export const useOpenCommitFileDiff = () => {
   const { mutate: addPanelTab } = useAddPanelTab();
+  const repoPath = useSelectedGitRepo();
   return useCallback((commitHash: string, shortHash: string, filePath: string) => {
     const { name } = splitFilePath(filePath);
     addPanelTab({
@@ -41,15 +42,17 @@ export const useOpenCommitFileDiff = () => {
           compareBranch: commitHash,
           filePath,
           isWorkingDirectory: false,
+          repoPath,
         },
       } as any,
     });
-  }, [addPanelTab]);
+  }, [addPanelTab, repoPath]);
 };
 
 /** Opens the full multi-file diff of a commit against its first parent. */
 export const useOpenCommitChanges = () => {
   const { mutate: addPanelTab } = useAddPanelTab();
+  const repoPath = useSelectedGitRepo();
   return useCallback((commitHash: string, shortHash: string) => {
     addPanelTab({
       panelId: "main",
@@ -61,14 +64,16 @@ export const useOpenCommitChanges = () => {
         meta: {
           baseBranch: `${commitHash}^`,
           compareBranch: commitHash,
+          repoPath,
         },
       } as any,
     });
-  }, [addPanelTab]);
+  }, [addPanelTab, repoPath]);
 };
 
 const CommitFileRow = memo(({ file, commitHash, shortHash }: { file: CommitFile; commitHash: string; shortHash: string }) => {
   const { mutate: addPanelTab } = useAddPanelTab();
+  const repoPath = useSelectedGitRepo();
   const openDiff = useOpenCommitFileDiff();
   const { name, dir } = splitFilePath(file.path);
   const status = STATUS_META[file.status] ?? STATUS_META.M;
@@ -88,6 +93,7 @@ const CommitFileRow = memo(({ file, commitHash, shortHash }: { file: CommitFile;
           filePath: file.path,
           isWorkingDirectory: false,
           viewOnly: true,
+          repoPath,
         },
       } as any,
     });

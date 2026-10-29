@@ -1,4 +1,4 @@
-import { useGetGitStatus, useStageFiles, useUnstageFiles, useCommit, useDiscardFiles, useGetGitBranches, useInitializeGit, usePushToRemote, usePullFromRemote, useCloneRepo, useFetchRemote, useGetGitRemote, useStash, useStashList, useStashPop, useUncommit, useGetGitLog } from "@/core/git/hooks";
+import { useGitRepos, useGetGitStatus, useStageFiles, useUnstageFiles, useCommit, useDiscardFiles, useGetGitBranches, useInitializeGit, usePushToRemote, usePullFromRemote, useCloneRepo, useFetchRemote, useGetGitRemote, useStash, useStashList, useStashPop, useUncommit, useGetGitLog } from "@/core/git/hooks";
 import { useSetActiveProject, useOpenProject } from "@/core/projects/hooks/useProjects";
 import { Loader2, FilePlus, FileEdit, FileX, GitBranch, Check, Plus, Minus, RotateCcw, GitCommit, ArrowUp, ArrowDown, RefreshCw, ChevronRight, GitFork, Eye, EyeOff, MoreVertical, CloudDownload, Archive, ArrowDownToLine, X, FolderOpen, Key, Lock } from "lucide-react";
 import { cn } from "@/core/lib/utils";
@@ -8,6 +8,7 @@ import { useElectronEvent } from "@/core/providers";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/core/components/ui/dialog";
 import { useAddPanelTab } from "@/core/layout/hooks";
 import { GitGraph } from "./GitGraph";
+import { GitRepoPicker } from "./GitRepoPicker";
 import { GitFileStatusBadge } from "./GitFileStatusBadge";
 import { CommitHistoryResizer } from "./CommitHistoryResizer";
 import { CommitHistoryActions } from "./CommitHistoryActions";
@@ -33,8 +34,19 @@ const ShowMoreRows = ({ shown, total, onShowMore }: { shown: number; total: numb
   );
 };
 
-export const GitSourceControl = () => {
+/** The picker sits outside the panel body so it stays put while a newly chosen repo loads. */
+export const GitSourceControl = () => (
+  <div className="flex flex-col h-full">
+    <GitRepoPicker />
+    <div className="flex-1 min-h-0 overflow-y-auto">
+      <GitSourceControlBody />
+    </div>
+  </div>
+);
 
+const GitSourceControlBody = () => {
+
+  const { data: repos } = useGitRepos();
   const { data: status, isLoading, refetch: refetchStatus } = useGetGitStatus();
   const { data: branches, refetch: refetchBranches } = useGetGitBranches();
   const { mutate: stageFiles } = useStageFiles();
@@ -136,6 +148,7 @@ export const GitSourceControl = () => {
           compareBranch: "working-directory",
           filePath: file,
           isWorkingDirectory: true,
+          repoPath: repos?.selected ?? null,
         },
       } as any,
     });

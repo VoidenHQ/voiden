@@ -7,6 +7,7 @@ import { getGitErrorMessage } from "@/core/git/utils/gitErrorMessage";
 import { formatSize } from "@/utils/format";
 import type { FileBlob } from "@/core/git/hooks";
 import { ImageDiff } from "./BinaryDiffView";
+import { useTabGitRepo } from "../repoContext";
 
 type Side = "current" | "incoming";
 
@@ -25,6 +26,7 @@ interface BinaryConflictViewProps {
  */
 export const BinaryConflictView = ({ file, tabId, current, incoming }: BinaryConflictViewProps) => {
   const queryClient = useQueryClient();
+  const repo = useTabGitRepo();
   const { mutate: closeTab } = useClosePanelTab();
   const [saving, setSaving] = useState<Side | null>(null);
   const fileName = file.split("/").pop() || file;
@@ -34,7 +36,7 @@ export const BinaryConflictView = ({ file, tabId, current, incoming }: BinaryCon
   const keep = async (side: Side) => {
     setSaving(side);
     try {
-      await window.electron?.git.resolveBinaryConflict(file, side);
+      await window.electron?.git.resolveBinaryConflict(file, side, repo);
       queryClient.invalidateQueries({ queryKey: ["git:conflicts"] });
       queryClient.invalidateQueries({ queryKey: ["git:status"] });
       queryClient.invalidateQueries({ queryKey: ["git:file:blob"] });

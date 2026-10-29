@@ -236,7 +236,7 @@ declare global {
         createBranch: (projectPath: string, branch: string) => Promise<{ activeBranch: string; branches: string[] }>;
         createBranchFrom: (projectPath: string, branch: string, fromBranch: string) => Promise<{ activeBranch: string; branches: string[] }>;
         updateGitignore: (filePatterns: string | string[], rootDir?: string) => Promise<void>;
-        diffBranches: (baseBranch: string, compareBranch: string) => Promise<{
+        diffBranches: (baseBranch: string, compareBranch: string, repo?: string | null) => Promise<{
           summary: { files: number; insertions: number; deletions: number };
           files: { status: string; path: string; oldPath: string | null }[];
         }>;
@@ -244,13 +244,15 @@ declare global {
           baseBranch: string,
           compareBranch: string,
           filePath: string,
+          repo?: string | null,
         ) => Promise<string>;
         getFileAtBranch: (
           branch: string,
           filePath: string,
+          repo?: string | null,
         ) => Promise<string | null>;
         /** One side of a diff, described without reading binary files as text. `ref` null is the working copy. */
-        getFileBlob: (ref: string | null, filePath: string) => Promise<{
+        getFileBlob: (ref: string | null, filePath: string, repo?: string | null) => Promise<{
           exists: boolean;
           size: number;
           binary: boolean;
@@ -259,8 +261,15 @@ declare global {
           dataUrl?: string;
         } | null>;
         /** Resolve a binary conflict by keeping one whole version. */
-        resolveBinaryConflict: (file: string, side: "current" | "incoming") => Promise<{ success: boolean }>;
-        getRepoRoot: () => Promise<string | null>;
+        resolveBinaryConflict: (file: string, side: "current" | "incoming", repo?: string | null) => Promise<{ success: boolean }>;
+        /** `repo` pins the call to one repo; omitted, the repo selected in Source Control is used. */
+        getRepoRoot: (repo?: string | null) => Promise<string | null>;
+        /** Git repos in the active project (cheap: no git processes), and the one Source Control works on. */
+        listRepos: (refresh?: boolean) => Promise<{
+          repos: { path: string; name: string; relativePath: string; branch: string | null }[];
+          selected: string | null;
+        }>;
+        selectRepo: (repo: string) => Promise<string>;
         getStatus: () => Promise<{
           files: { path: string; status: string; index: string; workingTree: string }[];
           staged: string[];

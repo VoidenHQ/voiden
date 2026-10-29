@@ -2,6 +2,64 @@ import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tansta
 import { useEffect } from "react";
 import { useGetAppState } from "@/core/state/hooks";
 import { reloadVoidenEditor } from "@/core/editors/voiden/VoidenEditor";
+import { useTabGitRepo } from "@/core/git/repoContext";
+
+/**
+ * Git repos in the active project and the one Source Control works on.
+ * Cheap to refetch: the main process caches the scan and reads branch names
+ * from .git/HEAD without spawning git.
+ */
+export const useGitRepos = () => {
+  const { data: appState } = useGetAppState();
+  const activeDirectory = appState?.activeDirectory;
+  return useQuery({
+    queryKey: ["git:repos", activeDirectory],
+    queryFn: async () => (await window.electron?.git.listRepos()) ?? { repos: [], selected: null },
+    enabled: !!activeDirectory,
+    staleTime: 30000,
+  });
+};
+
+/** The repo Source Control works on; stored in diff/conflict tabs so they keep reading from it. */
+export const useSelectedGitRepo = (): string | null => useGitRepos().data?.selected ?? null;
+
+// Repo-specific data that must not survive a repo switch. Commit details and
+// avatars are keyed by hash / email, so they stay valid across repos.
+const REPO_INDEPENDENT_KEYS = new Set(["git:repos", "git:commitDetails", "git:authorAvatar"]);
+const isRepoScopedQuery = (query: { queryKey: readonly unknown[] }) => {
+  const key = query.queryKey[0];
+  return typeof key === "string" && key.startsWith("git:") && !REPO_INDEPENDENT_KEYS.has(key);
+};
+
+export const useSelectGitRepo = () => {
+  const queryClient = useQueryClient();
+  const { data: appState } = useGetAppState();
+  const activeDirectory = appState?.activeDirectory;
+
+  return useMutation({
+    mutationFn: async (repo: string) => window.electron?.git.selectRepo(repo),
+    onSuccess: async (repo) => {
+      queryClient.setQueryData(["git:repos", activeDirectory], (old: any) => (old ? { ...old, selected: repo } : old));
+      // Drop in-flight polls for the previous repo, then refetch what's on screen for the new one.
+      await queryClient.cancelQueries({ predicate: isRepoScopedQuery });
+      await queryClient.resetQueries({ predicate: isRepoScopedQuery });
+    },
+  });
+};
+
+/** Re-scan the project for repos (e.g. after cloning one in a terminal). */
+export const useRescanGitRepos = () => {
+  const queryClient = useQueryClient();
+  const { data: appState } = useGetAppState();
+  const activeDirectory = appState?.activeDirectory;
+  return useMutation({
+    mutationFn: async () => window.electron?.git.listRepos(true),
+    onSuccess: (data) => {
+      queryClient.setQueryData(["git:repos", activeDirectory], data);
+      queryClient.resetQueries({ predicate: isRepoScopedQuery });
+    },
+  });
+};
 
 /**
  * Checks once whether the active directory is a git repository.
@@ -12,13 +70,15 @@ import { reloadVoidenEditor } from "@/core/editors/voiden/VoidenEditor";
 export const useIsGitRepo = () => {
   const { data: appState } = useGetAppState();
   const activeDirectory = appState?.activeDirectory;
+  // Wait for the repo list: it picks the repo when the project root isn't one.
+  const { data: repos, isSuccess: reposLoaded } = useGitRepos();
   return useQuery({
-    queryKey: ["git:isRepo", activeDirectory],
+    queryKey: ["git:isRepo", activeDirectory, repos?.selected],
     queryFn: async () => {
       const root = await window.electron?.git.getRepoRoot();
       return !!root;
     },
-    enabled: !!activeDirectory,
+    enabled: !!activeDirectory && reposLoaded,
     staleTime: Infinity,
     gcTime: Infinity,
     refetchOnWindowFocus: false,
@@ -123,39 +183,42 @@ export const useCreateBranchFrom = () => {
 };
 
 export const useGetBranchDiff = (baseBranch?: string, compareBranch?: string) => {
+  const repo = useTabGitRepo();
   return useQuery({
-    queryKey: ["git:diff", baseBranch, compareBranch],
+    queryKey: ["git:diff", baseBranch, compareBranch, repo],
     queryFn: async () => {
       if (!baseBranch || !compareBranch) {
         return null;
       }
-      return window.electron?.git.diffBranches(baseBranch, compareBranch);
+      return window.electron?.git.diffBranches(baseBranch, compareBranch, repo);
     },
     enabled: !!baseBranch && !!compareBranch,
   });
 };
 
 export const useGetFileDiff = (baseBranch?: string, compareBranch?: string, filePath?: string) => {
+  const repo = useTabGitRepo();
   return useQuery({
-    queryKey: ["git:diff:file", baseBranch, compareBranch, filePath],
+    queryKey: ["git:diff:file", baseBranch, compareBranch, filePath, repo],
     queryFn: async () => {
       if (!baseBranch || !compareBranch || !filePath) {
         return null;
       }
-      return window.electron?.git.diffFile(baseBranch, compareBranch, filePath);
+      return window.electron?.git.diffFile(baseBranch, compareBranch, filePath, repo);
     },
     enabled: !!baseBranch && !!compareBranch && !!filePath,
   });
 };
 
 export const useGetFileAtBranch = (branch?: string, filePath?: string) => {
+  const repo = useTabGitRepo();
   return useQuery({
-    queryKey: ["git:file:branch", branch, filePath],
+    queryKey: ["git:file:branch", branch, filePath, repo],
     queryFn: async () => {
       if (!branch || !filePath) {
         return null;
       }
-      return window.electron?.git.getFileAtBranch(branch, filePath);
+      return window.electron?.git.getFileAtBranch(branch, filePath, repo);
     },
     enabled: !!branch && !!filePath,
   });
@@ -168,9 +231,10 @@ export type FileBlob = NonNullable<Awaited<ReturnType<NonNullable<typeof window.
  * `ref` null reads the working copy; undefined skips the query.
  */
 export const useGetFileBlob = (ref: string | null | undefined, filePath?: string) => {
+  const repo = useTabGitRepo();
   return useQuery({
-    queryKey: ["git:file:blob", ref, filePath],
-    queryFn: async () => (filePath && ref !== undefined ? (await window.electron?.git.getFileBlob(ref, filePath)) ?? null : null),
+    queryKey: ["git:file:blob", ref, filePath, repo],
+    queryFn: async () => (filePath && ref !== undefined ? (await window.electron?.git.getFileBlob(ref, filePath, repo)) ?? null : null),
     enabled: ref !== undefined && !!filePath,
     // The working copy changes on disk; committed files never do.
     staleTime: ref === null ? 0 : Infinity,
@@ -250,6 +314,7 @@ export const useInitializeGit = () => {
     },
     onSuccess: () => {
       // Invalidate isRepo so all git polling hooks re-enable
+      queryClient.invalidateQueries({ queryKey: ["git:repos"] });
       queryClient.invalidateQueries({ queryKey: ["git:isRepo"], exact: false });
       queryClient.invalidateQueries({ queryKey: ["git:status"] });
       queryClient.invalidateQueries({ queryKey: ["git:branches"] });
@@ -258,6 +323,7 @@ export const useInitializeGit = () => {
 }
 
 export const useCloneRepo = () => {
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({
       repoUrl,
@@ -274,6 +340,8 @@ export const useCloneRepo = () => {
     }) => {
       return window.electron?.git.clone(repoUrl, { token, sshKeyPath, sshPassphrase, useSshAgent });
     },
+    // A clone into the project shows up in the repo picker.
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["git:repos"] }),
   });
 }
 
@@ -467,11 +535,12 @@ export const useResolveConflict = () => {
 };
 
 export const useGetFileContent = (file: string | null) => {
+  const repo = useTabGitRepo();
   return useQuery({
-    queryKey: ["git:fileContent", file],
+    queryKey: ["git:fileContent", file, repo],
     queryFn: async () => {
       if (!file) return null;
-      return window.electron?.git.getFileContent(file) ?? null;
+      return window.electron?.git.getFileContent(file, repo) ?? null;
     },
     enabled: !!file,
   });

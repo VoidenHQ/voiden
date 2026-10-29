@@ -37,6 +37,8 @@ interface LayoutState {
   activeEnv?: string;
   activeProfile?: string;
   hidden?:boolean
+  /** Repo the Source Control panel works on, when it isn't the project root. */
+  selectedGitRepo?: string;
 }
 
 export interface ExtensionData {

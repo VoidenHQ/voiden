@@ -22,6 +22,7 @@ import { Kbd } from "@/core/components/ui/kbd";
 import { ErrorBoundary } from "@/core/components/ErrorBoundary";
 import { DiffViewer } from "@/core/git/components/DiffViewer";
 import { ConflictEditorTab } from "@/core/git/components/ConflictEditorTab";
+import { GitRepoContext } from "@/core/git/repoContext";
 import { EnvironmentEditor } from "@/core/environment/components/EnvironmentEditor";
 import { useNewTerminalTab } from "@/core/terminal/hooks/useTerminal";
 import { usePanelStore } from "@/core/stores/panelStore";
@@ -1079,12 +1080,21 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
     return <ExtensionDetails extensionData={tabContent.extensionData} content={tabContent.content} />;
   }
 
+  // Git tabs read from the repo they were opened in, even after Source Control switches repos.
   if (tabContent.type === "diff") {
-    return <DiffViewer tab={tabContent} />;
+    return (
+      <GitRepoContext.Provider value={tabContent.meta?.repoPath ?? null}>
+        <DiffViewer tab={tabContent} />
+      </GitRepoContext.Provider>
+    );
   }
 
   if (tabContent.type === "conflict") {
-    return <ConflictEditorTab tab={tabContent} />;
+    return (
+      <GitRepoContext.Provider value={tabContent.meta?.repoPath ?? null}>
+        <ConflictEditorTab tab={tabContent} />
+      </GitRepoContext.Provider>
+    );
   }
 
   if (tabContent.type === "custom") {

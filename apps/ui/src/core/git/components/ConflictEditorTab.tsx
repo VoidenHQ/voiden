@@ -23,6 +23,7 @@ import { groupConflictsByBlock, keepBothWherePossible, resolveAll, resolveConfli
 import { VoidView, VoidViewToggle } from "./VoidDiffView";
 import { VoidConflictView } from "./VoidConflictView";
 import { BinaryConflictView } from "./BinaryConflictView";
+import { useTabGitRepo } from "../repoContext";
 import { BlobDiffSkeleton } from "./BinaryDiffView";
 import { useGetFileBlob } from "@/core/git/hooks";
 
@@ -253,6 +254,7 @@ export const ConflictEditorTab = ({ tab }: { tab: any }) => {
 
 const TextConflictEditor = ({ tab }: { tab: any }) => {
   const file: string = tab.source ?? tab.meta?.file ?? "";
+  const repo = useTabGitRepo();
   const tabId: string = tab.tabId ?? tab.id ?? "";
   const fileName = file.split("/").pop() || file;
   const isVoid = fileName.endsWith(".void");
@@ -324,7 +326,7 @@ const TextConflictEditor = ({ tab }: { tab: any }) => {
     if (!file) return;
     setIsLoading(true);
     try {
-      const raw = await window.electron?.git.getFileContent(file);
+      const raw = await window.electron?.git.getFileContent(file, repo);
       if (raw != null) {
         setLocalContent(raw);
         setHistory([]);
@@ -335,7 +337,7 @@ const TextConflictEditor = ({ tab }: { tab: any }) => {
     } finally {
       setIsLoading(false);
     }
-  }, [file]);
+  }, [file, repo]);
 
   useEffect(() => {
     loadContent();
@@ -387,7 +389,7 @@ const TextConflictEditor = ({ tab }: { tab: any }) => {
     }
     setIsSaving(true);
     try {
-      await window.electron?.git.saveResolvedFile(file, content);
+      await window.electron?.git.saveResolvedFile(file, content, repo);
       queryClient.invalidateQueries({ queryKey: ["git:conflicts"] });
       queryClient.invalidateQueries({ queryKey: ["git:status"] });
       toast.success("File resolved & staged", { description: fileName });

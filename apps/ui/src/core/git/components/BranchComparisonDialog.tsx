@@ -2,7 +2,7 @@ import { GitCompareArrows, Loader2 } from "lucide-react";
 import { cn } from "@/core/lib/utils";
 import { Command } from "cmdk";
 import { useEffect, useState, useRef } from "react";
-import { useGetGitBranches } from "@/core/git/hooks";
+import { useGetGitBranches, useSelectedGitRepo } from "@/core/git/hooks";
 import { useGetProjects } from "@/core/projects/hooks";
 import { toast } from "@/core/components/ui/sonner";
 import { useAddPanelTab } from "@/core/layout/hooks";
@@ -17,6 +17,7 @@ export const BranchComparisonDialog = ({ open, onOpenChange }: BranchComparisonD
   const { data: projects } = useGetProjects();
   const activeProject = projects?.activeProject;
   const { mutate: addPanelTab } = useAddPanelTab();
+  const repoPath = useSelectedGitRepo();
 
   const [step, setStep] = useState<"base" | "compare">("base");
   const [baseBranch, setBaseBranch] = useState<string>("");
@@ -75,6 +76,7 @@ export const BranchComparisonDialog = ({ open, onOpenChange }: BranchComparisonD
           meta: {
             baseBranch,
             compareBranch: branch,
+            repoPath,
           },
         } as any,
       },

@@ -7,6 +7,7 @@ import { useQuery } from "@tanstack/react-query";
 import { isVoidFile } from "../utils/voidBlockDiff";
 import { VoidDiffSkeleton, VoidDiffView, VoidFileView, VoidView, VoidViewToggle } from "./VoidDiffView";
 import { BinaryFileCard, BlobDiffSkeleton, ImageDiff, ImageFileView, TooLargeCard, pickBlobView } from "./BinaryDiffView";
+import { useTabGitRepo } from "../repoContext";
 
 /** SVG images get the same Rendered/Source switch as .void files. */
 const isSvgFile = (filePath?: string | null) => !!filePath && /\.svg$/i.test(filePath);
@@ -14,10 +15,11 @@ const hasRenderedView = (filePath?: string | null) => isVoidFile(filePath) || is
 
 // Hook to get git repository root
 const useGetGitRepoRoot = () => {
+  const repo = useTabGitRepo();
   return useQuery({
-    queryKey: ["git:repoRoot"],
+    queryKey: ["git:repoRoot", repo],
     queryFn: async () => {
-      return window.electron?.git.getRepoRoot();
+      return window.electron?.git.getRepoRoot(repo);
     },
   });
 };
@@ -27,7 +29,7 @@ const useReadFile = (filePath: string | undefined) => {
   const { data: repoRoot } = useGetGitRepoRoot();
 
   return useQuery({
-    queryKey: ["file:read:working", filePath],
+    queryKey: ["file:read:working", repoRoot, filePath],
     enabled: !!filePath && !!repoRoot,
     queryFn: async () => {
       if (!filePath || !repoRoot) return null;

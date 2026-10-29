@@ -12,6 +12,7 @@ import { takeLaunchRestoreMode } from "./main/launchRestore";
 // IPC Handler Imports
 import { registerFileIpcHandlers } from "./main/ipc/files";
 import { registerGitIpcHandlers } from "./main/ipc/git";
+import { registerGitRepoIpcHandlers } from "./main/gitRepos";
 import { registerDirectoryIpcHandlers } from "./main/ipc/directory";
 import { registerProjectIpcHandlers } from "./main/ipc/project";
 import { registerTabIpcHandlers } from "./main/ipc/tabHandlers";
@@ -177,6 +178,7 @@ app.on("ready", async () => {
   registerUpdateIpcHandlers();
   registerFileIpcHandlers();
   registerGitIpcHandlers();
+  registerGitRepoIpcHandlers();
   registerDirectoryIpcHandlers();
   registerProjectIpcHandlers();
   registerTabIpcHandlers();
