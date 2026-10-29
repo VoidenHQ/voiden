@@ -16,6 +16,7 @@ import type {
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { app } from "electron";
 import { replaceVariablesSecure } from "./env";
+import { registerVariableProvider, unregisterVariableProviders, type VariableResolver } from "./variableProviders";
 import { getActiveProject } from "./state";
 import type { ExtensionData } from "../shared/types";
 import { logger } from "./logger";
@@ -54,6 +55,28 @@ function createContextForExtension(extensionId: string): {
   const registeredChannels: string[] = [];
   const prefix = `ext:${extensionId}:`;
 
+  // registerVariableProvider is newer than the published SDK's EnvAPI type,
+  // so the env API is typed locally and assigned by reference below.
+  const env: ElectronExtensionContext["env"] & {
+    registerVariableProvider(namespace: string, resolve: VariableResolver): () => void;
+  } = {
+    async replaceVariables(text: string, eventOrProjectPath: any): Promise<string> {
+      let projectPath: string;
+      if (typeof eventOrProjectPath === "string") {
+        projectPath = eventOrProjectPath;
+      } else {
+        // It's an IPC event — resolve project path from it
+        projectPath = await getActiveProject(eventOrProjectPath);
+      }
+      if (!projectPath) return text;
+      return replaceVariablesSecure(text, projectPath);
+    },
+    /** Resolve `{{namespace.key}}` references for this plugin at request time. */
+    registerVariableProvider(namespace: string, resolve: VariableResolver) {
+      return registerVariableProvider(extensionId, namespace, resolve);
+    },
+  };
+
   const context: ElectronExtensionContext = {
     // ── IPC API (auto-namespaced) ─────────────────────────────────
     ipc: {
@@ -86,19 +109,7 @@ function createContextForExtension(extensionId: string): {
     },
 
     // ── Env API ───────────────────────────────────────────────────
-    env: {
-      async replaceVariables(text: string, eventOrProjectPath: any): Promise<string> {
-        let projectPath: string;
-        if (typeof eventOrProjectPath === "string") {
-          projectPath = eventOrProjectPath;
-        } else {
-          // It's an IPC event — resolve project path from it
-          projectPath = await getActiveProject(eventOrProjectPath);
-        }
-        if (!projectPath) return text;
-        return replaceVariablesSecure(text, projectPath);
-      },
-    },
+    env,
 
     // ── Project API ───────────────────────────────────────────────
     project: {
@@ -249,6 +260,8 @@ export async function loadMainProcessExtensions(extensions: ExtensionData[]) {
       logger.info("plugin", `[ExtensionLoader] ✓ Loaded main-process extension: ${ext.id}`, { path: bundlePath, duration: loadResult.duration });
       _notifyRenderer(loadResult);
     } catch (err) {
+      // Don't leave a half-initialised plugin's providers resolving variables.
+      unregisterVariableProviders(ext.id);
       const loadResult: MainProcessExtensionResult = { id: ext.id, success: false, path: bundlePath, error: String(err), duration: Date.now() - t0 };
       mainProcessResults.push(loadResult);
       logger.error("plugin", `[ExtensionLoader] Failed to initialize extension ${ext.id}`, { error: String(err) });
@@ -266,11 +279,11 @@ function _notifyRenderer(result: MainProcessExtensionResult): void {
 }
 
 /**
- * Unload then reload the main-process plugin for a single extension.
- * Called after a community extension is installed or updated at runtime.
+ * Unload the main-process plugin for a single extension, removing its IPC
+ * handlers and variable providers. Called on uninstall and before a reload.
  */
-export async function reloadMainProcessExtension(ext: ExtensionData): Promise<void> {
-  const idx = loadedPlugins.findIndex((p) => p.extensionId === ext.id);
+export async function unloadMainProcessExtension(extensionId: string): Promise<void> {
+  const idx = loadedPlugins.findIndex((p) => p.extensionId === extensionId);
   if (idx >= 0) {
     const existing = loadedPlugins[idx];
     try { await existing.plugin.onunload?.(); } catch {}
@@ -279,6 +292,15 @@ export async function reloadMainProcessExtension(ext: ExtensionData): Promise<vo
     }
     loadedPlugins.splice(idx, 1);
   }
+  unregisterVariableProviders(extensionId);
+}
+
+/**
+ * Unload then reload the main-process plugin for a single extension.
+ * Called after a community extension is installed or updated at runtime.
+ */
+export async function reloadMainProcessExtension(ext: ExtensionData): Promise<void> {
+  await unloadMainProcessExtension(ext.id);
   // Use loadMainProcessExtensions directly — it already contains all hasMainProcess fallback logic
   // (registry flag, cached plugin manifest, top-level mainFile entry).
   if (ext.enabled) {
@@ -303,6 +325,7 @@ export async function unloadMainProcessExtensions() {
         ipcMain.removeHandler(channel);
       } catch { /* already removed */ }
     }
+    unregisterVariableProviders(loaded.extensionId);
   }
   loadedPlugins.length = 0;
 }

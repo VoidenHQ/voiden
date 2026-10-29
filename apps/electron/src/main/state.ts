@@ -35,7 +35,7 @@ import { updateFileWatcher } from "./fileWatcher";
 import { windowManager } from "./windowManager";
 import { getSettings } from "./settings";
 import { recomposeAndInstall } from "./skillsInstaller";
-import { reloadMainProcessExtension } from "./extensionLoader";
+import { reloadMainProcessExtension, unloadMainProcessExtension } from "./extensionLoader";
 import { logger } from "./logger";
 import { SNIFF_BYTES, looksBinary } from "./fileKind";
 import { getShells } from "./shells";
@@ -1300,6 +1300,7 @@ export const ipcStateHandlers = () => {
     }
 
     removeExtensionTabsFromSidebars(appState.sidebars, extensionId);
+    await unloadMainProcessExtension(extensionId).catch(() => {});
     await extensionManager.uninstallCommunityExtension(extensionId);
     await saveState(appState);
     maybeRecomposeSkills(appState);
