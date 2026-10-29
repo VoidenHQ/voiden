@@ -403,10 +403,19 @@ declare global {
           cwd: string;
           cols?: number;
           rows?: number;
-        }) => Promise<{ id: string; buffer: string; isNew: boolean }>;
+        }) => Promise<{ id: string; buffer: string; isNew: boolean; notice?: string }>;
         detach: (id: string) => void;
         resize: (data: { id: string; cols: number; rows: number }) => void;
-        new: (panelId: string) => Promise<{ panelId: string; tabId: string }>;
+        /** `shell` (a profile id from listShells) opens the terminal in that shell instead of the default. */
+        new: (panelId: string, shell?: string) => Promise<{ panelId: string; tabId: string }>;
+        /** Installed shells (cheap: file checks only, cached), the effective default, and the configured setting. */
+        listShells: (refresh?: boolean) => Promise<{
+          shells: { id: string; name: string; path: string; args: string[] }[];
+          defaultId: string;
+          configured: string;
+        }>;
+        /** Restart a terminal tab in another shell, keeping the tab. */
+        switchShell: (tabId: string, shell: string) => Promise<{ title: string }>;
         onExit: (
           id: string,
           callback: (exitInfo: { exitCode: number; signal: number }) => void,

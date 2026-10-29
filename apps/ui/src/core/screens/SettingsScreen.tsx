@@ -5,6 +5,7 @@ import { usePluginStore, type PluginSettingsSection } from "@/plugins";
 import { loadThemeById, getAvailableThemes } from "@/utils/themeLoader";
 import { Kbd } from "@/core/components/ui/kbd";
 import { CliCommandMessage, type CliResultMessage } from "@/core/settings/components/CliCommandMessage";
+import { useTerminalShells } from "@/core/terminal/hooks";
 
 const FONT_SIZE_MIN = 10;
 const FONT_SIZE_MAX = 20;
@@ -76,6 +77,56 @@ const Input = ({ className = "", ...props }: React.InputHTMLAttributes<HTMLInput
     } as React.CSSProperties}
   />
 );
+
+// ── Terminal default shell (#598) ─────────────────────────────────────────────
+
+const CUSTOM_SHELL = "__custom__";
+
+/** Automatic, one of the detected shells, or a custom executable path. */
+const DefaultShellControl = ({ value, onChange }: { value: string; onChange: (shell: string) => void }) => {
+  const { data } = useTerminalShells();
+  const shells = data?.shells ?? [];
+  // Only decidable once the list has loaded; until then every value would look custom.
+  const isCustom = !!data && !!value && !shells.some((s) => s.id === value);
+  const [editingCustom, setEditingCustom] = useState(false);
+  const customOpen = editingCustom || isCustom;
+  const [typedPath, setTypedPath] = useState<string | null>(null);
+  const customPath = typedPath ?? (isCustom ? value : "");
+  const autoName = data && !data.configured ? shells.find((s) => s.id === data.defaultId)?.name : undefined;
+
+  return (
+    <div className="flex flex-col items-end gap-1.5">
+      <Select
+        value={customOpen ? CUSTOM_SHELL : value}
+        onChange={(e) => {
+          if (e.target.value === CUSTOM_SHELL) {
+            setEditingCustom(true);
+            return;
+          }
+          setEditingCustom(false);
+          setTypedPath(null);
+          onChange(e.target.value);
+        }}
+      >
+        <option value="">Automatic{autoName ? ` (${autoName})` : ""}</option>
+        {shells.map((s) => (
+          <option key={s.id} value={s.id}>{s.name} — {s.path}</option>
+        ))}
+        <option value={CUSTOM_SHELL}>Custom path…</option>
+      </Select>
+      {customOpen && (
+        <Input
+          value={customPath}
+          placeholder={navigator.platform.startsWith("Win") ? "C:\\path\\to\\shell.exe" : "/path/to/shell"}
+          onChange={(e) => setTypedPath(e.target.value)}
+          onBlur={() => customPath.trim() && onChange(customPath.trim())}
+          onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+          className="w-[260px] font-mono text-xs"
+        />
+      )}
+    </div>
+  );
+};
 
 // ── Plugin settings field renderer ────────────────────────────────────────────
 // Reads current values from electron pluginSettings on mount, then writes
@@ -1324,6 +1375,18 @@ export const SettingsScreen = () => {
 
             {/* Terminal / Nerd Font */}
             <Card>
+              {matchesSearch("Default shell terminal bash zsh fish powershell pwsh cmd wsl") && (
+                <Row
+                  title="Default shell"
+                  description="Shell new terminals start in. Pick another for a single terminal from the ▾ next to the terminal's + button."
+                  control={
+                    <DefaultShellControl
+                      value={settings.terminal.default_shell ?? ""}
+                      onChange={(shell) => save({ terminal: { ...settings.terminal, default_shell: shell } })}
+                    />
+                  }
+                />
+              )}
               {matchesSearch("Use Nerd Font terminal font JetBrains Mono icons") && (
                 <div className="px-4 py-3.5 border-b border-border-subtle">
                   <div className="flex items-center justify-between gap-4">

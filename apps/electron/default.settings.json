@@ -25,7 +25,8 @@
   },
   "terminal": {
     "use_nerd_font": false,
-    "nerd_font_installed": false
+    "nerd_font_installed": false,
+    "default_shell": ""
   },
   "updates": {
     "channel": "stable"

@@ -44,6 +44,8 @@ export type Settings = {
   terminal: {
     use_nerd_font: boolean;
     nerd_font_installed: boolean;
+    /** Shell for new terminals: a detected profile id, an absolute path, or "" for automatic. */
+    default_shell?: string;
   };
   updates: {
     channel: "stable" | "early-access";

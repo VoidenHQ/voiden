@@ -38,6 +38,7 @@ import { recomposeAndInstall } from "./skillsInstaller";
 import { reloadMainProcessExtension } from "./extensionLoader";
 import { logger } from "./logger";
 import { SNIFF_BYTES, looksBinary } from "./fileKind";
+import { getShells } from "./shells";
 
 // Mirrors CodeEditor.tsx's LONG_LINE_THRESHOLD/hasVeryLongLine — a single line
 // this long is its own layout/perf cliff for the editor regardless of total
@@ -1549,7 +1550,7 @@ export const ipcStateHandlers = () => {
     return fetchManifest(repo);
   });
 
-  ipcMain.handle("terminal:new", async (event, panelId: string) => {
+  ipcMain.handle("terminal:new", async (event, panelId: string, shell?: string) => {
     const win = BrowserWindow.fromWebContents(event.sender) as any;
     const windowId = win?.windowInfo?.id as string | undefined;
     const appState = getAppState(event);
@@ -1563,12 +1564,16 @@ export const ipcStateHandlers = () => {
 
     const defaultCwd = appState.activeDirectory || os.homedir();
 
+    // A shell picked from the new-terminal menu is kept on the tab; without one,
+    // the terminal starts the default shell from settings.
+    const shellProfile = shell ? getShells().find((s) => s.id === shell) : undefined;
     const newTab: Tab = {
       id: crypto.randomUUID(),
       type: "terminal",
-      title: "Terminal",
+      title: shellProfile?.name ?? "Terminal",
       source: null,
       directory: defaultCwd,
+      ...(shell ? { meta: { shell } } : {}),
     };
 
     addTabToPanel(layout, panelId, newTab);

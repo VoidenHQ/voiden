@@ -3,6 +3,7 @@ type TabType = "document" | "terminal" | "settings" | "extensionDetails" | "cust
 interface Meta {
   customTabKey?: string;
   extensionId?: string; // Which extension this tab is linked to
+  shell?: string; // Terminal tabs: the shell chosen from the new-terminal menu (profile id or path)
 }
 
 export interface Tab {
