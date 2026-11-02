@@ -763,10 +763,12 @@ export function ResponsePanelContainer() {
                   const singleElapsed = singleDoc?.attrs?.elapsedTime;
                   const singleTimestamp = sections[0].response.timestamp;
                   const singleBorderColor = getSectionBorderColor(singleColorIndex);
+                  // A lone request (no request separator) has no section, so no section line either
+                  const singleHasSection = sections[0].sectionIndex > 0 || Boolean(singleLabel);
 
                   return (
                     // Single response
-                    <div className="h-full min-h-0 min-w-0 flex flex-col" style={{ borderLeft: `3px solid ${singleBorderColor}` }}>
+                    <div className="h-full min-h-0 min-w-0 flex flex-col" style={singleHasSection ? { borderLeft: `3px solid ${singleBorderColor}` } : undefined}>
                       {/* Section header with status + search */}
                       <div
                         className="flex min-w-0 items-center gap-2 overflow-hidden px-3 py-1.5 border-b border-border bg-bg flex-shrink-0"
