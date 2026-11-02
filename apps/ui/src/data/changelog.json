@@ -1,5 +1,28 @@
 [
   {
+    "version": "v2.4.0-beta.2",
+    "date": "02/11/2026",
+    "title": "Multi-Repo Source Control and Terminal Shell Picker",
+    "description": "Beta release: Source Control can switch between Git repos in a project, terminals can use any installed shell, plugins can provide their own variables, plus fixes for Prettify, the command palette and plugin READMEs.",
+    "icon": "Terminal",
+    "iconColor": "text-amber-400",
+    "bgColor": "bg-gradient-to-br from-slate-900 to-amber-950",
+    "changes": {
+      "Added": [
+        "Source Control can switch between the Git repos inside a project",
+        "New terminals can open with any installed shell, picked from the new terminal button (#598)",
+        "A default terminal shell can be set in Settings, or left on automatic (#598)",
+        "Main-process plugins can provide their own {{namespace.*}} variables, like {{vault.api_token}}"
+      ],
+      "Fixed": [
+        "Prettify keeps unquoted {{variables}} intact in a JSON body (#624) — contributed by [@RagedPanda](https://github.com/RagedPanda)",
+        "A plugin with a malformed command no longer breaks the command palette",
+        "Images and relative links in plugin READMEs now load in the Extensions view",
+        "A file with a single request no longer shows a section line in the response panel"
+      ]
+    }
+  },
+  {
     "version": "v2.4.0-beta.1",
     "date": "27/10/2026",
     "title": "Git Diffs for .void Files, Block by Block",

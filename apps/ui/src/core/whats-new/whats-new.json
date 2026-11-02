@@ -1,6 +1,27 @@
 {
   "releases": [
     {
+      "version": "2.4.0-beta.2",
+      "date": "November 2026",
+      "whatsnew": [
+        {
+          "icon": "🗂️",
+          "title": "Switch Between Repos in Source Control",
+          "description": "Projects with more than one Git repo inside can switch the Source Control panel between them, so you can commit, diff and pull in each without leaving Voiden."
+        },
+        {
+          "icon": "🐚",
+          "title": "Pick Your Terminal Shell",
+          "description": "Voiden finds the shells installed on your machine. Open a new terminal in any of them, or set a default shell in Settings."
+        },
+        {
+          "icon": "🐛",
+          "title": "Prettify & Plugin Fixes",
+          "description": "Prettify keeps {{variables}} intact in JSON bodies, a broken plugin command no longer takes down the command palette, and plugin READMEs show their images again."
+        }
+      ]
+    },
+    {
       "version": "2.4.0-beta.1",
       "date": "October 2026",
       "whatsnew": [
