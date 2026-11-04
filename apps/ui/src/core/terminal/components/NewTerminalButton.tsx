@@ -9,6 +9,8 @@ import { setDefaultShell, useNewTerminalTab, useTerminalShells } from "@/core/te
 import { useGetPanelTabs } from "@/core/layout/hooks";
 
 const MENU_WIDTH = 300;
+/** Gap kept between the menu and the window edge. */
+const EDGE = 8;
 
 /** "zsh", "pwsh", … — a custom shell's id is its full path, so use the file name. */
 const shortShellName = (id: string) => id.split(/[\\/]/).pop()!.replace(/\.exe$/i, "");
@@ -32,12 +34,25 @@ const ShellMenu = ({
   const queryClient = useQueryClient();
   const { data, isLoading } = useTerminalShells();
   const [rescanning, setRescanning] = useState(false);
-  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const [pos, setPos] = useState<{ top?: number; bottom?: number; left: number; maxHeight: number } | null>(null);
 
+  // Open below the button, or above it when there's more room there (the terminal panel often
+  // sits at the bottom of the window), and never taller than that space: the list scrolls instead.
   useLayoutEffect(() => {
-    const r = anchor.getBoundingClientRect();
-    const left = Math.max(8, Math.min(r.right - MENU_WIDTH, window.innerWidth - MENU_WIDTH - 8));
-    setPos({ top: r.bottom + 4, left });
+    const place = () => {
+      const r = anchor.getBoundingClientRect();
+      const left = Math.max(EDGE, Math.min(r.right - MENU_WIDTH, window.innerWidth - MENU_WIDTH - EDGE));
+      const below = window.innerHeight - r.bottom - 4 - EDGE;
+      const above = r.top - 4 - EDGE;
+      setPos(
+        below >= 240 || below >= above
+          ? { top: r.bottom + 4, left, maxHeight: below }
+          : { bottom: window.innerHeight - r.top + 4, left, maxHeight: above },
+      );
+    };
+    place();
+    window.addEventListener("resize", place);
+    return () => window.removeEventListener("resize", place);
   }, [anchor]);
 
   useEffect(() => {
@@ -65,13 +80,14 @@ const ShellMenu = ({
     <>
       <div className="fixed inset-0 z-[9998]" onClick={onClose} />
       <div
-        className="fixed z-[9999] bg-editor border border-border rounded-md shadow-lg py-1"
-        style={{ top: pos.top, left: pos.left, width: MENU_WIDTH }}
+        className="fixed z-[9999] flex flex-col bg-editor border border-border rounded-md shadow-lg py-1"
+        style={{ top: pos.top, bottom: pos.bottom, left: pos.left, width: MENU_WIDTH, maxHeight: pos.maxHeight }}
         role="menu"
       >
-        <div className="px-3 pt-1 pb-1.5 text-[11px] text-comment">
+        <div className="flex-shrink-0 px-3 pt-1 pb-1.5 text-[11px] text-comment">
           {switching ? "Switch this terminal to" : "Open a new terminal in"}
         </div>
+        <div className="min-h-0 flex-1 overflow-y-auto">
         {isLoading && (
           <div className="flex items-center gap-2 px-3 py-2 text-xs text-comment">
             <Loader2 size={12} className="animate-spin" /> Finding shells…
@@ -87,20 +103,23 @@ const ShellMenu = ({
               tabIndex={0}
               onClick={() => onPick(shell.id)}
               onKeyDown={(e) => e.key === "Enter" && onPick(shell.id)}
-              className="group flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-accent/20 focus:bg-accent/20 outline-none"
+              aria-current={isCurrent || undefined}
+              className={cn(
+                "group flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-accent/20 focus:bg-accent/20 outline-none",
+                isCurrent && "bg-active",
+              )}
               title={[shell.path, ...shell.args].join(" ")}
             >
               {isCurrent
                 ? <Check size={13} className="flex-shrink-0 text-accent" />
                 : <TerminalSquare size={13} className="flex-shrink-0 text-comment" />}
               <span className="min-w-0 flex-1">
-                <span className="block text-xs text-text truncate">{shell.name}</span>
+                <span className={cn("block text-xs text-text truncate", isCurrent && "font-semibold")}>{shell.name}</span>
                 <span className="block text-[10px] text-comment truncate">{shell.path}</span>
               </span>
+              {/* A plain tag, not a check: the check marks the shell this terminal is in, which may not be the default. */}
               {isDefault ? (
-                <span className="flex items-center gap-1 text-[10px] text-accent flex-shrink-0">
-                  <Check size={10} /> Default
-                </span>
+                <span className="text-[10px] text-comment border border-border rounded px-1.5 py-0.5 flex-shrink-0">Default</span>
               ) : (
                 <button
                   onClick={(e) => {
@@ -116,11 +135,12 @@ const ShellMenu = ({
           );
         })}
         {data && data.shells.length === 0 && <div className="px-3 py-2 text-xs text-comment">No shells found.</div>}
-        <div className="border-t border-border my-1" />
+        </div>
+        <div className="border-t border-border my-1 flex-shrink-0" />
         <button
           onClick={rescan}
           disabled={rescanning}
-          className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-comment hover:text-text hover:bg-accent/20 disabled:opacity-60"
+          className="w-full flex flex-shrink-0 items-center gap-2 px-3 py-1.5 text-xs text-comment hover:text-text hover:bg-accent/20 disabled:opacity-60"
         >
           <RefreshCw size={12} className={cn(rescanning && "animate-spin")} />
           Rescan installed shells
