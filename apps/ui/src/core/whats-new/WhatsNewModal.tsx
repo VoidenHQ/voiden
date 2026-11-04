@@ -109,11 +109,10 @@ function useWhatsNewAnnouncement() {
       }
 
       if (!lastSeen) {
-        // Show the current version's release notes — same content the navbar
-        // button opens — just under a "Welcome to Voiden" header.
-        const current = ALL_RELEASES.slice(0, 1).filter(hasAnnouncementContent);
-        setAnnouncement({ kind: 'fresh-install', releases: current });
-        setHasUnseen(true);
+        // Fresh install: the Start tab and tour are the welcome, so release notes
+        // would only compete with them. Count this version as seen; the navbar
+        // button still opens the changelog on demand.
+        saveUiSettings({ last_seen_version: base });
         return;
       }
 
@@ -379,7 +378,9 @@ export const WhatsNewModal = () => {
   const { announcement, acknowledge } = useWhatsNewAnnouncement();
   const openSignal = useWhatsNewStore(s => s.openSignal);
   const onboardingActive = useWhatsNewStore(s => s.onboardingActive);
-  const isInitialOpenSignal = useRef(true);
+  // The last open request already handled. Comparing values (not "skip the first run")
+  // stays correct when StrictMode runs the effect twice on mount.
+  const handledOpenSignal = useRef(openSignal);
 
   const [spotlightVisible, setSpotlightVisible] = useState(false);
   const [dialog, setDialog] = useState<{ open: boolean; isFreshInstall: boolean; releases: Release[] }>({
@@ -397,10 +398,8 @@ export const WhatsNewModal = () => {
 
   // Manual trigger from the top bar — always shows the full release history.
   useEffect(() => {
-    if (isInitialOpenSignal.current) {
-      isInitialOpenSignal.current = false;
-      return;
-    }
+    if (openSignal === handledOpenSignal.current) return;
+    handledOpenSignal.current = openSignal;
     setSpotlightVisible(false);
     setDialog({ open: true, isFreshInstall: false, releases: ALL_RELEASES });
   }, [openSignal]);

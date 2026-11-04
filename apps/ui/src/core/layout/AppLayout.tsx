@@ -2,12 +2,11 @@ import { Panel, PanelGroup } from "react-resizable-panels";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useSettings, SYSTEM_DEFAULT_FONT, SYSTEM_DEFAULT_MONO_STACK } from "@/core/settings/hooks/useSettings";
 import { useLeftPanel, useBottomPanel, useRightPanel } from "./hooks/usePanels";
-import { SidePanelTabs } from "./components/SidePanelTabs";
+import { SidePanelTabs, SidePanelTitle } from "./components/SidePanelTabs";
 import { SidePanelContent } from "./components/SidePanelContent";
 import { ResizeHandle } from "./components/ResizeHandle";
 import { TopNavBar } from "./components/TopNavBar";
 import { StatusBar } from "./components/StatusBar";
-import OnboardingModal from "@/core/screens/OnboardingModal";
 import AboutModal from "@/core/screens/AboutModal";
 import { UnsavedChangesDialog } from "./components/UnsavedChangesDialog";
 import { useGetAppState } from "@/core/state/hooks";
@@ -15,6 +14,9 @@ import { saveTabById, useProjectLock } from "@/core/file-system/hooks";
 import { getQueryClient } from "@/main";
 import { useEditorStore } from "@/core/editors/voiden/VoidenEditor";
 import { hideSlashMenu } from "@/core/editors/voiden/SlashCommand";
+import { useGettingStartedTracking } from "@/core/onboarding/useGettingStartedTracking";
+import { CoachTips } from "@/core/onboarding/CoachTips";
+import { showGettingStartedChecklist, showTips, useGettingStartedStore } from "@/core/onboarding/gettingStartedStore";
 import type { Tab } from "../../../../electron/src/shared/types";
 import { MainEditor } from "./components/MainEditor";
 import { savePanelStateForTab } from "./components/PanelTabs";
@@ -24,10 +26,14 @@ import { setEnvJumpTarget } from "@/core/environment/components/EnvironmentEdito
 import { useEnvironments } from "@/core/environment/hooks";
 import { mountVariableValueTooltip, unmountVariableValueTooltip } from "@/core/editors/variableValueTooltip";
 import { usePanelStore } from "@/core/stores/panelStore";
+import { useSidebarTabsPosition } from "@/core/stores/sidebarTabsPosition";
 import { isMac } from "@/core/lib/utils";
 
+/** Set once the fresh-install Start tab has been opened, so it's opened only once per launch. */
+let freshInstallHandled = false;
+
 export const AppLayout = () => {
-  const { toggle: toggleLeft, panelProps: leftPanelProps, isCollapsed: isLeftCollapsed } = useLeftPanel();
+  const { ref: leftPanelRef, toggle: toggleLeft, panelProps: leftPanelProps, isCollapsed: isLeftCollapsed } = useLeftPanel();
   const { toggle: toggleBottom, panelProps: bottomPanelProps, isCollapsed: isBottomCollapsed } = useBottomPanel();
   const { toggle: toggleRight, panelProps: rightPanelProps, isCollapsed: isRightCollapsed } = useRightPanel();
   const openRightPanel = usePanelStore((state) => state.openRightPanel);
@@ -35,7 +41,6 @@ export const AppLayout = () => {
 
   const { data: appState } = useGetAppState();
   const { locked: projectLocked } = useProjectLock();
-  const [onboarding, setOnboarding] = useState<boolean | null>(null);
   const [version, setVersion] = useState<string>("");
   const [isAboutModalOpen, setIsAboutModalOpen] = useState(false);
   let { settings, onChange, setSettings } = useSettings();
@@ -44,6 +49,8 @@ export const AppLayout = () => {
   const { mutate: closePanelTab } = useClosePanelTab();
   const { data: panelTabs } = useGetPanelTabs("main");
   const { data: envData } = useEnvironments();
+  const sidebarTabsOnSide = useSidebarTabsPosition((s) => s.position === "side");
+  useGettingStartedTracking();
 
   // Apply per-tab right-panel open/close state AFTER the panel:tabs query has
   // settled. Running here (rather than in useActivateTab.onSuccess) ensures the
@@ -133,9 +140,28 @@ export const AppLayout = () => {
     window.electron?.getVersion().then(setVersion);
   }, []);
 
-  // Read onboarding status directly from onboarding.json
+  // Fresh install (onboarding.json not yet marked done): open the Start tab once
+  // with the explorer collapsed, and mark onboarding complete, so it isn't
+  // reopened on the next launch.
   useEffect(() => {
-    window.electron?.state.getOnboarding().then(setOnboarding);
+    window.electron?.state.getOnboarding().then(async (done) => {
+      // StrictMode runs this effect twice; without the guard both runs add a Start tab.
+      if (done !== false || freshInstallHandled) return;
+      freshInstallHandled = true;
+      if (leftPanelRef.current && !leftPanelRef.current.isCollapsed()) toggleLeft();
+      useGettingStartedStore.getState().begin();
+      await window.electron?.state.updateOnboarding(true);
+      const tabs = await window.electron?.state.getPanelTabs("main");
+      const existing = tabs?.tabs?.find((t: any) => t.type === "welcome");
+      if (existing) {
+        activateTab({ panelId: "main", tabId: existing.id });
+      } else {
+        addPanelTab({
+          panelId: "main",
+          tab: { id: crypto.randomUUID(), type: "welcome", title: "Start", source: null },
+        });
+      }
+    });
   }, []);
 
   // Apply font size settings
@@ -428,9 +454,17 @@ export const AppLayout = () => {
     } else {
       addPanelTab({
         panelId: "main",
-        tab: { id: crypto.randomUUID(), type: "welcome", title: "Welcome", source: null },
+        tab: { id: crypto.randomUUID(), type: "welcome", title: "Start", source: null },
       });
     }
+  });
+
+  useElectronEvent("menu:show-getting-started", () => {
+    showGettingStartedChecklist();
+  });
+
+  useElectronEvent("menu:show-tips", () => {
+    showTips();
   });
 
   useElectronEvent("menu:open-changelog", () => {
@@ -472,12 +506,17 @@ export const AppLayout = () => {
       <TopNavBar onShowAbout={() => { hideSlashMenu(); setIsAboutModalOpen(true); }} />
 
       {/* Main Content Area with Resizable Panels */}
-      <div className="flex-1 min-h-0">
-        <PanelGroup direction="horizontal" autoSaveId="persist-1">
+      <div className="flex-1 min-h-0 flex">
+        {/* Left panel tabs as a vertical bar, VS Code style; stays visible while the panel is collapsed */}
+        {sidebarTabsOnSide && (
+          <SidePanelTabs side="left" vertical panel={{ collapsed: isLeftCollapsed, toggle: toggleLeft }} forceInactive={isLeftCollapsed} />
+        )}
+        <PanelGroup direction="horizontal" autoSaveId="persist-1" className="flex-1 min-w-0">
           {/* Left Sidebar - File Browser */}
           <Panel {...leftPanelProps}>
-            <div className="h-full border-border bg-bg overflow-hidden">
-              <SidePanelTabs side="left" />
+            <div id="left-sidebar" className="h-full border-border bg-bg overflow-hidden">
+              {/* Tabs in a row on top; with the tabs in the side bar, the open tab's title instead */}
+              {sidebarTabsOnSide ? <SidePanelTitle side="left" /> : <SidePanelTabs side="left" />}
               <div className="h-[calc(100%-2rem)] overflow-hidden">
                 <SidePanelContent side="left" />
               </div>
@@ -502,8 +541,11 @@ export const AppLayout = () => {
         toggleRight={toggleRight}
       />
 
-      {/* Onboarding Modal — shown only on a fresh install (driven by onboarding.json) */}
-      {onboarding === false && <OnboardingModal />}
+      {/* Getting started tips: one step at a time, only when asked for */}
+      <CoachTips
+        docOpen={!!panelTabs?.tabs?.find((t: any) => t.id === panelTabs?.activeTabId && t.type === "document" && /\.void$/i.test(t.title || ""))}
+        activeTabType={panelTabs?.tabs?.find((t: any) => t.id === panelTabs?.activeTabId)?.type}
+      />
 
       {/* About Modal */}
       <AboutModal isOpen={isAboutModalOpen} onClose={() => setIsAboutModalOpen(false)} />

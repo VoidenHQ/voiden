@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, startTransition } from 'react';
-import { Search, File, Folder, FilePlus, Terminal, Settings, FolderPlus, HelpCircle, Sparkles, SlidersHorizontal } from 'lucide-react';
+import { Search, File, Folder, FilePlus, Terminal, Settings, FolderPlus, HelpCircle, Sparkles, SlidersHorizontal, PanelLeft } from 'lucide-react';
 import type { MatchedFragment } from '@voiden/fuzzy-search';
 import { highlightText } from '@/core/editors/voiden/extensions/MatchedFragment';
 import { useAddPanelTab } from '@/core/layout/hooks';
@@ -19,6 +19,9 @@ import {
 import { usePluginStore } from '@/plugins';
 import { ErrorBoundary } from '@/core/components/ErrorBoundary';
 import { useRevealInExplorerStore } from '@/core/stores/revealInExplorerStore';
+import { openProjectSetup } from '@/core/onboarding/projectSetup';
+import { useSidebarTabsPosition } from '@/core/stores/sidebarTabsPosition';
+import { showGettingStartedChecklist, showTips } from '@/core/onboarding/gettingStartedStore';
 
 interface CommandPaletteProps {
   isFocused: boolean;
@@ -391,6 +394,46 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isFocused, mode,
           panelId: 'main',
           tab: { id: crypto.randomUUID(), type: 'settings', title: 'Settings', source: null },
         });
+        onBlur();
+      },
+    },
+    {
+      id: 'toggle-sidebar-tabs-position',
+      label: useSidebarTabsPosition.getState().position === 'top' ? 'Move left panel tabs to the side' : 'Move left panel tabs to the top',
+      description: 'Show the file explorer, search and Git tabs in a vertical bar, or in a row above the panel',
+      icon: <PanelLeft size={16} className="text-accent" />,
+      action: () => {
+        useSidebarTabsPosition.getState().togglePosition();
+        onBlur();
+      },
+    },
+    {
+      id: 'project-setup',
+      label: 'Set up project from existing files',
+      description: 'Bring in OpenAPI specs and .env templates from this folder',
+      icon: <FolderPlus size={16} className="text-accent" />,
+      action: () => {
+        openProjectSetup({ force: true });
+        onBlur();
+      },
+    },
+    {
+      id: 'getting-started',
+      label: 'Show Getting started checklist',
+      description: 'First steps with Voiden, in the file explorer',
+      icon: <Sparkles size={16} className="text-accent" />,
+      action: () => {
+        showGettingStartedChecklist();
+        onBlur();
+      },
+    },
+    {
+      id: 'show-tips',
+      label: 'Show next tip',
+      description: 'How to do the next Getting started step',
+      icon: <Sparkles size={16} className="text-accent" />,
+      action: () => {
+        showTips();
         onBlur();
       },
     },

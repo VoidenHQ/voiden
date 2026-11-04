@@ -4,6 +4,7 @@ import { cn, isMac } from "@/core/lib/utils";
 import { GitBranchesList } from "@/core/git/components/GitBranchesList";
 import { BranchComparisonDialog } from "@/core/git/components/BranchComparisonDialog";
 import { DisableMcpDialog } from "@/core/layout/components/DisableMcpDialog";
+import { markGettingStartedStep } from "@/core/onboarding/gettingStartedStore";
 import { useSettings } from "@/core/settings/hooks/useSettings";
 import { usePanelStore } from "@/core/stores/panelStore";
 import { useResponsePanelPosition } from "@/core/stores/responsePanelPosition";
@@ -340,6 +341,7 @@ export const StatusBar = ({
       if (result?.success) {
         setMcpRegistered(true);
         setMcpCliMissing(false);
+        markGettingStartedStep("outside");
       } else {
         setMcpInitError(true);
         console.error("Failed to initialize MCP:", result?.message);

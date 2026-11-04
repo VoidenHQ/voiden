@@ -771,6 +771,8 @@ export const ipcStateHandlers = () => {
         return { type: "welcome", tabId, title };
       case "changelog":
         return { type: "changelog", tabId, title };
+      case "projectSetup":
+        return { type: "projectSetup", tabId, title };
       case "logs":
         return { type: "logs", tabId, title };
       case "document": {

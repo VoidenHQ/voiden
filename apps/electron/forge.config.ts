@@ -552,7 +552,7 @@ const config: ForgeConfig = {
     },
   },
   packagerConfig: {
-    extraResource: ["src/sample-project", "splash.html", "logo-dark.png", "background.png", "default.settings.json", "public/fonts", "themes", "bin", "src/images/icon.png", "skills", "bundled-plugins", "bundled-main-plugins", "src/extensions.json"],
+    extraResource: ["src/sample-project", "src/playground-project", "splash.html", "logo-dark.png", "background.png", "default.settings.json", "public/fonts", "themes", "bin", "src/images/icon.png", "skills", "bundled-plugins", "bundled-main-plugins", "src/extensions.json"],
     extendInfo: "./info.plist",
     asar: {
       // Required for node-pty: ensures both `pty.node` and `spawn-helper` are unpacked for Unix platforms

@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { invalidateEnvQueries } from "./envQueryKeys";
 import type { YamlEnvTree } from "./useYamlEnvironments.ts";
 import { toast } from "@/core/components/ui/sonner";
+import { markGettingStartedStep } from "@/core/onboarding/gettingStartedStore";
 
 export const useSaveYamlEnvironments = (profile?: string) => {
   const queryClient = useQueryClient();
@@ -15,6 +16,7 @@ export const useSaveYamlEnvironments = (profile?: string) => {
     },
     onSuccess: () => {
       invalidateEnvQueries(queryClient);
+      markGettingStartedStep("writeEnv");
     },
     onError: (error: unknown) => {
       toast.error("Couldn't save environment changes", {

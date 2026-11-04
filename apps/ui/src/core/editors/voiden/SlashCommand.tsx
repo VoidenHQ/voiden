@@ -481,6 +481,10 @@ export const hideSlashMenu = () => {
 
 export const isSlashMenuOpen = () => !!popup?.[0]?.state?.isVisible;
 
+/** Screen rect of the open slash menu, so floating UI (e.g. coach tips) can sit beside it. */
+export const getSlashMenuRect = (): DOMRect | null =>
+  isSlashMenuOpen() ? (popup[0].popper as HTMLElement).getBoundingClientRect() : null;
+
 export const SlashCommand = Extension.create({
   name: extensionName,
 
