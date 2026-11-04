@@ -24,6 +24,17 @@ import { getSectionBorderColor } from "@/core/editors/voiden/extensions/sectionI
 import { Tip } from "@/core/components/ui/Tip";
 import { SearchPanelView } from "@/core/editors/code/lib/components/SearchPanelView";
 import { NoGlobalSearchContext } from "@/core/editors/code/lib/components/CodeEditor";
+import { SectionHeaderActions } from "./SectionHeaderActions";
+
+/** The URL shows on hover over a section's status and name, keeping the header short. */
+const UrlHover = ({ url, children }: { url?: string; children: React.ReactNode }) =>
+  url ? (
+    <Tip label={<span className="font-mono break-all">{url}</span>} side="bottom" align="start">
+      <span className="flex min-w-0 items-center gap-2 overflow-hidden cursor-default">{children}</span>
+    </Tip>
+  ) : (
+    <span className="flex min-w-0 items-center gap-2 overflow-hidden">{children}</span>
+  );
 
 /** Format relative time: "just now", "2m ago", "1h ago", etc. */
 function formatRelativeTime(ts: number): string {
@@ -774,6 +785,7 @@ export function ResponsePanelContainer() {
                         className="flex min-w-0 items-center gap-2 overflow-hidden px-3 py-1.5 border-b border-border bg-bg flex-shrink-0"
                       >
                         <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
+                          <UrlHover url={singleUrl}>
                           <div
                             className="size-2 rounded-full flex-shrink-0"
                             style={{
@@ -801,9 +813,8 @@ export function ResponsePanelContainer() {
                               {singleLabel}
                             </span>
                           )}
-                          <span className="text-comment text-xs truncate flex-1">
-                            {singleUrl}
-                          </span>
+                          </UrlHover>
+                          <span className="flex-1" />
                           {singleTimestamp && (
                             <Tip label={formatAbsoluteTime(singleTimestamp)} side="bottom">
                               <span className="text-comment text-[10px] flex-shrink-0 opacity-60 cursor-default">
@@ -813,6 +824,7 @@ export function ResponsePanelContainer() {
                           )}
                         </div>
                         <div className="flex flex-shrink-0 items-center gap-2">
+                          <SectionHeaderActions tabId={tabId} sectionIndex={sections[0].sectionIndex} size={13} />
                           <Tip label="Find (⌘F)" side="bottom">
                             <button
                               className="p-1 text-comment hover:text-text transition-colors rounded flex-shrink-0"
@@ -982,6 +994,9 @@ export function ResponsePanelContainer() {
                                     </span>
                                   </Tip>
                                 )}
+                                <span className={timestamp ? "flex flex-shrink-0 items-center gap-2" : "flex flex-shrink-0 items-center gap-2 ml-auto"}>
+                                  <SectionHeaderActions tabId={tabId} sectionIndex={sectionIndex} />
+                                </span>
                               </div>
                               {!isCollapsed && (
                                 <div className="ml-2 px-3 py-3">
@@ -1016,6 +1031,7 @@ export function ResponsePanelContainer() {
                                   ? <ChevronRight size={14} className="text-comment flex-shrink-0" />
                                   : <ChevronDown size={14} className="text-comment flex-shrink-0" />
                                 }
+                                <UrlHover url={doc?.attrs?.url}>
                                 <div
                                   className="size-2 rounded-full flex-shrink-0"
                                   style={{
@@ -1040,9 +1056,8 @@ export function ResponsePanelContainer() {
                                 >
                                   {label || "Request"}
                                 </span>
-                                <span className="text-comment text-xs truncate flex-1">
-                                  {doc?.attrs?.url}
-                                </span>
+                                </UrlHover>
+                                <span className="flex-1" />
                                 {timestamp && (
                                   <Tip label={formatAbsoluteTime(timestamp)} side="bottom">
                                     <span className="text-comment text-[10px] flex-shrink-0 opacity-60 cursor-default">
@@ -1056,8 +1071,10 @@ export function ResponsePanelContainer() {
                                   conditional render below) — visible-but-inert while
                                   collapsed was the bug: the ref lookup would silently miss,
                                   so search/expand-all/collapse-all did nothing. */}
+                              <div className="flex flex-shrink-0 items-center gap-2">
+                                <SectionHeaderActions tabId={tabId} sectionIndex={sectionIndex} />
                               {!isCollapsed && (
-                                <div className="flex flex-shrink-0 items-center gap-2">
+                                <>
                                   <Tip label="Find in this response" side="bottom">
                                     <button
                                       className="p-1 text-comment hover:text-text transition-colors rounded flex-shrink-0"
@@ -1086,8 +1103,9 @@ export function ResponsePanelContainer() {
                                       <ChevronsDownUp size={12} />
                                     </button>
                                   </Tip>
-                                </div>
+                                </>
                               )}
+                              </div>
                             </div>
                             {/* Response content — hidden when collapsed */}
                             {!isCollapsed && (
