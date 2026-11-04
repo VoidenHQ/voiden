@@ -1,6 +1,37 @@
 {
   "releases": [
     {
+      "version": "2.4.0",
+      "date": "November 2026",
+      "whatsnew": [
+        {
+          "icon": "🧩",
+          "title": ".void Diffs and Conflicts as Real Blocks",
+          "description": "Changes to .void files show up as the same blocks you edit, with the changed words highlighted, and merge conflicts can be resolved block by block with Keep Current, Keep Incoming or Keep Both."
+        },
+        {
+          "icon": "🗂️",
+          "title": "Switch Between Repos in Source Control",
+          "description": "Projects with more than one Git repo inside can switch Source Control between them, with status letters and a resizable Commit History toolbar."
+        },
+        {
+          "icon": "💻",
+          "title": "Pick Your Terminal Shell",
+          "description": "Open a new terminal in any shell installed on your machine, or set a default in Settings."
+        },
+        {
+          "icon": "🎯",
+          "title": "Jump To and Retry Any Response",
+          "description": "Each section in the response panel can take you straight to its request or send it again, with the URL a hover away."
+        },
+        {
+          "icon": "🐛",
+          "title": "Stability Fixes",
+          "description": "Fixes for lowercase methods, gRPC streaming, Prettify with variables, freezes on large repos and binary files, blank windows after Open Recent, and the command palette."
+        }
+      ]
+    },
+    {
       "version": "2.4.0-beta.2",
       "date": "November 2026",
       "whatsnew": [
