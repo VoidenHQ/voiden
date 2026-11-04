@@ -824,7 +824,7 @@ export function ResponsePanelContainer() {
                           )}
                         </div>
                         <div className="flex flex-shrink-0 items-center gap-2">
-                          <SectionHeaderActions tabId={tabId} sectionIndex={sections[0].sectionIndex} size={13} />
+                          <SectionHeaderActions tabId={tabId} sectionIndex={sections[0].sectionIndex} size={13} showJump={false} />
                           <Tip label="Find (⌘F)" side="bottom">
                             <button
                               className="p-1 text-comment hover:text-text transition-colors rounded flex-shrink-0"
@@ -995,7 +995,7 @@ export function ResponsePanelContainer() {
                                   </Tip>
                                 )}
                                 <span className={timestamp ? "flex flex-shrink-0 items-center gap-2" : "flex flex-shrink-0 items-center gap-2 ml-auto"}>
-                                  <SectionHeaderActions tabId={tabId} sectionIndex={sectionIndex} />
+                                  <SectionHeaderActions tabId={tabId} sectionIndex={sectionIndex} showJump={sections.length > 1} />
                                 </span>
                               </div>
                               {!isCollapsed && (
@@ -1072,7 +1072,7 @@ export function ResponsePanelContainer() {
                                   collapsed was the bug: the ref lookup would silently miss,
                                   so search/expand-all/collapse-all did nothing. */}
                               <div className="flex flex-shrink-0 items-center gap-2">
-                                <SectionHeaderActions tabId={tabId} sectionIndex={sectionIndex} />
+                                <SectionHeaderActions tabId={tabId} sectionIndex={sectionIndex} showJump={sections.length > 1} />
                               {!isCollapsed && (
                                 <>
                                   <Tip label="Find in this response" side="bottom">

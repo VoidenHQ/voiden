@@ -27,7 +27,18 @@ function sectionFirstBlockPos(doc: any, sectionIndex: number): number | null {
  * and send it again. They act on the open document, so they're disabled
  * when the editor shows a different tab than this response belongs to.
  */
-export function SectionHeaderActions({ tabId, sectionIndex, size = 12 }: { tabId: string; sectionIndex: number; size?: number }) {
+export function SectionHeaderActions({
+  tabId,
+  sectionIndex,
+  size = 12,
+  showJump = true,
+}: {
+  tabId: string;
+  sectionIndex: number;
+  size?: number;
+  /** Only useful once several requests have responses in the panel. */
+  showJump?: boolean;
+}) {
   const editor = useVoidenEditorStore((s) => s.editor);
   const { runSection } = useSendRequest(editor as any);
   const live = editor && !editor.isDestroyed && editor.storage?.tabId === tabId ? editor : null;
@@ -53,11 +64,13 @@ export function SectionHeaderActions({ tabId, sectionIndex, size = 12 }: { tabId
 
   return (
     <>
-      <Tip label={notHere ?? "Jump to request"} side="bottom">
-        <button type="button" className={BUTTON} disabled={!live} onClick={stop(jump)} aria-label="Jump to request">
-          <LocateFixed size={size} />
-        </button>
-      </Tip>
+      {showJump && (
+        <Tip label={notHere ?? "Jump to request"} side="bottom">
+          <button type="button" className={BUTTON} disabled={!live} onClick={stop(jump)} aria-label="Jump to request">
+            <LocateFixed size={size} />
+          </button>
+        </Tip>
+      )}
       <Tip label={notHere ?? "Send this request again"} side="bottom">
         <button type="button" className={BUTTON} disabled={!live} onClick={stop(() => runSection(sectionIndex))} aria-label="Retry request">
           <RotateCw size={size} />
