@@ -12,6 +12,7 @@ export const filesApi = {
   flatListCloseSession: (sessionId: string): void =>
     ipcRenderer.invoke("files:flatListCloseSession", sessionId),
   read: (path: string) => ipcRenderer.invoke("files:read", path),
+  readBlob: (path: string) => ipcRenderer.invoke("files:readBlob", path),
   readChunk: (path: string, offset: number, size: number): Promise<{ content: string; bytesRead: number; nextOffset: number; done: boolean; totalSize: number }> =>
     ipcRenderer.invoke("files:readChunk", path, offset, size),
   write: (path: string, content: string, tabId?: string) =>

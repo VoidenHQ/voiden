@@ -1,9 +1,10 @@
 import { ipcMain, IpcMainInvokeEvent, BrowserWindow } from "electron";
-import { getActiveProject } from "./state";
+import { getGitRepoPath } from "./gitRepos";
 import { simpleGit } from "simple-git";
 import * as fs from "fs";
 import * as path from "path";
 import { logger } from "./logger";
+import { readCommittedBlob, readWorkingBlob } from "./gitBlob";
 
 interface GitStatusCache {
   timestamp: number;
@@ -199,7 +200,7 @@ export function invalidateGitCache(projectPath: string): void {
 }
 
 ipcMain.handle("git:getBranches", async (event:IpcMainInvokeEvent): Promise<{ branches: string[]; activeBranch: string } | null> => {
-  const projectPath = await getActiveProject(event);
+  const projectPath = await getGitRepoPath(event);
   if (!projectPath) {
     return null;
   }
@@ -226,7 +227,8 @@ ipcMain.handle("git:getBranches", async (event:IpcMainInvokeEvent): Promise<{ br
   }
 });
 
-ipcMain.handle("git:checkout", async (event, projectPath: string, branch: string) => {
+ipcMain.handle("git:checkout", async (event, _projectPath: string, branch: string) => {
+  const projectPath = await getGitRepoPath(event);
   if (!projectPath) {
     throw new Error("No active project selected.");
   }
@@ -292,7 +294,8 @@ ipcMain.handle("git:checkout", async (event, projectPath: string, branch: string
   }
 });
 
-ipcMain.handle("git:createBranch", async (_, projectPath: string, branch: string) => {
+ipcMain.handle("git:createBranch", async (event, _projectPath: string, branch: string) => {
+  const projectPath = await getGitRepoPath(event);
   if (!projectPath) {
     throw new Error("No active project selected.");
   }
@@ -317,7 +320,8 @@ ipcMain.handle("git:createBranch", async (_, projectPath: string, branch: string
   }
 });
 
-ipcMain.handle("git:createBranchFrom", async (_, projectPath: string, branch: string, fromBranch: string) => {
+ipcMain.handle("git:createBranchFrom", async (event, _projectPath: string, branch: string, fromBranch: string) => {
+  const projectPath = await getGitRepoPath(event);
   if (!projectPath) {
     throw new Error("No active project selected.");
   }
@@ -346,8 +350,8 @@ ipcMain.handle('git:updateGitignore', async (_event, filePatterns: string | stri
   await updateGitignore(filePatterns, rootDir);
 })
 
-ipcMain.handle("git:diffBranches", async (event:IpcMainInvokeEvent, baseBranch: string, compareBranch: string) => {
-  const projectPath = await getActiveProject(event);
+ipcMain.handle("git:diffBranches", async (event:IpcMainInvokeEvent, baseBranch: string, compareBranch: string, repo?: string | null) => {
+  const projectPath = await getGitRepoPath(event, repo);
   if (!projectPath) {
     throw new Error("No active project selected.");
   }
@@ -386,8 +390,8 @@ ipcMain.handle("git:diffBranches", async (event:IpcMainInvokeEvent, baseBranch: 
   }
 });
 
-ipcMain.handle("git:diffFile", async (event:IpcMainInvokeEvent, baseBranch: string, compareBranch: string, filePath: string) => {
-  const projectPath = await getActiveProject(event);
+ipcMain.handle("git:diffFile", async (event:IpcMainInvokeEvent, baseBranch: string, compareBranch: string, filePath: string, repo?: string | null) => {
+  const projectPath = await getGitRepoPath(event, repo);
   if (!projectPath) {
     throw new Error("No active project selected.");
   }
@@ -403,8 +407,22 @@ ipcMain.handle("git:diffFile", async (event:IpcMainInvokeEvent, baseBranch: stri
   }
 });
 
-ipcMain.handle("git:getFileAtBranch", async (event:IpcMainInvokeEvent, branch: string, filePath: string) => {
-  const projectPath = await getActiveProject(event);
+// Size, kind and (for small images) the picture of one side of a diff, so
+// binary files are never read as text. `ref` null means the working copy (#610).
+ipcMain.handle("git:getFileBlob", async (event: IpcMainInvokeEvent, ref: string | null, filePath: string, repo?: string | null) => {
+  const projectPath = await getGitRepoPath(event, repo);
+  if (!projectPath || !(await getCachedIsRepo(projectPath))) return null;
+  try {
+    const repoRoot = (await getSharedGit(projectPath).revparse(["--show-toplevel"])).trim();
+    return ref ? await readCommittedBlob(repoRoot, ref, filePath) : await readWorkingBlob(repoRoot, filePath);
+  } catch (error) {
+    logger.warn("git", "getFileBlob failed", { ref, filePath, error: (error as Error)?.message });
+    return null;
+  }
+});
+
+ipcMain.handle("git:getFileAtBranch", async (event:IpcMainInvokeEvent, branch: string, filePath: string, repo?: string | null) => {
+  const projectPath = await getGitRepoPath(event, repo);
   if (!projectPath) {
     throw new Error("No active project selected.");
   }

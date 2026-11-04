@@ -1,7 +1,11 @@
-import { ipcMain } from "electron";
+import { BrowserWindow, ipcMain } from "electron";
 import * as pty from "node-pty";
-import { getActiveProject } from "./state";
+import { getActiveProject, getAppState } from "./state";
 import { randomUUID } from "node:crypto";
+import { getSettings } from "./settings";
+import { saveState } from "./persistState";
+import { getShells, nodeShellEnv, resolveShell } from "./shells";
+import type { PanelElement, Tab } from "../shared/types";
 
 // Registry of active terminals, keyed by session id (we'll use tabId as session id).
 const terminals = new Map<string, pty.IPty>();
@@ -15,37 +19,52 @@ const outputBatches = new Map<string, string>();
 const batchTimeouts = new Map<string, NodeJS.Timeout>();
 const BATCH_INTERVAL = 8; // Batch output every 8ms for faster response
 
-ipcMain.handle("terminal:attachOrCreate", async (event, { tabId, cwd, cols, rows }) => {
-  // Prefer the caller's own `cwd` — it comes from that window's own React
-  // tree (Terminal.tsx's `cwd` prop), so it's already correctly scoped to
-  // whichever window actually made this call, no window-timing race
-  // possible. getActiveProject() used to be called bare (no `event`), which
-  // falls back to windowManager's single global "currently focused window"
-  // (see getAppState's own event?.sender-vs-fallback logic) — with multiple
-  // windows open, that's whichever window last had focus, not necessarily
-  // the one that actually issued THIS call, so switching focus right around
-  // when a terminal opens could spawn it in the wrong window's directory.
-  // getActiveProject(event) below is only a fallback for the (currently
-  // nonexistent) case of an empty cwd, and is itself event-scoped so it
-  // doesn't reintroduce the same bug.
-  const activeDirectory = cwd || (await getActiveProject(event));
-  if (terminals.has(tabId)) {
-    const existingPty = terminals.get(tabId);
-    if (existingPty) {
-      (existingPty as any).webContents = event.sender;
-      const buffer = terminalBuffers.get(tabId) || "";
-      // Return both id and the buffered output, marking this as existing
-      return { id: tabId, buffer, isNew: false };
-    }
+function findTab(layout: PanelElement | undefined, tabId: string): Tab | null {
+  if (!layout) return null;
+  if (layout.type === "panel") return layout.tabs.find((t) => t.id === tabId) ?? null;
+  for (const child of layout.children) {
+    const found = findTab(child, tabId);
+    if (found) return found;
   }
-  // Create a new terminal session.
-  const defaultShell = process.platform === "win32" ? "powershell.exe" : process.platform === "darwin" ? "zsh" : "bash";
-  const shellArgs = process.platform === "win32" ? [] : ["-l"]; // -l for login shell to load .zshrc/.bashrc
-  const ptyProcess = pty.spawn(defaultShell, shellArgs, {
+  return null;
+}
+
+/** The shell a terminal tab was opened with, or undefined to use the default from settings. */
+function tabShell(event: Electron.IpcMainInvokeEvent, tabId: string): string | undefined {
+  try {
+    const appState = getAppState(event);
+    const layout = appState.activeDirectory ? appState.directories[appState.activeDirectory]?.layout : appState.unsaved.layout;
+    return findTab(layout, tabId)?.meta?.shell;
+  } catch {
+    return undefined;
+  }
+}
+
+ipcMain.handle("terminal:listShells", (_event, refresh?: boolean) => {
+  const shells = getShells(!!refresh);
+  const configured = getSettings().terminal?.default_shell ?? "";
+  const { profile } = resolveShell(configured, shells, nodeShellEnv());
+  return { shells, defaultId: profile.id, configured };
+});
+
+/** Where each session's shell was started, so a shell switch restarts it in the same place. */
+const sessions = new Map<string, { cwd: string }>();
+
+/** Spawn a shell for a session and wire its output and exit to the renderer. */
+function startShell(
+  sessionId: string,
+  webContents: Electron.WebContents,
+  opts: { shell: string | undefined; cwd: string; cols: number; rows: number },
+): { notice: string } {
+  const { profile: shell, unavailable } = resolveShell(opts.shell, getShells(), nodeShellEnv());
+  const notice = unavailable
+    ? `\x1b[33mShell "${unavailable}" isn't available, so ${shell.name} was started instead. Choose another shell from the terminal's ▾ menu or in Settings.\x1b[0m\r\n`
+    : "";
+  const ptyProcess = pty.spawn(shell.path, shell.args, {
     name: "xterm-256color",
-    cols: cols || 80,
-    rows: rows || 24,
-    cwd: activeDirectory || process.env.HOME,
+    cols: opts.cols,
+    rows: opts.rows,
+    cwd: opts.cwd,
     env: {
       ...process.env,
       TERM: "xterm-256color",
@@ -53,11 +72,15 @@ ipcMain.handle("terminal:attachOrCreate", async (event, { tabId, cwd, cols, rows
       PROMPT_EOL_MARK: "", // Disable zsh's end-of-partial-line marker (%)
     },
   });
-  const sessionId = tabId ? tabId : randomUUID;
   terminals.set(sessionId, ptyProcess);
-  terminalBuffers.set(sessionId, "");
-  (ptyProcess as any).webContents = event.sender;
+  terminalBuffers.set(sessionId, notice);
+  sessions.set(sessionId, { cwd: opts.cwd });
+  (ptyProcess as any).webContents = webContents;
+  // After a shell switch the replaced shell may still flush output or exit; ignore it.
+  const isCurrent = () => terminals.get(sessionId) === ptyProcess;
+
   ptyProcess.onData((data) => {
+    if (!isCurrent()) return;
     const currentBuffer = terminalBuffers.get(sessionId) || "";
     let newBuffer = currentBuffer + data;
 
@@ -94,10 +117,12 @@ ipcMain.handle("terminal:attachOrCreate", async (event, { tabId, cwd, cols, rows
     batchTimeouts.set(sessionId, timeout);
   });
   ptyProcess.onExit(({ exitCode, signal }) => {
+    if (!isCurrent()) return;
     // Clean up all resources for this session
     terminals.delete(sessionId);
     terminalBuffers.delete(sessionId);
     outputBatches.delete(sessionId);
+    sessions.delete(sessionId);
 
     const timeout = batchTimeouts.get(sessionId);
     if (timeout) {
@@ -110,8 +135,83 @@ ipcMain.handle("terminal:attachOrCreate", async (event, { tabId, cwd, cols, rows
       wc.send(`terminal:exit:${sessionId}`, { exitCode, signal });
     }
   });
+  return { notice };
+}
+
+ipcMain.handle("terminal:attachOrCreate", async (event, { tabId, cwd, cols, rows }) => {
+  // Prefer the caller's own `cwd` — it comes from that window's own React
+  // tree (Terminal.tsx's `cwd` prop), so it's already correctly scoped to
+  // whichever window actually made this call, no window-timing race
+  // possible. getActiveProject() used to be called bare (no `event`), which
+  // falls back to windowManager's single global "currently focused window"
+  // (see getAppState's own event?.sender-vs-fallback logic) — with multiple
+  // windows open, that's whichever window last had focus, not necessarily
+  // the one that actually issued THIS call, so switching focus right around
+  // when a terminal opens could spawn it in the wrong window's directory.
+  // getActiveProject(event) below is only a fallback for the (currently
+  // nonexistent) case of an empty cwd, and is itself event-scoped so it
+  // doesn't reintroduce the same bug.
+  const activeDirectory = cwd || (await getActiveProject(event));
+  if (terminals.has(tabId)) {
+    const existingPty = terminals.get(tabId);
+    if (existingPty) {
+      (existingPty as any).webContents = event.sender;
+      const buffer = terminalBuffers.get(tabId) || "";
+      // Return both id and the buffered output, marking this as existing
+      return { id: tabId, buffer, isNew: false };
+    }
+  }
+  // Create a new terminal session in the tab's shell, else the default from settings (#598).
+  const sessionId = tabId ? tabId : randomUUID();
+  const { notice } = startShell(sessionId, event.sender, {
+    shell: tabShell(event, tabId) ?? getSettings().terminal?.default_shell,
+    cwd: activeDirectory || process.env.HOME || "",
+    cols: cols || 80,
+    rows: rows || 24,
+  });
   // Return empty buffer for new terminals, shell will output prompt after resize
-  return { id: sessionId, buffer: "", isNew: true };
+  return { id: sessionId, buffer: "", isNew: true, notice };
+});
+
+/**
+ * Restart a terminal tab in another shell (the ▾ menu in the terminal header).
+ * The new shell runs under the same session id, so the tab and its xterm stay
+ * put; the old shell's exit is ignored rather than closing the tab.
+ */
+ipcMain.handle("terminal:switchShell", async (event, tabId: string, shell: string) => {
+  const appState = getAppState(event);
+  const layout = appState.activeDirectory ? appState.directories[appState.activeDirectory]?.layout : appState.unsaved.layout;
+  const tab = findTab(layout, tabId);
+  if (!tab || tab.type !== "terminal") throw new Error("Terminal tab not found.");
+
+  const { profile } = resolveShell(shell, getShells(), nodeShellEnv());
+  tab.meta = { ...tab.meta, shell };
+  tab.title = profile.name;
+  const windowId = (BrowserWindow.fromWebContents(event.sender) as any)?.windowInfo?.id;
+  await saveState(appState, windowId);
+
+  const old = terminals.get(tabId);
+  if (old) {
+    const session = sessions.get(tabId);
+    const wc = (old as any).webContents ?? event.sender;
+    // Unregister first so the old shell's exit doesn't close the tab, and drop
+    // its queued output so none of it lands after the screen reset.
+    terminals.delete(tabId);
+    old.kill();
+    clearTimeout(batchTimeouts.get(tabId));
+    batchTimeouts.delete(tabId);
+    outputBatches.delete(tabId);
+    // Reset the screen, then start the new shell where the old one started.
+    if (wc && !wc.isDestroyed()) wc.send(`terminal:output:${tabId}`, "\x1bc");
+    const { notice } = startShell(tabId, wc, {
+      shell,
+      cwd: session?.cwd ?? (await getActiveProject(event)) ?? process.env.HOME ?? "",
+      cols: old.cols,
+      rows: old.rows,
+    });
+    if (notice && wc && !wc.isDestroyed()) wc.send(`terminal:output:${tabId}`, notice);
+  }
+  return { title: profile.name };
 });
 
 ipcMain.on("terminal:sendInput", (event, data: { id: string; data: string }) => {
@@ -135,6 +235,7 @@ export function killTerminal(sessionId: string) {
     terminals.delete(sessionId);
     terminalBuffers.delete(sessionId);
     outputBatches.delete(sessionId);
+    sessions.delete(sessionId);
 
     const timeout = batchTimeouts.get(sessionId);
     if (timeout) {

@@ -17,6 +17,7 @@ import {
   type FileSearchFilterOptions,
 } from '@/core/components/fileSearchFilters';
 import { usePluginStore } from '@/plugins';
+import { ErrorBoundary } from '@/core/components/ErrorBoundary';
 import { useRevealInExplorerStore } from '@/core/stores/revealInExplorerStore';
 
 interface CommandPaletteProps {
@@ -443,7 +444,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isFocused, mode,
       icon: <HelpCircle size={16} className="text-accent" />,
       action: () => {
         const HelpComponent = cmd.component;
-        onShowHelp(cmd.label, <HelpComponent />);
+        onShowHelp(cmd.label, <ErrorBoundary level="component"><HelpComponent /></ErrorBoundary>);
         setTimeout(() => onBlur(), 0);
       },
     })),
@@ -474,8 +475,8 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isFocused, mode,
 
     const query = searchQuery.toLowerCase();
     const filtered = commands.filter((cmd) =>
-      cmd.label.toLowerCase().includes(query) ||
-      cmd.description.toLowerCase().includes(query)
+      (cmd.label ?? '').toLowerCase().includes(query) ||
+      (cmd.description ?? '').toLowerCase().includes(query)
     );
 
     setFilteredCommands(filtered);

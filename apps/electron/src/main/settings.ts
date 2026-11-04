@@ -44,6 +44,8 @@ export type Settings = {
   terminal: {
     use_nerd_font: boolean;
     nerd_font_installed: boolean;
+    /** Shell for new terminals: a detected profile id, an absolute path, or "" for automatic. */
+    default_shell?: string;
   };
   updates: {
     channel: "stable" | "early-access";
@@ -52,6 +54,7 @@ export type Settings = {
   cli: {
     installed: boolean; // Whether CLI is currently installed in PATH
     installedVersion?: string; // app.getVersion() as of the last successful (re)install — drives reconcileCliInstall()'s staleness check
+    declinedVersion?: string; // app.getVersion() whose startup repair was cancelled or failed — reconcileCliInstall() won't ask again for it
   };
   skills: {
     claude: boolean;
@@ -73,6 +76,9 @@ export type Settings = {
     install_code?: boolean; // false leaves the install code (extension/installCode.ts) out of the report
     first_seen?: string; // UTC day of the first run; absent for installs older than activity counting
     last_active?: string; // UTC day last reported to voiden.md
+  };
+  plugins?: {
+    seen_community?: string[]; // community plugin IDs already in the registry, so only later releases are announced
   };
   ui?: {
     last_seen_version?: string;

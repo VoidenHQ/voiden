@@ -1,6 +1,7 @@
 import { ipcMain, IpcMainInvokeEvent, dialog, BrowserWindow } from "electron";
 import { simpleGit, StatusResult } from "simple-git";
 import { getActiveProject } from "../state";
+import { getGitRepoPath, invalidateRepoList } from "../gitRepos";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
@@ -16,6 +17,7 @@ import {
   parseNumstatZ,
 } from "./gitCommitParsers";
 import { resolveAuthorAvatar } from "./gitAvatars";
+import { SNIFF_BYTES, fileCategory, isBinaryCategory } from "../fileKind";
 
 // In-flight deduplication: prevents polling intervals from stacking up
 // concurrent git processes when a call takes longer than the poll interval.
@@ -165,10 +167,29 @@ function invalidateRemoteUrlCache(projectPath: string): void {
   remoteUrlCache.delete(projectPath);
 }
 
+
+/** True for files that must never be read or written as text, like images (#610). */
+async function isBinaryOnDisk(filePath: string): Promise<boolean> {
+  try {
+    const handle = await fs.promises.open(filePath, "r");
+    try {
+      const head = Buffer.alloc(SNIFF_BYTES);
+      const { bytesRead } = await handle.read(head, 0, SNIFF_BYTES, 0);
+      return isBinaryCategory(fileCategory(filePath, head.subarray(0, bytesRead)), filePath);
+    } finally {
+      await handle.close();
+    }
+  } catch {
+    return false;
+  }
+}
+
+const BINARY_TEXT_SAVE = "This is a binary file, so it cannot be resolved as text. Keep the Current or the Incoming version instead.";
+
 export function registerGitIpcHandlers() {
   // Get git repository root directory
-  ipcMain.handle("git:getRepoRoot", async (event: IpcMainInvokeEvent) => {
-    const activeProject = await getActiveProject(event);
+  ipcMain.handle("git:getRepoRoot", async (event: IpcMainInvokeEvent, repo?: string | null) => {
+    const activeProject = await getGitRepoPath(event, repo);
     if (!activeProject) {
       return null;
     }
@@ -399,6 +420,8 @@ export function registerGitIpcHandlers() {
         isEmptyRepo = true;
       }
 
+      // The clone is a new repo inside this project; list it in the repo picker.
+      invalidateRepoList(activeProject);
       return { clonedPath, clonedInPlace: false, isNewProject: false, lfsWarning, emptyRepo: isEmptyRepo };
     } catch (error: any) {
       // Sanitize before logging — error message from git may contain the repo URL
@@ -457,6 +480,7 @@ export function registerGitIpcHandlers() {
       const git = getSharedGit(activeProject);
       await git.init();
       invalidateRepoCache(activeProject);
+      invalidateRepoList(activeProject);
       // Make sure .voiden/* (except public env YAMLs) is ignored from the very
       // first commit — the file watcher's .gitignore handler then invalidates
       // the git/tree caches when this write lands.
@@ -469,7 +493,7 @@ export function registerGitIpcHandlers() {
   });
 
   ipcMain.handle("git:getStatus", async (event: IpcMainInvokeEvent) => {
-    const activeProject = await getActiveProject(event);
+    const activeProject = await getGitRepoPath(event);
     if (!activeProject) return null;
     try { await fs.promises.access(activeProject); } catch { return null; }
     return dedupeCall(pendingStatus, activeProject, async () => {
@@ -551,10 +575,13 @@ export function registerGitIpcHandlers() {
       }
 
       const { staged, modified, untracked, deleted, renamed, conflicted } = classifyStatusFiles(status);
+      const fileStatuses = new Map(status.files.map((file) => [file.path, file]));
 
       return {
         files: [...new Set([...staged, ...modified, ...untracked, ...deleted])].map((file) => ({
           path: file,
+          index: fileStatuses.get(file)?.index ?? ' ',
+          workingTree: fileStatuses.get(file)?.working_dir ?? ' ',
           status: staged.includes(file)
             ? "staged"
             : modified.includes(file)
@@ -585,7 +612,7 @@ export function registerGitIpcHandlers() {
 
   // Stage files
   ipcMain.handle("git:stage", async (event: IpcMainInvokeEvent, files: string[]) => {
-    const activeProject = await getActiveProject(event);
+    const activeProject = await getGitRepoPath(event);
     if (!activeProject) {
       throw new Error("No active project selected.");
     }
@@ -630,7 +657,7 @@ export function registerGitIpcHandlers() {
 
   // Unstage files
   ipcMain.handle("git:unstage", async (event: IpcMainInvokeEvent, files: string[]) => {
-    const activeProject = await getActiveProject(event);
+    const activeProject = await getGitRepoPath(event);
     if (!activeProject) {
       throw new Error("No active project selected.");
     }
@@ -658,7 +685,7 @@ export function registerGitIpcHandlers() {
 
   // Commit staged changes
   ipcMain.handle("git:commit", async (event: IpcMainInvokeEvent, message: string) => {
-    const activeProject = await getActiveProject(event);
+    const activeProject = await getGitRepoPath(event);
     if (!activeProject) {
       throw new Error("No active project selected.");
     }
@@ -682,7 +709,7 @@ export function registerGitIpcHandlers() {
 
   // Discard changes in working directory
   ipcMain.handle("git:discard", async (event: IpcMainInvokeEvent, files: string[]) => {
-    const activeProject = await getActiveProject(event);
+    const activeProject = await getGitRepoPath(event);
     if (!activeProject) {
       throw new Error("No active project selected.");
     }
@@ -760,7 +787,7 @@ export function registerGitIpcHandlers() {
 
   // Get commit history/log with graph information
   ipcMain.handle("git:getLog", async (event: IpcMainInvokeEvent, limit: number = 50) => {
-    const activeProject = await getActiveProject(event);
+    const activeProject = await getGitRepoPath(event);
     if (!activeProject) return null;
     try { await fs.promises.access(activeProject); } catch { return null; }
     return dedupeCall(pendingLog, `${activeProject}:${limit}`, async () => {
@@ -805,7 +832,7 @@ export function registerGitIpcHandlers() {
 
   // Get files changed in a specific commit
   ipcMain.handle("git:getCommitFiles", async (event, commitHash: string) => {
-    const activeProject = await getActiveProject(event);
+    const activeProject = await getGitRepoPath(event);
     if (!activeProject) {
       return [];
     }
@@ -842,7 +869,7 @@ export function registerGitIpcHandlers() {
 
   // Full metadata for one commit (full message, emails, dates) for the history hover card
   ipcMain.handle("git:getCommitDetails", async (event, commitHash: string) => {
-    const activeProject = await getActiveProject(event);
+    const activeProject = await getGitRepoPath(event);
     if (!activeProject) return null;
 
     try {
@@ -858,7 +885,7 @@ export function registerGitIpcHandlers() {
 
   // Avatar URL for a commit author (GitHub, then Gravatar); null when unknown
   ipcMain.handle("git:getAuthorAvatar", async (event, email: string, commitHash: string) => {
-    const activeProject = await getActiveProject(event);
+    const activeProject = await getGitRepoPath(event);
     if (!activeProject || !email) return null;
 
     try {
@@ -878,7 +905,7 @@ export function registerGitIpcHandlers() {
   });
 
   ipcMain.handle("git:get-remote", async (_event, _projectName: string) => {
-    const activeProject = await getActiveProject(_event);
+    const activeProject = await getGitRepoPath(_event);
     if (!activeProject) {
       return null;
     }
@@ -898,7 +925,7 @@ export function registerGitIpcHandlers() {
   });
 
   ipcMain.handle("git:add-remote", async (_event, _projectName: string, remoteUrl: string) => {
-    const activeProject = await getActiveProject(_event);
+    const activeProject = await getGitRepoPath(_event);
     if (!activeProject) {
       throw new Error("No active project selected.");
     }
@@ -919,7 +946,7 @@ export function registerGitIpcHandlers() {
 
   // Push current branch to tracked remote (fallback: origin, then first remote)
   ipcMain.handle("git:pushBranch", async (event: IpcMainInvokeEvent) => {
-    const activeProject = await getActiveProject(event);
+    const activeProject = await getGitRepoPath(event);
     if (!activeProject) {
       throw new Error("No active project selected.");
     }
@@ -975,7 +1002,7 @@ export function registerGitIpcHandlers() {
   // Cached for REMOTE_URL_TTL — remote URLs rarely change and this IPC fires on
   // every panel render, causing subprocess spam on non-git projects otherwise.
   ipcMain.handle("git:getRemoteUrl", async (event: IpcMainInvokeEvent) => {
-    const activeProject = await getActiveProject(event);
+    const activeProject = await getGitRepoPath(event);
     if (!activeProject) return null;
 
     const cached = remoteUrlCache.get(activeProject);
@@ -1011,7 +1038,7 @@ export function registerGitIpcHandlers() {
 
   // Remove the origin remote entirely (disconnect without deleting history)
   ipcMain.handle("git:removeRemote", async (event: IpcMainInvokeEvent) => {
-    const activeProject = await getActiveProject(event);
+    const activeProject = await getGitRepoPath(event);
     if (!activeProject) throw new Error("No active project selected.");
     try {
       const git = getSharedGit(activeProject);
@@ -1028,7 +1055,7 @@ export function registerGitIpcHandlers() {
 
   // Add or update the origin remote URL
   ipcMain.handle("git:setRemoteUrl", async (event: IpcMainInvokeEvent, remoteUrl: string) => {
-    const activeProject = await getActiveProject(event);
+    const activeProject = await getGitRepoPath(event);
     if (!activeProject) throw new Error("No active project selected.");
     try {
       const git = getSharedGit(activeProject);
@@ -1051,7 +1078,7 @@ export function registerGitIpcHandlers() {
   // Pull from origin for current branch
   // Fetch from remote (updates local remote-tracking refs so ahead/behind is accurate)
   ipcMain.handle("git:fetch", async (event: IpcMainInvokeEvent) => {
-    const activeProject = await getActiveProject(event);
+    const activeProject = await getGitRepoPath(event);
     if (!activeProject) return null;
 
     // Guard: directory must exist before attempting git operations
@@ -1089,7 +1116,7 @@ export function registerGitIpcHandlers() {
 
   // Stash current changes (with optional message)
   ipcMain.handle("git:stash", async (event: IpcMainInvokeEvent, message?: string) => {
-    const activeProject = await getActiveProject(event);
+    const activeProject = await getGitRepoPath(event);
     if (!activeProject) throw new Error("No active project selected.");
     const git = getSharedGit(activeProject);
     const isRepo = await getCachedIsRepo(activeProject);
@@ -1101,7 +1128,7 @@ export function registerGitIpcHandlers() {
 
   // List all stashes
   ipcMain.handle("git:stashList", async (event: IpcMainInvokeEvent) => {
-    const activeProject = await getActiveProject(event);
+    const activeProject = await getGitRepoPath(event);
     if (!activeProject) return [];
     return dedupeCall(pendingStash, activeProject, async () => {
       try {
@@ -1122,7 +1149,7 @@ export function registerGitIpcHandlers() {
 
   // Pop a stash by index
   ipcMain.handle("git:stashPop", async (event: IpcMainInvokeEvent, index: number) => {
-    const activeProject = await getActiveProject(event);
+    const activeProject = await getGitRepoPath(event);
     if (!activeProject) throw new Error("No active project selected.");
     const git = getSharedGit(activeProject);
     const isRepo = await getCachedIsRepo(activeProject);
@@ -1238,7 +1265,7 @@ export function registerGitIpcHandlers() {
   }
 
   ipcMain.handle("git:getConflicts", async (event: IpcMainInvokeEvent) => {
-    const activeProject = await getActiveProject(event);
+    const activeProject = await getGitRepoPath(event);
     if (!activeProject) return [];
     try { await fs.promises.access(activeProject); } catch { return []; }
     return dedupeCall(pendingConflicts, activeProject, async () => {
@@ -1274,10 +1301,11 @@ export function registerGitIpcHandlers() {
       resolution: 'current' | 'incoming' | 'both',
       sectionIndex?: number,
     ) => {
-      const activeProject = await getActiveProject(event);
+      const activeProject = await getGitRepoPath(event);
       if (!activeProject) throw new Error("No active project selected.");
 
       const filePath = path.join(activeProject, file);
+      if (await isBinaryOnDisk(filePath)) throw new Error(BINARY_TEXT_SAVE);
       const content = await fs.promises.readFile(filePath, 'utf8');
       const resolved = resolveConflictContent(content, resolution, sectionIndex);
       await fs.promises.writeFile(filePath, resolved, 'utf8');
@@ -1292,18 +1320,20 @@ export function registerGitIpcHandlers() {
     }
   );
 
-  ipcMain.handle("git:getFileContent", async (event: IpcMainInvokeEvent, file: string) => {
-    const activeProject = await getActiveProject(event);
+  ipcMain.handle("git:getFileContent", async (event: IpcMainInvokeEvent, file: string, repo?: string | null) => {
+    const activeProject = await getGitRepoPath(event, repo);
     if (!activeProject) throw new Error("No active project selected.");
     const filePath = path.join(activeProject, file);
     return fs.promises.readFile(filePath, 'utf8');
   });
 
   // Write resolved content to disk and stage the file
-  ipcMain.handle("git:saveResolvedFile", async (event: IpcMainInvokeEvent, file: string, content: string) => {
-    const activeProject = await getActiveProject(event);
+  ipcMain.handle("git:saveResolvedFile", async (event: IpcMainInvokeEvent, file: string, content: string, repo?: string | null) => {
+    const activeProject = await getGitRepoPath(event, repo);
     if (!activeProject) throw new Error("No active project selected.");
     const filePath = path.join(activeProject, file);
+    // Writing text over an image or other binary file would break it.
+    if (await isBinaryOnDisk(filePath)) throw new Error(BINARY_TEXT_SAVE);
     fs.writeFileSync(filePath, content, 'utf8');
     const git = getSharedGit(activeProject);
     await git.add(file);
@@ -1311,9 +1341,32 @@ export function registerGitIpcHandlers() {
     return { success: true };
   });
 
+  // Resolve a conflict in a binary file by keeping one whole version (#610).
+  // When the chosen side deleted the file, keeping it means removing the file.
+  ipcMain.handle("git:resolveBinaryConflict", async (event: IpcMainInvokeEvent, file: string, side: "current" | "incoming", repo?: string | null) => {
+    const activeProject = await getGitRepoPath(event, repo);
+    if (!activeProject) throw new Error("No active project selected.");
+    const git = getSharedGit(activeProject);
+    const stage = side === "current" ? ":2" : ":3";
+    let sideExists = true;
+    try {
+      await git.raw(["cat-file", "-e", `${stage}:${file}`]);
+    } catch {
+      sideExists = false;
+    }
+    if (sideExists) {
+      await git.raw(["checkout", side === "current" ? "--ours" : "--theirs", "--", file]);
+      await git.add(file);
+    } else {
+      await git.raw(["rm", "--quiet", "--", file]);
+    }
+    invalidateGitCache(activeProject);
+    return { success: true };
+  });
+
   // Undo the last commit — moves changes back to the staging area (soft reset)
   ipcMain.handle("git:uncommit", async (event: IpcMainInvokeEvent) => {
-    const activeProject = await getActiveProject(event);
+    const activeProject = await getGitRepoPath(event);
     if (!activeProject) throw new Error("No active project selected.");
     const git = getSharedGit(activeProject);
     const isRepo = await getCachedIsRepo(activeProject);
@@ -1324,7 +1377,7 @@ export function registerGitIpcHandlers() {
   });
 
   ipcMain.handle("git:pull", async (event: IpcMainInvokeEvent) => {
-    const activeProject = await getActiveProject(event);
+    const activeProject = await getGitRepoPath(event);
     if (!activeProject) {
       throw new Error("No active project selected.");
     }

@@ -22,6 +22,7 @@ import {
 } from "../fileSystem";
 import type { MoveConflict } from "../fileSystem";
 import { trackSaveDialog } from "../fileSystem";
+import { readWorkingBlob } from "../gitBlob";
 import { createEmptyProject, createSampleProject } from "../projectUtils";
 import { getActiveStates, saveActiveStates } from "../tabs";
 import { getCachedGitStatus } from "../git";
@@ -239,6 +240,16 @@ export function registerFileIpcHandlers() {
     })().finally(() => pendingTreeBuilds.delete(directory));
     pendingTreeBuilds.set(directory, p);
     return p;
+  });
+
+  // Size, kind and (for small images) the picture of a file opened in a tab,
+  // so images and other binary files are shown instead of refused (#610).
+  ipcMain.handle("files:readBlob", async (_event, filePath: string) => {
+    try {
+      return await readWorkingBlob(path.dirname(filePath), path.basename(filePath));
+    } catch {
+      return null;
+    }
   });
 
   ipcMain.handle("files:read", async (_event, filePath) => {

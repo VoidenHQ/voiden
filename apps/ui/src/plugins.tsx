@@ -239,6 +239,78 @@ export interface PluginCommand {
   action: () => void;
 }
 
+// ── Plugin command sanitizing ────────────────────────────────────────────────
+// Plugins are untrusted input: a non-string label or a JSX element passed as an icon
+// crashes the whole command palette at render time, so normalize at registration.
+const asText = (value: unknown): string | undefined => {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  return undefined;
+};
+
+const isComponentType = (value: unknown): value is React.ComponentType<any> =>
+  typeof value === 'function' ||
+  (typeof value === 'object' && value !== null && '$$typeof' in value && !_ReactShim.isValidElement(value));
+
+// Accepts a component, a rendered element, or a lucide icon name ("Sparkles").
+const toIconComponent = (icon: unknown): React.ComponentType<any> | undefined => {
+  if (isComponentType(icon)) return icon;
+  if (_ReactShim.isValidElement(icon)) return () => icon;
+  if (typeof icon === 'string') {
+    const lucide = (_LucideReact as Record<string, unknown>)[icon];
+    if (isComponentType(lucide)) return lucide;
+  }
+  return undefined;
+};
+
+const sanitizePluginCommand = (raw: unknown, extensionId: string, index: number): PluginCommand | null => {
+  if (!raw || typeof raw !== 'object') return null;
+  // Older plugins send `name`/`callback` instead of `label`/`action`.
+  const cmd = raw as Record<string, unknown>;
+  const label = asText(cmd.label) ?? asText(cmd.name) ?? asText(cmd.title);
+  const action = typeof cmd.action === 'function' ? cmd.action : cmd.callback;
+  if (!label || typeof action !== 'function') return null;
+  const when = cmd.when;
+  return {
+    id: `${extensionId}:${asText(cmd.id) ?? index}`,
+    label,
+    description: asText(cmd.description),
+    icon: toIconComponent(cmd.icon),
+    shortcut: asText(cmd.shortcut),
+    when: typeof when === 'function'
+      ? () => {
+          try {
+            return Boolean(when());
+          } catch (err) {
+            console.error(`[plugin:${extensionId}] command "${label}" when() threw`, err);
+            return false;
+          }
+        }
+      : undefined,
+    action: () => {
+      try {
+        const result = action();
+        if (result instanceof Promise) result.catch((err) => console.error(`[plugin:${extensionId}] command "${label}" failed`, err));
+      } catch (err) {
+        console.error(`[plugin:${extensionId}] command "${label}" failed`, err);
+      }
+    },
+  };
+};
+
+const sanitizePluginHelpCommand = (raw: unknown, extensionId: string, index: number): PluginHelpCommand | null => {
+  if (!raw || typeof raw !== 'object') return null;
+  const cmd = raw as Record<string, unknown>;
+  const label = asText(cmd.label) ?? asText(cmd.name) ?? asText(cmd.title);
+  if (!label || !isComponentType(cmd.component)) return null;
+  return {
+    id: `${extensionId}:${asText(cmd.id) ?? index}`,
+    label,
+    description: asText(cmd.description),
+    component: cmd.component,
+  };
+};
+
 export interface PluginTopBarItem {
   id: string;
   icon: React.ComponentType<any>;
@@ -1365,13 +1437,23 @@ export const createPlugin = (
       historyAdapterRegistry.register(adapter);
     },
     registerHelpCommand: (cmd: PluginHelpCommand) => {
-      extensionLogger.info(`Plugin "${extensionId}" registering help command: ${cmd.id}`);
-      usePluginStore.getState().addHelpCommand(cmd);
+      const helpCommand = sanitizePluginHelpCommand(cmd, extensionId, usePluginStore.getState().helpCommands.length);
+      if (!helpCommand) {
+        extensionLogger.warn(`Plugin "${extensionId}" registered help command "${(cmd as any)?.id}" without a label or component; skipping`);
+        return;
+      }
+      extensionLogger.info(`Plugin "${extensionId}" registering help command: ${helpCommand.id}`);
+      usePluginStore.getState().addHelpCommand(helpCommand);
     },
     registerCommand: (cmd: PluginCommand) => {
       requirePermission('commandPalette');
-      extensionLogger.info(`Plugin "${extensionId}" registering command: ${cmd.id}`);
-      usePluginStore.getState().addPluginCommand(cmd);
+      const command = sanitizePluginCommand(cmd, extensionId, usePluginStore.getState().pluginCommands.length);
+      if (!command) {
+        extensionLogger.warn(`Plugin "${extensionId}" registered command "${(cmd as any)?.id}" without a label or action; skipping`);
+        return;
+      }
+      extensionLogger.info(`Plugin "${extensionId}" registering command: ${command.id}`);
+      usePluginStore.getState().addPluginCommand(command);
     },
     registerTopBarItem: (item: PluginTopBarItem) => {
       extensionLogger.info(`Plugin "${extensionId}" registering top bar item: ${item.id}`);

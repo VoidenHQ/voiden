@@ -18,6 +18,7 @@ import { useEffect, useRef, useState } from "react";
 import { BlockOverviewPanel } from "@/core/layout/panels/BlockOverviewPanel";
 import { useVoidenEditorStore } from "@/core/editors/voiden/VoidenEditor";
 import { useSettings } from "@/core/settings/hooks";
+import { NewTerminalButton } from "@/core/terminal/components/NewTerminalButton";
 
 interface MainEditorProps {
   bottomPanelProps: any;
@@ -272,13 +273,7 @@ export const MainEditor = ({ bottomPanelProps, rightPanelProps }: MainEditorProp
                         </button>
                       </div>
                     ))}
-                    <button
-                      onClick={() => newTerminalTab("bottom")}
-                      className="flex items-center gap-1.5 w-full h-8 px-2 text-comment hover:bg-active hover:text-fg border-b border-border"
-                    >
-                      <Plus size={11} className="flex-shrink-0" />
-                      <span className="text-xs">New terminal</span>
-                    </button>
+                    <NewTerminalButton variant="row" />
                   </div>
                 )}
 
@@ -317,9 +312,7 @@ export const MainEditor = ({ bottomPanelProps, rightPanelProps }: MainEditorProp
                 <div className="relative flex-none h-8 flex justify-between bg-panel">
                   <PanelTabs panel="bottom" />
                   <div className="flex border-l border-b border-border">
-                    <button className="px-2 hover:bg-active text-comment" onClick={() => newTerminalTab("bottom")}>
-                      <Plus size={14} />
-                    </button>
+                    <NewTerminalButton />
                   </div>
                 </div>
                 <div className="flex-1 min-h-0">

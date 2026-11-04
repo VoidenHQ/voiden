@@ -67,6 +67,7 @@ Intent-based colors for consistent UI.
 | `--accent-alt-rgb` | Alt accent in RGB format |
 | `--http-head` | HEAD request color |
 | `--http-options` | OPTIONS request color |
+| `--http-query` | QUERY request color |
 | `--table-cell-selection` | Table cell highlight |
 
 ### Syntax Highlighting (11 variables)
@@ -146,6 +147,7 @@ Create `apps/electron/themes/my-theme.json`:
     "--accent-alt-rgb": "167 139 250",
     "--http-head": "#a855f7",
     "--http-options": "#6b7280",
+    "--http-query": "#99f1fd",
     "--table-cell-selection": "rgba(129, 140, 248, 0.35)",
 
     "--syntax-tag": "#f472b6",
@@ -230,6 +232,7 @@ Use these as references when creating your own theme.
 
 Standard conventions:
 - **GET** → `--success` (green)
+- **QUERY** → `--http-query` (light cyan)
 - **POST** → `--info` (blue)
 - **PUT/PATCH** → `--warning` (yellow/orange)
 - **DELETE** → `--error` (red)

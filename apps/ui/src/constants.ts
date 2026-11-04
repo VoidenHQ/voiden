@@ -6,6 +6,7 @@ export const METHOD_COLORS = {
   DELETE: "text-http-delete",
   HEAD: "text-http-head",
   OPTIONS: "text-http-options",
+  QUERY: "text-http-query",
 } as {
   [key: string]: string;
 };
@@ -18,6 +19,7 @@ export const METHOD_BG_COLORS = {
   DELETE: "bg-httpbg-delete",
   HEAD: "bg-httpbg-head",
   OPTIONS: "bg-httpbg-options",
+  QUERY: "bg-httpbg-query",
 } as {
   [key: string]: string;
 };

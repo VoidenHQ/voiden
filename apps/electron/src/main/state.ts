@@ -35,8 +35,10 @@ import { updateFileWatcher } from "./fileWatcher";
 import { windowManager } from "./windowManager";
 import { getSettings } from "./settings";
 import { recomposeAndInstall } from "./skillsInstaller";
-import { reloadMainProcessExtension } from "./extensionLoader";
+import { reloadMainProcessExtension, unloadMainProcessExtension } from "./extensionLoader";
 import { logger } from "./logger";
+import { SNIFF_BYTES, looksBinary } from "./fileKind";
+import { getShells } from "./shells";
 
 // Mirrors CodeEditor.tsx's LONG_LINE_THRESHOLD/hasVeryLongLine — a single line
 // this long is its own layout/perf cliff for the editor regardless of total
@@ -72,6 +74,22 @@ export const updateWindowState = () => {
     // Window state may not be available yet during initialization
   }
 };
+/** True when the first bytes of a file contain a NUL byte, the same check git uses. */
+async function startsLikeBinary(filePath: string): Promise<boolean> {
+  try {
+    const handle = await fs.open(filePath, "r");
+    try {
+      const head = Buffer.alloc(SNIFF_BYTES);
+      const { bytesRead } = await handle.read(head, 0, SNIFF_BYTES, 0);
+      return looksBinary(head.subarray(0, bytesRead));
+    } finally {
+      await handle.close();
+    }
+  } catch {
+    return false;
+  }
+}
+
 export const initializeState = async (
   skipDefault?: boolean,
 ): Promise<AppState> => {
@@ -798,6 +816,11 @@ export const ipcStateHandlers = () => {
           // streamed in here — one consistent line for "big enough to need a
           // loading indicator instead of a single blocking payload".
           const STREAM_THRESHOLD = 512 * 1024;
+          // Binary files without a known extension (no file type, .bin, ...)
+          // would show as garbage in the code editor; show the file card instead (#610).
+          if (!isVoidenFile && (await startsLikeBinary(source))) {
+            return { type: "document", tabId, title, content: null, source, unsupported: true };
+          }
           const stat = await fs.stat(source);
           if (!isVoidenFile && stat.size > STREAM_THRESHOLD) {
             return { type: "document", tabId, title, content: null, source, streamable: true, fullSize: stat.size };
@@ -1277,6 +1300,7 @@ export const ipcStateHandlers = () => {
     }
 
     removeExtensionTabsFromSidebars(appState.sidebars, extensionId);
+    await unloadMainProcessExtension(extensionId).catch(() => {});
     await extensionManager.uninstallCommunityExtension(extensionId);
     await saveState(appState);
     maybeRecomposeSkills(appState);
@@ -1527,7 +1551,7 @@ export const ipcStateHandlers = () => {
     return fetchManifest(repo);
   });
 
-  ipcMain.handle("terminal:new", async (event, panelId: string) => {
+  ipcMain.handle("terminal:new", async (event, panelId: string, shell?: string) => {
     const win = BrowserWindow.fromWebContents(event.sender) as any;
     const windowId = win?.windowInfo?.id as string | undefined;
     const appState = getAppState(event);
@@ -1541,12 +1565,16 @@ export const ipcStateHandlers = () => {
 
     const defaultCwd = appState.activeDirectory || os.homedir();
 
+    // A shell picked from the new-terminal menu is kept on the tab; without one,
+    // the terminal starts the default shell from settings.
+    const shellProfile = shell ? getShells().find((s) => s.id === shell) : undefined;
     const newTab: Tab = {
       id: crypto.randomUUID(),
       type: "terminal",
-      title: "Terminal",
+      title: shellProfile?.name ?? "Terminal",
       source: null,
       directory: defaultCwd,
+      ...(shell ? { meta: { shell } } : {}),
     };
 
     addTabToPanel(layout, panelId, newTab);

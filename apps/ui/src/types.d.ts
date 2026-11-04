@@ -111,6 +111,15 @@ declare global {
         flatList: (rootDir: string, sessionId?: string | null, query?: string, currentFilePath?: string) => Promise<{ name: string; path: string }[]>;
         flatListCloseSession: (sessionId: string) => Promise<void>;
         read: (path: string) => Promise<string>;
+        /** Size, kind and (for small images) the picture of a file, so binary files can be shown. */
+        readBlob: (path: string) => Promise<{
+          exists: boolean;
+          size: number;
+          binary: boolean;
+          category: "image" | "document" | "audio" | "video" | "font" | "archive" | "executable" | "database" | "binary" | "text";
+          label: string;
+          dataUrl?: string;
+        } | null>;
         write: (
           path: string | null,
           content: string,
@@ -227,7 +236,7 @@ declare global {
         createBranch: (projectPath: string, branch: string) => Promise<{ activeBranch: string; branches: string[] }>;
         createBranchFrom: (projectPath: string, branch: string, fromBranch: string) => Promise<{ activeBranch: string; branches: string[] }>;
         updateGitignore: (filePatterns: string | string[], rootDir?: string) => Promise<void>;
-        diffBranches: (baseBranch: string, compareBranch: string) => Promise<{
+        diffBranches: (baseBranch: string, compareBranch: string, repo?: string | null) => Promise<{
           summary: { files: number; insertions: number; deletions: number };
           files: { status: string; path: string; oldPath: string | null }[];
         }>;
@@ -235,14 +244,34 @@ declare global {
           baseBranch: string,
           compareBranch: string,
           filePath: string,
+          repo?: string | null,
         ) => Promise<string>;
         getFileAtBranch: (
           branch: string,
           filePath: string,
+          repo?: string | null,
         ) => Promise<string | null>;
-        getRepoRoot: () => Promise<string | null>;
+        /** One side of a diff, described without reading binary files as text. `ref` null is the working copy. */
+        getFileBlob: (ref: string | null, filePath: string, repo?: string | null) => Promise<{
+          exists: boolean;
+          size: number;
+          binary: boolean;
+          category: "image" | "document" | "audio" | "video" | "font" | "archive" | "executable" | "database" | "binary" | "text";
+          label: string;
+          dataUrl?: string;
+        } | null>;
+        /** Resolve a binary conflict by keeping one whole version. */
+        resolveBinaryConflict: (file: string, side: "current" | "incoming", repo?: string | null) => Promise<{ success: boolean }>;
+        /** `repo` pins the call to one repo; omitted, the repo selected in Source Control is used. */
+        getRepoRoot: (repo?: string | null) => Promise<string | null>;
+        /** Git repos in the active project (cheap: no git processes), and the one Source Control works on. */
+        listRepos: (refresh?: boolean) => Promise<{
+          repos: { path: string; name: string; relativePath: string; branch: string | null }[];
+          selected: string | null;
+        }>;
+        selectRepo: (repo: string) => Promise<string>;
         getStatus: () => Promise<{
-          files: { path: string; status: string }[];
+          files: { path: string; status: string; index: string; workingTree: string }[];
           staged: string[];
           modified: string[];
           untracked: string[];
@@ -374,10 +403,19 @@ declare global {
           cwd: string;
           cols?: number;
           rows?: number;
-        }) => Promise<{ id: string; buffer: string; isNew: boolean }>;
+        }) => Promise<{ id: string; buffer: string; isNew: boolean; notice?: string }>;
         detach: (id: string) => void;
         resize: (data: { id: string; cols: number; rows: number }) => void;
-        new: (panelId: string) => Promise<{ panelId: string; tabId: string }>;
+        /** `shell` (a profile id from listShells) opens the terminal in that shell instead of the default. */
+        new: (panelId: string, shell?: string) => Promise<{ panelId: string; tabId: string }>;
+        /** Installed shells (cheap: file checks only, cached), the effective default, and the configured setting. */
+        listShells: (refresh?: boolean) => Promise<{
+          shells: { id: string; name: string; path: string; args: string[] }[];
+          defaultId: string;
+          configured: string;
+        }>;
+        /** Restart a terminal tab in another shell, keeping the tab. */
+        switchShell: (tabId: string, shell: string) => Promise<{ title: string }>;
         onExit: (
           id: string,
           callback: (exitInfo: { exitCode: number; signal: number }) => void,

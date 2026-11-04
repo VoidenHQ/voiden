@@ -1,9 +1,11 @@
 import { useAddPanelTab } from "@/core/layout/hooks";
+import { useSelectedGitRepo } from "@/core/git/hooks";
 import { AlertTriangle, ChevronDown, ChevronRight } from "lucide-react";
 import { useState } from "react";
 
 export const ConflictResolver = ({ conflicted }: { conflicted: string[] }) => {
   const { mutate: addPanelTab } = useAddPanelTab();
+  const repoPath = useSelectedGitRepo();
   const [open, setOpen] = useState(true);
 
   if (conflicted.length === 0) return null;
@@ -13,10 +15,11 @@ export const ConflictResolver = ({ conflicted }: { conflicted: string[] }) => {
     addPanelTab({
       panelId: "main",
       tab: {
-        id: `conflict-${file}`,
+        id: `conflict-${repoPath ?? ""}:${file}`,
         type: "conflict",
         title: `Conflict: ${fileName}`,
         source: file,
+        meta: { repoPath },
       } as any,
     });
   };

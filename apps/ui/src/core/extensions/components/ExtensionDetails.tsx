@@ -27,6 +27,13 @@ export const CustomLink = ({ href, children }: CustomLinkProps) => (
   <a className="cursor-pointer" onClick={() => href && openExternalLink(href)}>{children}</a>
 );
 
+// READMEs fetched from GitHub use paths relative to the repo; resolve them
+// against the repo's default branch (HEAD) so images and links work in-app.
+const resolveRepoUrl = (url: string | undefined, prefix: string | null) => {
+  if (!url || !prefix || /^([a-z][a-z0-9+.-]*:|#|\/\/)/i.test(url)) return url;
+  return `${prefix}/${url.replace(/^\.?\//, "")}`;
+};
+
 const ExtensionIcon = ({ extension }: { extension: any }) => {
   const icon: string | undefined = extension.icon;
   const [imgFailed, setImgFailed] = useState(false);
@@ -615,7 +622,16 @@ export const ExtensionDetails = ({
                   <ReactMarkdown
                     remarkPlugins={[remarkGfm]}
                     components={{
-                      a: ({ href, children }) => <CustomLink href={href}>{children}</CustomLink>,
+                      a: ({ href, children }) => (
+                        <CustomLink href={resolveRepoUrl(href, readme && extensionData?.repo ? `https://github.com/${extensionData.repo}/blob/HEAD` : null)}>{children}</CustomLink>
+                      ),
+                      img: ({ src, alt }) => (
+                        <img
+                          src={resolveRepoUrl(src, readme && extensionData?.repo ? `https://raw.githubusercontent.com/${extensionData.repo}/HEAD` : null)}
+                          alt={alt}
+                          className="max-w-full rounded-md border border-border"
+                        />
+                      ),
                       table: ({ children }) => (
                         <div className="overflow-x-auto my-3 rounded-md border border-border">
                           <table className="w-full border-collapse">{children}</table>

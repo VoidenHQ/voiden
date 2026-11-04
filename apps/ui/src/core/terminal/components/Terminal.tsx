@@ -329,7 +329,7 @@ export const Terminal = ({ tabId, cwd }: TerminalProps) => {
 
       if (!result || !mounted) return;
 
-      const { id, buffer, isNew } = result;
+      const { id, buffer, isNew, notice } = result;
       sessionIdRef.current = id;
 
 
@@ -359,6 +359,10 @@ export const Terminal = ({ tabId, cwd }: TerminalProps) => {
       // New terminals will output their prompt after we set the correct size
       if (!isNew && buffer) {
         xterm.write(buffer);
+      }
+      // e.g. the chosen shell is no longer installed and the default was started instead
+      if (isNew && notice) {
+        xterm.write(notice);
       }
 
       // Subscribe to output for this session and capture the cleanup function.

@@ -9,6 +9,7 @@ module.exports = {
     "text-http-delete",
     "text-http-head",
     "text-http-options",
+    "text-http-query",
     "bg-httpbg-get",
     "bg-httpbg-post",
     "bg-httpbg-put",
@@ -16,6 +17,7 @@ module.exports = {
     "bg-httpbg-delete",
     "bg-httpbg-head",
     "bg-httpbg-options",
+    "bg-httpbg-query",
   ],
   content: {
     relative: true,
@@ -121,6 +123,7 @@ module.exports = {
           delete: "var(--http-delete)",
           head: "var(--http-head)",
           options: "var(--http-options)",
+          query: "var(--http-query)",
         },
         httpbg: {
           get: "var(--http-get-bg)",
@@ -130,6 +133,7 @@ module.exports = {
           delete: "var(--http-delete-bg)",
           head: "var(--http-head-bg)",
           options: "var(--http-options-bg)",
+          query: "var(--http-query-bg)",
         },
 
         // Status indicator colors

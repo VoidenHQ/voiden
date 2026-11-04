@@ -32,7 +32,7 @@ const ALL_THEME_VARIABLES = [
   '--icon-primary', '--icon-secondary', '--icon-success', '--icon-error', '--icon-warning', '--icon-info',
   '--status-success', '--status-error', '--status-warning', '--status-info',
   '--vcs-added', '--vcs-modified', '--vcs-removed', '--vcs-ignored',
-  '--http-get', '--http-post', '--http-put', '--http-patch', '--http-delete', '--http-head', '--http-options',
+  '--http-get', '--http-post', '--http-put', '--http-patch', '--http-delete', '--http-head', '--http-options', '--http-query',
   '--button-primary-bg', '--button-primary-hover', '--button-secondary-bg', '--button-secondary-fg',
   '--button-danger-bg', '--button-danger-hover', '--button-secondary',
   '--test-passed-bg', '--test-passed-fg', '--test-failed-bg', '--test-failed-fg',

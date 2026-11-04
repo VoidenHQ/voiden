@@ -22,6 +22,7 @@ import { Kbd } from "@/core/components/ui/kbd";
 import { ErrorBoundary } from "@/core/components/ErrorBoundary";
 import { DiffViewer } from "@/core/git/components/DiffViewer";
 import { ConflictEditorTab } from "@/core/git/components/ConflictEditorTab";
+import { GitRepoContext } from "@/core/git/repoContext";
 import { EnvironmentEditor } from "@/core/environment/components/EnvironmentEditor";
 import { useNewTerminalTab } from "@/core/terminal/hooks/useTerminal";
 import { usePanelStore } from "@/core/stores/panelStore";
@@ -37,6 +38,7 @@ import { getSchema } from "@tiptap/core";
 import { voidenExtensions } from "@/core/editors/voiden/extensions";
 import { prosemirrorToMarkdown } from "@/core/file-system/hooks";
 import { confirmAndSaveTab } from "@/core/stores/unsavedChangesDialogStore";
+import { BinaryFilePreview } from "./BinaryFilePreview";
 
 // Stable fallback so the `activeEditor` selector below can bail out to a
 // reference-equal value (see its useCallback) instead of a fresh object,
@@ -60,12 +62,6 @@ function isBinaryFile(name: string): boolean {
   return BINARY_EXTENSIONS.has(ext);
 }
 
-const UnsupportedFile = ({ title }: { title: string }) => (
-  <div className="flex flex-col items-center justify-center h-full gap-2 text-comment select-none">
-    <span className="text-sm font-medium">{title}</span>
-    <span className="text-xs">This file type cannot be opened in the editor.</span>
-  </div>
-);
 
 // TypeScript interface for md-preview plugin helpers
 interface MdPreviewHelpers {
@@ -940,8 +936,8 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
                     hasSearch
                     isActive={docTab.tabId === panelActiveTabId}
                   />
-                ) : isBinaryFile(docTab.source || docTab.title) ? (
-                  <UnsupportedFile title={docTab.title} />
+                ) : docTab.unsupported || isBinaryFile(docTab.source || docTab.title) ? (
+                  <BinaryFilePreview source={docTab.source} title={docTab.title} />
                 ) : (
                   <CodeEditor
                     tabId={docTab.tabId}
@@ -1041,8 +1037,8 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
 
   if (tabContent.type === "document") {
     if (tabContent.content === null && !tabContent.streamable) {
-      if (isBinaryFile(tabContent.source || tabContent.title)) {
-        return <UnsupportedFile title={tabContent.title} />;
+      if (tabContent.unsupported || isBinaryFile(tabContent.source || tabContent.title)) {
+        return <BinaryFilePreview source={tabContent.source} title={tabContent.title} />;
       }
       return <div>This file is not available</div>;
     }
@@ -1084,12 +1080,21 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
     return <ExtensionDetails extensionData={tabContent.extensionData} content={tabContent.content} />;
   }
 
+  // Git tabs read from the repo they were opened in, even after Source Control switches repos.
   if (tabContent.type === "diff") {
-    return <DiffViewer tab={tabContent} />;
+    return (
+      <GitRepoContext.Provider value={tabContent.meta?.repoPath ?? null}>
+        <DiffViewer tab={tabContent} />
+      </GitRepoContext.Provider>
+    );
   }
 
   if (tabContent.type === "conflict") {
-    return <ConflictEditorTab tab={tabContent} />;
+    return (
+      <GitRepoContext.Provider value={tabContent.meta?.repoPath ?? null}>
+        <ConflictEditorTab tab={tabContent} />
+      </GitRepoContext.Provider>
+    );
   }
 
   if (tabContent.type === "custom") {

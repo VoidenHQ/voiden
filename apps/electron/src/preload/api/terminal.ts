@@ -19,5 +19,9 @@ export const terminalApi = {
   detach: (id: string) => {
     ipcRenderer.send("terminal:detach", id);
   },
-  new: (panelId: string) => ipcRenderer.invoke("terminal:new", panelId),
+  /** `shell` (a profile id from listShells) opens the terminal in that shell instead of the default. */
+  new: (panelId: string, shell?: string) => ipcRenderer.invoke("terminal:new", panelId, shell),
+  listShells: (refresh?: boolean) => ipcRenderer.invoke("terminal:listShells", refresh),
+  /** Restart a terminal tab in another shell, keeping the tab. */
+  switchShell: (tabId: string, shell: string) => ipcRenderer.invoke("terminal:switchShell", tabId, shell),
 };

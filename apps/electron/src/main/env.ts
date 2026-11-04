@@ -6,6 +6,7 @@ import { saveState } from "./persistState";
 import merge from "lodash/merge";
 import YAML from "yaml";
 import { loadFolderEnv, parseEnvContent } from "./folderEnv";
+import { resolveProviderVariables } from "./variableProviders";
 
 /**
  * Type definitions for YAML environment system
@@ -562,6 +563,13 @@ export async function replaceVariablesSecure(text: string, projectPath: string, 
     }
   } catch { /* file may not exist */ }
 
+  // Plugin-provided namespaces, e.g. {{vault.api_token}} — see variableProviders.ts
+  const providerValues = await resolveProviderVariables(text, {
+    projectPath,
+    activeEnv: activeEnvPath ?? null,
+    env,
+  });
+
   // Replace {{VAR_NAME}} and {{process.xxx}} patterns
   const result = text.replace(/\{\{([^}]+)\}\}/g, (match, varName) => {
     const trimmedVarName = varName.trim();
@@ -585,6 +593,11 @@ export async function replaceVariablesSecure(text: string, projectPath: string, 
     const value = env[trimmedVarName];
     if (value !== undefined) {
       return value;
+    }
+
+    const providerValue = providerValues.get(trimmedVarName);
+    if (providerValue !== undefined) {
+      return providerValue;
     }
 
     return match; // Keep original if not found

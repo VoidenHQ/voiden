@@ -1,19 +1,52 @@
-import { useGetGitStatus, useStageFiles, useUnstageFiles, useCommit, useDiscardFiles, useGetGitBranches, useInitializeGit, usePushToRemote, usePullFromRemote, useCloneRepo, useFetchRemote, useGetGitRemote, useStash, useStashList, useStashPop, useUncommit, useGetGitLog } from "@/core/git/hooks";
+import { useGitRepos, useGetGitStatus, useStageFiles, useUnstageFiles, useCommit, useDiscardFiles, useGetGitBranches, useInitializeGit, usePushToRemote, usePullFromRemote, useCloneRepo, useFetchRemote, useGetGitRemote, useStash, useStashList, useStashPop, useUncommit, useGetGitLog } from "@/core/git/hooks";
 import { useSetActiveProject, useOpenProject } from "@/core/projects/hooks/useProjects";
-import { Loader2, FilePlus, FileEdit, FileX, GitBranch, Check, Plus, Minus, RotateCcw, GitCommit, ArrowUp, ArrowDown, RefreshCw, ChevronDown, ChevronRight, GitFork, Eye, EyeOff, MoreVertical, CloudDownload, Archive, ArrowDownToLine, X, FolderOpen, Key, Lock } from "lucide-react";
+import { Loader2, FilePlus, FileEdit, FileX, GitBranch, Check, Plus, Minus, RotateCcw, GitCommit, ArrowUp, ArrowDown, RefreshCw, ChevronRight, GitFork, Eye, EyeOff, MoreVertical, CloudDownload, Archive, ArrowDownToLine, X, FolderOpen, Key, Lock } from "lucide-react";
 import { cn } from "@/core/lib/utils";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { toast } from "@/core/components/ui/sonner";
 import { useElectronEvent } from "@/core/providers";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/core/components/ui/dialog";
 import { useAddPanelTab } from "@/core/layout/hooks";
 import { GitGraph } from "./GitGraph";
+import { GitRepoPicker } from "./GitRepoPicker";
+import { GitFileStatusBadge } from "./GitFileStatusBadge";
+import { CommitHistoryResizer } from "./CommitHistoryResizer";
+import { CommitHistoryActions } from "./CommitHistoryActions";
+import { Collapse, SectionChevron } from "./Collapse";
+import { useCommitHistoryHeight } from "@/core/stores/commitHistoryHeight";
 import { ConflictResolver } from "./ConflictResolver";
 import { Tip } from "@/core/components/ui/Tip";
 import { getGitErrorMessage, getGitErrorSummary } from "@/core/git/utils/gitErrorMessage";
 
-export const GitSourceControl = () => {
+/** Rows rendered per list before "Show more". */
+const ROW_PAGE = 200;
 
+const ShowMoreRows = ({ shown, total, onShowMore }: { shown: number; total: number; onShowMore: () => void }) => {
+  if (total <= shown) return null;
+  const next = Math.min(ROW_PAGE, total - shown);
+  return (
+    <button
+      onClick={onShowMore}
+      className="ml-2 w-[calc(100%-0.5rem)] px-3 py-1.5 text-left text-xs text-accent hover:bg-active/50"
+    >
+      Show {next} more ({total - shown} not shown)
+    </button>
+  );
+};
+
+/** The picker sits outside the panel body so it stays put while a newly chosen repo loads. */
+export const GitSourceControl = () => (
+  <div className="flex flex-col h-full">
+    <GitRepoPicker />
+    <div className="flex-1 min-h-0 overflow-y-auto">
+      <GitSourceControlBody />
+    </div>
+  </div>
+);
+
+const GitSourceControlBody = () => {
+
+  const { data: repos } = useGitRepos();
   const { data: status, isLoading, refetch: refetchStatus } = useGetGitStatus();
   const { data: branches, refetch: refetchBranches } = useGetGitBranches();
   const { mutate: stageFiles } = useStageFiles();
@@ -69,6 +102,13 @@ export const GitSourceControl = () => {
   const [stagedOpen, setStagedOpen] = useState(true);
   const [changesOpen, setChangesOpen] = useState(true);
   const [historyOpen, setHistoryOpen] = useState(true);
+  const historyPanelRef = useRef<HTMLDivElement>(null);
+  // Bumped by "Go to current commit"; the graph selects HEAD each time it changes.
+  const [revealHead, setRevealHead] = useState(0);
+  const historyHeight = useCommitHistoryHeight((s) => s.height);
+  // Huge change lists (e.g. an untracked node_modules) would freeze the panel if every row rendered.
+  const [stagedLimit, setStagedLimit] = useState(ROW_PAGE);
+  const [changesLimit, setChangesLimit] = useState(ROW_PAGE);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
@@ -108,6 +148,7 @@ export const GitSourceControl = () => {
           compareBranch: "working-directory",
           filePath: file,
           isWorkingDirectory: true,
+          repoPath: repos?.selected ?? null,
         },
       } as any,
     });
@@ -152,7 +193,7 @@ export const GitSourceControl = () => {
 
   const handleStageAll = () => {
     if (!status) return;
-    const unstaged = [...status.modified, ...status.untracked, ...status.deleted].filter(f => !status.staged.includes(f));
+    const unstaged = unstagedChanges;
     stageFiles(unstaged, {
       onError: (error: any) => toast.error("Failed to stage changes", { description: getGitErrorMessage(error) }),
     });
@@ -160,7 +201,7 @@ export const GitSourceControl = () => {
 
   const handleDiscardAll = () => {
     if (!status) return;
-    const allUnstaged = [...status.modified, ...status.deleted, ...status.untracked].filter(f => !status.staged.includes(f));
+    const allUnstaged = unstagedChanges;
     if (allUnstaged.length === 0) return;
     discardFiles(allUnstaged, {
       onSuccess: (result: any) => {
@@ -601,15 +642,15 @@ export const GitSourceControl = () => {
     );
   }
 
-  // Files that are staged but also modified in working tree appear in both lists.
-  // Filter them out so they only show in Staged, not in Changes.
+  // Index and working-tree changes are independent, including partially staged files.
   const conflictedFiles = status.conflicted ?? [];
-  const unstagedChanges = [
-    ...status.modified,
-    ...status.untracked,
-    ...status.deleted,
-  ].filter((f) => !status.staged.includes(f) && !conflictedFiles.includes(f));
-  const stagedChanges = status.staged.filter((f) => !conflictedFiles.includes(f));
+  const conflictedSet = new Set(conflictedFiles);
+  // One lookup table per render; a per-row .find over status.files is quadratic.
+  const entryByPath = new Map(status.files.map((entry) => [entry.path, entry]));
+  const unstagedChanges = status.files
+    .filter((file) => file.workingTree.trim() !== '' && !conflictedSet.has(file.path))
+    .map((file) => file.path);
+  const stagedChanges = status.staged.filter((f) => !conflictedSet.has(f));
 
   const hasConflicts = conflictedFiles.length > 0;
   const hasStagedChanges = stagedChanges.length > 0;
@@ -879,13 +920,13 @@ export const GitSourceControl = () => {
 
           {/* ── Staged Changes ── */}
           {stagedChanges.length > 0 && (
-            <div>
+            <div data-scm-section>
               <div
                 className="px-3 py-1.5 bg-active/30 border-b border-border flex items-center justify-between cursor-pointer select-none"
                 onClick={() => setStagedOpen((o) => !o)}
               >
                 <div className="flex items-center gap-1">
-                  {stagedOpen ? <ChevronDown size={11} className="text-comment" /> : <ChevronRight size={11} className="text-comment" />}
+                  <SectionChevron open={stagedOpen} />
                   <span className="text-[10px] uppercase tracking-wide text-comment">
                     Staged ({stagedChanges.length})
                   </span>
@@ -899,15 +940,15 @@ export const GitSourceControl = () => {
                   </button>
                 </Tip>
               </div>
-              {stagedOpen && (
+              <Collapse open={stagedOpen}>
                 <div>
-                  {stagedChanges.map((file) => (
+                  {stagedChanges.slice(0, stagedLimit).map((file) => (
                     <div
                       key={file}
                       onClick={() => handleFileClick(file, true)}
                       className="ml-2 flex items-center gap-2 px-3 py-1.5 hover:bg-active/50 group cursor-pointer"
                     >
-                      {getFileIcon(file, status.deleted.includes(file) ? 'deleted' : undefined)}
+                      {getFileIcon(file, entryByPath.get(file)?.index === 'D' ? 'deleted' : undefined)}
                       <span className="text-xs text-text flex-1 truncate">{file.split('/').pop() || file}</span>
                       <Tip label="Unstage" side="bottom">
                         <button
@@ -920,22 +961,24 @@ export const GitSourceControl = () => {
                           <Minus size={13} />
                         </button>
                       </Tip>
+                      <GitFileStatusBadge code={entryByPath.get(file)?.index} />
                     </div>
                   ))}
+                  <ShowMoreRows shown={stagedLimit} total={stagedChanges.length} onShowMore={() => setStagedLimit((n) => n + ROW_PAGE)} />
                 </div>
-              )}
+              </Collapse>
             </div>
           )}
 
           {/* ── Changes ── */}
           {unstagedChanges.length > 0 && (
-            <div >
+            <div data-scm-section>
               <div
                 className="px-3 py-1.5 bg-active/30 border-b border-border flex items-center justify-between cursor-pointer select-none"
                 onClick={() => setChangesOpen((o) => !o)}
               >
                 <div className="flex items-center gap-1">
-                  {changesOpen ? <ChevronDown size={11} className="text-comment" /> : <ChevronRight size={11} className="text-comment" />}
+                  <SectionChevron open={changesOpen} />
                   <span className="text-[10px] uppercase tracking-wide text-comment">
                     Changes ({unstagedChanges.length})
                   </span>
@@ -959,11 +1002,12 @@ export const GitSourceControl = () => {
                   </Tip>
                 </div>
               </div>
-              {changesOpen && (
+              <Collapse open={changesOpen}>
                 <div>
-                  {unstagedChanges.map((file) => {
-                    const fileStatus = status.untracked.includes(file) ? 'untracked'
-                      : status.deleted.includes(file) ? 'deleted' : 'modified';
+                  {unstagedChanges.slice(0, changesLimit).map((file) => {
+                    const workingTreeCode = entryByPath.get(file)?.workingTree;
+                    const fileStatus = workingTreeCode === '?' ? 'untracked'
+                      : workingTreeCode === 'D' ? 'deleted' : 'modified';
                     return (
                       <div
                         key={file}
@@ -996,11 +1040,13 @@ export const GitSourceControl = () => {
                             </button>
                           </Tip>
                         </div>
+                        <GitFileStatusBadge code={workingTreeCode === '?' ? 'U' : workingTreeCode} />
                       </div>
                     );
                   })}
+                  <ShowMoreRows shown={changesLimit} total={unstagedChanges.length} onShowMore={() => setChangesLimit((n) => n + ROW_PAGE)} />
                 </div>
-              )}
+              </Collapse>
             </div>
           )}
 
@@ -1016,20 +1062,42 @@ export const GitSourceControl = () => {
         </div>
 
         {/* ── Commit History ── */}
-        <div className="border-t border-border flex-shrink-0">
+        <div className="border-t border-border flex-shrink-0 relative" data-commit-history>
+          {historyOpen && <CommitHistoryResizer panelRef={historyPanelRef} />}
           <div
             className="px-3 py-1.5 bg-active/30 border-b border-border flex items-center gap-1 cursor-pointer select-none"
             onClick={() => setHistoryOpen((o) => !o)}
           >
-            {historyOpen ? <ChevronDown size={11} className="text-comment" /> : <ChevronRight size={11} className="text-comment" />}
+            <SectionChevron open={historyOpen} />
             <GitCommit size={11} className="text-accent" />
-            <span className="text-[10px] uppercase tracking-wide text-comment">Commit History</span>
+            <span className="text-[10px] uppercase tracking-wide text-comment truncate min-w-0">Commit History</span>
+            {historyOpen && (
+              <CommitHistoryActions
+                hasRemote={!!remoteUrl}
+                isFetching={isFetchingAll}
+                isPulling={isPulling}
+                isPushing={isPushing}
+                isRefreshing={isRefreshing}
+                onGoToCurrent={() => setRevealHead((n) => n + 1)}
+                onFetch={handleFetchAll}
+                onPull={handlePull}
+                onPush={handlePush}
+                onRefresh={handleRefresh}
+              />
+            )}
           </div>
-          {historyOpen && (
-            <div className="h-72 flex flex-col overflow-hidden border-b border-border">
-              <GitGraph />
+          <Collapse open={historyOpen}>
+            {/* Auto size fits short histories and never takes more than 40% of the window,
+                so the change lists above keep room on small screens. A dragged height
+                is capped too, in case the window got smaller since. */}
+            <div
+              ref={historyPanelRef}
+              className={cn("flex flex-col overflow-hidden border-b border-border", historyHeight === null && "max-h-[min(18rem,40vh)]")}
+              style={historyHeight === null ? undefined : { height: `min(${historyHeight}px, 70vh)` }}
+            >
+              <GitGraph revealHead={revealHead} />
             </div>
-          )}
+          </Collapse>
         </div>
       </div>
     </div>

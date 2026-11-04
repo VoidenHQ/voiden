@@ -4,6 +4,7 @@
 
 import { applyEdits, format, Node, parseTree, stripComments as stripComments_ } from "jsonc-parser";
 import jsonParse from "./jsoncParse";
+import { protectTemplateExpressions, restoreTemplateExpressions } from "./jsoncTemplates";
 import { EditorView } from "codemirror";
 import { Diagnostic } from "@codemirror/lint";
 
@@ -188,9 +189,10 @@ export const jsonCLinter = async (view: EditorView) => {
 };
 
 export function prettifyJSONC(str: string) {
-  const editResult = format(str, undefined, {
+  const { text, placeholders } = protectTemplateExpressions(str);
+  const editResult = format(text, undefined, {
     insertSpaces: true,
     tabSize: 2,
   });
-  return applyEdits(str, editResult);
+  return restoreTemplateExpressions(applyEdits(text, editResult), placeholders);
 }

@@ -356,8 +356,11 @@ export async function executeSecureRequest(
 
   // ── 8. Build fetch options ────────────────────────────────────────────────
   const followRedirects = adapter.followRedirects ?? true
+  // fetch only normalizes the case of GET/POST/PUT/DELETE/HEAD/OPTIONS, so a
+  // method typed as "patch" would go out as-is and most servers reject it.
+  const method = (requestState.method || 'GET').trim().toUpperCase()
   const fetchOptions: any = {
-    method: requestState.method || 'GET',
+    method,
     headers,
     redirect: followRedirects ? 'follow' : 'manual',
   }
@@ -432,7 +435,7 @@ export async function executeSecureRequest(
       body,
       resolvedBodyParamSummaries.flatMap(param => [param.key, param.value]),
     )
-  } else if (requestState.method !== 'GET' && body) {
+  } else if (method !== 'GET' && body) {
     fetchOptions.body = body
     if (requestState.contentType && !hasHttpHeader(headers, 'Content-Type')) {
       headers['Content-Type'] = requestState.contentType

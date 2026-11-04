@@ -24,6 +24,17 @@ import { getSectionBorderColor } from "@/core/editors/voiden/extensions/sectionI
 import { Tip } from "@/core/components/ui/Tip";
 import { SearchPanelView } from "@/core/editors/code/lib/components/SearchPanelView";
 import { NoGlobalSearchContext } from "@/core/editors/code/lib/components/CodeEditor";
+import { SectionHeaderActions } from "./SectionHeaderActions";
+
+/** The URL shows on hover over a section's status and name, keeping the header short. */
+const UrlHover = ({ url, children }: { url?: string; children: React.ReactNode }) =>
+  url ? (
+    <Tip label={<span className="font-mono break-all">{url}</span>} side="bottom" align="start">
+      <span className="flex min-w-0 items-center gap-2 overflow-hidden cursor-default">{children}</span>
+    </Tip>
+  ) : (
+    <span className="flex min-w-0 items-center gap-2 overflow-hidden">{children}</span>
+  );
 
 /** Format relative time: "just now", "2m ago", "1h ago", etc. */
 function formatRelativeTime(ts: number): string {
@@ -763,15 +774,18 @@ export function ResponsePanelContainer() {
                   const singleElapsed = singleDoc?.attrs?.elapsedTime;
                   const singleTimestamp = sections[0].response.timestamp;
                   const singleBorderColor = getSectionBorderColor(singleColorIndex);
+                  // A lone request (no request separator) has no section, so no section line either
+                  const singleHasSection = sections[0].sectionIndex > 0 || Boolean(singleLabel);
 
                   return (
                     // Single response
-                    <div className="h-full min-h-0 min-w-0 flex flex-col" style={{ borderLeft: `3px solid ${singleBorderColor}` }}>
+                    <div className="h-full min-h-0 min-w-0 flex flex-col" style={singleHasSection ? { borderLeft: `3px solid ${singleBorderColor}` } : undefined}>
                       {/* Section header with status + search */}
                       <div
                         className="flex min-w-0 items-center gap-2 overflow-hidden px-3 py-1.5 border-b border-border bg-bg flex-shrink-0"
                       >
                         <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
+                          <UrlHover url={singleUrl}>
                           <div
                             className="size-2 rounded-full flex-shrink-0"
                             style={{
@@ -790,15 +804,17 @@ export function ResponsePanelContainer() {
                               {singleElapsed < 1000 ? `${Math.round(singleElapsed)}ms` : `${(singleElapsed / 1000).toFixed(1)}s`}
                             </span>
                           )}
-                          <span
-                            className="text-xs font-semibold uppercase flex-shrink-0"
-                            style={{ color: singleBorderColor, letterSpacing: "0.5px" }}
-                          >
-                            {singleLabel || "Request 1"}
-                          </span>
-                          <span className="text-comment text-xs truncate flex-1">
-                            {singleUrl}
-                          </span>
+                          {/* No label without a request separator — a lone request has no section name */}
+                          {singleLabel && (
+                            <span
+                              className="text-xs font-semibold uppercase flex-shrink-0"
+                              style={{ color: singleBorderColor, letterSpacing: "0.5px" }}
+                            >
+                              {singleLabel}
+                            </span>
+                          )}
+                          </UrlHover>
+                          <span className="flex-1" />
                           {singleTimestamp && (
                             <Tip label={formatAbsoluteTime(singleTimestamp)} side="bottom">
                               <span className="text-comment text-[10px] flex-shrink-0 opacity-60 cursor-default">
@@ -808,6 +824,7 @@ export function ResponsePanelContainer() {
                           )}
                         </div>
                         <div className="flex flex-shrink-0 items-center gap-2">
+                          <SectionHeaderActions tabId={tabId} sectionIndex={sections[0].sectionIndex} size={13} showJump={false} />
                           <Tip label="Find (⌘F)" side="bottom">
                             <button
                               className="p-1 text-comment hover:text-text transition-colors rounded flex-shrink-0"
@@ -977,6 +994,9 @@ export function ResponsePanelContainer() {
                                     </span>
                                   </Tip>
                                 )}
+                                <span className={timestamp ? "flex flex-shrink-0 items-center gap-2" : "flex flex-shrink-0 items-center gap-2 ml-auto"}>
+                                  <SectionHeaderActions tabId={tabId} sectionIndex={sectionIndex} showJump={sections.length > 1} />
+                                </span>
                               </div>
                               {!isCollapsed && (
                                 <div className="ml-2 px-3 py-3">
@@ -1011,6 +1031,7 @@ export function ResponsePanelContainer() {
                                   ? <ChevronRight size={14} className="text-comment flex-shrink-0" />
                                   : <ChevronDown size={14} className="text-comment flex-shrink-0" />
                                 }
+                                <UrlHover url={doc?.attrs?.url}>
                                 <div
                                   className="size-2 rounded-full flex-shrink-0"
                                   style={{
@@ -1035,9 +1056,8 @@ export function ResponsePanelContainer() {
                                 >
                                   {label || "Request"}
                                 </span>
-                                <span className="text-comment text-xs truncate flex-1">
-                                  {doc?.attrs?.url}
-                                </span>
+                                </UrlHover>
+                                <span className="flex-1" />
                                 {timestamp && (
                                   <Tip label={formatAbsoluteTime(timestamp)} side="bottom">
                                     <span className="text-comment text-[10px] flex-shrink-0 opacity-60 cursor-default">
@@ -1051,8 +1071,10 @@ export function ResponsePanelContainer() {
                                   conditional render below) — visible-but-inert while
                                   collapsed was the bug: the ref lookup would silently miss,
                                   so search/expand-all/collapse-all did nothing. */}
+                              <div className="flex flex-shrink-0 items-center gap-2">
+                                <SectionHeaderActions tabId={tabId} sectionIndex={sectionIndex} showJump={sections.length > 1} />
                               {!isCollapsed && (
-                                <div className="flex flex-shrink-0 items-center gap-2">
+                                <>
                                   <Tip label="Find in this response" side="bottom">
                                     <button
                                       className="p-1 text-comment hover:text-text transition-colors rounded flex-shrink-0"
@@ -1081,8 +1103,9 @@ export function ResponsePanelContainer() {
                                       <ChevronsDownUp size={12} />
                                     </button>
                                   </Tip>
-                                </div>
+                                </>
                               )}
+                              </div>
                             </div>
                             {/* Response content — hidden when collapsed */}
                             {!isCollapsed && (

@@ -54,6 +54,12 @@ export const remoteVoidenVersions: Map<string, string> = new Map();
 export const remoteNewPlugins: ExtensionData[] = [];
 
 /**
+ * IDs of the community plugins in the live remote registry, from the last
+ * successful fetch. Used to announce community plugins released since then.
+ */
+export const remoteCommunityIds: string[] = [];
+
+/**
  * Fetches the remote registry from GitHub, populates remoteVersions (for update
  * detection) and remoteNewPlugins (for brand-new plugins not in the local snapshot).
  */
@@ -63,6 +69,13 @@ export async function fetchAndUpdateCoreRegistry(): Promise<void> {
     const entries: any[] = Array.isArray(parsed)
       ? parsed.filter((p: any) => p.type === 'core')
       : Object.values(parsed?.plugins ?? {});
+
+    if (Array.isArray(parsed)) {
+      remoteCommunityIds.length = 0;
+      for (const p of parsed) {
+        if (p.type === 'community' && p.id) remoteCommunityIds.push(p.id);
+      }
+    }
 
     if (entries.length > 0) {
       const localIds = new Set(coreExtensionsSnapshot.map((e: ExtensionData) => e.id));

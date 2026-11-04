@@ -212,6 +212,10 @@ function validateSettings(settings: UserSettings): UserSettings {
     validated.terminal.nerd_font_installed = false;
   }
 
+  if (typeof validated.terminal.default_shell !== 'string') {
+    validated.terminal.default_shell = '';
+  }
+
   // Validate update settings
   if (!validated.updates) {
     validated.updates = {
@@ -313,6 +317,8 @@ export type UserSettings = {
   terminal: {
     use_nerd_font: boolean;
     nerd_font_installed: boolean;
+    /** Shell for new terminals: a detected profile id, an absolute path, or "" for automatic. */
+    default_shell?: string;
   };
   updates: {
     channel: "stable" | "early-access";

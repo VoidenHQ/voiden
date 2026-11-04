@@ -496,6 +496,25 @@ const config: ForgeConfig = {
       fs.writeFileSync(path.join(resourcesPath, "app-update.yml"), yml);
       console.log(`Generated app-update.yml in ${resourcesPath}`);
     },
+    // node-pty 1.1.0 ships prebuilds for every platform, incl. ~50 MB of Windows .pdb
+    // debug symbols. Keep only this target's (minus .pdb) — the electron-rebuild output
+    // in build/Release is loaded first anyway, the prebuild is just a fallback.
+    packageAfterPrune: async (_config, buildPath, _electronVersion, platform, arch) => {
+      const prebuildsDir = path.join(buildPath, "node_modules", "node-pty", "prebuilds");
+      if (!fs.existsSync(prebuildsDir)) return;
+
+      for (const dir of fs.readdirSync(prebuildsDir)) {
+        const fullPath = path.join(prebuildsDir, dir);
+        if (dir !== `${platform}-${arch}`) {
+          fs.rmSync(fullPath, { recursive: true, force: true });
+          continue;
+        }
+        for (const file of fs.readdirSync(fullPath)) {
+          if (file.endsWith(".pdb")) fs.rmSync(path.join(fullPath, file));
+        }
+      }
+      console.log(`Stripped node-pty prebuilds to ${platform}-${arch}`);
+    },
     postMake: async (_config, makeResults) => {
       for (const result of makeResults) {
         const { platform, arch, artifacts } = result;

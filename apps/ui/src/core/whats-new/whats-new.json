@@ -1,6 +1,84 @@
 {
   "releases": [
     {
+      "version": "2.4.0",
+      "date": "November 2026",
+      "whatsnew": [
+        {
+          "icon": "🧩",
+          "title": ".void Diffs and Conflicts as Real Blocks",
+          "description": "Changes to .void files show up as the same blocks you edit, with the changed words highlighted, and merge conflicts can be resolved block by block with Keep Current, Keep Incoming or Keep Both."
+        },
+        {
+          "icon": "🗂️",
+          "title": "Switch Between Repos in Source Control",
+          "description": "Projects with more than one Git repo inside can switch Source Control between them, with status letters and a resizable Commit History toolbar."
+        },
+        {
+          "icon": "💻",
+          "title": "Pick Your Terminal Shell",
+          "description": "Open a new terminal in any shell installed on your machine, or set a default in Settings."
+        },
+        {
+          "icon": "🎯",
+          "title": "Jump To and Retry Any Response",
+          "description": "Each section in the response panel can take you straight to its request or send it again, with the URL a hover away."
+        },
+        {
+          "icon": "🐛",
+          "title": "Stability Fixes",
+          "description": "Fixes for lowercase methods, gRPC streaming, Prettify with variables, freezes on large repos and binary files, blank windows after Open Recent, and the command palette."
+        }
+      ]
+    },
+    {
+      "version": "2.4.0-beta.2",
+      "date": "November 2026",
+      "whatsnew": [
+        {
+          "icon": "🗂️",
+          "title": "Switch Between Repos in Source Control",
+          "description": "Projects with more than one Git repo inside can switch the Source Control panel between them, so you can commit, diff and pull in each without leaving Voiden."
+        },
+        {
+          "icon": "🐚",
+          "title": "Pick Your Terminal Shell",
+          "description": "Voiden finds the shells installed on your machine. Open a new terminal in any of them, or set a default shell in Settings."
+        },
+        {
+          "icon": "🐛",
+          "title": "Prettify & Plugin Fixes",
+          "description": "Prettify keeps {{variables}} intact in JSON bodies, a broken plugin command no longer takes down the command palette, and plugin READMEs show their images again."
+        }
+      ]
+    },
+    {
+      "version": "2.4.0-beta.1",
+      "date": "October 2026",
+      "whatsnew": [
+        {
+          "icon": "🧩",
+          "title": ".void Diffs as Real Blocks",
+          "description": "Git diffs of .void files now look the way the file looks in Voiden. Requests, headers and text show as blocks marked Added, Removed or Modified, with the changed words highlighted, so you can see what changed in a request at a glance. Built by community contributor @simranxdhindsa."
+        },
+        {
+          "icon": "🤝",
+          "title": "Resolve .void Conflicts Block by Block",
+          "description": "Merge conflicts in .void files show each conflict as a card with both versions side by side. Keep Current, Keep Incoming or Keep Both, and Voiden checks the file is still valid before you save."
+        },
+        {
+          "icon": "🖼️",
+          "title": "Image and Binary Previews in Git",
+          "description": "Changed images show old and new side by side, and other binary files show a card with their type and size instead of broken text."
+        },
+        {
+          "icon": "🐛",
+          "title": "Source Control & Stability Fixes",
+          "description": "Source Control no longer freezes on large repos, Open Recent no longer leaves a blank window, the voiden terminal command installs on Apple chip Macs, and lowercase methods like patch and server-streaming gRPC connects now work."
+        }
+      ]
+    },
+    {
       "version": "2.3.4",
       "date": "October 2026",
       "whatsnew": [

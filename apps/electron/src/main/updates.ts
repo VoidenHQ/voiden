@@ -11,6 +11,7 @@ import { getSettings, saveSettings } from "./settings";
 import { flushRendererUnsavedForPaths } from "./fileSystem";
 import { approveQuit } from "./unsavedGuard";
 import { markRestoreWindowsOnRelaunch } from "./launchRestore";
+import { installCode } from "./extension/installCode";
 
 // ---------- Updater logger ----------
 
@@ -159,8 +160,14 @@ function showToast(type: "info" | "error" | "warning", title: string, descriptio
 // Every update check to voiden.md carries the app version, OS and arch (in the
 // User-Agent), the user's channel, and whether it is the main check or the
 // cross-channel probe. voiden.md's /api/download reads these to count active
-// installs per OS/version in Voiden Insights. No ids, no content: the same
-// facts the update request already implies.
+// installs per OS/version in Voiden Insights. No content: the same facts the
+// update request already implies.
+//
+// It also carries the install code (X-Voiden-Install, see
+// extension/installCode.ts): the same one-way hash of the machine id the daily
+// activity report sends, so Insights counts update checks per machine rather
+// than per network, the same way it counts active users. Turned off with the
+// activity report's install code (activity.install_code = false).
 //
 // After an update has installed and the new version is running, the first
 // main check also carries the version it updated from (X-Voiden-Updated-From),
@@ -180,6 +187,26 @@ function detectCompletedUpdate() {
   if (updatedFrom) updaterLog("INFO", `Updated from v${updatedFrom} to v${current}`);
 }
 
+// The install code once read ("" until then, or when it can't be read).
+let updateInstallCode = "";
+
+// loadUpdateInstallCode reads the install code in the background (it shells
+// out to the OS on first use) and calls onReady once it's there, so checks
+// made after that carry it. The first check runs seconds after launch, so it
+// almost always does too.
+function loadUpdateInstallCode(onReady: () => void) {
+  if (getSettings().activity?.install_code === false) return;
+  installCode()
+    .then((code) => {
+      if (!code) return;
+      updateInstallCode = code;
+      onReady();
+    })
+    .catch(() => {
+      // No install code: checks go out without it, as before.
+    });
+}
+
 function updateCheckHeaders(channel: UpdateChannel, check: "main" | "cross"): Record<string, string> {
   const headers: Record<string, string> = {
     "User-Agent": `Voiden/${app.getVersion()} (${process.platform}: ${process.arch})`,
@@ -187,6 +214,7 @@ function updateCheckHeaders(channel: UpdateChannel, check: "main" | "cross"): Re
     "X-Voiden-Check": check,
   };
   if (check === "main" && updatedFrom) headers["X-Voiden-Updated-From"] = updatedFrom;
+  if (updateInstallCode && getSettings().activity?.install_code !== false) headers["X-Voiden-Install"] = updateInstallCode;
   return headers;
 }
 
@@ -552,6 +580,14 @@ export function initializeUpdates(channel: "stable" | "early-access" = "stable")
   const arch = process.arch;
   const currentVersion = app.getVersion();
   detectCompletedUpdate();
+  // electron-updater keeps the headers it was given, so hand it fresh ones
+  // once the install code is in. Linux and the cross-channel probe build
+  // theirs on every check.
+  loadUpdateInstallCode(() => {
+    if (platform === "darwin" || platform === "win32") {
+      autoUpdater.requestHeaders = updateCheckHeaders(channel, "main");
+    }
+  });
 
   if (platform === "darwin" || platform === "win32") {
     // Both macOS and Windows use electron-updater natively (NSIS on Windows)
