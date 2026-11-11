@@ -1,5 +1,35 @@
 [
   {
+    "version": "v2.4.1-beta.1",
+    "date": "11/11/2026",
+    "title": "New Start Tab, Guided Tour and Import Flow",
+    "description": "Beta release: a new Start tab, a guided playground project with step-by-step tips, a single import dialog for Postman, OpenAPI, Insomnia, Bruno, HAR and curl, plus cursor memory and a vertical left-panel tab bar.",
+    "icon": "Rocket",
+    "iconColor": "text-emerald-400",
+    "bgColor": "bg-gradient-to-br from-slate-900 to-emerald-950",
+    "changes": {
+      "Added": [
+        "A new Start tab replaces the Welcome screen, with quick actions and recent projects",
+        "A guided playground project walks through a first request, headers, reusable blocks, form uploads and binary bodies",
+        "Coach tips guide each playground step over its own file, with a Getting Started checklist that folds into a small pill while you edit",
+        "The tour can be run again from the start once every step is done",
+        "One import dialog for Postman, OpenAPI, Insomnia, Bruno, HAR and curl files",
+        "A pasted curl command can move its secrets into private environment variables on import",
+        "Set up a project from existing files: OpenAPI specs and .env templates found in the folder",
+        "Left panel tabs can sit in a vertical bar beside the panel, set in Settings or the command palette",
+        "Each file reopens with the cursor where you left it"
+      ],
+      "Improved": [
+        "Typing }} inside {{variable}} steps over the auto-inserted braces instead of doubling them",
+        "Jump to request only shows in the response panel when several responses are listed"
+      ],
+      "Fixed": [
+        "The default shell select in Settings no longer squeezes its label",
+        "The @ file picker and / command menus no longer stay on screen after switching tabs"
+      ]
+    }
+  },
+  {
     "version": "v2.4.0",
     "date": "04/11/2026",
     "title": "Stable: .void Block Diffs, Multi-Repo Source Control & Shell Picker",

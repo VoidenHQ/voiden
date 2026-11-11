@@ -1,6 +1,32 @@
 {
   "releases": [
     {
+      "version": "2.4.1-beta.1",
+      "date": "November 2026",
+      "whatsnew": [
+        {
+          "icon": "🚀",
+          "title": "A New Start Tab",
+          "description": "Voiden opens on a Start tab that gets you to your first request in under a minute, with your recent projects one click away."
+        },
+        {
+          "icon": "🧭",
+          "title": "Guided Playground Tour",
+          "description": "A ready-made playground project with step-by-step tips covers requests, headers, reusable blocks, file uploads and environments, with a checklist to track your progress."
+        },
+        {
+          "icon": "📥",
+          "title": "Import From Anywhere",
+          "description": "Bring in Postman, OpenAPI, Insomnia, Bruno, HAR or a pasted curl command from one dialog, with secrets moved into private environment variables."
+        },
+        {
+          "icon": "✨",
+          "title": "Small Comforts",
+          "description": "Files reopen where your cursor was, the left panel tabs can live in a vertical bar, and typing {{variables}} no longer leaves extra braces."
+        }
+      ]
+    },
+    {
       "version": "2.4.0",
       "date": "November 2026",
       "whatsnew": [
