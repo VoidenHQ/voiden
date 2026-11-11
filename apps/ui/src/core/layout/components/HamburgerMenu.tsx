@@ -21,8 +21,8 @@ import {
   FileText,
   View,
   ScrollText,
-  AppWindow,
-} from "lucide-react";
+  AppWindow, ListChecks, Lightbulb } from "lucide-react";
+import { showGettingStartedChecklist, showTips } from "@/core/onboarding/gettingStartedStore";
 import { useState, useRef, useEffect } from "react";
 import { useGetPanelTabs, useAddPanelTab, useActivateTab } from "@/core/layout/hooks";
 import type { Tab } from "../../../../../electron/src/shared/types";
@@ -139,7 +139,7 @@ export const HamburgerMenu = ({ onShowAbout }: HamburgerMenuProps) => {
     } else {
       addPanelTab({
         panelId: "main",
-        tab: { id: crypto.randomUUID(), type: "welcome", title: "Welcome", source: null },
+        tab: { id: crypto.randomUUID(), type: "welcome", title: "Start", source: null },
       });
     }
     setIsOpen(false);
@@ -238,7 +238,9 @@ export const HamburgerMenu = ({ onShowAbout }: HamburgerMenuProps) => {
       type: "submenu",
       icon: HelpCircle,
       submenu: [
-        { label: "Welcome", click: handleOpenWelcome, icon: FileText },
+        { label: "Start", click: handleOpenWelcome, icon: FileText },
+        { label: "Getting Started Checklist", click: () => { showGettingStartedChecklist(); setIsOpen(false); }, icon: ListChecks },
+        { label: "Show Next Tip", click: () => { showTips(); setIsOpen(false); }, icon: Lightbulb },
         { label: "Changelog", click: handleOpenChangelog, icon: ScrollText },
         { type: "separator",label:"separator" },
         { label: "Documentation", click: () => handleOpenExternal("https://docs.voiden.md"), icon: ExternalLink },

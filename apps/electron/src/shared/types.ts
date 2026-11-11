@@ -1,4 +1,4 @@
-type TabType = "document" | "terminal" | "settings" | "extensionDetails" | "custom" | "welcome" | "changelog" | "logs";
+type TabType = "document" | "terminal" | "settings" | "extensionDetails" | "custom" | "welcome" | "changelog" | "logs" | "projectSetup";
 
 interface Meta {
   customTabKey?: string;

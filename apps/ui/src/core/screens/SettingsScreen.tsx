@@ -6,6 +6,7 @@ import { loadThemeById, getAvailableThemes } from "@/utils/themeLoader";
 import { Kbd } from "@/core/components/ui/kbd";
 import { CliCommandMessage, type CliResultMessage } from "@/core/settings/components/CliCommandMessage";
 import { useTerminalShells } from "@/core/terminal/hooks";
+import { useSidebarTabsPosition, type SidebarTabsPosition } from "@/core/stores/sidebarTabsPosition";
 
 const FONT_SIZE_MIN = 10;
 const FONT_SIZE_MAX = 20;
@@ -227,6 +228,8 @@ const PluginSectionFields = ({ section }: { section: PluginSettingsSection }) =>
 
 export const SettingsScreen = () => {
   const { settings, loading, save, saveImmediate, reset, onChange } = useSettings();
+  const sidebarTabsPosition = useSidebarTabsPosition((s) => s.position);
+  const setSidebarTabsPosition = useSidebarTabsPosition((s) => s.setPosition);
   const pluginSections = usePluginStore((state) => state.settingsPageSections);
   const [activeSection, setActiveSection] = useState("general");
   const [searchQuery, setSearchQuery] = useState("");
@@ -1072,6 +1075,18 @@ export const SettingsScreen = () => {
                           {size}px
                         </option>
                       ))}
+                    </Select>
+                  }
+                />
+              )}
+              {matchesSearch("Left panel tabs position side top activity bar vertical sidebar") && (
+                <Row
+                  title="Left panel tabs"
+                  description="In a row above the panel, or in a vertical bar beside it, like VS Code's Activity Bar."
+                  control={
+                    <Select value={sidebarTabsPosition} onChange={(e) => setSidebarTabsPosition(e.target.value as SidebarTabsPosition)}>
+                      <option value="top">Top</option>
+                      <option value="side">Side</option>
                     </Select>
                   }
                 />

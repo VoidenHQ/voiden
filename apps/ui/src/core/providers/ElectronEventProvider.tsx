@@ -260,6 +260,12 @@ export const ElectronEventProvider: React.FC<{ children: React.ReactNode }> = ({
       "menu:open-welcome": (event: any, data: any) => {
         handleEvent("menu:open-welcome", data || {});
       },
+      "menu:show-getting-started": (event: any, data: any) => {
+        handleEvent("menu:show-getting-started", data || {});
+      },
+      "menu:show-tips": (event: any, data: any) => {
+        handleEvent("menu:show-tips", data || {});
+      },
       "menu:open-changelog": (event: any, data: any) => {
         handleEvent("menu:open-changelog", data || {});
       },

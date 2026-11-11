@@ -47,22 +47,32 @@ export const removeProjectFromList = async (projectPath: string) => {
   await window.electron?.state.removeProjectFromList(projectPath);
 };
 
+/** Refresh everything that depends on the active project after it changes. */
+const onActiveProjectChanged = (queryClient: ReturnType<typeof useQueryClient>, projectPath: string) => {
+  closeAllSearchPanels();
+  clearGitQueries(queryClient);
+  queryClient.invalidateQueries({ queryKey: ["projects"] });
+  queryClient.invalidateQueries({ queryKey: ["app:state"] });
+  queryClient.invalidateQueries({ queryKey: ["panel:tabs"] });
+  queryClient.invalidateQueries({ queryKey: ["files:tree"] });
+  queryClient.invalidateQueries({ queryKey: ["environments"] });
+  queryClient.invalidateQueries({ queryKey: ["yaml-environments"] });
+  emitPluginEvent('project:changed', { projectPath });
+};
+
 export const useSetActiveProject = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (projectPath: string) => window.electron?.state.setActiveProject(projectPath),
-    onSuccess: (_, projectPath) => {
-      closeAllSearchPanels();
-      clearGitQueries(queryClient);
-      queryClient.invalidateQueries({ queryKey: ["projects"] });
-      queryClient.invalidateQueries({ queryKey: ["app:state"] });
-      queryClient.invalidateQueries({ queryKey: ["panel:tabs"] });
-      queryClient.invalidateQueries({ queryKey: ["files:tree"] });
-      queryClient.invalidateQueries({ queryKey: ["environments"] });
-      queryClient.invalidateQueries({ queryKey: ["yaml-environments"] });
-      emitPluginEvent('project:changed', { projectPath });
-    },
+    onSuccess: (_, projectPath) => onActiveProjectChanged(queryClient, projectPath),
   });
+};
+
+/** Switch the active project from outside React (e.g. a menu command). */
+export const setActiveProjectImperative = async (projectPath: string) => {
+  await window.electron?.state.setActiveProject(projectPath);
+  const { getQueryClient } = await import("@/main");
+  onActiveProjectChanged(getQueryClient(), projectPath);
 };
 
 export const useCloseActiveProject = () => {
