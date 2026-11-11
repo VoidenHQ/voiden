@@ -59,6 +59,9 @@ export function GettingStartedCard() {
 
   // Not over the Start tab or the project setup screen: those are their own onboarding.
   if (!visible || !inPlayground || activeType === "welcome" || activeType === "projectSetup") return null;
+  // While a tip is open it says which step you're on; the card would only cover the editor's
+  // right edge (table columns, the Environments editor). The last step's tip points at it, so keep it then.
+  if (tipStep && stepById(tipStep).target !== "card") return null;
 
   const count = GETTING_STARTED_STEPS.filter((s) => done[s.id]).length;
   const next = GETTING_STARTED_STEPS.find((s) => !done[s.id]);

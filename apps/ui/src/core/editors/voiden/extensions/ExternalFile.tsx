@@ -399,7 +399,7 @@ export function BlockPreviewEditor({ block, pmNodePos: ownPmNodePos, blockUid }:
   }, [editor]);
 
   return (
-    <div className="w-full pointer-events-none select-none" inert="">
+    <div className="block-preview w-full pointer-events-none select-none" inert="">
       <EditorContent editor={editor} />
     </div>
   );

@@ -3,7 +3,7 @@ import { Check, ChevronLeft, ChevronRight, Lightbulb, X } from "lucide-react";
 import { useVoidenEditorStore } from "@/core/editors/voiden/VoidenEditor";
 import { usePanelStore } from "@/core/stores/panelStore";
 import { getQueryClient } from "@/main";
-import { GETTING_STARTED_STEPS, STEP_TIPS, nextTip, stepById, stepTip, useGettingStartedStore, type GettingStartedStepId } from "./gettingStartedStore";
+import { GETTING_STARTED_STEPS, STEP_TIPS, finishTour, nextTip, stepById, stepTip, useGettingStartedStore, type GettingStartedStepId } from "./gettingStartedStore";
 
 const TIP_WIDTH = 300;
 const GAP = 12;
@@ -11,7 +11,7 @@ const PAD = 4;
 
 type Rect = { top: number; left: number; right: number; bottom: number };
 type Arrow = "up" | "down" | "left" | "right" | "none";
-type Layout = { spot: Rect | null; tip: { top: number; left: number; arrow: Arrow } };
+type Layout = { spot: Rect | null; tip: { top: number; left: number; arrow: Arrow; arrowAt?: number } };
 
 const clampLeft = (left: number) => Math.max(GAP, Math.min(left, window.innerWidth - TIP_WIDTH - GAP));
 const clampTop = (top: number, height: number) => Math.max(GAP, Math.min(top, window.innerHeight - height - GAP));
@@ -19,6 +19,7 @@ const rectOf = (el: Element | null | undefined): Rect | null => {
   const r = el?.getBoundingClientRect();
   return r && r.width > 0 && r.height > 0 ? { top: r.top, left: r.left, right: r.right, bottom: r.bottom } : null;
 };
+const overlaps = (a: Rect, b: Rect) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
 
 /** Screen rect of the document's last block — the end of the file, where the user types next. */
 function endOfDocRect(editor: any): Rect | null {
@@ -29,6 +30,18 @@ function endOfDocRect(editor: any): Rect | null {
   return rectOf(dom) ?? rectOf(editor.view.dom);
 }
 
+/** The request's Send button, for the step that's about clicking it. */
+function sendButtonRect(editor: any): Rect | null {
+  const buttons = editor.view.dom.querySelectorAll('[aria-label="Send request"], [aria-label="Cancel request"]');
+  return rectOf(buttons[buttons.length - 1]);
+}
+
+/** Open editor menus (/ commands, the @ link picker): the tip must not sit under them. */
+const openMenuRects = (): Rect[] =>
+  Array.from(document.querySelectorAll("[data-tippy-root]")).flatMap((el) => {
+    const r = rectOf(el);
+    return r ? [r] : [];
+  });
 /** Reveal what a step needs: the end of the file, room for the Environments editor, Source Control, or the checklist's commands. */
 async function prepareStep(step: GettingStartedStepId, editor: any, envEditorOpen: boolean) {
   const { target } = stepById(step);
@@ -54,19 +67,36 @@ async function prepareStep(step: GettingStartedStepId, editor: any, envEditorOpe
   }
 }
 
-function placeAround(target: ReturnType<typeof stepById>["target"], liveEditor: any, envEditorOpen: boolean, height: number): Layout | null {
+function placeAround(step: GettingStartedStepId, liveEditor: any, envEditorOpen: boolean, height: number): Layout | null {
+  const { target } = stepById(step);
   const editorArea = rectOf(document.getElementById("main-editor"));
   if (target === "editor" && liveEditor) {
-    const end = endOfDocRect(liveEditor);
-    if (!end) return null;
-    const left = clampLeft(end.left);
-    const below = end.bottom + GAP;
+    const anchor = (step === "send" && sendButtonRect(liveEditor)) || endOfDocRect(liveEditor);
+    if (!anchor) return null;
+    // Aim the arrow at the anchor: the Send button's middle, or the start of the last line.
+    const aimX = step === "send" ? (anchor.left + anchor.right) / 2 : anchor.left + 22;
+    const left = clampLeft(aimX - 28);
+    const arrowAt = Math.max(10, Math.min(aimX - left - 6, TIP_WIDTH - 22));
+    const box = (top: number): Rect => ({ top, left, right: left + TIP_WIDTH, bottom: top + height });
+    const below = anchor.bottom + GAP;
+    const above = anchor.top - GAP - height;
+    const menus = openMenuRects();
+    const clear = (top: number) => top >= GAP && top + height <= window.innerHeight - GAP && !menus.some((m) => overlaps(box(top), m));
+    if (clear(below)) return { spot: editorArea, tip: { top: below, left, arrow: "up", arrowAt } };
+    if (clear(above)) return { spot: editorArea, tip: { top: above, left, arrow: "down", arrowAt } };
+    // A menu is open on both sides of the line: sit beside it instead.
+    const menu = menus[0];
+    if (menu) {
+      const side = menu.right + GAP + TIP_WIDTH <= window.innerWidth - GAP ? menu.right + GAP : menu.left - GAP - TIP_WIDTH;
+      return { spot: editorArea, tip: { top: clampTop(menu.top, height), left: Math.max(GAP, side), arrow: "none" } };
+    }
     return below + height < window.innerHeight - GAP
-      ? { spot: editorArea, tip: { top: below, left, arrow: "up" } }
-      : { spot: editorArea, tip: { top: clampTop(end.top - GAP - height, height), left, arrow: "down" } };
+      ? { spot: editorArea, tip: { top: below, left, arrow: "up", arrowAt } }
+      : { spot: editorArea, tip: { top: clampTop(above, height), left, arrow: "down", arrowAt } };
   }
   if (target === "envEditor" && envEditorOpen && editorArea) {
-    return { spot: editorArea, tip: { top: editorArea.top + 16, left: clampLeft(editorArea.right - TIP_WIDTH - 24), arrow: "none" } };
+    // Bottom-right: the top of the Environments editor holds its tabs and actions.
+    return { spot: editorArea, tip: { top: clampTop(editorArea.bottom - height - 16, height), left: clampLeft(editorArea.right - TIP_WIDTH - 24), arrow: "none" } };
   }
   // Before the Environments editor is open, point at the picker it opens from.
   if (target === "env" || target === "envEditor") {
@@ -85,7 +115,7 @@ function placeAround(target: ReturnType<typeof stepById>["target"], liveEditor: 
 /**
  * The guided tour's tip for one step. While it's open the rest of the window is dimmed and
  * blocked, so the user stays on that step. Doing the step switches the tip to a "done" note
- * with a Next button; "Got it" moves straight on; ✕ or Esc ends the tour and frees the window.
+ * with a Next button; "Got it" moves straight on; ✕ (or Esc outside the editor) ends the tour.
  */
 export function CoachTips({ docOpen, activeTabType }: { docOpen: boolean; activeTabType?: string }) {
   const tipStep = useGettingStartedStore((s) => s.tipStep);
@@ -117,7 +147,7 @@ export function CoachTips({ docOpen, activeTabType }: { docOpen: boolean; active
     let frame = 0;
     const update = () => {
       cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => setLayout(placeAround(stepById(shown).target, liveEditor, envEditorOpen, ref.current?.offsetHeight ?? 160)));
+      frame = requestAnimationFrame(() => setLayout(placeAround(shown, liveEditor, envEditorOpen, ref.current?.offsetHeight ?? 160)));
     };
     update();
     const events = ["update", "transaction"] as const;
@@ -127,7 +157,10 @@ export function CoachTips({ docOpen, activeTabType }: { docOpen: boolean; active
     // Panels open and expand without an editor event; follow them lightly.
     const poll = window.setInterval(update, 300);
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !e.defaultPrevented) closeTip();
+      // Esc while typing closes menus (the @ picker, / commands) or leaves a field; it mustn't also end the tour.
+      const el = e.target as HTMLElement | null;
+      const typing = !!el?.closest?.('input, textarea, select, [contenteditable="true"], [data-tippy-root]');
+      if (e.key === "Escape" && !e.defaultPrevented && !typing) closeTip();
     };
     window.addEventListener("keydown", onKey);
     return () => {
@@ -147,8 +180,8 @@ export function CoachTips({ docOpen, activeTabType }: { docOpen: boolean; active
   const stepNumber = GETTING_STARTED_STEPS.findIndex((s) => s.id === shown) + 1;
   const isLast = stepNumber === GETTING_STARTED_STEPS.length;
   const arrowStyle = {
-    up: { top: -6, left: 22 },
-    down: { bottom: -6, left: 22 },
+    up: { top: -6, left: layout.tip.arrowAt ?? 22 },
+    down: { bottom: -6, left: layout.tip.arrowAt ?? 22 },
     left: { left: -6, top: 22 },
     right: { right: -6, bottom: 22 },
     none: null,
@@ -208,7 +241,7 @@ export function CoachTips({ docOpen, activeTabType }: { docOpen: boolean; active
         <span className="flex items-center justify-between mt-1">
           <button
             type="button"
-            onClick={() => (tipDone && isLast ? closeTip() : nextTip())}
+            onClick={() => (tipDone && isLast ? finishTour() : nextTip())}
             className="h-8 px-3 rounded-md bg-bg text-text text-xs font-semibold hover:opacity-90"
           >
             {tipDone ? (isLast ? "Finish" : "Next step →") : "Got it"}
@@ -235,7 +268,7 @@ export function CoachTips({ docOpen, activeTabType }: { docOpen: boolean; active
             </button>
           </span>
         </span>
-        <span className="text-[10px] opacity-50">Esc ends the tour</span>
+        <span className="text-[10px] opacity-50">✕ ends the tour</span>
       </div>
     </>
   );

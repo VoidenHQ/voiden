@@ -40,8 +40,8 @@ export const STEP_TIPS: Record<GettingStartedStepId, { title: string; body: stri
   writeEnv: {
     title: "Write an environment variable",
     open: "First open the Environments editor: click the environment picker here, then Edit Environments at the bottom.",
-    body: "In Local, add a variable named token with any value, like my-secret, and save. Secrets go in the private, git-ignored file.",
-    done: "{{token}} is ready. You'll use it in a header next.",
+    body: "In Local, add a variable named token with any value, like my-secret. Switch its Public button to Private before adding it: secrets go in the git-ignored env-private.yaml. It saves on its own.",
+    done: "{{token}} is ready, and stays out of Git. You'll use it in a header next.",
   },
   headers: {
     title: "Add a headers block",
@@ -50,7 +50,7 @@ export const STEP_TIPS: Record<GettingStartedStepId, { title: string; body: stri
   },
   reuse: {
     title: "Reuse a block with @",
-    body: "At the end of the file, type @, pick 2-headers.void, then pick its headers block. Send to use it here.",
+    body: "At the end of the file, type @2-headers so that file is highlighted, then press → (or Space) to see its blocks. Pick the headers block with Enter, then send.",
     done: "Those headers are linked from 2-headers.void. Change them there and this file follows.",
   },
   form: {
@@ -71,7 +71,7 @@ export const STEP_TIPS: Record<GettingStartedStepId, { title: string; body: stri
   outside: {
     title: "Run it outside the app",
     body: "Copy the CI or MCP command below to run these files from a terminal, CI, or Claude Code and Codex.",
-    done: "That's the whole tour. Close this and explore. The checklist stays here if you need it.",
+    done: "That's the whole tour. Finish to put the checklist away. It's under Help → Getting Started Checklist if you need it again.",
   },
 };
 
@@ -209,14 +209,19 @@ export async function requestTip(id: GettingStartedStepId) {
 
 /** Move the tour on: the next step after the current one that isn't done. */
 export async function nextTip() {
-  const { tipStep, done, closeTip } = useGettingStartedStore.getState();
+  const { tipStep, done } = useGettingStartedStore.getState();
   const from = tipStep ? GETTING_STARTED_STEPS.findIndex((s) => s.id === tipStep) + 1 : 0;
   const ordered = [...GETTING_STARTED_STEPS.slice(from), ...GETTING_STARTED_STEPS.slice(0, from)];
   const next = ordered.find((s) => !done[s.id] && s.id !== tipStep);
   if (next) return requestTip(next.id);
-  closeTip();
+  return finishTour();
+}
+
+/** The last step is done: end the tour and put the checklist away, so it stops covering the editor. */
+export async function finishTour() {
+  useGettingStartedStore.setState({ tipStep: null, tipDone: false, visible: false, expanded: false });
   const { toast } = await import("@/core/components/ui/sonner");
-  toast.success("You've finished the tour", { description: "The checklist stays in the corner. Click any step to see it again." });
+  toast.success("You've finished the tour", { description: "Reopen the checklist any time from Help → Getting Started Checklist." });
 }
 
 /** Step through the tour in order, done or not: -1 for the previous tip, 1 for the next. */
