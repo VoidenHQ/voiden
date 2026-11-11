@@ -16,8 +16,10 @@ import { openPlaygroundProject } from "@/core/onboarding/playground";
 import {
   GETTING_STARTED_STEPS,
   RUNNER_COMMANDS,
+  allStepsDone,
   markGettingStartedStep,
   nextTip,
+  replayTour,
   showGettingStartedChecklist,
   showTips,
   useGettingStartedStore,
@@ -45,6 +47,7 @@ const StartScreen = () => {
   const queryClient = useQueryClient();
   const { settings } = useSettings();
   const { data: projects } = useGetProjects();
+  const tourDone = useGettingStartedStore((s) => allStepsDone(s.done));
   const { mutateAsync: setActiveProject } = useSetActiveProject();
   const { mutateAsync: openProject } = useOpenProject();
   const { mutate: addPanelTab } = useAddPanelTab();
@@ -97,7 +100,8 @@ const StartScreen = () => {
       const firstPath = await window.electron?.utils?.pathJoin(projectPath, FIRST_TOUR_FILE);
       await window.electron?.ipc?.invoke("fileLink:open", firstPath, FIRST_TOUR_FILE);
       await refreshAfterOpen();
-      // Start (or resume) the guided tour in the playground.
+      // Start (or resume) the guided tour in the playground; once it's all done, run it again.
+      if (allStepsDone(useGettingStartedStore.getState().done)) return replayTour();
       useGettingStartedStore.setState({ visible: true });
       await nextTip();
     });
@@ -370,7 +374,7 @@ const StartScreen = () => {
               Getting started checklist
             </button>
             <button type="button" className="text-accent hover:underline" onClick={showTips}>
-              Show next tip
+              {tourDone ? "Replay the tour" : "Show next tip"}
             </button>
             <button type="button" className="text-comment hover:text-text flex items-center gap-2" onClick={openCommandPalette}>
               Command palette <Kbd keys={getShortcutLabel("CommandPaletteCommands")} size="sm" />

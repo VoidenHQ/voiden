@@ -4,7 +4,7 @@ import type { MatchedFragment } from '@voiden/fuzzy-search';
 import { highlightText } from "./MatchedFragment";
 import { Editor, JSONContent, Node, NodeViewProps, Range, mergeAttributes } from "@tiptap/core";
 import { EditorState, PluginKey } from "@tiptap/pm/state";
-import Suggestion from "@tiptap/suggestion";
+import Suggestion, { exitSuggestion } from "@tiptap/suggestion";
 import tippy from "tippy.js";
 import { EditorContent, NodeViewWrapper, ReactNodeViewRenderer, ReactRenderer, useEditor } from "@tiptap/react";
 import { ArrowRight, Plus, File, Folder, ChevronRight, Box, CheckSquare, Square } from "lucide-react";
@@ -1243,6 +1243,29 @@ let activeFileLinkPopup: any | undefined;
 // table-cell Enter handler know this suggestion popup owns Enter while open.
 export const isFileLinkSuggestionOpen = () => !!activeFileLinkPopup?.state?.isVisible;
 
+/** The editor the open @ picker belongs to, so it can be closed from outside that editor. */
+let activeFileLinkEditor: any | undefined;
+
+/**
+ * Close the @ picker from outside its editor: on a tab switch, or Esc once focus has left the
+ * editor. The editor's own Esc only reaches it while the editor has focus, so without this the
+ * menu stays on screen over whatever tab is shown next.
+ */
+export const closeFileLinkSuggestion = () => {
+  const popup = activeFileLinkPopup;
+  const editor = activeFileLinkEditor;
+  if (!popup) return;
+  if (editor && !editor.isDestroyed) {
+    // Ends the suggestion, which runs onExit and destroys the popup.
+    exitSuggestion(editor.view, FileLinkPluginKey);
+  }
+  if (activeFileLinkPopup === popup) {
+    popup.destroy?.();
+    activeFileLinkPopup = undefined;
+    activeFileLinkEditor = undefined;
+  }
+};
+
 export type FileLinkOptions = {
   HTMLAttributes: Record<string, any>;
   renderText: (props: { options: FileLinkOptions; node: JSONContent }) => string;
@@ -1571,6 +1594,7 @@ export const FileLink = Node.create<FileLinkOptions>({
                 },
               });
               activeFileLinkPopup = popup;
+              activeFileLinkEditor = props.editor;
             },
             onUpdate(props) {
               reactRenderer?.updateProps(props);
@@ -1604,6 +1628,7 @@ export const FileLink = Node.create<FileLinkOptions>({
               reactRenderer?.destroy();
               if (activeFileLinkPopup === popup) {
                 activeFileLinkPopup = undefined;
+                activeFileLinkEditor = undefined;
               }
             },
           };

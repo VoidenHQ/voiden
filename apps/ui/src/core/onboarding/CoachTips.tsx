@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { Check, ChevronLeft, ChevronRight, Lightbulb, X } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, FileText, Lightbulb, X } from "lucide-react";
 import { useVoidenEditorStore } from "@/core/editors/voiden/VoidenEditor";
 import { usePanelStore } from "@/core/stores/panelStore";
 import { getQueryClient } from "@/main";
-import { GETTING_STARTED_STEPS, STEP_TIPS, finishTour, nextTip, stepById, stepTip, useGettingStartedStore, type GettingStartedStepId } from "./gettingStartedStore";
+import { GETTING_STARTED_STEPS, STEP_TIPS, finishTour, nextTip, requestTip, stepById, stepTip, useGettingStartedStore, type GettingStartedStepId } from "./gettingStartedStore";
 
 const TIP_WIDTH = 300;
 const GAP = 12;
@@ -117,7 +117,7 @@ function placeAround(step: GettingStartedStepId, liveEditor: any, envEditorOpen:
  * blocked, so the user stays on that step. Doing the step switches the tip to a "done" note
  * with a Next button; "Got it" moves straight on; ✕ (or Esc outside the editor) ends the tour.
  */
-export function CoachTips({ docOpen, activeTabType }: { docOpen: boolean; activeTabType?: string }) {
+export function CoachTips({ docOpen, activeTabType, activeTabTitle }: { docOpen: boolean; activeTabType?: string; activeTabTitle?: string }) {
   const tipStep = useGettingStartedStore((s) => s.tipStep);
   const tipDone = useGettingStartedStore((s) => s.tipDone);
   const closeTip = useGettingStartedStore((s) => s.closeTip);
@@ -130,8 +130,22 @@ export function CoachTips({ docOpen, activeTabType }: { docOpen: boolean; active
   // Start tab. The env-variable step first shows how to open the Environments editor.
   const target = tipStep ? stepById(tipStep).target : null;
   const envEditorOpen = activeTabType === "environmentEditor";
-  const canShow = target === "editor" ? !!liveEditor : !!target && activeTabType !== "welcome";
+  // A step that lives in a file only shows over that file: after a tab switch its
+  // instructions ("at the end of the file…") would describe a file you're not looking at.
+  const stepFile = tipStep ? stepById(tipStep).file : undefined;
+  const onStepFile = !stepFile || (docOpen && activeTabTitle === stepFile);
+  const onStart = activeTabType === "welcome" || activeTabType === "projectSetup";
+  const canShow = onStepFile && (target === "editor" ? !!liveEditor : !!target && !onStart);
   const shown = tipStep && canShow ? tipStep : null;
+  // Off the step's file (and not on the Start tab, which is its own onboarding): offer to go back.
+  // Wait a moment first, so it doesn't flash while the tour itself is opening that file.
+  const elsewhere = !!tipStep && !!stepFile && !onStepFile && !onStart;
+  const [showElsewhere, setShowElsewhere] = useState(false);
+  useEffect(() => {
+    if (!elsewhere) return setShowElsewhere(false);
+    const t = window.setTimeout(() => setShowElsewhere(true), 400);
+    return () => window.clearTimeout(t);
+  }, [elsewhere, tipStep]);
 
   useEffect(() => {
     if (shown && !tipDone) prepareStep(shown, liveEditor, envEditorOpen);
@@ -172,6 +186,40 @@ export function CoachTips({ docOpen, activeTabType }: { docOpen: boolean; active
       window.clearInterval(poll);
     };
   }, [shown, liveEditor, envEditorOpen, closeTip]);
+
+  if (elsewhere && showElsewhere && tipStep && stepFile) {
+    const stepNumber = GETTING_STARTED_STEPS.findIndex((s) => s.id === tipStep) + 1;
+    return (
+      <div
+        role="dialog"
+        aria-label={STEP_TIPS[tipStep].title}
+        onMouseDown={(e) => e.preventDefault()}
+        style={{ bottom: 60, right: 24, width: TIP_WIDTH }}
+        className="fixed z-50 flex flex-col gap-2 p-4 rounded-xl bg-text text-bg shadow-xl select-none"
+      >
+        <span className="flex items-center justify-between">
+          <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider opacity-60">
+            <Lightbulb size={12} />
+            Step {stepNumber} of {GETTING_STARTED_STEPS.length} · paused
+          </span>
+          <button type="button" aria-label="End the tour" onClick={closeTip} className="p-0.5 rounded opacity-60 hover:opacity-100">
+            <X size={14} />
+          </button>
+        </span>
+        <span className="text-sm font-semibold">{STEP_TIPS[tipStep].title}</span>
+        <span className="text-xs leading-relaxed opacity-80">
+          This step happens in <span className="font-mono">{stepFile}</span>. Go back to it to carry on.
+        </span>
+        <button
+          type="button"
+          onClick={() => requestTip(tipStep)}
+          className="self-start mt-1 h-8 px-3 rounded-md bg-bg text-text text-xs font-semibold hover:opacity-90 flex items-center gap-1.5"
+        >
+          <FileText size={12} /> Open {stepFile}
+        </button>
+      </div>
+    );
+  }
 
   if (!shown || !layout) return null;
 

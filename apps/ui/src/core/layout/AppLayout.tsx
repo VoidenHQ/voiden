@@ -13,7 +13,8 @@ import { useGetAppState } from "@/core/state/hooks";
 import { saveTabById, useProjectLock } from "@/core/file-system/hooks";
 import { getQueryClient } from "@/main";
 import { useEditorStore } from "@/core/editors/voiden/VoidenEditor";
-import { hideSlashMenu } from "@/core/editors/voiden/SlashCommand";
+import { hideSlashMenu, isSlashMenuOpen } from "@/core/editors/voiden/SlashCommand";
+import { closeFileLinkSuggestion, isFileLinkSuggestionOpen } from "@/core/editors/voiden/extensions/ExternalFile";
 import { useGettingStartedTracking } from "@/core/onboarding/useGettingStartedTracking";
 import { CoachTips } from "@/core/onboarding/CoachTips";
 import { showGettingStartedChecklist, showTips, useGettingStartedStore } from "@/core/onboarding/gettingStartedStore";
@@ -60,6 +61,25 @@ export const AppLayout = () => {
   // Use useLayoutEffect so panel open/close is applied before the browser paints,
   // preventing a visible flash where the old tab's panel state bleeds into the new tab.
   const activeTabId = panelTabs?.activeTabId;
+
+  // Editor menus (the @ picker, / commands) float on document.body. Close them when the tab
+  // changes, so they don't stay over the next tab (e.g. the Start page), and on Esc once focus
+  // has left the editor, where the editor's own Esc handling no longer reaches them.
+  useEffect(() => {
+    closeFileLinkSuggestion();
+    hideSlashMenu();
+  }, [activeTabId]);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || !(isFileLinkSuggestionOpen() || isSlashMenuOpen())) return;
+      if ((document.activeElement as HTMLElement | null)?.closest?.(".ProseMirror")) return;
+      closeFileLinkSuggestion();
+      hideSlashMenu();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   const prevActiveTabIdRef = useRef<string | null>(null);
   // activeTabId for which the open/close branch below has already run to
   // completion (i.e. targetTab was found, or a saved panelStateForTab applied).
@@ -545,6 +565,7 @@ export const AppLayout = () => {
       <CoachTips
         docOpen={!!panelTabs?.tabs?.find((t: any) => t.id === panelTabs?.activeTabId && t.type === "document" && /\.void$/i.test(t.title || ""))}
         activeTabType={panelTabs?.tabs?.find((t: any) => t.id === panelTabs?.activeTabId)?.type}
+        activeTabTitle={panelTabs?.tabs?.find((t: any) => t.id === panelTabs?.activeTabId)?.title}
       />
 
       {/* About Modal */}

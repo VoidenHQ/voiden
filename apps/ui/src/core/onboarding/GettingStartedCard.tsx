@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Check, ChevronDown, ChevronUp, Copy, X } from "lucide-react";
 import { useGetProjects } from "@/core/projects/hooks/useProjects";
@@ -57,6 +58,19 @@ export function GettingStartedCard() {
   const { data: panelTabs } = useGetPanelTabs("main");
   const activeType = panelTabs?.tabs?.find((t: any) => t.id === panelTabs?.activeTabId)?.type;
 
+  // Expanded, the card covers the right edge of the editor (table value columns). Fold it back
+  // to the small pill as soon as the user works in the editor.
+  useEffect(() => {
+    if (!open || !visible) return;
+    const onDown = (e: MouseEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (el?.closest?.("#getting-started-card")) return;
+      if (el?.closest?.("#main-editor")) setExpanded(false);
+    };
+    document.addEventListener("mousedown", onDown, true);
+    return () => document.removeEventListener("mousedown", onDown, true);
+  }, [open, visible, setExpanded]);
+
   // Not over the Start tab or the project setup screen: those are their own onboarding.
   if (!visible || !inPlayground || activeType === "welcome" || activeType === "projectSetup") return null;
   // While a tip is open it says which step you're on; the card would only cover the editor's
@@ -66,6 +80,38 @@ export function GettingStartedCard() {
   const count = GETTING_STARTED_STEPS.filter((s) => done[s.id]).length;
   const next = GETTING_STARTED_STEPS.find((s) => !done[s.id]);
   const pct = (count / GETTING_STARTED_STEPS.length) * 100;
+
+  // Collapsed: a small pill in the corner, so it covers as little of the editor as possible.
+  if (!open) {
+    return (
+      <div
+        id="getting-started-card"
+        className="absolute right-4 bottom-4 z-20 flex items-center rounded-full border border-border bg-panel text-text shadow-lg"
+      >
+        <button
+          type="button"
+          onClick={() => setExpanded(true)}
+          aria-expanded={false}
+          title={next ? `Next: ${next.label}` : "All done. Nice work."}
+          className="flex items-center gap-2 pl-3 pr-1 h-8 text-xs font-semibold"
+        >
+          Getting started
+          <span className="font-medium text-emerald-400">
+            {count} / {GETTING_STARTED_STEPS.length}
+          </span>
+          <ChevronUp size={14} className="text-comment" />
+        </button>
+        <button
+          type="button"
+          aria-label="Dismiss Getting started"
+          onClick={() => setVisible(false)}
+          className="mr-1 p-1 rounded-full text-comment hover:text-text hover:bg-hover"
+        >
+          <X size={12} />
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div id="getting-started-card" className="absolute right-4 bottom-4 z-20 w-[300px] max-h-[calc(100%-2rem)] rounded-xl border border-border bg-panel text-text shadow-lg flex flex-col">

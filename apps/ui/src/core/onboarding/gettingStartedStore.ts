@@ -106,9 +106,13 @@ export const useGettingStartedStore = create<GettingStartedState>()(
       markDone: (id) =>
         set((s) => (s.done[id] ? s : { done: { ...s.done, [id]: true }, tipDone: s.tipStep === id ? true : s.tipDone })),
       toggleStep: (id) => set((s) => ({ done: { ...s.done, [id]: !s.done[id] } })),
-      setVisible: (visible) => set({ visible }),
+      // Hiding the checklist also ends a tip that points at it (the last step's "copy the command
+      // below"), which would otherwise be left floating with nothing to point at.
+      setVisible: (visible) =>
+        set((s) => (!visible && s.tipStep && stepById(s.tipStep).target === "card" ? { visible, tipStep: null, tipDone: false } : { visible })),
       setExpanded: (expanded) => set({ expanded }),
-      showTip: (id) => set({ tipStep: id, tipDone: false }),
+      // Re-showing the open step (e.g. coming back to its file) keeps its "done" note.
+      showTip: (id) => set((s) => ({ tipStep: id, tipDone: s.tipStep === id ? s.tipDone : false })),
       closeTip: () => set({ tipStep: null, tipDone: false }),
       begin: () => set({ visible: true }),
     }),
@@ -117,9 +121,29 @@ export const useGettingStartedStore = create<GettingStartedState>()(
       version: 2,
       // The step list changed: start over rather than map old step ids.
       migrate: (state: any) => ({ visible: !!state?.visible, expanded: false, done: {}, tipStep: null, tipDone: false }) as any,
+      // A finished checklist left showing (from before it put itself away) shouldn't come back on launch.
+      onRehydrateStorage: () => (state) => {
+        // Rehydration can run while the store is still being created: defer the write.
+        if (state && allStepsDone(state.done) && state.visible)
+          queueMicrotask(() => useGettingStartedStore.setState({ visible: false, expanded: false }));
+      },
     },
   ),
 );
+
+export function allStepsDone(done: Partial<Record<GettingStartedStepId, boolean>> | undefined) {
+  return GETTING_STARTED_STEPS.every((s) => done?.[s.id]);
+}
+
+// Once every step is done and no tip is open, put the checklist away so it doesn't stay
+// pinned over the editor. This covers ticking the last step by hand and closing the tip
+// after the last step; the tip's own Finish button goes through finishTour directly.
+// Reopening it from Help afterwards isn't a transition, so it stays until dismissed.
+useGettingStartedStore.subscribe((s, prev) => {
+  if (!s.visible || s.tipStep || !allStepsDone(s.done)) return;
+  if (allStepsDone(prev.done) && !prev.tipStep) return;
+  finishTour();
+});
 
 /** Callable from non-React code (mutation callbacks, plugin events). */
 export const markGettingStartedStep = (id: GettingStartedStepId) => useGettingStartedStore.getState().markDone(id);
@@ -176,17 +200,20 @@ export async function saveTourFiles() {
 async function openStepContext(id: GettingStartedStepId) {
   const step = stepById(id);
   await saveTourFiles();
-  if (step.file) {
-    const projects = await window.electron?.state.getProjects();
-    const root: string | undefined = projects?.activeProject;
-    const active = await activeMainTab();
-    if (!root || active?.title === step.file) return;
-    if (!(await window.electron?.files.getFileExist(root, step.file))) return;
-    const filePath = await window.electron?.utils.pathJoin(root, step.file);
-    await window.electron?.ipc?.invoke("fileLink:open", filePath, step.file);
-  } else {
-    return;
-  }
+  const active = await activeMainTab();
+  // A step without a file of its own (Environments, Git, the checklist) can't show over the
+  // Start tab, so leave it for the file of the step before it.
+  const onStart = active?.type === "welcome" || active?.type === "projectSetup";
+  const index = GETTING_STARTED_STEPS.findIndex((s) => s.id === id);
+  const file =
+    step.file ?? (onStart ? GETTING_STARTED_STEPS.slice(0, index + 1).reverse().find((s): s is typeof s & { file: string } => "file" in s)?.file : undefined);
+  if (!file) return;
+  const projects = await window.electron?.state.getProjects();
+  const root: string | undefined = projects?.activeProject;
+  if (!root || active?.title === file) return;
+  if (!(await window.electron?.files.getFileExist(root, file))) return;
+  const filePath = await window.electron?.utils.pathJoin(root, file);
+  await window.electron?.ipc?.invoke("fileLink:open", filePath, file);
   const { getQueryClient } = await import("@/main");
   const queryClient = getQueryClient();
   await Promise.all([
@@ -232,9 +259,17 @@ export async function stepTip(delta: -1 | 1) {
   if (target) return requestTip(target.id);
 }
 
-/** Start (or resume) the tour at the first step that isn't done, in the playground. */
+/** Start (or resume) the tour at the first step that isn't done, in the playground. Once every step is done, start it over. */
 export async function showTips() {
   if (!(await goToPlayground())) return;
+  if (allStepsDone(useGettingStartedStore.getState().done)) return replayTour();
   useGettingStartedStore.setState({ visible: true, tipStep: null, tipDone: false });
   return nextTip();
+}
+
+/** Run the whole tour again from step 1, clearing the checklist. */
+export async function replayTour() {
+  if (!(await goToPlayground())) return;
+  useGettingStartedStore.setState({ visible: true, expanded: false, done: {}, tipStep: null, tipDone: false });
+  return requestTip(GETTING_STARTED_STEPS[0].id);
 }
