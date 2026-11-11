@@ -94,9 +94,13 @@ const DefaultShellControl = ({ value, onChange }: { value: string; onChange: (sh
   const customPath = typedPath ?? (isCustom ? value : "");
   const autoName = data && !data.configured ? shells.find((s) => s.id === data.defaultId)?.name : undefined;
 
+  // Names only in the list: full paths (long on Windows) would stretch the select and squeeze the label.
+  const selected = customOpen ? undefined : shells.find((s) => s.id === value);
+
   return (
-    <div className="flex flex-col items-end gap-1.5">
+    <div className="flex flex-col items-end gap-1.5 max-w-[260px]">
       <Select
+        className="max-w-full"
         value={customOpen ? CUSTOM_SHELL : value}
         onChange={(e) => {
           if (e.target.value === CUSTOM_SHELL) {
@@ -110,10 +114,15 @@ const DefaultShellControl = ({ value, onChange }: { value: string; onChange: (sh
       >
         <option value="">Automatic{autoName ? ` (${autoName})` : ""}</option>
         {shells.map((s) => (
-          <option key={s.id} value={s.id}>{s.name} — {s.path}</option>
+          <option key={s.id} value={s.id} title={s.path}>{s.name}</option>
         ))}
         <option value={CUSTOM_SHELL}>Custom path…</option>
       </Select>
+      {selected && (
+        <div className="max-w-full truncate font-mono text-[11px] text-comment" title={selected.path}>
+          {selected.path}
+        </div>
+      )}
       {customOpen && (
         <Input
           value={customPath}
