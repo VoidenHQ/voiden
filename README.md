@@ -142,7 +142,7 @@ brew install voiden@beta
 winget
 
 ```powershell
-winget install Voiden
+winget install --id Voiden.Voiden -e
 ```
 
 Chocolatey
@@ -153,7 +153,7 @@ choco install voiden
 
 ```powershell
 # beta (winget)
-winget install Voiden.Voiden-Beta
+winget install --id Voiden.Voiden-Beta -e
 ```
 
 #### Linux
