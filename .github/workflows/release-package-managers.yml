@@ -124,11 +124,23 @@ jobs:
       # Pre-install core22 (and wait for snapd to settle) before snapcraft's build
       # tries to auto-install it — doing both right after `snap install snapcraft`
       # races snapd and intermittently fails with "Error installing snap 'core22'".
+      # Retries because the Snap Store intermittently times out (HTTP 408 fetching
+      # assertions). continue-on-error so a store outage only skips Snap, not APT.
       - name: Install snapcraft
+        id: install-snapcraft
+        continue-on-error: true
         run: |
-          sudo snap install snapcraft --classic
+          retry() {
+            for i in 1 2 3 4 5; do
+              "$@" && return 0
+              echo "Attempt $i failed: $* — retrying in $((i * 15))s"
+              sleep $((i * 15))
+            done
+            return 1
+          }
+          retry sudo snap install snapcraft --classic
           sudo snap wait system seed.loaded
-          sudo snap install core22
+          retry sudo snap install core22
 
       - name: Download Linux build artifact
         uses: actions/download-artifact@v4
@@ -170,6 +182,7 @@ jobs:
 
       - name: Publish Snap
         id: publish-snap
+        if: steps.install-snapcraft.outcome == 'success'
         continue-on-error: true
         working-directory: apps/electron
         env:
@@ -177,7 +190,7 @@ jobs:
         run: node publish-snap.js ${{ inputs.channel }}
 
       - name: Report Snap publish failure
-        if: steps.publish-snap.outcome == 'failure'
+        if: steps.publish-snap.outcome == 'failure' || steps.install-snapcraft.outcome == 'failure'
         run: echo "::warning::Snap Store publish failed — continuing without it. Check the 'Publish Snap' step logs." | tee -a "$GITHUB_STEP_SUMMARY"
 
   # ── winget (beta + stable) ──────────────────────────────────────────────────────
