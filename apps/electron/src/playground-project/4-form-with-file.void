@@ -52,4 +52,4 @@ content:
 ---
 ```
 
-Next: open `5-binary.void` to send a file as the whole body.
+Next: open `5-binary-body.void` to send a file as the whole body.

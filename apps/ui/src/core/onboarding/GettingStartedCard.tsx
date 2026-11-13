@@ -1,6 +1,6 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Check, ChevronDown, ChevronUp, Copy, X } from "lucide-react";
+import { Check, ChevronUp, Copy, X } from "lucide-react";
 import { useGetProjects } from "@/core/projects/hooks/useProjects";
 import { useGetPanelTabs } from "@/core/layout/hooks/usePanelTabs";
 import { toast } from "@/core/components/ui/sonner";
@@ -71,120 +71,109 @@ export function GettingStartedCard() {
     return () => document.removeEventListener("mousedown", onDown, true);
   }, [open, visible, setExpanded]);
 
+  // The step list stays mounted so it can animate; while folded it mustn't take focus or clicks.
+  const bodyRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    bodyRef.current?.toggleAttribute("inert", !open);
+  });
+
   // Not over the Start tab or the project setup screen: those are their own onboarding.
+  // During the tour it stays as the small pill (the tour folds it), so it doesn't come and go
+  // between steps; only the last step, which uses its commands, opens it up.
   if (!visible || !inPlayground || activeType === "welcome" || activeType === "projectSetup") return null;
-  // While a tip is open it says which step you're on; the card would only cover the editor's
-  // right edge (table columns, the Environments editor). The last step's tip points at it, so keep it then.
-  if (tipStep && stepById(tipStep).target !== "card") return null;
 
   const count = GETTING_STARTED_STEPS.filter((s) => done[s.id]).length;
   const next = GETTING_STARTED_STEPS.find((s) => !done[s.id]);
   const pct = (count / GETTING_STARTED_STEPS.length) * 100;
 
-  // Collapsed: a small pill in the corner, so it covers as little of the editor as possible.
-  if (!open) {
-    return (
-      <div
-        id="getting-started-card"
-        className="absolute right-4 bottom-4 z-20 flex items-center rounded-full border border-border bg-panel text-text shadow-lg"
-      >
-        <button
-          type="button"
-          onClick={() => setExpanded(true)}
-          aria-expanded={false}
-          title={next ? `Next: ${next.label}` : "All done. Nice work."}
-          className="flex items-center gap-2 pl-3 pr-1 h-8 text-xs font-semibold"
-        >
-          Getting started
-          <span className="font-medium text-emerald-400">
-            {count} / {GETTING_STARTED_STEPS.length}
-          </span>
-          <ChevronUp size={14} className="text-comment" />
-        </button>
-        <button
-          type="button"
-          aria-label="Dismiss Getting started"
-          onClick={() => setVisible(false)}
-          className="mr-1 p-1 rounded-full text-comment hover:text-text hover:bg-hover"
-        >
-          <X size={12} />
-        </button>
-      </div>
-    );
-  }
-
+  // One card that grows from a pill into the full checklist and back: the width and the
+  // list's height (a 0fr → 1fr grid row) animate together.
   return (
-    <div id="getting-started-card" className="absolute right-4 bottom-4 z-20 w-[300px] max-h-[calc(100%-2rem)] rounded-xl border border-border bg-panel text-text shadow-lg flex flex-col">
-      <div className="flex items-center">
+    <div
+      id="getting-started-card"
+      className={cn(
+        "absolute right-4 bottom-4 z-20 max-h-[calc(100%-2rem)] flex flex-col overflow-hidden rounded-2xl border border-border bg-panel text-text shadow-lg",
+        "transition-[width] duration-200 ease-out motion-reduce:transition-none",
+        open ? "w-[300px]" : "w-[200px]",
+      )}
+    >
+      <div className="shrink-0 flex items-center h-8">
         <button
           type="button"
           onClick={() => setExpanded(!open)}
           aria-expanded={open}
-          className="flex-1 min-w-0 flex flex-col gap-2 p-3 text-left"
+          title={open ? undefined : next ? `Next: ${next.label}` : "All done. Nice work."}
+          className="flex-1 min-w-0 h-full flex items-center gap-2 pl-3 text-xs font-semibold text-left"
         >
-          <span className="flex items-center justify-between text-sm font-semibold">
-            Getting started
-            <span className="flex items-center gap-1 text-xs font-medium text-emerald-400">
-              {count} / {GETTING_STARTED_STEPS.length}
-              {open ? <ChevronDown size={14} className="text-comment" /> : <ChevronUp size={14} className="text-comment" />}
-            </span>
+          <span className="truncate">Getting started</span>
+          <span className="ml-auto font-medium text-emerald-400">
+            {count} / {GETTING_STARTED_STEPS.length}
           </span>
-          <span className="block h-1 rounded bg-active">
-            <span className="block h-1 rounded bg-emerald-400 transition-all" style={{ width: `${pct}%` }} />
-          </span>
-          {!open && <span className="text-xs text-comment truncate">{next ? `Next: ${next.label}` : "All done. Nice work."}</span>}
+          <ChevronUp size={14} className={cn("shrink-0 text-comment transition-transform duration-200 motion-reduce:transition-none", open && "rotate-180")} />
         </button>
         <button
           type="button"
           aria-label="Dismiss Getting started"
           onClick={() => setVisible(false)}
-          className="self-start m-1.5 p-1 rounded text-comment hover:text-text hover:bg-hover"
+          className="mx-1 p-1 rounded-full text-comment hover:text-text hover:bg-hover"
         >
-          <X size={14} />
+          <X size={12} />
         </button>
       </div>
 
-      {open && (
-        <div className="px-3 pb-3 flex flex-col gap-2 overflow-auto">
-          <div className="flex flex-col">
-            {GETTING_STARTED_STEPS.map((step) => {
-              const isDone = !!done[step.id];
-              const isNext = next?.id === step.id;
-              return (
-                <div key={step.id} className="flex items-start gap-2.5 py-2 border-t border-border">
-                  <button
-                    type="button"
-                    aria-pressed={isDone}
-                    aria-label={isDone ? `Mark "${step.label}" as not done` : `Mark "${step.label}" as done`}
-                    onClick={() => toggleStep(step.id)}
-                    className={cn(
-                      "mt-px w-4 h-4 shrink-0 rounded-full border-2 flex items-center justify-center",
-                      isDone ? "bg-emerald-400 border-emerald-400 text-bg" : isNext ? "border-accent" : "border-border hover:border-comment",
-                    )}
-                  >
-                    {isDone && <Check size={10} strokeWidth={3} />}
-                  </button>
-                  {/* The step itself opens its tip; it closes again once dismissed or done. */}
-                  <button type="button" onClick={() => requestTip(step.id)} className="flex-1 min-w-0 flex flex-col gap-0.5 text-left group">
-                    <span
+      <div
+        ref={bodyRef}
+        aria-hidden={!open}
+        className={cn(
+          "grid min-h-0 transition-[grid-template-rows,opacity] duration-200 ease-out motion-reduce:transition-none",
+          open ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
+        )}
+      >
+        <div className="min-h-0 overflow-auto">
+          <div className="w-[300px] px-3 pb-3 flex flex-col gap-2">
+            <span className="block h-1 rounded bg-active">
+              <span className="block h-1 rounded bg-emerald-400 transition-all" style={{ width: `${pct}%` }} />
+            </span>
+            <div className="flex flex-col">
+              {GETTING_STARTED_STEPS.map((step) => {
+                const isDone = !!done[step.id];
+                const isNext = next?.id === step.id;
+                return (
+                  <div key={step.id} className="flex items-start gap-2.5 py-2 border-t border-border">
+                    <button
+                      type="button"
+                      aria-pressed={isDone}
+                      aria-label={isDone ? `Mark "${step.label}" as not done` : `Mark "${step.label}" as done`}
+                      onClick={() => toggleStep(step.id)}
                       className={cn(
-                        "text-xs group-hover:text-accent",
-                        isDone ? "line-through text-comment" : isNext ? "font-semibold" : "",
-                        tipStep === step.id && "text-accent",
+                        "mt-px w-4 h-4 shrink-0 rounded-full border-2 flex items-center justify-center",
+                        isDone ? "bg-emerald-400 border-emerald-400 text-bg" : isNext ? "border-accent" : "border-border hover:border-comment",
                       )}
                     >
-                      {step.label}
-                    </span>
-                    {isNext && <span className="text-[11px] text-comment group-hover:text-text">Show me how</span>}
-                  </button>
-                </div>
-              );
-            })}
+                      {isDone && <Check size={10} strokeWidth={3} />}
+                    </button>
+                    {/* The step itself opens its tip; it closes again once dismissed or done. */}
+                    <button type="button" onClick={() => requestTip(step.id)} className="flex-1 min-w-0 flex flex-col gap-0.5 text-left group">
+                      <span
+                        className={cn(
+                          "text-xs group-hover:text-accent",
+                          isDone ? "line-through text-comment" : isNext ? "font-semibold" : "",
+                          tipStep === step.id && "text-accent",
+                        )}
+                      >
+                        {step.label}
+                      </span>
+                      {isNext && <span className="text-[11px] text-comment group-hover:text-text">Show me how</span>}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+            <CommandRow label="In CI" command={RUNNER_COMMANDS.ci} />
+            <CommandRow label="In Claude Code or Codex (MCP)" command={RUNNER_COMMANDS.mcp} />
           </div>
-          <CommandRow label="In CI" command={RUNNER_COMMANDS.ci} />
-          <CommandRow label="In Claude Code or Codex (MCP)" command={RUNNER_COMMANDS.mcp} />
         </div>
-      )}
+      </div>
     </div>
   );
 }

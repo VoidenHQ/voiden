@@ -13,6 +13,7 @@ import { createPortal } from "react-dom";
 import { Kbd } from "@/core/components/ui/kbd";
 import { ExternalLink } from "lucide-react";
 import { getContextMenuItems, getBlockDocsUrl, type PluginContextMenuItem } from "@/plugins";
+import { markGettingStartedStep } from "@/core/onboarding/gettingStartedStore";
 
 function openExternalUrl(url: string) {
   try {
@@ -713,6 +714,11 @@ export const VoidenDragMenu = React.memo(({ editor }: { editor: Editor }) => {
 
   // Suppress the popover click after a drag so the menu doesn't open on mouseup
   const suppressNextClickRef = useRef(false);
+
+  // Getting started: opening this menu (⋮⋮ or mod+.) is one of the tour's steps.
+  useEffect(() => {
+    if (isOpen) markGettingStartedStep("blockMenu");
+  }, [isOpen]);
 
   const handleOpenChange = useCallback(
     (open: boolean) => {

@@ -3,14 +3,36 @@ import { Check, ChevronLeft, ChevronRight, FileText, Lightbulb, X } from "lucide
 import { useVoidenEditorStore } from "@/core/editors/voiden/VoidenEditor";
 import { usePanelStore } from "@/core/stores/panelStore";
 import { getQueryClient } from "@/main";
+import { useGetGitStatus, useIsGitRepo } from "@/core/git/hooks";
+import { useEnvironments } from "@/core/environment/hooks";
+import { revealPluginsTab } from "@/core/extensions/utils/revealPluginsTab";
 import { GETTING_STARTED_STEPS, STEP_TIPS, finishTour, nextTip, requestTip, stepById, stepTip, useGettingStartedStore, type GettingStartedStepId } from "./gettingStartedStore";
 
-const TIP_WIDTH = 300;
+const TIP_WIDTH = 260;
 const GAP = 12;
 const PAD = 4;
 
 type Rect = { top: number; left: number; right: number; bottom: number };
 type Arrow = "up" | "down" | "left" | "right" | "none";
+type CommitPhase = "init" | "stage" | "commit";
+/** The commit step in three parts, each explained, since Git may be new to the user. */
+const COMMIT_PHASES: { id: CommitPhase; label: string; body: string }[] = [
+  {
+    id: "init",
+    label: "1 Initialize",
+    body: "This project isn't a Git repo yet. Click Initialize Repository: it starts tracking this folder on your machine. Nothing is uploaded.",
+  },
+  {
+    id: "stage",
+    label: "2 Stage",
+    body: "Your .void files show under Changes. Click + beside Changes to stage them all: staged files are what goes into the commit.",
+  },
+  {
+    id: "commit",
+    label: "3 Commit",
+    body: "Type a message, like \"My first requests\", and click Commit. That saves this version of your files in Git's history.",
+  },
+];
 type Layout = { spot: Rect | null; tip: { top: number; left: number; arrow: Arrow; arrowAt?: number } };
 
 const clampLeft = (left: number) => Math.max(GAP, Math.min(left, window.innerWidth - TIP_WIDTH - GAP));
@@ -21,21 +43,6 @@ const rectOf = (el: Element | null | undefined): Rect | null => {
 };
 const overlaps = (a: Rect, b: Rect) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
 
-/** Screen rect of the document's last block — the end of the file, where the user types next. */
-function endOfDocRect(editor: any): Rect | null {
-  const { doc } = editor.state;
-  const last = doc.lastChild;
-  if (!last) return rectOf(editor.view.dom);
-  const dom = editor.view.nodeDOM(doc.content.size - last.nodeSize) as HTMLElement | null;
-  return rectOf(dom) ?? rectOf(editor.view.dom);
-}
-
-/** The request's Send button, for the step that's about clicking it. */
-function sendButtonRect(editor: any): Rect | null {
-  const buttons = editor.view.dom.querySelectorAll('[aria-label="Send request"], [aria-label="Cancel request"]');
-  return rectOf(buttons[buttons.length - 1]);
-}
-
 /** Open editor menus (/ commands, the @ link picker): the tip must not sit under them. */
 const openMenuRects = (): Rect[] =>
   Array.from(document.querySelectorAll("[data-tippy-root]")).flatMap((el) => {
@@ -45,6 +52,8 @@ const openMenuRects = (): Rect[] =>
 /** Reveal what a step needs: the end of the file, room for the Environments editor, Source Control, or the checklist's commands. */
 async function prepareStep(step: GettingStartedStepId, editor: any, envEditorOpen: boolean) {
   const { target } = stepById(step);
+  // The checklist stays on screen through the tour as a pill; only the step that uses it opens it.
+  useGettingStartedStore.getState().setExpanded(target === "card");
   if (target === "envEditor") {
     if (!envEditorOpen) return;
     const panels = usePanelStore.getState();
@@ -62,48 +71,40 @@ async function prepareStep(step: GettingStartedStepId, editor: any, envEditorOpe
       await window.electron?.sidebar.activateTab("left", git.id);
       await getQueryClient().invalidateQueries({ queryKey: ["sidebar:tabs", "left"] });
     }
-  } else if (target === "card") {
-    useGettingStartedStore.getState().setExpanded(true);
+  } else if (target === "plugins" || (target === "pluginActions" && !document.querySelector('[data-onboarding="plugin-actions"]'))) {
+    revealPluginsTab();
   }
 }
 
 function placeAround(step: GettingStartedStepId, liveEditor: any, envEditorOpen: boolean, height: number): Layout | null {
   const { target } = stepById(step);
   const editorArea = rectOf(document.getElementById("main-editor"));
-  if (target === "editor" && liveEditor) {
-    const anchor = (step === "send" && sendButtonRect(liveEditor)) || endOfDocRect(liveEditor);
-    if (!anchor) return null;
-    // Aim the arrow at the anchor: the Send button's middle, or the start of the last line.
-    const aimX = step === "send" ? (anchor.left + anchor.right) / 2 : anchor.left + 22;
-    const left = clampLeft(aimX - 28);
-    const arrowAt = Math.max(10, Math.min(aimX - left - 6, TIP_WIDTH - 22));
+  if (target === "editor" && liveEditor && editorArea) {
+    // The file itself explains the step: the tip stays put in the editor's top-right corner,
+    // and moves to the bottom-right while an editor menu (/ commands, the @ picker) would sit under it.
+    const left = clampLeft(editorArea.right - TIP_WIDTH - 16);
     const box = (top: number): Rect => ({ top, left, right: left + TIP_WIDTH, bottom: top + height });
-    const below = anchor.bottom + GAP;
-    const above = anchor.top - GAP - height;
-    const menus = openMenuRects();
-    const clear = (top: number) => top >= GAP && top + height <= window.innerHeight - GAP && !menus.some((m) => overlaps(box(top), m));
-    if (clear(below)) return { spot: editorArea, tip: { top: below, left, arrow: "up", arrowAt } };
-    if (clear(above)) return { spot: editorArea, tip: { top: above, left, arrow: "down", arrowAt } };
-    // A menu is open on both sides of the line: sit beside it instead.
-    const menu = menus[0];
-    if (menu) {
-      const side = menu.right + GAP + TIP_WIDTH <= window.innerWidth - GAP ? menu.right + GAP : menu.left - GAP - TIP_WIDTH;
-      return { spot: editorArea, tip: { top: clampTop(menu.top, height), left: Math.max(GAP, side), arrow: "none" } };
-    }
-    return below + height < window.innerHeight - GAP
-      ? { spot: editorArea, tip: { top: below, left, arrow: "up", arrowAt } }
-      : { spot: editorArea, tip: { top: clampTop(above, height), left, arrow: "down", arrowAt } };
+    const topRight = editorArea.top + 16;
+    const covered = openMenuRects().some((m) => overlaps(box(topRight), m));
+    // Bottom-right, above the checklist pill (32px tall, 16px from the edge).
+    const top = covered ? clampTop(editorArea.bottom - height - 64, height) : topRight;
+    return { spot: editorArea, tip: { top, left, arrow: "none" } };
   }
   if (target === "envEditor" && envEditorOpen && editorArea) {
-    // Bottom-right: the top of the Environments editor holds its tabs and actions.
-    return { spot: editorArea, tip: { top: clampTop(editorArea.bottom - height - 16, height), left: clampLeft(editorArea.right - TIP_WIDTH - 24), arrow: "none" } };
+    // Bottom-right, above the checklist pill: the top of the Environments editor holds its tabs and actions.
+    return { spot: editorArea, tip: { top: clampTop(editorArea.bottom - height - 64, height), left: clampLeft(editorArea.right - TIP_WIDTH - 24), arrow: "none" } };
   }
   // Before the Environments editor is open, point at the picker it opens from.
   if (target === "env" || target === "envEditor") {
     const spot = rectOf(document.querySelector('[data-onboarding="env-selector"]'));
     if (spot) return { spot, tip: { top: spot.bottom + GAP, left: clampLeft(spot.left), arrow: "up" } };
   }
-  if (target === "sidebar") {
+  // A plugin's Enable / Disable / Uninstall buttons, on its details page; until one is open, the list.
+  if (target === "pluginActions") {
+    const spot = rectOf(document.querySelector('[data-onboarding="plugin-actions"]'));
+    if (spot) return { spot, tip: { top: spot.bottom + GAP, left: clampLeft(spot.left), arrow: "up" } };
+  }
+  if (target === "sidebar" || target === "plugins" || target === "pluginActions") {
     const spot = rectOf(document.getElementById("left-sidebar"));
     if (spot) return { spot, tip: { top: clampTop(spot.top + 48, height), left: clampLeft(spot.right + GAP), arrow: "left" } };
   }
@@ -113,13 +114,17 @@ function placeAround(step: GettingStartedStepId, liveEditor: any, envEditorOpen:
 }
 
 /**
- * The guided tour's tip for one step. While it's open the rest of the window is dimmed and
- * blocked, so the user stays on that step. Doing the step switches the tip to a "done" note
- * with a Next button; "Got it" moves straight on; ✕ (or Esc outside the editor) ends the tour.
+ * The guided tour's tip for one step: a title and one line of what to do (the step's file holds
+ * the details). Doing the step switches it to a "done" line with a Next button; the arrows
+ * move between tips either way; ✕ (or Esc outside the editor) ends the tour.
  */
 export function CoachTips({ docOpen, activeTabType, activeTabTitle }: { docOpen: boolean; activeTabType?: string; activeTabTitle?: string }) {
   const tipStep = useGettingStartedStore((s) => s.tipStep);
   const tipDone = useGettingStartedStore((s) => s.tipDone);
+  // Send needs an environment: without one {{baseUrl}} stays unresolved and the request fails,
+  // which doesn't count. Say so instead of repeating "Click Send".
+  const { data: envs } = useEnvironments();
+  const noEnv = tipStep === "send" && !!envs && !envs.activeEnv;
   const closeTip = useGettingStartedStore((s) => s.closeTip);
   const editor = useVoidenEditorStore((s) => s.editor);
   const ref = useRef<HTMLDivElement>(null);
@@ -141,6 +146,44 @@ export function CoachTips({ docOpen, activeTabType, activeTabTitle }: { docOpen:
   // Wait a moment first, so it doesn't flash while the tour itself is opening that file.
   const elsewhere = !!tipStep && !!stepFile && !onStepFile && !onStart;
   const [showElsewhere, setShowElsewhere] = useState(false);
+
+  // "Open a plugin" is done once its page is open. Its tip sits by the list, on top of that page,
+  // so move straight on to the next step, which points at the page's own buttons. Only when it
+  // was just done: going back to it with the arrows shows it as done and stays there.
+  const pluginsWasOpen = useRef(false);
+  useEffect(() => {
+    const justDone = shown === "plugins" && tipDone && pluginsWasOpen.current;
+    pluginsWasOpen.current = shown === "plugins" && !tipDone;
+    if (!justDone) return;
+    const t = window.setTimeout(() => nextTip(), 700);
+    return () => window.clearTimeout(t);
+  }, [shown, tipDone]);
+
+  // Commit: the project usually isn't a Git repo yet, so walk through it — initialize, stage,
+  // commit — and say what each part means, following Source Control's state as it changes.
+  const { data: isRepo } = useIsGitRepo();
+  const { data: gitStatus } = useGetGitStatus();
+  const commitPhase: CommitPhase = !isRepo ? "init" : gitStatus?.staged?.length ? "commit" : "stage";
+
+  // "Reuse" imports the headers block from 2-headers.void: if that step was skipped there's
+  // nothing to import, so send the user back to it first instead of a step that can't work.
+  const headersDone = useGettingStartedStore((s) => !!s.done.headers);
+  const [headersMissing, setHeadersMissing] = useState(false);
+  useEffect(() => {
+    setHeadersMissing(false);
+    if (shown !== "reuse" || headersDone) return;
+    let cancelled = false;
+    (async () => {
+      const root: string | undefined = (await window.electron?.state.getProjects())?.activeProject;
+      const file = stepById("headers").file!;
+      const path = root && (await window.electron?.utils.pathJoin(root, file));
+      const text: string = path ? ((await window.electron?.files.read(path).catch(() => "")) ?? "") : "";
+      if (!cancelled) setHeadersMissing(!/type:\s*headers-table/.test(text));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [shown, headersDone]);
   useEffect(() => {
     if (!elsewhere) return setShowElsewhere(false);
     const t = window.setTimeout(() => setShowElsewhere(true), 400);
@@ -148,7 +191,8 @@ export function CoachTips({ docOpen, activeTabType, activeTabTitle }: { docOpen:
   }, [elsewhere, tipStep]);
 
   useEffect(() => {
-    if (shown && !tipDone) prepareStep(shown, liveEditor, envEditorOpen);
+    // Done steps too: going back to one still shows where it happens.
+    if (shown) prepareStep(shown, liveEditor, envEditorOpen);
     // Only when the step (or the document or tab it points into) changes — not on every edit.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shown, liveEditor, envEditorOpen]);
@@ -200,7 +244,7 @@ export function CoachTips({ docOpen, activeTabType, activeTabTitle }: { docOpen:
         <span className="flex items-center justify-between">
           <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider opacity-60">
             <Lightbulb size={12} />
-            Step {stepNumber} of {GETTING_STARTED_STEPS.length} · paused
+            {stepNumber} of {GETTING_STARTED_STEPS.length} · paused
           </span>
           <button type="button" aria-label="End the tour" onClick={closeTip} className="p-0.5 rounded opacity-60 hover:opacity-100">
             <X size={14} />
@@ -208,7 +252,7 @@ export function CoachTips({ docOpen, activeTabType, activeTabTitle }: { docOpen:
         </span>
         <span className="text-sm font-semibold">{STEP_TIPS[tipStep].title}</span>
         <span className="text-xs leading-relaxed opacity-80">
-          This step happens in <span className="font-mono">{stepFile}</span>. Go back to it to carry on.
+          This step is in <span className="font-mono">{stepFile}</span>.
         </span>
         <button
           type="button"
@@ -223,8 +267,19 @@ export function CoachTips({ docOpen, activeTabType, activeTabTitle }: { docOpen:
 
   if (!shown || !layout) return null;
 
+  // Enable / Disable step: once the plugin is off, the next move is turning it back on.
+  const pluginOff =
+    shown === "pluginActions" && document.querySelector('[data-onboarding="plugin-actions"]')?.getAttribute("data-enabled") === "false";
+
   const tip = STEP_TIPS[shown];
-  const body = stepById(shown).target === "envEditor" && !envEditorOpen && tip.open ? tip.open : tip.body;
+  const body =
+    shown === "commit"
+      ? COMMIT_PHASES.find((p) => p.id === commitPhase)!.body
+      : tip.open &&
+          ((stepById(shown).target === "envEditor" && !envEditorOpen) ||
+            (stepById(shown).target === "pluginActions" && activeTabType !== "extensionDetails"))
+        ? tip.open
+        : tip.body;
   const stepNumber = GETTING_STARTED_STEPS.findIndex((s) => s.id === shown) + 1;
   const isLast = stepNumber === GETTING_STARTED_STEPS.length;
   const arrowStyle = {
@@ -235,33 +290,20 @@ export function CoachTips({ docOpen, activeTabType, activeTabTitle }: { docOpen:
     none: null,
   }[layout.tip.arrow];
 
-  // Four dim panes around the spotlit area block clicks everywhere else; the area itself stays usable.
-  // Once the step is done the dimming lifts, so the user can look at the result (e.g. the response).
-  const s = !tipDone && layout.spot && {
-    top: layout.spot.top - PAD,
-    left: layout.spot.left - PAD,
-    right: layout.spot.right + PAD,
-    bottom: layout.spot.bottom + PAD,
-  };
-  const blockers = s
-    ? [
-        { top: 0, left: 0, width: "100vw", height: Math.max(0, s.top) },
-        { top: s.bottom, left: 0, width: "100vw", height: `calc(100vh - ${s.bottom}px)` },
-        { top: s.top, left: 0, width: Math.max(0, s.left), height: s.bottom - s.top },
-        { top: s.top, left: s.right, width: `calc(100vw - ${s.right}px)`, height: s.bottom - s.top },
-      ]
-    : [];
+  // No dimming: the window stays usable. A ring shows where the step happens: the editor
+  // (whose file holds the steps), the environment picker, Source Control or the checklist.
+  const ring =
+    !tipDone && layout.spot && !(stepById(shown).target === "envEditor" && envEditorOpen)
+      ? { top: layout.spot.top - PAD, left: layout.spot.left - PAD, right: layout.spot.right + PAD, bottom: layout.spot.bottom + PAD }
+      : null;
 
   return (
     <>
-      {blockers.map((style, i) => (
-        <div key={i} aria-hidden className="fixed z-40 bg-black/55" style={style} onMouseDown={(e) => e.preventDefault()} />
-      ))}
-      {s && (
+      {ring && (
         <div
           aria-hidden
           className="fixed z-40 pointer-events-none rounded-lg ring-2 ring-accent/70"
-          style={{ top: s.top, left: s.left, width: s.right - s.left, height: s.bottom - s.top }}
+          style={{ top: ring.top, left: ring.left, width: ring.right - ring.left, height: ring.bottom - ring.top }}
         />
       )}
       <div
@@ -271,29 +313,91 @@ export function CoachTips({ docOpen, activeTabType, activeTabTitle }: { docOpen:
         // Keep focus where it is (e.g. the end of the file), so clicking the tip doesn't move the caret.
         onMouseDown={(e) => e.preventDefault()}
         style={{ top: layout.tip.top, left: layout.tip.left, width: TIP_WIDTH }}
-        className="fixed z-50 flex flex-col gap-2 p-4 rounded-xl bg-text text-bg shadow-xl select-none"
+        className="fixed z-50 flex flex-col gap-1.5 p-3 rounded-xl bg-text text-bg shadow-xl select-none"
       >
         {arrowStyle && <span aria-hidden className="absolute w-3 h-3 bg-text rotate-45" style={arrowStyle} />}
         <span className="flex items-center justify-between">
-          <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider opacity-60">
-            {tipDone ? <Check size={12} /> : <Lightbulb size={12} />}
-            Step {stepNumber} of {GETTING_STARTED_STEPS.length}
-            {tipDone && " · done"}
+          {/* Done reads at a glance: a green check and "Done", not the faded step count alone. */}
+          <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider">
+            {tipDone ? (
+              <span className="flex items-center justify-center w-4 h-4 rounded-full bg-emerald-500 text-white">
+                <Check size={10} strokeWidth={3} />
+              </span>
+            ) : (
+              <Lightbulb size={12} className="opacity-60" />
+            )}
+            <span className="opacity-60">
+              {stepNumber} of {GETTING_STARTED_STEPS.length}
+            </span>
+            {tipDone && <span className="text-emerald-500">Done</span>}
           </span>
           <button type="button" aria-label="End the tour" onClick={closeTip} className="p-0.5 rounded opacity-60 hover:opacity-100">
             <X size={14} />
           </button>
         </span>
-        <span className="text-sm font-semibold">{tipDone ? `Nice. ${tip.title}: done.` : tip.title}</span>
-        <span className="text-xs leading-relaxed opacity-80">{tipDone ? tip.done : body}</span>
-        <span className="flex items-center justify-between mt-1">
+        <span className="text-sm font-semibold">{tip.title}</span>
+        {shown === "commit" && !tipDone && (
+          <span className="flex items-center gap-1 text-[10px] font-semibold">
+            {COMMIT_PHASES.map((p, i) => {
+              const at = COMMIT_PHASES.findIndex((q) => q.id === commitPhase);
+              return (
+                <span key={p.id} className="flex items-center gap-1">
+                  {i > 0 && <span className="opacity-30">·</span>}
+                  <span className={i === at ? "opacity-100" : i < at ? "opacity-50 line-through" : "opacity-40"}>{p.label}</span>
+                </span>
+              );
+            })}
+          </span>
+        )}
+        <span className="text-xs leading-relaxed opacity-80">
+          {tipDone
+            ? tip.done
+            : noEnv
+              ? "No environment is picked, so {{baseUrl}} can't resolve and the request fails. Pick Local first, then send."
+              : headersMissing
+              ? "This imports the headers block from 2-headers.void. Add it there first."
+              : pluginOff
+                ? "It's off now: its blocks stop working. Click Enable to turn it back on."
+                : body}
+        </span>
+        {tip.points && !tipDone && (
+          <ul className="m-0 pl-4 flex flex-col gap-1 list-disc text-xs leading-relaxed opacity-80">
+            {tip.points.map((p) => (
+              <li key={p}>{p}</li>
+            ))}
+          </ul>
+        )}
+        {noEnv && !tipDone && (
           <button
             type="button"
-            onClick={() => (tipDone && isLast ? finishTour() : nextTip())}
-            className="h-8 px-3 rounded-md bg-bg text-text text-xs font-semibold hover:opacity-90"
+            onClick={() => requestTip("selectEnv")}
+            className="self-start h-7 px-3 rounded-md bg-bg text-text text-xs font-semibold hover:opacity-90"
           >
-            {tipDone ? (isLast ? "Finish" : "Next step →") : "Got it"}
+            Pick an environment
           </button>
+        )}
+        {headersMissing && !tipDone && (
+          <button
+            type="button"
+            onClick={() => requestTip("headers")}
+            className="self-start h-7 px-3 rounded-md bg-bg text-text text-xs font-semibold hover:opacity-90 flex items-center gap-1.5"
+          >
+            <FileText size={12} /> Open 2-headers.void
+          </button>
+        )}
+        <span className="flex items-center justify-between mt-1">
+          {/* Done: a clear way on. Not done yet, the arrows are enough to move between tips. */}
+          {tipDone ? (
+            <button
+              type="button"
+              onClick={() => (isLast ? finishTour() : nextTip())}
+              className="h-7 px-3 rounded-md bg-bg text-text text-xs font-semibold hover:opacity-90"
+            >
+              {isLast ? "Finish" : "Next →"}
+            </button>
+          ) : (
+            <span />
+          )}
           {/* Move between tips in order, whether or not each step is done. */}
           <span className="flex items-center gap-1">
             <button
@@ -316,7 +420,6 @@ export function CoachTips({ docOpen, activeTabType, activeTabTitle }: { docOpen:
             </button>
           </span>
         </span>
-        <span className="text-[10px] opacity-50">✕ ends the tour</span>
       </div>
     </>
   );

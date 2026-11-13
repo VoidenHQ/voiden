@@ -7,7 +7,7 @@ generatedAt: 2026-11-04T00:00:00.000Z
 
 # 2. Headers, and your own variables
 
-**Write an environment variable.** Open **Environments** from the environment picker at the top, and add `token` to **Local** with any value, like `my-secret`. Secrets belong in the private file, which is git-ignored.
+**Write an environment variable.** Open the environment picker at the top and click **Edit Environments**. In **Local**, add `token` with any value, like `my-secret`, and switch it to **Private** before adding it. Private values go in `env-private.yaml`, which is git-ignored.
 
 **Add a block.** At the end of this file, under the request, type `/headers` and press Enter. Add two rows:
 
@@ -15,6 +15,8 @@ generatedAt: 2026-11-04T00:00:00.000Z
 - `X-Trace` → `hello`
 
 **Send it.** The echo server returns every header it got: find `authorization` and `x-trace` under `headers` in the response.
+
+**Open the block menu.** Hover your headers block and click the **⋮⋮** handle on its left, or put the cursor in it and press `Cmd+.` (Mac) / `Ctrl+.` (Windows/Linux). Every block has this menu: copy, link, duplicate, move or delete it.
 
 ```void
 ---

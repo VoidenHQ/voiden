@@ -9,7 +9,7 @@ generatedAt: 2026-11-04T00:00:00.000Z
 
 You wrote those headers once in `2-headers.void`. Reuse them here instead of copying them.
 
-**Import the block.** At the end of this file, under the request, type `@`, pick `2-headers.void`, then pick its **headers** block. It comes in linked: change it in `2-headers.void` and this file follows.
+**Import the block.** At the end of this file, under the request, type `@` and highlight `2-headers.void`. Press **Space** to see the blocks inside it, then pick **headers** and press Enter. It comes in linked: change it in `2-headers.void` and this file follows.
 
 **Send it.** The response shows the same `authorization` and `x-trace` headers, sent from a block that lives in another file.
 
@@ -29,3 +29,5 @@ content:
     content: "{{baseUrl}}/?demo=reuse"
 ---
 ```
+
+**More examples.** `4-form-with-file.void` sends a form with a file, and `5-binary-body.void` sends a file as the whole body.

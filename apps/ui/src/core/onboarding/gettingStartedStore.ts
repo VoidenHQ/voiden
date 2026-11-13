@@ -1,22 +1,26 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { isMac } from "@/core/lib/utils";
 
 /** Where a step's tip points, and what the rest of the window is dimmed around. */
-export type StepTarget = "editor" | "env" | "envEditor" | "sidebar" | "card";
+export type StepTarget = "editor" | "env" | "envEditor" | "sidebar" | "plugins" | "pluginActions" | "card";
 
 /**
  * The guided tour, in order. Each editor step lives in its own file of the playground
  * project (apps/electron/src/playground-project), which is opened when the step starts.
+ * The file explains the step; the tip only says what to do next, in a line.
+ * 4-form-with-file.void and 5-binary-body.void stay in the playground as extra examples.
  */
 export const GETTING_STARTED_STEPS = [
   { id: "selectEnv", label: "Pick an environment", file: "1-first-request.void", target: "env" },
   { id: "send", label: "Send your first request", file: "1-first-request.void", target: "editor" },
   { id: "writeEnv", label: "Write an environment variable", target: "envEditor" },
-  { id: "headers", label: "Add a headers block and send it", file: "2-headers.void", target: "editor" },
+  { id: "headers", label: "Add a headers block", file: "2-headers.void", target: "editor" },
+  { id: "blockMenu", label: "Open a block's menu", file: "2-headers.void", target: "editor" },
   { id: "reuse", label: "Reuse a block with @", file: "3-reuse-blocks.void", target: "editor" },
-  { id: "form", label: "Send a form with a file", file: "4-form-with-file.void", target: "editor" },
-  { id: "binary", label: "Send a file as the body", file: "5-binary-body.void", target: "editor" },
   { id: "commit", label: "Commit it to Git", target: "sidebar" },
+  { id: "plugins", label: "Open a plugin", target: "plugins" },
+  { id: "pluginActions", label: "Enable, disable or uninstall a plugin", target: "pluginActions" },
   { id: "outside", label: "Run it outside the app", target: "card" },
 ] as const satisfies readonly { id: string; label: string; file?: string; target: StepTarget }[];
 
@@ -25,53 +29,64 @@ export type GettingStartedStepId = (typeof GETTING_STARTED_STEPS)[number]["id"];
 export const stepById = (id: GettingStartedStepId): { id: GettingStartedStepId; label: string; file?: string; target: StepTarget } =>
   GETTING_STARTED_STEPS.find((s) => s.id === id)!;
 
-/** What each step's tip says while it's open, and once the step is done. */
-export const STEP_TIPS: Record<GettingStartedStepId, { title: string; body: string; done: string; open?: string }> = {
+/**
+ * Each step's tip: one short action while it's open, one line once it's done. Steps in a
+ * file keep the details in that file, so there's one place to read, not two.
+ */
+export const STEP_TIPS: Record<GettingStartedStepId, { title: string; body: string; done: string; open?: string; points?: string[] }> = {
   selectEnv: {
     title: "Pick an environment",
-    body: "Click the environment picker here and choose Local. {{baseUrl}} and {{user}} in the request come from it.",
-    done: "{{user}} now resolves from your environment. Switch to Staging any time and it changes.",
+    body: "Click the environment picker in the top bar (it says No environment) and choose Local.",
+    done: "{{user}} in the request now comes from Local.",
   },
   send: {
     title: "Send your first request",
-    body: "Click Send on the request at the end of the file, or press Cmd/Ctrl+Enter.",
-    done: "That's your first response, on the right. Your name is echoed back under query.",
+    body: "Click Send, or press Cmd/Ctrl+Enter.",
+    done: "Your response is on the right.",
   },
   writeEnv: {
     title: "Write an environment variable",
-    open: "First open the Environments editor: click the environment picker here, then Edit Environments at the bottom.",
-    body: "In Local, add a variable named token with any value, like my-secret. Switch its Public button to Private before adding it: secrets go in the git-ignored env-private.yaml. It saves on its own.",
-    done: "{{token}} is ready, and stays out of Git. You'll use it in a header next.",
+    open: "Click the environment picker in the top bar, then Edit Environments.",
+    body: "In Local, add a Private variable named token.",
+    done: "{{token}} is saved, and kept out of Git.",
   },
   headers: {
     title: "Add a headers block",
-    body: "At the end of the file, type /headers and press Enter. Add Authorization → Bearer {{token}} and X-Trace → hello, then send.",
-    done: "Check headers in the response: authorization and x-trace came back from the server.",
+    body: "Type /headers at the end of the file.",
+    done: "Headers added. Send it to see them in the response.",
+  },
+  blockMenu: {
+    title: "Open a block's menu",
+    body: `Click ⋮⋮ beside the headers block, or put the cursor in it and press ${isMac ? "⌘." : "Ctrl+."}`,
+    done: "Copy, link, duplicate or delete any block from this menu.",
   },
   reuse: {
     title: "Reuse a block with @",
-    body: "At the end of the file, type @2-headers so that file is highlighted, then press → (or Space) to see its blocks. Pick the headers block with Enter, then send.",
-    done: "Those headers are linked from 2-headers.void. Change them there and this file follows.",
-  },
-  form: {
-    title: "Send a form with a file",
-    body: "Click the empty value next to avatar in the form, type @ and pick assets/hello.txt. Then send.",
-    done: "Sent as multipart/form-data, with your name field and the file.",
-  },
-  binary: {
-    title: "Send a file as the body",
-    body: "At the end of the file, type /file and press Enter, then type @ and pick assets/hello.txt. Then send.",
-    done: "The file went out as the raw body. See content-length in the response headers.",
+    body: "Type @ at the end of the file and pick 2-headers.void.",
+    done: "Those headers are linked from 2-headers.void.",
   },
   commit: {
     title: "Commit it to Git",
-    body: "Your requests are plain files. In Source Control, initialize the repo if needed, stage the .void files and commit.",
-    done: "Committed. Your API work now reviews like any other code.",
+    // The tip shows Initialize → Stage → Commit from Source Control's state (CoachTips).
+    body: "In Source Control, stage the .void files and commit them.",
+    done: "Committed. To share it, use Link a remote repository below to publish it to GitHub, GitLab or similar.",
+  },
+  plugins: {
+    title: "Open a plugin",
+    body: "Plugins add the blocks you've used. Click one to see what it adds.",
+    points: ["Filter by Core (built in) or Community."],
+    done: "This is its page: what it adds, its version and changelog.",
+  },
+  pluginActions: {
+    title: "Enable, disable or uninstall",
+    open: "Open a plugin from the list first.",
+    body: "Click Disable to turn it off, then Enable to bring it back. Uninstall removes it; you can install it again any time.",
+    done: "That's how you manage any plugin, here or from ⚙ in the list.",
   },
   outside: {
     title: "Run it outside the app",
-    body: "Copy the CI or MCP command below to run these files from a terminal, CI, or Claude Code and Codex.",
-    done: "That's the whole tour. Finish to put the checklist away. It's under Help → Getting Started Checklist if you need it again.",
+    body: "Copy a command below to run these files in CI or from an AI agent.",
+    done: "That's the tour. Find it again under Help → Getting Started Checklist.",
   },
 };
 
@@ -105,22 +120,29 @@ export const useGettingStartedStore = create<GettingStartedState>()(
       tipDone: false,
       markDone: (id) =>
         set((s) => (s.done[id] ? s : { done: { ...s.done, [id]: true }, tipDone: s.tipStep === id ? true : s.tipDone })),
-      toggleStep: (id) => set((s) => ({ done: { ...s.done, [id]: !s.done[id] } })),
+      toggleStep: (id) =>
+        set((s) => ({ done: { ...s.done, [id]: !s.done[id] }, tipDone: s.tipStep === id ? !s.done[id] : s.tipDone })),
       // Hiding the checklist also ends a tip that points at it (the last step's "copy the command
       // below"), which would otherwise be left floating with nothing to point at.
       setVisible: (visible) =>
         set((s) => (!visible && s.tipStep && stepById(s.tipStep).target === "card" ? { visible, tipStep: null, tipDone: false } : { visible })),
       setExpanded: (expanded) => set({ expanded }),
       // Re-showing the open step (e.g. coming back to its file) keeps its "done" note.
-      showTip: (id) => set((s) => ({ tipStep: id, tipDone: s.tipStep === id ? s.tipDone : false })),
+      // A step that's already done opens in its done state, so moving back through the tips shows it.
+      showTip: (id) => set((s) => ({ tipStep: id, tipDone: !!s.done[id] })),
       closeTip: () => set({ tipStep: null, tipDone: false }),
       begin: () => set({ visible: true }),
     }),
     {
       name: "voiden-getting-started",
-      version: 2,
-      // The step list changed: start over rather than map old step ids.
-      migrate: (state: any) => ({ visible: !!state?.visible, expanded: false, done: {}, tipStep: null, tipDone: false }) as any,
+      version: 3,
+      // v1 had other step ids: start over. v2 had two more steps (form, binary): keep
+      // progress on the steps that remain, and drop an open tip that may be a removed step.
+      migrate: (state: any, version) => {
+        const kept = version >= 2 ? state?.done ?? {} : {};
+        const done = Object.fromEntries(GETTING_STARTED_STEPS.filter((s) => kept[s.id]).map((s) => [s.id, true]));
+        return { visible: !!state?.visible, expanded: false, done, tipStep: null, tipDone: false } as any;
+      },
       // A finished checklist left showing (from before it put itself away) shouldn't come back on launch.
       onRehydrateStorage: () => (state) => {
         // Rehydration can run while the store is still being created: defer the write.

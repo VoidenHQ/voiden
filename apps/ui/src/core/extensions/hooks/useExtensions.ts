@@ -1,6 +1,10 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
+/** Getting started: enabling, disabling or uninstalling a plugin is a tour step (lazy: the store imports UI code). */
+const markPluginActionsStep = () =>
+  import("@/core/onboarding/gettingStartedStore").then((m) => m.markGettingStartedStep("pluginActions")).catch(() => {});
+
 export const useGetExtensions = () => {
   return useQuery({
     queryKey: ["extensions"],
@@ -38,6 +42,7 @@ export const useUninstallExtension = () => {
   return useMutation({
     mutationFn: async (extensionId: string) => window.electron?.extensions.uninstall(extensionId),
     onSuccess: async () => {
+      markPluginActionsStep();
       // Wait a bit before invalidating to allow current renders to complete
       await new Promise(resolve => setTimeout(resolve, 50));
 
@@ -54,7 +59,9 @@ export const useSetExtensionEnabled = () => {
   return useMutation({
     mutationFn: async ({ extensionId, enabled }: { extensionId: string; enabled: boolean }) =>
       window.electron?.extensions.setEnabled(extensionId, enabled),
-    onSuccess: async () => {
+    onSuccess: async (_data, { enabled }) => {
+      // Only once it's back on: a step that ticks on Disable could leave a plugin the tour needs switched off.
+      if (enabled) markPluginActionsStep();
       // Wait a bit before invalidating to allow current renders to complete
       await new Promise(resolve => setTimeout(resolve, 50));
 
