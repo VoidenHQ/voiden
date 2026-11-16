@@ -3,7 +3,7 @@
     "version": "v2.4.1",
     "date": "16/11/2026",
     "title": "Stable: New Start Tab, Guided Tour and Import Flow",
-    "description": "Stable release rolling up v2.4.1-beta.1 plus newer onboarding changes: a new Start tab, a guided playground tour that now covers the block menu, Git publishing and plugins, one import dialog for Postman, OpenAPI, Insomnia, Bruno, HAR and curl, cursor memory and a vertical left-panel tab bar.",
+    "description": "Stable release rolling up v2.4.1-beta.1 plus newer onboarding changes: a new Start tab, a guided playground tour that now covers the block menu, committing to Git and plugins, one import dialog for Postman, OpenAPI, Insomnia, Bruno, HAR and curl, cursor memory and a vertical left-panel tab bar.",
     "icon": "Sparkles",
     "iconColor": "text-violet-400",
     "bgColor": "bg-gradient-to-br from-slate-900 to-violet-950",
