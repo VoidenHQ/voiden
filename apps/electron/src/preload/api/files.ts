@@ -42,6 +42,10 @@ export const filesApi = {
       withSampleProject,
       projectName,
     ),
+  createPlayground: (targetDirectory: string): Promise<{ projectPath: string; welcomeFile: string }> =>
+    ipcRenderer.invoke("files:create-playground", targetDirectory),
+  scanProjectSetup: (projectPath: string): Promise<{ voidCount: number; specs: string[]; envFiles: string[] }> =>
+    ipcRenderer.invoke("files:scan-project-setup", projectPath),
   delete: (path: string) => ipcRenderer.invoke("files:delete", path),
   rename: (
     oldPath: string,

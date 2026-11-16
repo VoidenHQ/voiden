@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 import { Files, ArrowDownUp, Blocks, Search, GitBranch, History, icons, Loader2, PanelRight, PanelBottom } from "lucide-react";
 import { cn } from "@/core/lib/utils";
@@ -9,14 +9,52 @@ import { Kbd } from "@/core/components/ui/kbd";
 import { Tip } from "@/core/components/ui/Tip";
 import { useResponseStore } from "@/core/request-engine/stores/responseStore";
 import { useResponsePanelPosition } from "@/core/stores/responsePanelPosition";
+import { useSidebarTabsPosition } from "@/core/stores/sidebarTabsPosition";
+
+/** Right-click menu on the left panel's tabs: move them between the top row and the side bar. */
+function TabsPositionMenu({ at, onClose }: { at: { x: number; y: number }; onClose: () => void }) {
+  const { position, togglePosition } = useSidebarTabsPosition();
+  useEffect(() => {
+    const close = () => onClose();
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("mousedown", close);
+    window.addEventListener("blur", close);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("mousedown", close);
+      window.removeEventListener("blur", close);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [onClose]);
+  return (
+    <div
+      role="menu"
+      style={{ top: at.y, left: at.x }}
+      className="fixed z-[100] min-w-44 py-1 rounded-md border border-border bg-panel text-text text-sm shadow-lg"
+      onMouseDown={(e) => e.stopPropagation()}
+    >
+      <button
+        type="button"
+        role="menuitem"
+        className="w-full text-left px-3 py-1 hover:bg-active"
+        onClick={() => {
+          togglePosition();
+          onClose();
+        }}
+      >
+        {position === "top" ? "Move tabs to the side" : "Move tabs to the top"}
+      </button>
+    </div>
+  );
+}
 
 const sidebarTabIconMap = {
-  fileExplorer: <Files size={14} />,
-  responsePanel: <ArrowDownUp size={14} />,
-  extensionBrowser: <Blocks size={14} />,
-  gitSourceControl: <GitBranch size={14} />,
-  history: <History size={14} />,
-  globalHistory: <History size={14} />,
+  fileExplorer: Files,
+  responsePanel: ArrowDownUp,
+  extensionBrowser: Blocks,
+  gitSourceControl: GitBranch,
+  history: History,
+  globalHistory: History,
 };
 
 const sidebarTabLabelMap: Record<string, string> = {
@@ -44,7 +82,23 @@ const renderLucideIcon = (iconName: string | undefined, size: number = 14) => {
   return <IconComponent size={size} />;
 };
 
-export const SidePanelTabs = ({ side, wrapperClassName, onTabClick, forceInactive }: { side: "left" | "right"; wrapperClassName?: string; onTabClick?: () => void; forceInactive?: boolean }) => {
+export const SidePanelTabs = ({
+  side,
+  wrapperClassName,
+  onTabClick,
+  forceInactive,
+  vertical,
+  panel,
+}: {
+  side: "left" | "right";
+  wrapperClassName?: string;
+  onTabClick?: () => void;
+  forceInactive?: boolean;
+  /** Stack the tabs in a vertical bar beside the panel instead of a row above it. */
+  vertical?: boolean;
+  /** The panel these tabs drive, for the vertical bar: a tab opens it, the active tab closes it again. */
+  panel?: { collapsed: boolean; toggle: () => void };
+}) => {
   const { data: sidebarTabs } = useGetSidebarTabs(side);
   const pluginTabs = usePluginStore((state) => state.sidebar[side]);
   const activateTab = useActivateSidebarTab();
@@ -54,6 +108,27 @@ export const SidePanelTabs = ({ side, wrapperClassName, onTabClick, forceInactiv
   const storeIsSearching = useSearchStore((state) => state.isSearching);
   const setStoreIsSearching = useSearchStore((state) => state.setIsSearching);
   const openWithReplace = useSearchStore((state) => state.openWithReplace);
+  const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
+  // The vertical bar has room for bigger icons, as in VS Code's Activity Bar.
+  const iconSize = vertical ? 20 : 14;
+
+  /**
+   * In the vertical bar the tabs also show and hide the panel, as in VS Code: clicking a tab
+   * opens a collapsed panel, clicking the tab that's already showing collapses it.
+   * Returns true when the click only collapsed the panel.
+   */
+  const collapsedByClick = (isShowing: boolean) => {
+    if (!panel) return false;
+    if (panel.collapsed) {
+      panel.toggle();
+      return false;
+    }
+    if (isShowing) {
+      panel.toggle();
+      return true;
+    }
+    return false;
+  };
 
   const openSearch = () => {
     setStoreIsSearching(true);
@@ -81,7 +156,18 @@ export const SidePanelTabs = ({ side, wrapperClassName, onTabClick, forceInactiv
   }
 
   return (
-    <div className={wrapperClassName ?? "h-8 border-b border-border flex items-center bg-bg"}>
+    <div
+      className={wrapperClassName ?? (vertical ? "w-10 h-full border-r border-border flex flex-col items-stretch bg-bg" : "h-8 border-b border-border flex items-center bg-bg")}
+      onContextMenu={
+        side === "left"
+          ? (e) => {
+              e.preventDefault();
+              setMenuAt({ x: e.clientX, y: e.clientY });
+            }
+          : undefined
+      }
+    >
+      {menuAt && <TabsPositionMenu at={menuAt} onClose={() => setMenuAt(null)} />}
       {sidebarTabs.tabs.map((tab: { id: string; type: string; meta?: any }, idx: number) => {
         const extensionTab = tab.type === "custom" ? pluginTabs?.find((t) => t.id === tab.meta.customTabKey) : null;
         // Skip rendering if it's an extension tab but no matching plugin tab is found
@@ -95,22 +181,27 @@ export const SidePanelTabs = ({ side, wrapperClassName, onTabClick, forceInactiv
 
         return (
           <React.Fragment key={tab.id}>
-            <Tip label={tabLabel} side="bottom">
+            <Tip label={tabLabel} side={vertical ? "right" : "bottom"}>
               <button
                 onClick={() => {
+                  if (collapsedByClick(!forceInactive && sidebarTabs.activeTabId === tab.id && !storeIsSearching)) return;
                   onTabClick?.();
                   activateTab.mutate({ sidebarId: side, tabId: tab.id });
                   setStoreIsSearching(false);
                 }}
                 className={cn(
-                  "px-2 h-full flex items-center justify-center hover:bg-active",
+                  "flex items-center justify-center hover:bg-active",
+                  vertical ? "h-10 w-full" : "px-2 h-full",
                   !forceInactive && sidebarTabs.activeTabId === tab.id && !storeIsSearching && "bg-active",
                 )}
               >
                 <span className="relative flex items-center justify-center">
                 {tab.type === "custom" && extensionTab
-                  ? renderLucideIcon(extensionTab.icon, 14)
-                  : sidebarTabIconMap[tab.type as keyof typeof sidebarTabIconMap]}
+                  ? renderLucideIcon(extensionTab.icon, iconSize)
+                  : (() => {
+                      const Icon = sidebarTabIconMap[tab.type as keyof typeof sidebarTabIconMap];
+                      return Icon ? <Icon size={iconSize} /> : null;
+                    })()}
                 {tab.type === "responsePanel" && isRequestLoading && (
                   <Loader2 size={8} className="animate-spin text-accent absolute -top-1.5 -right-1.5" />
                 )}
@@ -118,18 +209,22 @@ export const SidePanelTabs = ({ side, wrapperClassName, onTabClick, forceInactiv
               </button>
             </Tip>
             {idx === 0 && side === "left" && (
-              <Tip label={<span className="flex items-center gap-2"><span>Search</span><Kbd keys="⇧⌘F" size="sm" /></span>} side="bottom">
+              <Tip label={<span className="flex items-center gap-2"><span>Search</span><Kbd keys="⇧⌘F" size="sm" /></span>} side={vertical ? "right" : "bottom"}>
                 <button
                   onClick={() => {
-                    setStoreIsSearching(!storeIsSearching);
+                    const showing = !forceInactive && sidebarTabs.activeTabId === tab.id && storeIsSearching;
+                    if (collapsedByClick(showing)) return;
+                    // Opening a collapsed panel on Search should show Search, not toggle it off.
+                    setStoreIsSearching(panel?.collapsed ? true : !storeIsSearching);
                     activateTab.mutate({ sidebarId: side, tabId: tab.id });
                   }}
                   className={cn(
-                    "px-2 h-full flex items-center justify-center hover:bg-active",
-                    sidebarTabs.activeTabId === tab.id && storeIsSearching && "bg-active",
+                    "flex items-center justify-center hover:bg-active",
+                    vertical ? "h-10 w-full" : "px-2 h-full",
+                    !forceInactive && sidebarTabs.activeTabId === tab.id && storeIsSearching && "bg-active",
                   )}
                 >
-                  <Search size={14} />
+                  <Search size={iconSize} />
                 </button>
               </Tip>
             )}
@@ -151,6 +246,35 @@ export const SidePanelTabs = ({ side, wrapperClassName, onTabClick, forceInactiv
           </Tip>
         </>
       )}
+    </div>
+  );
+};
+
+/**
+ * Title bar for a side panel whose tabs sit in the vertical bar: the open tab's name, since
+ * there's no tab row above the content to say what it is.
+ */
+export const SidePanelTitle = ({ side }: { side: "left" | "right" }) => {
+  const { data: sidebarTabs } = useGetSidebarTabs(side);
+  const pluginTabs = usePluginStore((state) => state.sidebar[side]);
+  const isSearching = useSearchStore((state) => state.isSearching);
+
+  const active = sidebarTabs?.tabs?.find((t: { id: string }) => t.id === sidebarTabs.activeTabId);
+  if (!active) return null;
+  // Search shows inside the first tab (the file explorer), so it takes the title while open.
+  const isSearch = side === "left" && isSearching && active.id === sidebarTabs.tabs[0]?.id;
+  const title = isSearch
+    ? "Search"
+    : active.type === "custom"
+      ? (() => {
+          const ext = pluginTabs?.find((t) => t.id === active.meta?.customTabKey);
+          return ext?.title || ext?.id || "";
+        })()
+      : sidebarTabLabelMap[active.type] || active.type;
+
+  return (
+    <div className="h-8 px-3 border-b border-border flex items-center bg-bg">
+      <span className="text-[11px] font-semibold uppercase tracking-wider text-comment truncate">{title}</span>
     </div>
   );
 };

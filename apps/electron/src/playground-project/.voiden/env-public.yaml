@@ -1,0 +1,10 @@
+local:
+  displayName: "Local"
+  variables:
+    baseUrl: "https://echo.voiden.md"
+    user: "sam"
+staging:
+  displayName: "Staging"
+  variables:
+    baseUrl: "https://echo.voiden.md"
+    user: "ada"

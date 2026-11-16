@@ -19,6 +19,7 @@ import { BlockOverviewPanel } from "@/core/layout/panels/BlockOverviewPanel";
 import { useVoidenEditorStore } from "@/core/editors/voiden/VoidenEditor";
 import { useSettings } from "@/core/settings/hooks";
 import { NewTerminalButton } from "@/core/terminal/components/NewTerminalButton";
+import { GettingStartedCard } from "@/core/onboarding/GettingStartedCard";
 
 interface MainEditorProps {
   bottomPanelProps: any;
@@ -139,6 +140,7 @@ export const MainEditor = ({ bottomPanelProps, rightPanelProps }: MainEditorProp
         <div className="absolute inset-0 overflow-hidden">
           <PanelContent panelId="main" />
         </div>
+        <GettingStartedCard />
       </div>
       {blockOverviewEnabled && showBlockOverview && voidenEditor && (
         <div className="w-60 border-l border-border bg-bg flex-shrink-0 overflow-hidden">

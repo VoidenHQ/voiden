@@ -934,6 +934,13 @@ input[type="week"]::-webkit-datetime-edit-year-field:focus {
   box-shadow: 4px 0 0 0 var(--variable-valid-bg), -4px 0 0 0 var(--variable-valid-bg);
 }
 
+/* The block preview (@ picker, linked blocks) is narrow: keep each {{variable}} chip on one line. */
+.block-preview .variable-highlight-valid,
+.block-preview .variable-highlight-invalid,
+.block-preview .variable-highlight-faker {
+  white-space: nowrap;
+}
+
 .variable-highlight-invalid {
   background-color: var(--variable-invalid-bg);
   color: var(--variable-invalid-fg);

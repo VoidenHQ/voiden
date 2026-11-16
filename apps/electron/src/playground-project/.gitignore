@@ -1,0 +1,5 @@
+# Voiden
+**/.voiden/*
+!**/.voiden/env-public.yaml
+!**/.voiden/env-*-public.yaml
+.voiden-inherited.void

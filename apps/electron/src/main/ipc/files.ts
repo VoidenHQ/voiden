@@ -23,7 +23,7 @@ import {
 import type { MoveConflict } from "../fileSystem";
 import { trackSaveDialog } from "../fileSystem";
 import { readWorkingBlob } from "../gitBlob";
-import { createEmptyProject, createSampleProject } from "../projectUtils";
+import { createEmptyProject, createPlaygroundProject, createSampleProject, scanProjectForSetup } from "../projectUtils";
 import { getActiveStates, saveActiveStates } from "../tabs";
 import { getCachedGitStatus } from "../git";
 import { getActiveProject, findTabById, getAppState } from "../state";
@@ -492,6 +492,14 @@ export function registerFileIpcHandlers() {
       return await createEmptyProject(targetDirectory, projectName.trim());
     },
   );
+
+  ipcMain.handle("files:create-playground", async (_event, targetDirectory: string) => {
+    return await createPlaygroundProject(targetDirectory);
+  });
+
+  ipcMain.handle("files:scan-project-setup", async (_event, projectPath: string) => {
+    return await scanProjectForSetup(projectPath);
+  });
 
   ipcMain.handle("files:delete", async (_event, filePath: string) => {
     await deleteFile(filePath);

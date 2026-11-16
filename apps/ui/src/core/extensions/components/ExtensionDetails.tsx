@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { markGettingStartedStep } from "@/core/onboarding/gettingStartedStore";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import * as LucideIcons from "lucide-react";
@@ -149,6 +150,11 @@ export const ExtensionDetails = ({
     usePluginStore();
 
   const [activeTab, setActiveTab] = useState<Tab>("Documentation");
+
+  // Getting started: opening a plugin's details is the "Manage plugins" step.
+  useEffect(() => {
+    markGettingStartedStep("plugins");
+  }, []);
   const [readme, setReadme] = useState<string | null>(null);
   const [readmeLoading, setReadmeLoading] = useState(false);
   const [changelog, setChangelog] = useState<any[] | null>(null);
@@ -330,6 +336,7 @@ export const ExtensionDetails = ({
 
   const handleUninstallCore = async () => {
     setIsUninstallingCore(true);
+    markGettingStartedStep("pluginActions");
     try {
       // deleteCache marks the plugin as uninstalled (clears isLocallyAvailable for bundled plugins too)
       // and removes the OTA bundle. No need to call setEnabled separately.
@@ -561,7 +568,7 @@ export const ExtensionDetails = ({
             </div>
 
             {/* Actions */}
-            <div className="flex items-center gap-2 flex-wrap">
+            <div data-onboarding="plugin-actions" data-enabled={extensionData.enabled ? "true" : "false"} className="flex items-center gap-2 flex-wrap">
               {renderActions()}
               {error && (
                 <button

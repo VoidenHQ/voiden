@@ -838,6 +838,53 @@ export function subscribePluginEvent(event: string, cb: PluginEventCallback): ()
   return () => pluginEventBus.get(event)?.delete(cb);
 }
 
+/**
+ * Open a new unsaved .void tab and convert `curlString` into a request inside it.
+ * Shared by the plugin context's `project.importCurl` and the Start tab.
+ */
+export async function importCurlAsNewTab(title: string, curlString: string): Promise<void> {
+  const tabId = crypto.randomUUID();
+  const tabTitle = title.endsWith('.void') ? title : `${title}.void`;
+
+  // Pre-write empty doc as autosave so VoidenEditor doesn't crash on mount
+  const emptyDoc = JSON.stringify({ type: "doc", content: [] });
+  await window.electron?.autosave?.save(tabId, emptyDoc);
+
+  // Create the document tab
+  await window.electron?.state.addPanelTab("main", {
+    id: tabId,
+    type: "document",
+    title: tabTitle,
+    source: null,
+  });
+
+  // Activate the newly created tab so it becomes visible
+  await window.electron?.state.activatePanelTab("main", tabId);
+
+  // Invalidate queries so UI picks up the new tab
+  const queryClient = getQueryClient();
+  queryClient.invalidateQueries({ queryKey: ["panel:tabs"], exact: false });
+  queryClient.invalidateQueries({ queryKey: ["tab:content"], exact: false });
+
+  // Parse the curl
+  // Poll for the VoidenEditor to mount with this tabId, then paste curl
+  const tryPaste = async (attempts: number) => {
+    if (attempts <= 0) return;
+    const editor = useVoidenEditorStore.getState().editor;
+    if (editor && editor.storage.tabId === tabId) {
+      let handled = false;
+      for (const importer of curlImporters) {
+        try { handled = await importer(curlString, editor); } catch { /* skip */ }
+        if (handled) return;
+      }
+      pasteOrchestrator.handlePatternText(editor.view, curlString);
+    } else {
+      setTimeout(() => tryPaste(attempts - 1), 200);
+    }
+  };
+  setTimeout(() => tryPaste(15), 400);
+}
+
 export function getContextMenuItems(
   surface: PluginContextMenuItem['surface'],
   target: any
@@ -1054,48 +1101,7 @@ export const createPlugin = (
         const activeProject = projects?.activeProject;
         return activeProject;
       },
-      importCurl: async (title: string, curlString: string) => {
-        const tabId = crypto.randomUUID();
-        const tabTitle = title.endsWith('.void') ? title : `${title}.void`;
-
-        // Pre-write empty doc as autosave so VoidenEditor doesn't crash on mount
-        const emptyDoc = JSON.stringify({ type: "doc", content: [] });
-        await window.electron?.autosave?.save(tabId, emptyDoc);
-
-        // Create the document tab
-        await window.electron?.state.addPanelTab("main", {
-          id: tabId,
-          type: "document",
-          title: tabTitle,
-          source: null,
-        });
-
-        // Activate the newly created tab so it becomes visible
-        await window.electron?.state.activatePanelTab("main", tabId);
-
-        // Invalidate queries so UI picks up the new tab
-        const queryClient = getQueryClient();
-        queryClient.invalidateQueries({ queryKey: ["panel:tabs"], exact: false });
-        queryClient.invalidateQueries({ queryKey: ["tab:content"], exact: false });
-
-        // Parse the curl
-        // Poll for the VoidenEditor to mount with this tabId, then paste curl
-        const tryPaste = async (attempts: number) => {
-          if (attempts <= 0) return;
-          const editor = useVoidenEditorStore.getState().editor;
-          if (editor && editor.storage.tabId === tabId) {
-            let handled = false;
-            for (const importer of curlImporters) {
-              try { handled = await importer(curlString, editor); } catch { /* skip */ }
-              if (handled) return;
-            }
-            pasteOrchestrator.handlePatternText(editor.view, curlString);
-          } else {
-            setTimeout(() => tryPaste(attempts - 1), 200);
-          }
-        };
-        setTimeout(() => tryPaste(15), 400);
-      },
+      importCurl: (title: string, curlString: string) => importCurlAsNewTab(title, curlString),
     } as any,
     tab: {
       getActiveTab: async () => {

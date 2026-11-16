@@ -148,6 +148,8 @@ declare global {
           withSampleProject: boolean,
           projectName?: string,
         ) => Promise<{ projectPath: string; welcomeFile: string | null }>;
+        createPlayground: (targetDirectory: string) => Promise<{ projectPath: string; welcomeFile: string }>;
+        scanProjectSetup: (projectPath: string) => Promise<{ voidCount: number; specs: string[]; envFiles: string[] }>;
         delete: (path: string) => Promise<boolean>;
         rename: (
           oldPath: string,

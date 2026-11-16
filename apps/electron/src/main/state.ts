@@ -405,8 +405,10 @@ function removeExtensionTabsFromLayout(
   extensionId: string,
 ): void {
   if (layout.type === "panel") {
+    // Close the tabs the plugin itself adds, but keep its details page open: that's where the
+    // user just disabled or uninstalled it, and where they'd enable or install it again.
     const remainingTabs = layout.tabs.filter(
-      (tab) => !(tab.meta?.extensionId === extensionId),
+      (tab) => !(tab.meta?.extensionId === extensionId && tab.type !== "extensionDetails"),
     );
     layout.tabs = remainingTabs;
     if (!remainingTabs.some((tab) => tab.id === layout.activeTabId)) {
@@ -771,6 +773,8 @@ export const ipcStateHandlers = () => {
         return { type: "welcome", tabId, title };
       case "changelog":
         return { type: "changelog", tabId, title };
+      case "projectSetup":
+        return { type: "projectSetup", tabId, title };
       case "logs":
         return { type: "logs", tabId, title };
       case "document": {

@@ -12,8 +12,7 @@ import {
   Blocks,
   Terminal,
   Lock,
-  ChevronDown,
-} from "lucide-react";
+  ChevronDown, FolderCog } from "lucide-react";
 import { useProjectLock } from "@/core/file-system/hooks";
 import { cn, isMac } from "@/core/lib/utils";
 import { VSCodeFileIcon } from "@/core/lib/vscodeFileIcon";
@@ -82,6 +81,7 @@ const getTabIcon = (tab: Tab): JSX.Element => {
   // Special tab types
   if (tab.type === "settings") return <Settings size={14} />;
   if (tab.type === "welcome") return <BookOpen size={14} />;
+  if (tab.type === "projectSetup") return <FolderCog size={14} />;
   if (tab.type === "changelog") return <ScrollText size={14} />;
   if (tab.type === "logs") return <Terminal size={14} />;
   if (tab.type === "terminal") return <Terminal size={14} />;

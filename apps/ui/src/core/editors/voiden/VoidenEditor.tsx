@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState, useEffect, useRef, useLayoutEffect, memo } from "react";
 import { AnyExtension, Editor, EditorContent, Extension, JSONContent, getSchema, useEditor } from "@tiptap/react";
 import { TextSelection, NodeSelection } from "prosemirror-state";
+import { getSavedCursor, placeInitialCursor, saveCursor } from "./utils/cursorMemory";
 import type { Node as ProseMirrorNode } from "prosemirror-model";
 import { useVoidVariableData } from "@/core/runtimeVariables/hook/useVariableCapture.tsx";
 import {
@@ -729,6 +730,8 @@ const VoidenEditorInner = ({
 
         const unsaved = useEditorStore.getState().unsaved[tabId];
         const savedScrollTop = useEditorStore.getState().getScrollPosition(tabId);
+        // Read before any load transaction can overwrite it.
+        const savedCursor = getSavedCursor(source ?? tabId);
 
         const applyContent = (santizedContent: any) => {
           if (editor.isDestroyed) return;
@@ -764,24 +767,12 @@ const VoidenEditorInner = ({
 
           setIsLoadingContent(false);
 
-          // For brand new files only: collapse selection to start.
+          // Freshly opened: resume where the user left this file, or start at its end.
           if (!unsaved && savedScrollTop === 0) {
             requestAnimationFrame(() => {
               if (!editor.isDestroyed) {
                 try {
-                  const $pos = editor.state.doc.resolve(1);
-                  if ($pos.parent.isTextblock) {
-                    editor.commands.setTextSelection(1);
-                  } else {
-                    let found = false;
-                    editor.state.doc.descendants((node, pos) => {
-                      if (!found && node.isTextblock) {
-                        editor.commands.setTextSelection(pos + 1);
-                        found = true;
-                        return false;
-                      }
-                    });
-                  }
+                  placeInitialCursor(editor, savedCursor);
                 } catch {
                   // Silently ignore — cursor will be placed by autofocus
                 }
@@ -854,17 +845,7 @@ const VoidenEditorInner = ({
                 if (!unsaved && savedScrollTop === 0) {
                   requestAnimationFrame(() => {
                     if (editor.isDestroyed) return;
-                    try {
-                      const $pos = editor.state.doc.resolve(1);
-                      if ($pos.parent.isTextblock) {
-                        editor.commands.setTextSelection(1);
-                      } else {
-                        let found = false;
-                        editor.state.doc.descendants((node, pos) => {
-                          if (!found && node.isTextblock) { editor.commands.setTextSelection(pos + 1); found = true; return false; }
-                        });
-                      }
-                    } catch { /* ignore */ }
+                    try { placeInitialCursor(editor, savedCursor); } catch { /* ignore */ }
                   });
                 }
               }
@@ -957,6 +938,27 @@ const VoidenEditorInner = ({
     useVoidenEditorStore.getState().setEditor(editor);
     useVoidenEditorStore.getState().setFilePath(source);
   }, [editor, isActive, source]);
+
+  // Remember where the cursor is, so reopening this file resumes there.
+  useEffect(() => {
+    if (!editor) return;
+    const key = source ?? tabId;
+    let timer: number | null = null;
+    const onSelection = () => {
+      if (timer !== null) clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        timer = null;
+        if (editor.isDestroyed || !editor.isFocused) return;
+        const { from, to } = editor.state.selection;
+        saveCursor(key, { from, to });
+      }, 400);
+    };
+    editor.on("selectionUpdate", onSelection);
+    return () => {
+      if (timer !== null) clearTimeout(timer);
+      editor.off("selectionUpdate", onSelection);
+    };
+  }, [editor, source, tabId]);
 
   // Restore focus when this tab becomes active again. Cached tabs stay mounted
   // (VoidenEditor.tsx never unmounts on tab switch) so the ProseMirror

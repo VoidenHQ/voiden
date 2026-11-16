@@ -158,6 +158,7 @@ export const EnvSelector = () => {
       </div>
       <Tip label={<span className="flex items-center gap-2"><span>Select an environment</span><Kbd keys={getShortcutLabel("ToggleEnvSelector")} size="sm" /></span>}>
         <button
+          data-onboarding="env-selector"
           className={cn("text-sm h-full px-2 flex items-center gap-2 hover:bg-active no-drag", !envs?.activeEnv && "text-comment")}
           onClick={() => setOpen(true)}
         >

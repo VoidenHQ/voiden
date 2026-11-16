@@ -7,7 +7,8 @@ import { VoidenEditor } from "@/core/editors/voiden/VoidenEditor";
 import { SettingsContent } from "@/core/settings/components/SettingsContent";
 import { usePluginStore, useEditorEnhancementStore } from "@/plugins";
 import { TerminalManager } from "@/core/terminal/components/TerminalManager";
-import WelcomeScreen from "@/core/screens/WelcomeScreen";
+import StartScreen from "@/core/screens/StartScreen";
+import ProjectSetupScreen from "@/core/onboarding/ProjectSetupScreen";
 import SettingsScreen from "@/core/screens/SettingsScreen";
 import logo from "@/assets/logo-dark.png";
 import ChangeLogScreen from "@/core/screens/ChangeLogScreen";
@@ -1004,7 +1005,7 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
         action.predicate({ title: '' });
       }
     })
-    return <>{cachedEditorsBlock}<WelcomeScreen /></>;
+    return <>{cachedEditorsBlock}<StartScreen /></>;
   }
 
   if (tabContent.type === "settings") {
@@ -1014,6 +1015,15 @@ const PanelContentInner = ({ panelId }: { panelId: string }) => {
       }
     })
     return <>{cachedEditorsBlock}<SettingsScreen /></>;
+  }
+
+  if (tabContent.type === "projectSetup") {
+    editorActions.forEach((action) => {
+      if (action && action.predicate) {
+        action.predicate({ title: '' });
+      }
+    })
+    return <>{cachedEditorsBlock}<ProjectSetupScreen tabId={tabContent.tabId} /></>;
   }
 
   if (tabContent.type === "changelog") {

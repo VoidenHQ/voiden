@@ -6,6 +6,7 @@ import { loadThemeById, getAvailableThemes } from "@/utils/themeLoader";
 import { Kbd } from "@/core/components/ui/kbd";
 import { CliCommandMessage, type CliResultMessage } from "@/core/settings/components/CliCommandMessage";
 import { useTerminalShells } from "@/core/terminal/hooks";
+import { useSidebarTabsPosition, type SidebarTabsPosition } from "@/core/stores/sidebarTabsPosition";
 
 const FONT_SIZE_MIN = 10;
 const FONT_SIZE_MAX = 20;
@@ -94,9 +95,13 @@ const DefaultShellControl = ({ value, onChange }: { value: string; onChange: (sh
   const customPath = typedPath ?? (isCustom ? value : "");
   const autoName = data && !data.configured ? shells.find((s) => s.id === data.defaultId)?.name : undefined;
 
+  // Names only in the list: full paths (long on Windows) would stretch the select and squeeze the label.
+  const selected = customOpen ? undefined : shells.find((s) => s.id === value);
+
   return (
-    <div className="flex flex-col items-end gap-1.5">
+    <div className="flex flex-col items-end gap-1.5 max-w-[260px]">
       <Select
+        className="max-w-full"
         value={customOpen ? CUSTOM_SHELL : value}
         onChange={(e) => {
           if (e.target.value === CUSTOM_SHELL) {
@@ -110,10 +115,15 @@ const DefaultShellControl = ({ value, onChange }: { value: string; onChange: (sh
       >
         <option value="">Automatic{autoName ? ` (${autoName})` : ""}</option>
         {shells.map((s) => (
-          <option key={s.id} value={s.id}>{s.name} — {s.path}</option>
+          <option key={s.id} value={s.id} title={s.path}>{s.name}</option>
         ))}
         <option value={CUSTOM_SHELL}>Custom path…</option>
       </Select>
+      {selected && (
+        <div className="max-w-full truncate font-mono text-[11px] text-comment" title={selected.path}>
+          {selected.path}
+        </div>
+      )}
       {customOpen && (
         <Input
           value={customPath}
@@ -218,6 +228,8 @@ const PluginSectionFields = ({ section }: { section: PluginSettingsSection }) =>
 
 export const SettingsScreen = () => {
   const { settings, loading, save, saveImmediate, reset, onChange } = useSettings();
+  const sidebarTabsPosition = useSidebarTabsPosition((s) => s.position);
+  const setSidebarTabsPosition = useSidebarTabsPosition((s) => s.setPosition);
   const pluginSections = usePluginStore((state) => state.settingsPageSections);
   const [activeSection, setActiveSection] = useState("general");
   const [searchQuery, setSearchQuery] = useState("");
@@ -1063,6 +1075,18 @@ export const SettingsScreen = () => {
                           {size}px
                         </option>
                       ))}
+                    </Select>
+                  }
+                />
+              )}
+              {matchesSearch("Left panel tabs position side top activity bar vertical sidebar") && (
+                <Row
+                  title="Left panel tabs"
+                  description="In a row above the panel, or in a vertical bar beside it, like VS Code's Activity Bar."
+                  control={
+                    <Select value={sidebarTabsPosition} onChange={(e) => setSidebarTabsPosition(e.target.value as SidebarTabsPosition)}>
+                      <option value="top">Top</option>
+                      <option value="side">Side</option>
                     </Select>
                   }
                 />

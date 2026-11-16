@@ -392,9 +392,21 @@ const menubarTemplate: Array<MenuItemConstructorOptions> = [
     label: "Help",
     submenu: [
       {
-        label: "Welcome",
+        label: "Start",
         click: () => {
           windowManager.browserWindow?.webContents.send("menu:open-welcome", {});
+        },
+      },
+      {
+        label: "Getting Started Checklist",
+        click: () => {
+          windowManager.browserWindow?.webContents.send("menu:show-getting-started", {});
+        },
+      },
+      {
+        label: "Show Next Tip",
+        click: () => {
+          windowManager.browserWindow?.webContents.send("menu:show-tips", {});
         },
       },
       {

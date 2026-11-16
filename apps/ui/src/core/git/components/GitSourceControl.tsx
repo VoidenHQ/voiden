@@ -1,6 +1,6 @@
-import { useGitRepos, useGetGitStatus, useStageFiles, useUnstageFiles, useCommit, useDiscardFiles, useGetGitBranches, useInitializeGit, usePushToRemote, usePullFromRemote, useCloneRepo, useFetchRemote, useGetGitRemote, useStash, useStashList, useStashPop, useUncommit, useGetGitLog } from "@/core/git/hooks";
+import { useGitRepos, useGetGitStatus, useStageFiles, useUnstageFiles, useCommit, useDiscardFiles, useGetGitBranches, useInitializeGit, usePushToRemote, usePullFromRemote, useCloneRepo, useFetchRemote, useGetGitRemote, useSetGitRemote, useStash, useStashList, useStashPop, useUncommit, useGetGitLog } from "@/core/git/hooks";
 import { useSetActiveProject, useOpenProject } from "@/core/projects/hooks/useProjects";
-import { Loader2, FilePlus, FileEdit, FileX, GitBranch, Check, Plus, Minus, RotateCcw, GitCommit, ArrowUp, ArrowDown, RefreshCw, ChevronRight, GitFork, Eye, EyeOff, MoreVertical, CloudDownload, Archive, ArrowDownToLine, X, FolderOpen, Key, Lock } from "lucide-react";
+import { Loader2, FilePlus, FileEdit, FileX, GitBranch, Check, Plus, Minus, RotateCcw, GitCommit, ArrowUp, ArrowDown, RefreshCw, ChevronRight, GitFork, Eye, EyeOff, MoreVertical, CloudDownload, Archive, ArrowDownToLine, X, FolderOpen, Key, Lock, Link2 } from "lucide-react";
 import { cn } from "@/core/lib/utils";
 import { useRef, useState } from "react";
 import { toast } from "@/core/components/ui/sonner";
@@ -62,6 +62,9 @@ const GitSourceControlBody = () => {
   const { mutate: pullFromRemote, isPending: isPulling } = usePullFromRemote();
   const { triggerFetch } = useFetchRemote();
   const { data: remoteUrl, refetch: refetchRemote } = useGetGitRemote();
+  const { mutateAsync: setRemoteAsync, isPending: isLinkingRemote } = useSetGitRemote();
+  const [linkRemoteOpen, setLinkRemoteOpen] = useState(false);
+  const [remoteInput, setRemoteInput] = useState("");
   const { mutate: stash, isPending: isStashing } = useStash();
   const { mutate: stashPop, isPending: isPopping } = useStashPop();
   const { data: stashList } = useStashList();
@@ -217,6 +220,28 @@ const GitSourceControlBody = () => {
     unstageFiles(status.staged, {
       onError: (error: any) => toast.error("Failed to unstage changes", { description: getGitErrorMessage(error) }),
     });
+  };
+
+  // A repo made with Initialize has no remote, so there's nowhere to push. Link one (as
+  // origin) and publish the branch to it, without going to the terminal.
+  const handleLinkRemote = async () => {
+    const url = remoteInput.trim();
+    if (!/^(https?:\/\/|ssh:\/\/|git@)\S+$/.test(url)) {
+      toast.error("That doesn't look like a repository URL", {
+        description: "Use the HTTPS or SSH URL of the repo, like https://github.com/you/repo.git",
+      });
+      return;
+    }
+    try {
+      await setRemoteAsync(url);
+      await refetchRemote();
+    } catch (error: any) {
+      toast.error("Couldn't link the repository", { description: getGitErrorMessage(error) });
+      return;
+    }
+    setRemoteInput("");
+    setLinkRemoteOpen(false);
+    await handlePush();
   };
 
   const handlePush = async () => {
@@ -909,6 +934,52 @@ const GitSourceControlBody = () => {
                 ? `Push ${status.ahead} commit${status.ahead !== 1 ? "s" : ""}`
                 : "Publish branch"}
           </button>
+        )}
+
+        {/* No remote yet (e.g. right after Initialize): offer to link one, so pushing works. */}
+        {!hasPushTarget && !hasConflicts && (
+          linkRemoteOpen ? (
+            <div className="mt-2 flex flex-col gap-1.5 p-2 rounded border border-border bg-panel">
+              <span className="text-[11px] text-comment leading-snug">
+                Create an empty repository on GitHub, GitLab or similar, then paste its URL. It's linked as <span className="font-mono">origin</span> and your branch is published to it.
+              </span>
+              <input
+                autoFocus
+                value={remoteInput}
+                onChange={(e) => setRemoteInput(e.target.value)}
+                onMouseDown={(e) => e.stopPropagation()}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleLinkRemote();
+                  if (e.key === "Escape") setLinkRemoteOpen(false);
+                }}
+                placeholder="https://github.com/you/repo.git"
+                className="w-full bg-editor border border-border rounded px-2 py-1.5 text-xs text-text placeholder:text-comment focus:outline-none focus:ring-1 focus:ring-accent"
+              />
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  onClick={() => setLinkRemoteOpen(false)}
+                  className="px-2 py-1 text-xs rounded text-comment hover:text-text"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleLinkRemote}
+                  disabled={!remoteInput.trim() || isLinkingRemote || isPushing}
+                  className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded bg-accent text-white hover:bg-accent/90 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isLinkingRemote || isPushing ? <RefreshCw size={12} className="animate-spin" /> : <ArrowUp size={12} />}
+                  Link and publish
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={() => setLinkRemoteOpen(true)}
+              className="mt-2 w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded text-xs font-medium border border-border text-comment hover:text-text hover:bg-active transition-colors"
+            >
+              <Link2 size={12} /> Link a remote repository
+            </button>
+          )
         )}
 
       </div>
