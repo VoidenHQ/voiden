@@ -25,6 +25,8 @@ import { Tip } from "@/core/components/ui/Tip";
 import { SearchPanelView } from "@/core/editors/code/lib/components/SearchPanelView";
 import { NoGlobalSearchContext } from "@/core/editors/code/lib/components/CodeEditor";
 import { SectionHeaderActions } from "./SectionHeaderActions";
+import { ResponseDiffView } from "./ResponseDiffView";
+import { runKey, useResponseRunsStore } from "../stores/responseRunsStore";
 
 /** The URL shows on hover over a section's status and name, keeping the header short. */
 const UrlHover = ({ url, children }: { url?: string; children: React.ReactNode }) =>
@@ -114,6 +116,7 @@ export function ResponsePanelContainer() {
   const { isLoading, responses } = useResponseStore(
     useShallow((s) => ({ isLoading: s.isLoading, responses: s.responses }))
   );
+  const compareOpen = useResponseRunsStore((s) => s.compareOpen);
   const {
     setActiveTabId,
     hydrateResponse,
@@ -247,6 +250,15 @@ export function ResponsePanelContainer() {
         : next;
     });
   }, [activeTabId, responses]);
+
+  // Link each open file tab to its path, so Compare's past runs are saved per file
+  // (in the app's local storage, not the project) and come back after a restart.
+  useEffect(() => {
+    const { linkTab } = useResponseRunsStore.getState();
+    (panelData?.tabs || []).forEach((tab: any) => {
+      if (tab?.type === "document" && typeof tab.source === "string" && tab.source) void linkTab(tab.id, tab.source);
+    });
+  }, [panelData?.tabs]);
 
   // Evict cached viewers whose tabs have been closed
   useEffect(() => {
@@ -854,7 +866,16 @@ export function ResponsePanelContainer() {
                           </Tip>
                         </div>
                       </div>
-                      <div className="flex-1 min-h-0 min-w-0 ml-2 overflow-hidden">
+                      {compareOpen[runKey(tabId, sections[0].sectionIndex)] && (
+                        <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
+                          <ResponseDiffView runKey={runKey(tabId, sections[0].sectionIndex)} fill />
+                        </div>
+                      )}
+                      {/* Kept mounted (just hidden) while comparing, so its scroll and node state survive. */}
+                      <div
+                        className="flex-1 min-h-0 min-w-0 ml-2 overflow-hidden"
+                        style={compareOpen[runKey(tabId, sections[0].sectionIndex)] ? { display: "none" } : undefined}
+                      >
                         <ResponseViewer
                           ref={(handle) => {
                             if (handle) viewerRefs.current.set(`${tabId}:0`, handle);
@@ -1108,8 +1129,14 @@ export function ResponsePanelContainer() {
                               </div>
                             </div>
                             {/* Response content — hidden when collapsed */}
+                            {!isCollapsed && compareOpen[runKey(tabId, sectionIndex)] && (
+                              <ResponseDiffView runKey={runKey(tabId, sectionIndex)} />
+                            )}
                             {!isCollapsed && (
-                              <div className="flex-1 min-h-0 min-w-0 ml-2 overflow-hidden">
+                              <div
+                                className="flex-1 min-h-0 min-w-0 ml-2 overflow-hidden"
+                                style={compareOpen[runKey(tabId, sectionIndex)] ? { display: "none" } : undefined}
+                              >
                                 <ResponseViewer
                                   ref={(handle) => {
                                     if (handle) viewerRefs.current.set(`${tabId}:${sectionIndex}`, handle);
