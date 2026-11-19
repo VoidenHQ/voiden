@@ -1,6 +1,6 @@
 import { GitCompareArrows, LocateFixed, RotateCw } from "lucide-react";
 import { cn } from "@/core/lib/utils";
-import { runKey, useResponseRunsStore } from "../stores/responseRunsStore";
+import { useRunKey, useResponseRunsStore } from "../stores/responseRunsStore";
 import { Tip } from "@/core/components/ui/Tip";
 import { toast } from "@/core/components/ui/sonner";
 import { useVoidenEditorStore } from "@/core/editors/voiden/VoidenEditor";
@@ -63,7 +63,7 @@ export function SectionHeaderActions({
     fn();
   };
   const notHere = live ? undefined : "Open this request's file to use this";
-  const key = runKey(tabId, sectionIndex);
+  const key = useRunKey(tabId, sectionIndex);
   const runCount = useResponseRunsStore((s) => s.runs[key]?.length ?? 0);
   const comparing = useResponseRunsStore((s) => !!s.compareOpen[key]);
   const toggleCompare = useResponseRunsStore((s) => s.toggleCompare);

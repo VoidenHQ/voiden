@@ -117,6 +117,8 @@ export function ResponsePanelContainer() {
     useShallow((s) => ({ isLoading: s.isLoading, responses: s.responses }))
   );
   const compareOpen = useResponseRunsStore((s) => s.compareOpen);
+  // Subscribed so a section's Compare follows its request (runKey reads this map).
+  const sectionIds = useResponseRunsStore((s) => s.sectionIds);
   const {
     setActiveTabId,
     hydrateResponse,
@@ -866,15 +868,15 @@ export function ResponsePanelContainer() {
                           </Tip>
                         </div>
                       </div>
-                      {compareOpen[runKey(tabId, sections[0].sectionIndex)] && (
+                      {compareOpen[runKey(tabId, sections[0].sectionIndex, sectionIds)] && (
                         <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
-                          <ResponseDiffView runKey={runKey(tabId, sections[0].sectionIndex)} fill />
+                          <ResponseDiffView runKey={runKey(tabId, sections[0].sectionIndex, sectionIds)} fill />
                         </div>
                       )}
                       {/* Kept mounted (just hidden) while comparing, so its scroll and node state survive. */}
                       <div
                         className="flex-1 min-h-0 min-w-0 ml-2 overflow-hidden"
-                        style={compareOpen[runKey(tabId, sections[0].sectionIndex)] ? { display: "none" } : undefined}
+                        style={compareOpen[runKey(tabId, sections[0].sectionIndex, sectionIds)] ? { display: "none" } : undefined}
                       >
                         <ResponseViewer
                           ref={(handle) => {
@@ -1129,13 +1131,13 @@ export function ResponsePanelContainer() {
                               </div>
                             </div>
                             {/* Response content — hidden when collapsed */}
-                            {!isCollapsed && compareOpen[runKey(tabId, sectionIndex)] && (
-                              <ResponseDiffView runKey={runKey(tabId, sectionIndex)} />
+                            {!isCollapsed && compareOpen[runKey(tabId, sectionIndex, sectionIds)] && (
+                              <ResponseDiffView runKey={runKey(tabId, sectionIndex, sectionIds)} />
                             )}
                             {!isCollapsed && (
                               <div
                                 className="flex-1 min-h-0 min-w-0 ml-2 overflow-hidden"
-                                style={compareOpen[runKey(tabId, sectionIndex)] ? { display: "none" } : undefined}
+                                style={compareOpen[runKey(tabId, sectionIndex, sectionIds)] ? { display: "none" } : undefined}
                               >
                                 <ResponseViewer
                                   ref={(handle) => {

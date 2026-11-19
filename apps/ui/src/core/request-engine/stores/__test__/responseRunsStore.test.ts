@@ -21,7 +21,7 @@ const flush = () => new Promise((r) => setTimeout(r, 450));
 
 beforeEach(() => {
   disk.clear();
-  useResponseRunsStore.setState({ runs: {}, nextId: {}, compareOpen: {}, tabSources: {}, lastDocs: {} });
+  useResponseRunsStore.setState({ runs: {}, nextId: {}, compareOpen: {}, tabSources: {}, lastDocs: {}, sectionIds: {} });
 });
 
 describe("responseRunsStore persistence", () => {
@@ -33,12 +33,12 @@ describe("responseRunsStore persistence", () => {
     await flush();
 
     const saved = disk.get("/proj/users.void") as any;
-    expect(saved.sections[0].runs.map((r: any) => r.bodyText)).toEqual(["two", "one"]);
+    expect(saved.sections.default.runs.map((r: any) => r.bodyText)).toEqual(["two", "one"]);
     // The latest full response is kept too, for the response panel.
-    expect(saved.sections[0].doc.content[0].content[0].attrs.body).toBe("two");
+    expect(saved.sections.default.doc.content[0].content[0].attrs.body).toBe("two");
 
     // App restart: memory is gone, a new tab id opens the same file.
-    useResponseRunsStore.setState({ runs: {}, nextId: {}, tabSources: {}, lastDocs: {} });
+    useResponseRunsStore.setState({ runs: {}, nextId: {}, tabSources: {}, lastDocs: {}, sectionIds: {} });
     useResponseStore.setState({ responses: {} });
     await useResponseRunsStore.getState().linkTab("tab-2", "/proj/users.void");
     const runs = useResponseRunsStore.getState().runs[runKey("tab-2", 0)];
@@ -72,7 +72,7 @@ describe("responseRunsStore persistence", () => {
 
     const s = useResponseRunsStore.getState();
     expect(s.runs[runKey("t", 0)].map((r) => r.bodyText)).toEqual(["old"]);
-    expect(Object.keys((disk.get("/proj/b.void") as any).sections).sort()).toEqual(["0", "1"]);
+    expect(Object.keys((disk.get("/proj/b.void") as any).sections).sort()).toEqual(["#1", "default"]);
   });
 
   it("forgets a request's runs on disk too", async () => {
@@ -80,8 +80,57 @@ describe("responseRunsStore persistence", () => {
     await store.linkTab("t", "/proj/c.void");
     store.record("t", 0, doc("x"));
     await flush();
-    store.forgetRuns("t", 0);
+    store.forgetRuns(runKey("t", 0));
     await flush();
     expect(disk.has("/proj/c.void")).toBe(false);
+  });
+
+  it("keeps runs with their request when requests are added or reordered", async () => {
+    const store = useResponseRunsStore.getState();
+    await store.linkTab("t", "/proj/multi.void");
+    // Two requests: section 1 is "users", section 2 is "orders".
+    store.noteSection("t", 1, "uid-users");
+    store.record("t", 1, doc("users 1"));
+    store.noteSection("t", 2, "uid-orders");
+    store.record("t", 2, doc("orders 1"));
+    // A new request is inserted above: "users" is now section 2, "orders" section 3.
+    store.noteSection("t", 2, "uid-users");
+    store.record("t", 2, doc("users 2"));
+
+    const s = useResponseRunsStore.getState();
+    expect(s.runs["t:uid-users"].map((r) => r.bodyText)).toEqual(["users 2", "users 1"]);
+    expect(s.runs["t:uid-orders"].map((r) => r.bodyText)).toEqual(["orders 1"]);
+    expect(runKey("t", 2)).toBe("t:uid-users");
+
+    await flush();
+    const saved = disk.get("/proj/multi.void") as any;
+    expect(saved.v).toBe(3);
+    expect(saved.sections["uid-users"].index).toBe(2);
+
+    // After a restart the positions come back with the runs.
+    useResponseRunsStore.setState({ runs: {}, nextId: {}, tabSources: {}, lastDocs: {}, sectionIds: {} });
+    await useResponseRunsStore.getState().linkTab("t2", "/proj/multi.void");
+    expect(useResponseRunsStore.getState().runs[runKey("t2", 2)].map((r) => r.bodyText)).toEqual(["users 2", "users 1"]);
+  });
+
+  it("uses one default history for a single-request file", () => {
+    const store = useResponseRunsStore.getState();
+    store.noteSection("t", 0, "default");
+    store.record("t", 0, doc("a"));
+    store.record("t", 0, doc("b"));
+    expect(runKey("t", 0)).toBe("t:default");
+    expect(useResponseRunsStore.getState().runs["t:default"]).toHaveLength(2);
+  });
+
+  it("moves runs saved by position onto the request's uid", async () => {
+    disk.set("/proj/old.void", { v: 2, sections: { 1: { runs: [{ id: 1, timestamp: 1, source: "live", headers: [], bodyText: "old", bytes: 3, binary: false }] } } });
+    const store = useResponseRunsStore.getState();
+    await store.linkTab("t", "/proj/old.void");
+    expect(useResponseRunsStore.getState().runs["t:#1"]).toHaveLength(1);
+    store.noteSection("t", 1, "uid-x");
+    store.record("t", 1, doc("new"));
+    const s = useResponseRunsStore.getState();
+    expect(s.runs["t:#1"]).toBeUndefined();
+    expect(s.runs["t:uid-x"].map((r) => r.bodyText)).toEqual(["new", "old"]);
   });
 });

@@ -10,13 +10,47 @@ const MAX_SAVED_BODY_BYTES = 1024 * 1024;
 
 export type DiffBodyView = "semantic" | "split" | "unified";
 
-export const runKey = (tabId: string, sectionIndex: number) => `${tabId}:${sectionIndex}`;
+/**
+ * Which request a run belongs to. Section 0 (everything before the first separator) is
+ * "default", so a file with one request keeps one history. Every later section is keyed by
+ * its separator's uid, so adding, removing or reordering requests doesn't mix up their runs.
+ * `#N` is the fallback for a separator without a uid (and for runs saved before uids were used).
+ */
+export const DEFAULT_SECTION = "default";
+export const fallbackSectionId = (sectionIndex: number) => (sectionIndex <= 0 ? DEFAULT_SECTION : `#${sectionIndex}`);
+
+/** The section id of the request at `sectionIndex` in an editor doc (ProseMirror node). */
+export function sectionIdAt(doc: { forEach: (fn: (child: any) => void) => void } | null | undefined, sectionIndex: number): string {
+  if (!doc || sectionIndex <= 0) return DEFAULT_SECTION;
+  let sep = 0;
+  let uid: string | null = null;
+  doc.forEach((child: any) => {
+    if (child?.type?.name === "request-separator" && ++sep === sectionIndex) uid = child.attrs?.uid || null;
+  });
+  return uid ?? fallbackSectionId(sectionIndex);
+}
+
+const indexKey = (tabId: string, sectionIndex: number) => `${tabId}:${sectionIndex}`;
+
+/** Store key for the runs of the request shown at `sectionIndex` in a tab's response panel. */
+export const runKey = (tabId: string, sectionIndex: number, sectionIds = useResponseRunsStore.getState().sectionIds) =>
+  `${tabId}:${sectionIds[indexKey(tabId, sectionIndex)] ?? fallbackSectionId(sectionIndex)}`;
+
+/** Same as runKey, subscribed: re-renders when the request at that position changes. */
+export const useRunKey = (tabId: string, sectionIndex: number) =>
+  useResponseRunsStore((s) => runKey(tabId, sectionIndex, s.sectionIds));
+
+const splitKey = (key: string) => {
+  const at = key.lastIndexOf(":");
+  return { tabId: key.slice(0, at), sectionId: key.slice(at + 1) };
+};
 
 /**
  * Past runs are saved in the app's own IndexedDB, on this device only. That lives in the
  * app's profile folder, never in the project, so nothing here can be committed.
  * One record per .void file path, holding each request's runs (newest first) and the
  * latest full response doc, so the response panel can show it again after a restart.
+ * Requests are keyed by section id (see sectionIdAt), with their last known position.
  */
 let db: ReturnType<typeof createStore> | null = null;
 /** Opened on first use, so importing this store never touches IndexedDB. */
@@ -26,22 +60,34 @@ interface SavedSection {
   runs: ResponseRun[];
   /** Latest full response doc, restored into the response panel */
   doc?: unknown;
+  /** Where this request was in the file when it last ran */
+  index?: number;
 }
 interface SavedFile {
+  v: 3;
+  /** section id → saved runs */
+  sections: Record<string, SavedSection>;
+}
+/** Version 2 keyed sections by position: { v: 2, sections: { [sectionIndex]: { runs, doc } } } */
+interface SavedFileV2 {
   v: 2;
-  sections: Record<number, SavedSection>;
+  sections: Record<number, Omit<SavedSection, "index">>;
 }
 /** Version 1 stored runs only: { [sectionIndex]: runs } */
 type LegacySavedFile = Record<number, ResponseRun[]>;
 
-function readSaved(raw: SavedFile | LegacySavedFile | undefined): SavedFile | undefined {
+function readSaved(raw: SavedFile | SavedFileV2 | LegacySavedFile | undefined): SavedFile | undefined {
   if (!raw) return undefined;
-  if ((raw as SavedFile).v === 2) return raw as SavedFile;
-  const sections: Record<number, SavedSection> = {};
-  for (const [k, runs] of Object.entries(raw as LegacySavedFile)) {
-    if (Array.isArray(runs)) sections[Number(k)] = { runs };
+  if ((raw as SavedFile).v === 3) return raw as SavedFile;
+  const byIndex: Record<number, Omit<SavedSection, "index">> = {};
+  if ((raw as SavedFileV2).v === 2) Object.assign(byIndex, (raw as SavedFileV2).sections);
+  else {
+    for (const [k, runs] of Object.entries(raw as LegacySavedFile)) if (Array.isArray(runs)) byIndex[Number(k)] = { runs };
   }
-  return { v: 2, sections };
+  // Old saves only knew positions; their runs move to the request's uid on its next run.
+  const sections: Record<string, SavedSection> = {};
+  for (const [k, section] of Object.entries(byIndex)) sections[fallbackSectionId(Number(k))] = { ...section, index: Number(k) };
+  return { v: 3, sections };
 }
 
 interface ResponseRunsState {
@@ -55,17 +101,21 @@ interface ResponseRunsState {
   tabSources: Record<string, string>;
   /** runKey → latest live response doc (saved with the runs) */
   lastDocs: Record<string, unknown>;
+  /** "tabId:sectionIndex" → section id of the request last run at that position */
+  sectionIds: Record<string, string>;
 
   /** Shared view preferences for every Compare view */
   bodyView: DiffBodyView;
   ignoreVolatile: boolean;
   showUnchanged: boolean;
 
+  /** Called when a request is sent: which request (section id) sits at that position now */
+  noteSection: (tabId: string, sectionIndex: number, sectionId: string) => void;
   record: (tabId: string, sectionIndex: number, doc: unknown, source?: ResponseRun["source"]) => void;
   /** Link a tab to its file, loading the runs saved for that file */
   linkTab: (tabId: string, filePath: string) => Promise<void>;
-  /** Forget every run of one request, in memory and on disk */
-  forgetRuns: (tabId: string, sectionIndex: number) => void;
+  /** Forget every run of one request (by runKey), in memory and on disk */
+  forgetRuns: (key: string) => void;
   toggleCompare: (key: string, open?: boolean) => void;
   setBodyView: (view: DiffBodyView) => void;
   setIgnoreVolatile: (on: boolean) => void;
@@ -84,16 +134,25 @@ function cloneable(doc: unknown): unknown {
 }
 
 function sectionsOf(state: ResponseRunsState, tabId: string): SavedFile {
-  const sections: Record<number, SavedSection> = {};
+  const positions: Record<string, number> = {};
+  for (const [k, id] of Object.entries(state.sectionIds)) {
+    if (k.startsWith(`${tabId}:`)) positions[id] = Number(k.slice(tabId.length + 1));
+  }
+  const sections: Record<string, SavedSection> = {};
   for (const [key, runs] of Object.entries(state.runs)) {
     if (!key.startsWith(`${tabId}:`)) continue;
     const saved = runs.filter((r) => r.source === "live" && r.bytes <= MAX_SAVED_BODY_BYTES);
     if (!saved.length) continue;
+    const id = key.slice(tabId.length + 1);
+    const section: SavedSection = { runs: saved };
     // The doc is only worth keeping when it is the response of the newest saved run.
     const doc = runs[0] === saved[0] ? cloneable(state.lastDocs[key]) : undefined;
-    sections[Number(key.slice(tabId.length + 1))] = doc === undefined ? { runs: saved } : { runs: saved, doc };
+    if (doc !== undefined) section.doc = doc;
+    const index = positions[id] ?? (id === DEFAULT_SECTION ? 0 : /^#\d+$/.test(id) ? Number(id.slice(1)) : undefined);
+    if (index !== undefined) section.index = index;
+    sections[id] = section;
   }
-  return { v: 2, sections };
+  return { v: 3, sections };
 }
 
 /** Writes are coalesced per file so a burst of responses (run all) is one write. */
@@ -121,9 +180,11 @@ function scheduleSave(tabId: string) {
 async function restoreResponses(tabId: string, saved: SavedFile) {
   const { useResponseStore } = await import("./responseStore");
   const store = useResponseStore.getState();
-  for (const [section, { runs, doc }] of Object.entries(saved.sections)) {
-    if (!doc || typeof doc !== "object") continue;
-    const index = Number(section);
+  const ids = useResponseRunsStore.getState().sectionIds;
+  for (const [id, { runs, doc, index }] of Object.entries(saved.sections)) {
+    if (!doc || typeof doc !== "object" || index === undefined) continue;
+    // Another request has taken this position since; its response isn't this one.
+    if ((ids[indexKey(tabId, index)] ?? fallbackSectionId(index)) !== id) continue;
     const existing = store.responses[tabId]?.[index];
     if (existing?.responseDoc || existing?.error) continue;
     const d = doc as { attrs?: Record<string, unknown> };
@@ -137,13 +198,39 @@ export const useResponseRunsStore = create<ResponseRunsState>((set, get) => ({
   compareOpen: {},
   tabSources: {},
   lastDocs: {},
+  sectionIds: {},
   bodyView: "semantic",
   ignoreVolatile: true,
   showUnchanged: false,
 
-  record: (tabId, sectionIndex, doc, source = "live") => {
-    const key = runKey(tabId, sectionIndex);
+  noteSection: (tabId, sectionIndex, sectionId) => {
+    const ik = indexKey(tabId, sectionIndex);
     const state = get();
+    if (state.sectionIds[ik] === sectionId) return;
+    const key = `${tabId}:${sectionId}`;
+    // Runs kept under the position-only id (older saves, or before a uid was assigned)
+    // belong to the request now known to be there.
+    const legacyKey = `${tabId}:${fallbackSectionId(sectionIndex)}`;
+    const adopt = legacyKey !== key && !state.runs[key]?.length && state.runs[legacyKey]?.length;
+    set((s) => {
+      const next: Partial<ResponseRunsState> = { sectionIds: { ...s.sectionIds, [ik]: sectionId } };
+      if (adopt) {
+        const runs = { ...s.runs, [key]: s.runs[legacyKey] };
+        const nextId = { ...s.nextId, [key]: s.nextId[legacyKey] ?? 1 };
+        const lastDocs = { ...s.lastDocs, [key]: s.lastDocs[legacyKey] };
+        delete runs[legacyKey];
+        delete nextId[legacyKey];
+        delete lastDocs[legacyKey];
+        Object.assign(next, { runs, nextId, lastDocs });
+      }
+      return next;
+    });
+    if (adopt) scheduleSave(tabId);
+  },
+
+  record: (tabId, sectionIndex, doc, source = "live") => {
+    const state = get();
+    const key = runKey(tabId, sectionIndex, state.sectionIds);
     // The response saved in the file is only a useful baseline before any live run.
     if (source === "file" && state.runs[key]?.length) return;
     const id = state.nextId[key] ?? 1;
@@ -163,7 +250,7 @@ export const useResponseRunsStore = create<ResponseRunsState>((set, get) => ({
 
     let saved: SavedFile | undefined;
     try {
-      saved = readSaved(await idbGet<SavedFile | LegacySavedFile>(filePath, runsDb()));
+      saved = readSaved(await idbGet<SavedFile | SavedFileV2 | LegacySavedFile>(filePath, runsDb()));
     } catch (e) {
       console.error("[response runs] Could not read past responses:", e);
     }
@@ -175,8 +262,16 @@ export const useResponseRunsStore = create<ResponseRunsState>((set, get) => ({
         const runs = { ...s.runs };
         const nextId = { ...s.nextId };
         const lastDocs = { ...s.lastDocs };
-        for (const [section, { runs: savedRuns, doc }] of Object.entries(loadedFile.sections)) {
-          const key = runKey(tabId, Number(section));
+        const sectionIds = { ...s.sectionIds };
+        // Newest first, so when two saved requests claim one position the latest run wins.
+        const newest = (sec: SavedSection) => sec.runs[0]?.timestamp ?? 0;
+        const entries = Object.entries(loadedFile.sections).sort(([, x], [, y]) => newest(y) - newest(x));
+        for (const [id, { index }] of entries) {
+          if (index === undefined || id === fallbackSectionId(index)) continue;
+          sectionIds[indexKey(tabId, index)] ??= id;
+        }
+        for (const [section, { runs: savedRuns, doc }] of entries) {
+          const key = `${tabId}:${section}`;
           const known = new Set((runs[key] ?? []).map((r) => r.timestamp));
           const loaded = savedRuns.filter((r) => !known.has(r.timestamp));
           // The file's saved response only matters when there's nothing older to compare with.
@@ -190,15 +285,15 @@ export const useResponseRunsStore = create<ResponseRunsState>((set, get) => ({
           nextId[key] = next;
           if (doc !== undefined && lastDocs[key] === undefined) lastDocs[key] = doc;
         }
-        return { runs, nextId, lastDocs };
+        return { runs, nextId, lastDocs, sectionIds };
       });
       await restoreResponses(tabId, loadedFile);
     }
     if (saved || hadUnsaved) scheduleSave(tabId);
   },
 
-  forgetRuns: (tabId, sectionIndex) => {
-    const key = runKey(tabId, sectionIndex);
+  forgetRuns: (key) => {
+    const { tabId } = splitKey(key);
     set((s) => {
       const runs = { ...s.runs };
       const lastDocs = { ...s.lastDocs };

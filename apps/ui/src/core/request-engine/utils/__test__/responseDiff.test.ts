@@ -144,3 +144,15 @@ describe("diffJson folding", () => {
     expect(node.t === "container" && node.changes).toBe(0);
   });
 });
+
+describe("sameEndpoint", () => {
+  it("matches the same method and path, whatever the query", async () => {
+    const { sameEndpoint, endpointOf } = await import("../responseDiff");
+    expect(sameEndpoint({ method: "GET", url: "https://API.x.io/users?page=1" }, { method: "GET", url: "https://api.x.io/users/?page=2" })).toBe(true);
+    expect(sameEndpoint({ method: "GET", url: "https://api.x.io/users" }, { method: "GET", url: "https://api.x.io/orders" })).toBe(false);
+    expect(sameEndpoint({ method: "GET", url: "https://api.x.io/users" }, { method: "POST", url: "https://api.x.io/users" })).toBe(false);
+    expect(sameEndpoint({ method: "GET", url: "https://api.x.io/Users" }, { method: "GET", url: "https://api.x.io/users" })).toBe(false);
+    expect(sameEndpoint({ url: null }, { method: "GET", url: "https://api.x.io/users" })).toBe(true);
+    expect(endpointOf({ method: "GET", url: "https://api.x.io/users?x=1" })).toBe("GET https://api.x.io/users");
+  });
+});

@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { useShallow } from "zustand/react/shallow";
 import * as Popover from "@radix-ui/react-popover";
 import {
+  AlertTriangle,
   ArrowDown,
   ArrowLeft,
   ArrowLeftRight,
@@ -37,6 +38,8 @@ import {
   diffJson,
   diffLines,
   emptyCounts,
+  endpointOf,
+  sameEndpoint,
   inlineRange,
   parseJsonBody,
   type ChangeCounts,
@@ -432,7 +435,8 @@ const SIDE_STYLE = {
   b: cn("text-vcs-added", ROW_BG.added),
 };
 
-function RunPicker({ side, run, runs, otherId, onPick }: { side: "a" | "b"; run: ResponseRun; runs: ResponseRun[]; otherId: number; onPick: (id: number) => void }) {
+function RunPicker({ side, run, runs, other, onPick }: { side: "a" | "b"; run: ResponseRun; runs: ResponseRun[]; other: ResponseRun; onPick: (id: number) => void }) {
+  const otherId = other.id;
   const [open, setOpen] = useState(false);
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
@@ -476,6 +480,11 @@ function RunPicker({ side, run, runs, otherId, onPick }: { side: "a" | "b"; run:
                 <span className="flex-1 min-w-0 truncate font-sans">
                   #{r.id} · {r.source === "file" ? "saved in file" : relTime(r.timestamp)}
                 </span>
+                {!isOther && !sameEndpoint(r, other) && (
+                  <Tip label={<span className="font-mono break-all">{endpointOf(r)}</span>} side="right">
+                    <span className={cn(PILL, "font-sans font-normal text-vcs-modified", ROW_BG.changed)}>other endpoint</span>
+                  </Tip>
+                )}
                 {isOther ? (
                   <span className={cn("text-[10px] font-bold px-1 rounded", SIDE_STYLE[side === "a" ? "b" : "a"])}>{side === "a" ? "B" : "A"}</span>
                 ) : (
@@ -556,7 +565,11 @@ export function ResponseDiffView({ runKey: key, fill = false }: { runKey: string
 
   const list = runs ?? [];
   const runB = list.find((r) => r.id === pick.b) ?? list[0];
-  const runA = list.find((r) => r.id === pick.a && r.id !== runB?.id) ?? list.find((r) => r !== runB);
+  // By default A is the latest earlier run that called the same endpoint as B.
+  const runA =
+    list.find((r) => r.id === pick.a && r.id !== runB?.id) ??
+    list.find((r) => r !== runB && sameEndpoint(r, runB)) ??
+    list.find((r) => r !== runB);
 
   const diff = useMemo(() => {
     if (!runA || !runB) return null;
@@ -628,21 +641,23 @@ export function ResponseDiffView({ runKey: key, fill = false }: { runKey: string
   const methodChanged = !!runA.method && !!runB.method && runA.method !== runB.method;
   const urlChanged = !!runA.url && !!runB.url && runA.url !== runB.url;
   const sameBody = runA.bodyText === runB.bodyText;
+  const endpointMismatch = !sameEndpoint(runA, runB);
+  // The latest other run that does match B's endpoint, to offer as A instead.
+  const matchingA = endpointMismatch ? list.find((r) => r !== runB && sameEndpoint(r, runB)) : undefined;
   const identical = !methodChanged && !urlChanged && statusSame && total.added + total.removed + total.changed === 0;
-  const [tabId, section] = [key.slice(0, key.lastIndexOf(":")), Number(key.slice(key.lastIndexOf(":") + 1))];
 
   return (
     <div className={cn("flex flex-col min-w-0 text-text", fill && "h-full")}>
       {/* Toolbar: which runs, how to show them */}
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 px-2 py-1.5 border-b border-border bg-panel flex-shrink-0">
         <div className="flex items-center gap-1 min-w-0">
-          <RunPicker side="a" run={runA} runs={list} otherId={runB.id} onPick={(id) => setPick((p) => ({ ...p, a: id }))} />
+          <RunPicker side="a" run={runA} runs={list} other={runB} onPick={(id) => setPick((p) => ({ ...p, a: id }))} />
           <Tip label="Swap A and B" side="bottom">
             <button type="button" className={ICON_BTN} onClick={() => setPick({ a: runB.id, b: runA.id })} aria-label="Swap A and B">
               <ArrowLeftRight size={13} />
             </button>
           </Tip>
-          <RunPicker side="b" run={runB} runs={list} otherId={runA.id} onPick={(id) => setPick((p) => ({ ...p, b: id }))} />
+          <RunPicker side="b" run={runB} runs={list} other={runA} onPick={(id) => setPick((p) => ({ ...p, b: id }))} />
         </div>
 
         <span className="flex-1" />
@@ -715,7 +730,7 @@ export function ResponseDiffView({ runKey: key, fill = false }: { runKey: string
                     <button
                       type="button"
                       className="h-6 px-2 rounded text-xs text-vcs-removed bg-[color-mix(in_srgb,var(--vcs-removed)_14%,transparent)] hover:bg-[color-mix(in_srgb,var(--vcs-removed)_24%,transparent)]"
-                      onClick={() => { setMenuOpen(false); forgetRuns(tabId, section); }}
+                      onClick={() => { setMenuOpen(false); forgetRuns(key); }}
                     >
                       Forget runs
                     </button>
@@ -740,7 +755,9 @@ export function ResponseDiffView({ runKey: key, fill = false }: { runKey: string
       <div ref={bodyRef} className={cn("min-w-0", fill && "flex-1 min-h-0 overflow-y-auto")}>
         {/* Verdict + request line */}
         <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-editor min-w-0">
-          {identical ? (
+          {endpointMismatch ? (
+            <span className={cn(PILL, "inline-flex items-center gap-1 text-vcs-modified py-0.5", ROW_BG.changed)}><AlertTriangle size={11} /> Different endpoint</span>
+          ) : identical ? (
             <span className={cn(PILL, "inline-flex items-center gap-1 text-vcs-added py-0.5", ROW_BG.added)}><Check size={11} /> Same response</span>
           ) : (
             <Counts c={total} />
@@ -770,6 +787,33 @@ export function ResponseDiffView({ runKey: key, fill = false }: { runKey: string
             )}
           </span>
         </div>
+
+        {endpointMismatch && (
+          <div role="status" className={cn("flex items-start gap-2 px-3 py-2 border-b border-border text-xs", ROW_BG.changed)}>
+            <AlertTriangle size={14} className="text-vcs-modified flex-shrink-0 mt-px" />
+            <div className="flex flex-col gap-1 min-w-0 flex-1">
+              <span className="font-semibold text-text">The endpoint doesn&apos;t match</span>
+              <span className="text-comment">
+                These runs called different endpoints, so they&apos;re probably different requests and the changes below may not mean much.
+              </span>
+              <span className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 font-mono text-[11px] min-w-0">
+                <span className={cn("font-bold px-1 rounded h-fit", SIDE_STYLE.a)}>A</span>
+                <span className="break-all">{endpointOf(runA) ?? "unknown"}</span>
+                <span className={cn("font-bold px-1 rounded h-fit", SIDE_STYLE.b)}>B</span>
+                <span className="break-all">{endpointOf(runB) ?? "unknown"}</span>
+              </span>
+            </div>
+            {matchingA && (
+              <button
+                type="button"
+                className="flex-shrink-0 h-6 px-2 rounded-md border border-border bg-editor text-xs hover:bg-hover"
+                onClick={() => setPick({ a: matchingA.id, b: runB.id })}
+              >
+                Compare with #{matchingA.id}
+              </button>
+            )}
+          </div>
+        )}
 
         {/* Summary */}
         <div className="grid grid-cols-3 divide-x divide-border border-b border-border bg-editor">

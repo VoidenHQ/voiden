@@ -379,3 +379,24 @@ export function bodyForLines(text: string | null): string {
   const parsed = parseJsonBody(text);
   return parsed.ok ? JSON.stringify(parsed.value, null, 2) : text;
 }
+
+// ─── Endpoint ────────────────────────────────────────────────────────────────
+
+/** Method + URL without its query string or fragment, e.g. "GET https://api.x.io/users". */
+export function endpointOf(run: Pick<ResponseRun, "method" | "url">): string | null {
+  if (!run.url) return null;
+  const base = run.url.split(/[?#]/)[0].replace(/\/+$/, "") || run.url;
+  return run.method ? `${run.method} ${base}` : base;
+}
+
+/**
+ * Whether two runs called the same endpoint: same method (when both are known) and same
+ * URL apart from the query string. Unknown on either side counts as a match.
+ */
+export function sameEndpoint(a: Pick<ResponseRun, "method" | "url">, b: Pick<ResponseRun, "method" | "url">): boolean {
+  if (a.method && b.method && a.method !== b.method) return false;
+  if (!a.url || !b.url) return true;
+  // Scheme and host are case-insensitive; the path isn't.
+  const strip = (u: string) => u.split(/[?#]/)[0].replace(/\/+$/, "").replace(/^[a-z][\w+.-]*:\/\/[^/]*/i, (m) => m.toLowerCase());
+  return strip(a.url) === strip(b.url);
+}
