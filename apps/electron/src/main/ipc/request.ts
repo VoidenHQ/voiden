@@ -11,6 +11,7 @@ import * as protoLoader from "@grpc/proto-loader";
 import { createClient, Client } from "graphql-ws";
 import { isAbsolute } from "node:path";
 import { executeSecureRequest, type SecureRequestAdapter } from "@voiden/executors";
+import { getPluginExecutor } from "../pluginExecutors";
 
 
 const lastByWcAndKey = new Map<string, number>();
@@ -643,6 +644,28 @@ export function registerRequestIpcHandler() {
     const activeProject = await getActiveProject(_event);
 
     if (signalState?.aborted) return { ok: false, status: 0, statusText: "aborted", error: "Request aborted" };
+
+    // ── Plugin-provided protocol (see pluginExecutors.ts) ───────────────────
+    const pluginExecutor = getPluginExecutor(requestState?.protocolType);
+    if (pluginExecutor) {
+      const requestFilePath: string | undefined = requestState.metadata?.requestFilePath;
+      try {
+        return await pluginExecutor(requestState, {
+          projectPath: activeProject || undefined,
+          requestFilePath,
+          resolveVariables: activeProject
+            ? (text: string) => replaceVariablesSecure(text, activeProject, requestFilePath, _event)
+            : (text: string) => Promise.resolve(text),
+        });
+      } catch (error: any) {
+        const message = error?.message || String(error);
+        return {
+          ok: false, status: 0, statusText: message, error: message,
+          protocol: requestState.protocolType, protocolType: requestState.protocolType,
+          requestMeta: { method: requestState.method, url: requestState.url, headers: [] },
+        };
+      }
+    }
 
     const followRedirects = requestState.metadata?.follow_redirects !== undefined
       ? requestState.metadata.follow_redirects
