@@ -473,6 +473,8 @@ const VOIDEN_IGNORE_BLOCK = [
   '**/.voiden/*',
   '!**/.voiden/env-public.yaml',
   '!**/.voiden/env-*-public.yaml',
+  // mTLS certificate profiles hold paths and {{variables}} only (no key material).
+  '!**/.voiden/certificates.yaml',
   // Config inheritance is local-only — never meant to be shared/committed.
   // No leading slash: matches at any depth in the project tree.
   '.voiden-inherited.void',
@@ -487,7 +489,7 @@ const LEGACY_VOIDEN_IGNORE_LINES: Record<string, string> = {
 };
 
 // Matches the basenames let through by the negation lines above.
-const VOIDEN_PUBLIC_ENV_RE = /^env(-[^/]+)?-public\.yaml$/;
+const VOIDEN_PUBLIC_ENV_RE = /^(env(-[^/]+)?-public|certificates)\.yaml$/;
 
 // .gitignore only affects untracked files — files committed before the rule
 // existed (e.g. process.env.json, history retention) keep showing as

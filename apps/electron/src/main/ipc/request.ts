@@ -1,6 +1,7 @@
 import { ipcMain, BrowserWindow, protocol } from "electron";
 import { Blob } from "node:buffer";
-import { Agent, ProxyAgent, request as undiciRequest, WebSocket, fetch, FormData } from "undici";
+import type { Agent, ProxyAgent } from "undici";
+import { request as undiciRequest, WebSocket, fetch, FormData } from "undici";
 import { getSettings } from "../settings";
 import { replaceVariablesSecure } from "../env";
 import { getActiveProject } from "../state";
@@ -10,7 +11,8 @@ import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
 import { createClient, Client } from "graphql-ws";
 import { isAbsolute } from "node:path";
-import { executeSecureRequest, type SecureRequestAdapter } from "@voiden/executors";
+import { executeSecureRequest, resolveClientCertificate, type SecureRequestAdapter } from "@voiden/executors";
+import { getDispatcher } from "./dispatcher";
 
 
 const lastByWcAndKey = new Map<string, number>();
@@ -192,89 +194,6 @@ function createMultipartBlob(bytes: ArrayBuffer | ArrayLike<number>, type?: stri
   return new Blob([Buffer.from(bytes as ArrayLike<number>)], {
     type: type || "application/octet-stream",
   });
-}
-
-/**
- * Get dispatcher (Agent or ProxyAgent) based on settings
- * Returns the dispatcher and proxy info for metadata
- */
-function getDispatcher(
-  settings: any,
-  requestUrl: string,
-): { dispatcher?: Agent | ProxyAgent; proxyInfo?: { name: string; host: string; port: number } } {
-  const disableTls = settings?.requests?.disable_tls_verification === true;
-  const timeoutSec = settings?.requests?.timeout ?? 300;
-  const timeoutMs = timeoutSec > 0 ? timeoutSec * 1000 : 0;
-  const proxyEnabled = settings?.proxy?.enabled === true;
-  const activeProxyId = settings?.proxy?.activeProxyId;
-
-  // If no proxy is enabled, return TLS agent if needed
-  if (!proxyEnabled || !activeProxyId) {
-    if (disableTls) {
-      return { dispatcher: new Agent({ connect: { rejectUnauthorized: false }, bodyTimeout: timeoutMs, headersTimeout: timeoutMs }) };
-    }
-    return { dispatcher: new Agent({ bodyTimeout: timeoutMs, headersTimeout: timeoutMs }) };
-  }
-
-  // Find the active proxy configuration
-  const activeProxy = settings.proxy.proxies?.find((p: any) => p.id === activeProxyId);
-  if (!activeProxy) {
-    if (disableTls) {
-      return { dispatcher: new Agent({ connect: { rejectUnauthorized: false }, bodyTimeout: timeoutMs, headersTimeout: timeoutMs }) };
-    }
-    return { dispatcher: new Agent({ bodyTimeout: timeoutMs, headersTimeout: timeoutMs }) };
-  }
-
-  // Check if domain is excluded from proxy
-  if (activeProxy.excludedDomains && activeProxy.excludedDomains.length > 0) {
-    try {
-      const hostname = new URL(requestUrl).hostname;
-      const isExcluded = activeProxy.excludedDomains.some((pattern: string) => {
-        if (pattern.startsWith("*.")) {
-          // Wildcard match: *.internal matches api.internal, service.internal
-          const suffix = pattern.substring(1); // Remove * to get .internal
-          return hostname.endsWith(suffix) || hostname === suffix.substring(1); // Match .internal or internal
-        }
-        // Exact match
-        return hostname === pattern;
-      });
-
-      if (isExcluded) {
-        if (disableTls) {
-          return { dispatcher: new Agent({ connect: { rejectUnauthorized: false }, bodyTimeout: timeoutMs, headersTimeout: timeoutMs }) };
-        }
-        return { dispatcher: new Agent({ bodyTimeout: timeoutMs, headersTimeout: timeoutMs }) };
-      }
-    } catch (error) {
-      // Continue with proxy on parse error
-    }
-  }
-
-  // Build proxy URL
-  const protocol = "http"; // Proxies typically use HTTP protocol
-  let proxyUrl = `${protocol}://${activeProxy.host}:${activeProxy.port}`;
-
-  // Add auth if enabled
-  if (activeProxy.auth && activeProxy.username) {
-    const username = encodeURIComponent(activeProxy.username);
-    const password = activeProxy.password ? encodeURIComponent(activeProxy.password) : "";
-    proxyUrl = `${protocol}://${username}:${password}@${activeProxy.host}:${activeProxy.port}`;
-  }
-
-  // Create ProxyAgent with TLS settings
-  return {
-    dispatcher: new ProxyAgent({
-      uri: proxyUrl,
-      connect: disableTls ? { rejectUnauthorized: false } : undefined,
-      bodyTimeout: timeoutMs,
-      headersTimeout: timeoutMs,
-    }),
-    proxyInfo: {
-      name: activeProxy.name,
-      host: activeProxy.host,
-      port: activeProxy.port,
-    },
-  };
 }
 
 function applyProxyEnvForGrpc(settings: any, requestUrl: string) {
@@ -648,10 +567,16 @@ export function registerRequestIpcHandler() {
       ? requestState.metadata.follow_redirects
       : settings?.requests?.follow_redirects ?? true;
 
+    const replaceVar = activeProject
+      ? (text: string) => replaceVariablesSecure(text, activeProject, requestState.metadata?.requestFilePath, _event)
+      : (text: string) => Promise.resolve(text);
+
+    // mTLS: pick a profile from .voiden/certificates.yaml. Key material stays in this process.
+    const clientCertificateFor = (url: string, choice?: string) =>
+      resolveClientCertificate({ url, choice, projectRoot: activeProject || undefined, replaceVar });
+
     const adapter: SecureRequestAdapter = {
-      replaceVar: activeProject
-        ? (text: string) => replaceVariablesSecure(text, activeProject, requestState.metadata?.requestFilePath, _event)
-        : (text: string) => Promise.resolve(text),
+      replaceVar,
 
       readFile: async (filePath: string) => {
         // Determine whether the stored path is genuinely absolute.
@@ -680,7 +605,8 @@ export function registerRequestIpcHandler() {
         }
       },
 
-      getDispatcher: (url: string) => getDispatcher(settings, url),
+      getDispatcher: (url: string, clientCertificate) => getDispatcher(settings, url, clientCertificate),
+      resolveClientCertificate: clientCertificateFor,
       followRedirects,
       isElectron: true,
     };
@@ -693,7 +619,8 @@ export function registerRequestIpcHandler() {
         const { protocol, resolvedUrl, resolvedHeaders, resolvedBody } = result;
 
         if (protocol === "ws" || protocol === "wss") {
-          const { dispatcher, proxyInfo } = getDispatcher(settings, resolvedUrl);
+          const clientCertificate = await clientCertificateFor(resolvedUrl, requestState.metadata?.client_certificate);
+          const { dispatcher, proxyInfo } = getDispatcher(settings, resolvedUrl, clientCertificate?.connect);
           return handleWsConnection(resolvedUrl, {
             headers: resolvedHeaders,
             dispatcher,

@@ -187,6 +187,8 @@ export interface RestApiResponseState {
       host: string;
       port: number;
     };
+    /** Name of the mTLS client certificate profile used, if any. */
+    clientCertificate?: string;
   };
 
   // Metadata
