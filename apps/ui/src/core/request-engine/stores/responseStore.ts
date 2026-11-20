@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from "zustand/middleware";
+import { useResponseRunsStore } from "./responseRunsStore";
 
 export type ResponseNodeType =
   | "response-body"
@@ -79,7 +80,7 @@ interface ResponseStore {
   /** Set response content for a specific tab and section */
   setResponse: (tabId: string, doc: any, markdown: string | null) => void;
   /** Hydrate response content for a tab without mutating loading/request state */
-  hydrateResponse: (tabId: string, doc: any, markdown: string | null) => void;
+  hydrateResponse: (tabId: string, doc: any, markdown: string | null, timestamp?: number) => void;
 
   /** Get all section responses for a tab, sorted by section index */
   getResponsesForTab: (tabId: string) => Array<{ sectionIndex: number; response: SectionResponse }>;
@@ -195,6 +196,8 @@ export const useResponseStore = create<ResponseStore>()(
 
       setResponse: (tabId, doc, markdown) => {
         const sectionIndex = extractSectionIndex(doc);
+        // Keep a snapshot for the response panel's Compare mode.
+        useResponseRunsStore.getState().record(tabId, sectionIndex, doc, "live");
         set((state) => ({
           responses: {
             ...state.responses,
@@ -214,8 +217,9 @@ export const useResponseStore = create<ResponseStore>()(
         }));
       },
 
-      hydrateResponse: (tabId, doc, markdown) => {
+      hydrateResponse: (tabId, doc, markdown, timestamp) => {
         const sectionIndex = extractSectionIndex(doc);
+        useResponseRunsStore.getState().record(tabId, sectionIndex, doc, "file");
         set((state) => ({
           responses: {
             ...state.responses,
@@ -225,7 +229,7 @@ export const useResponseStore = create<ResponseStore>()(
                 responseDoc: doc,
                 responseMarkdown: markdown,
                 error: null,
-                timestamp: Date.now(),
+                timestamp: timestamp ?? Date.now(),
               },
             },
           },

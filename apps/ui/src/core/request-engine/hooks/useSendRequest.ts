@@ -4,6 +4,7 @@
  * Handles sending HTTP/REST requests from the editor content
  */
 
+import { sectionIdAt, useResponseRunsStore } from "../stores/responseRunsStore";
 import { useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Editor } from "@tiptap/core";
@@ -141,6 +142,10 @@ export const useSendRestRequest = (_editor: Editor) => {
         // during variable resolution — before a request is even built) gets
         // attributed to this section by handleSendError/setError, not section 0.
         useResponseStore.getState().setCurrentRequestSectionIndex(sectionIndex ?? null);
+        // Compare keeps runs per request (by separator uid), not per position.
+        if (activeDocument?.id) {
+          useResponseRunsStore.getState().noteSection(activeDocument.id, sectionIndex ?? 0, sectionIdAt(editor.state.doc, sectionIndex ?? 0));
+        }
 
         const filePath = activeDocument?.source ?? undefined;
         const response = await requestOrchestrator.executeRequest(
