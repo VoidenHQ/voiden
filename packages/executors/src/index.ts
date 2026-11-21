@@ -15,6 +15,21 @@ export {
   validateResolvedStrings,
 } from './unresolvedVariables.js'
 
+export type {
+  ClientCertificateProfile,
+  ClientCertificateConnectOptions,
+  ResolvedClientCertificate,
+  ResolveClientCertificateParams,
+} from './clientCertificates.js'
+export {
+  CERTIFICATES_FILE,
+  ClientCertificateError,
+  parseCertificateProfiles,
+  hostMatchesPattern,
+  selectClientCertificateProfile,
+  resolveClientCertificate,
+} from './clientCertificates.js'
+
 export * from './pipeline/index.js'
 
 export type { HeadlessEditor, RequestBuildHandler, ResponseProcessHandler } from './orchestrator.js'
