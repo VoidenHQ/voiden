@@ -1,4 +1,6 @@
-import { LocateFixed, RotateCw } from "lucide-react";
+import { GitCompareArrows, LocateFixed, RotateCw } from "lucide-react";
+import { cn } from "@/core/lib/utils";
+import { useRunKey, useResponseRunsStore } from "../stores/responseRunsStore";
 import { Tip } from "@/core/components/ui/Tip";
 import { toast } from "@/core/components/ui/sonner";
 import { useVoidenEditorStore } from "@/core/editors/voiden/VoidenEditor";
@@ -24,7 +26,7 @@ function sectionFirstBlockPos(doc: any, sectionIndex: number): number | null {
 
 /**
  * Per-section actions in the response panel's header: jump to the request in the editor,
- * and send it again. They act on the open document, so they're disabled
+ * compare this response with an earlier run, and send it again. They act on the open document, so they're disabled
  * when the editor shows a different tab than this response belongs to.
  */
 export function SectionHeaderActions({
@@ -61,6 +63,11 @@ export function SectionHeaderActions({
     fn();
   };
   const notHere = live ? undefined : "Open this request's file to use this";
+  const key = useRunKey(tabId, sectionIndex);
+  const runCount = useResponseRunsStore((s) => s.runs[key]?.length ?? 0);
+  const comparing = useResponseRunsStore((s) => !!s.compareOpen[key]);
+  const toggleCompare = useResponseRunsStore((s) => s.toggleCompare);
+  const canCompare = runCount >= 2 || comparing;
 
   return (
     <>
@@ -71,6 +78,21 @@ export function SectionHeaderActions({
           </button>
         </Tip>
       )}
+      <Tip
+        label={comparing ? "Back to response" : canCompare ? "Compare with an earlier run" : "Send this request again to compare runs"}
+        side="bottom"
+      >
+        <button
+          type="button"
+          className={cn(BUTTON, comparing && "text-accent hover:text-accent")}
+          disabled={!canCompare}
+          aria-pressed={comparing}
+          onClick={stop(() => toggleCompare(key))}
+          aria-label="Compare runs"
+        >
+          <GitCompareArrows size={size} />
+        </button>
+      </Tip>
       <Tip label={notHere ?? "Send this request again"} side="bottom">
         <button type="button" className={BUTTON} disabled={!live} onClick={stop(() => runSection(sectionIndex))} aria-label="Retry request">
           <RotateCw size={size} />

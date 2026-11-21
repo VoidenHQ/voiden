@@ -17,6 +17,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { app } from "electron";
 import { replaceVariablesSecure } from "./env";
 import { registerVariableProvider, unregisterVariableProviders, type VariableResolver } from "./variableProviders";
+import { registerPluginExecutor, unregisterPluginExecutors, type PluginExecutor } from "./pluginExecutors";
 import { getActiveProject } from "./state";
 import type { ExtensionData } from "../shared/types";
 import { logger } from "./logger";
@@ -77,7 +78,21 @@ function createContextForExtension(extensionId: string): {
     },
   };
 
-  const context: ElectronExtensionContext = {
+  // Newer than the published SDK's ElectronExtensionContext type, like
+  // env.registerVariableProvider above.
+  const request = {
+    /**
+     * Run requests whose `protocolType` is `protocol` (set by the plugin's
+     * onBuildRequest) with `execute`, instead of the built-in HTTP path.
+     */
+    registerExecutor(protocol: string, execute: PluginExecutor) {
+      return registerPluginExecutor(extensionId, protocol, execute);
+    },
+  };
+
+  const context: ElectronExtensionContext & { request: typeof request } = {
+    request,
+
     // ── IPC API (auto-namespaced) ─────────────────────────────────
     ipc: {
       handle(channel: string, handler: (...args: any[]) => any) {
@@ -260,8 +275,10 @@ export async function loadMainProcessExtensions(extensions: ExtensionData[]) {
       logger.info("plugin", `[ExtensionLoader] ✓ Loaded main-process extension: ${ext.id}`, { path: bundlePath, duration: loadResult.duration });
       _notifyRenderer(loadResult);
     } catch (err) {
-      // Don't leave a half-initialised plugin's providers resolving variables.
+      // Don't leave a half-initialised plugin's providers resolving variables
+      // or its executors handling requests.
       unregisterVariableProviders(ext.id);
+      unregisterPluginExecutors(ext.id);
       const loadResult: MainProcessExtensionResult = { id: ext.id, success: false, path: bundlePath, error: String(err), duration: Date.now() - t0 };
       mainProcessResults.push(loadResult);
       logger.error("plugin", `[ExtensionLoader] Failed to initialize extension ${ext.id}`, { error: String(err) });
@@ -293,6 +310,7 @@ export async function unloadMainProcessExtension(extensionId: string): Promise<v
     loadedPlugins.splice(idx, 1);
   }
   unregisterVariableProviders(extensionId);
+  unregisterPluginExecutors(extensionId);
 }
 
 /**
@@ -326,6 +344,7 @@ export async function unloadMainProcessExtensions() {
       } catch { /* already removed */ }
     }
     unregisterVariableProviders(loaded.extensionId);
+    unregisterPluginExecutors(loaded.extensionId);
   }
   loadedPlugins.length = 0;
 }
