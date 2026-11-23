@@ -1,6 +1,6 @@
 # Client certificates (mTLS)
 
-Some APIs require the client to present its own certificate during the TLS handshake. Voiden reads certificate profiles from `.voiden/certificates.yaml` in the project and attaches the matching certificate to HTTP and WebSocket requests sent from the app. The private key is read and used in the main process only; it never reaches the renderer or plugins.
+Some APIs require the client to present its own certificate during the TLS handshake. Voiden reads certificate profiles from `.voiden/certificates.yaml` in the project and attaches the matching certificate to HTTP, WebSocket and gRPC requests sent from the app. You can edit the profiles in **Settings → Network → Client certificates** or in the file directly. The private key is read and used in the main process only; it never reaches the renderer or plugins.
 
 ## Profiles
 
@@ -52,5 +52,6 @@ The request fails before it is sent, with a message naming the profile, when `ce
 
 ## Current limitations
 
-- gRPC requests and the `voiden run` CLI do not apply client certificates yet.
+- The `voiden run` CLI does not apply client certificates yet.
+- gRPC requests have no Options block, so they always use host matching (`auto`).
 - `client_certificate` is read from the request's own Options block; it is not inherited from `.voiden-inherited.void`.

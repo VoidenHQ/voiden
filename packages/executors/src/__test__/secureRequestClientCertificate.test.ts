@@ -43,7 +43,7 @@ describe('executeSecureRequest client certificates', () => {
     )
 
     expect(resolveClientCertificate).toHaveBeenCalledWith('https://api.bank.com/accounts', 'payments')
-    expect(getDispatcher).toHaveBeenCalledWith('https://api.bank.com/accounts', connect)
+    expect(getDispatcher).toHaveBeenCalledWith('https://api.bank.com/accounts', connect, undefined)
     expect(mockFetch.mock.calls[0][1].dispatcher).toEqual({ tag: 'dispatcher' })
     expect(result.kind === 'http' && result.requestMeta.clientCertificate).toBe('payments')
   })
@@ -56,7 +56,7 @@ describe('executeSecureRequest client certificates', () => {
       resolveClientCertificate: async () => null,
     })
 
-    expect(getDispatcher).toHaveBeenCalledWith('https://api.bank.com/accounts', undefined)
+    expect(getDispatcher).toHaveBeenCalledWith('https://api.bank.com/accounts', undefined, undefined)
     expect(result.kind === 'http' && result.requestMeta.clientCertificate).toBeUndefined()
   })
 
@@ -70,5 +70,31 @@ describe('executeSecureRequest client certificates', () => {
     }
     await expect(send(adapter)).rejects.toThrow(/wrong or missing passphrase/)
     expect(mockFetch).not.toHaveBeenCalled()
+  })
+
+  it('passes the per-request TLS verification override to getDispatcher', async () => {
+    const getDispatcher = vi.fn().mockReturnValue({})
+    await send({ replaceVar: async t => t, getDispatcher }, { disable_tls_verification: true })
+    expect(getDispatcher).toHaveBeenLastCalledWith('https://api.bank.com/accounts', undefined, { disableTlsVerification: true })
+    await send({ replaceVar: async t => t, getDispatcher }, { disable_tls_verification: false })
+    expect(getDispatcher).toHaveBeenLastCalledWith('https://api.bank.com/accounts', undefined, { disableTlsVerification: false })
+    await send({ replaceVar: async t => t, getDispatcher }, {})
+    expect(getDispatcher).toHaveBeenLastCalledWith('https://api.bank.com/accounts', undefined, undefined)
+  })
+
+  it('reports the captured TLS details with the client certificate profile name', async () => {
+    const connect = { cert: Buffer.from('c'), key: Buffer.from('k') }
+    const captured = { isSecure: true, protocol: 'TLSv1.3', cipher: 'TLS_AES_256_GCM_SHA384', authorized: true, clientCertificate: { subject: 'me' } }
+    const result = await send({
+      replaceVar: async t => t,
+      getDispatcher: () => ({ getTlsInfo: () => captured }),
+      resolveClientCertificate: async () => ({ profile: 'payments', connect }),
+    })
+    expect(result.kind === 'http' && result.requestMeta.tlsInfo).toEqual({ ...captured, clientCertificate: { subject: 'me', name: 'payments' } })
+  })
+
+  it('reports only isSecure when nothing was captured, never made-up values', async () => {
+    const result = await send({ replaceVar: async t => t, getDispatcher: () => ({}) })
+    expect(result.kind === 'http' && result.requestMeta.tlsInfo).toEqual({ isSecure: true })
   })
 })

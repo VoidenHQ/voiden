@@ -27,7 +27,7 @@ import { createSecureContext } from 'node:tls'
 import { readFile as fsReadFile } from 'node:fs/promises'
 import { isAbsolute, join, resolve } from 'node:path'
 import type { Buffer } from 'node:buffer'
-import { parse as parseYaml } from 'yaml'
+import { parse as parseYaml, parseDocument, isMap } from 'yaml'
 
 /** Location of the profiles file, relative to the project root. */
 export const CERTIFICATES_FILE = '.voiden/certificates.yaml'
@@ -221,10 +221,10 @@ export async function resolveClientCertificate(
   const choice = String(params.choice ?? '').trim()
   if (choice.toLowerCase() === 'none') return null
 
-  // Client certificates are a TLS feature; plain http:/ws: requests have no handshake to present one in.
+  // Client certificates are a TLS feature; plain http:/ws:/grpc: requests have no handshake to present one in.
   try {
     const { protocol } = new URL(url)
-    if (protocol === 'http:' || protocol === 'ws:') return null
+    if (protocol === 'http:' || protocol === 'ws:' || protocol === 'grpc:') return null
   } catch {
     return null
   }
@@ -257,7 +257,22 @@ export async function resolveClientCertificate(
 
   const profile = selectClientCertificateProfile(parseCertificateProfiles(yamlText), url, choice)
   if (!profile) return null
+  return loadClientCertificateProfile(profile, { projectRoot, replaceVar, readFile })
+}
 
+/**
+ * Read the files of one profile and check the key can be loaded.
+ *
+ * @throws ClientCertificateError when a file is missing or the key cannot be
+ *   loaded (for example a wrong passphrase).
+ */
+export async function loadClientCertificateProfile(
+  profile: ClientCertificateProfile,
+  params: Pick<ResolveClientCertificateParams, 'replaceVar' | 'readFile'> & { projectRoot: string },
+): Promise<ResolvedClientCertificate> {
+  const { projectRoot } = params
+  const readFile = params.readFile ?? ((p: string) => fsReadFile(p))
+  const replaceVar = params.replaceVar ?? (async (t: string) => t)
   const where = `Client certificate profile "${profile.name}"`
   const connect: ClientCertificateConnectOptions = {}
 
@@ -284,11 +299,92 @@ export async function resolveClientCertificate(
   try {
     createSecureContext({ ...connect })
   } catch (err: any) {
-    const detail = /bad decrypt|passphrase|mac verify|bad password/i.test(String(err?.message))
-      ? 'wrong or missing passphrase'
-      : 'the certificate or key could not be parsed'
-    throw new ClientCertificateError(`${where}: ${detail}`)
+    throw new ClientCertificateError(`${where}: ${describeKeyLoadError(err)}`)
   }
 
   return { profile: profile.name, connect }
+}
+
+/** Read and parse `certificates.yaml`; `exists: false` when the project has none. */
+export async function readCertificateProfiles(
+  projectRoot: string,
+  readFile: (absolutePath: string) => Promise<Buffer> = p => fsReadFile(p),
+): Promise<{ exists: boolean; text: string; profiles: ClientCertificateProfile[] }> {
+  let text: string
+  try {
+    text = (await readFile(join(projectRoot, CERTIFICATES_FILE))).toString('utf8')
+  } catch (err: any) {
+    if (err?.code === 'ENOENT') return { exists: false, text: '', profiles: [] }
+    throw new ClientCertificateError(`Cannot read ${CERTIFICATES_FILE}: ${err?.message ?? err}`)
+  }
+  return { exists: true, text, profiles: parseCertificateProfiles(text) }
+}
+
+const FILE_HEADER = `# Client certificates (mTLS) for this project. This file is committed and
+# shared with the team: it holds paths and {{variables}} only, never key material.
+# Paths are relative to the project root. Keep passphrases in a private
+# environment variable, e.g. passphrase: "{{CLIENT_CERT_PASS}}".
+# The first profile whose hosts match a request is used; pick one per request
+# with the client_certificate option.
+`
+
+/**
+ * Write `profiles` back into the YAML text of `certificates.yaml`, keeping
+ * anything else in the file (other top-level keys, the leading comment).
+ * Profiles are validated with the same rules as reading.
+ */
+export function serializeCertificateProfiles(existingText: string, profiles: ClientCertificateProfile[]): string {
+  const seen = new Set<string>()
+  const node: Record<string, Record<string, unknown>> = {}
+  for (const p of profiles) {
+    const name = p.name.trim()
+    if (!name) throw new ClientCertificateError('Every profile needs a name')
+    if (RESERVED_PROFILE_NAMES.includes(name.toLowerCase())) {
+      throw new ClientCertificateError(`"${name}" is reserved for the client_certificate option`)
+    }
+    if (seen.has(name)) throw new ClientCertificateError(`Two profiles are named "${name}"`)
+    seen.add(name)
+    const entry: Record<string, unknown> = { hosts: p.hosts.map(h => h.trim()).filter(Boolean) }
+    for (const field of PATH_FIELDS) if (p[field]?.trim()) entry[field] = p[field]!.trim()
+    if (p.passphrase) entry.passphrase = p.passphrase
+    node[name] = entry
+  }
+
+  const doc = parseDocument(existingText.trim() ? existingText : FILE_HEADER)
+  if (doc.errors.length) throw new ClientCertificateError(`${CERTIFICATES_FILE} is not valid YAML: ${doc.errors[0].message}`)
+  if (doc.contents !== null && !isMap(doc.contents)) {
+    throw new ClientCertificateError(`${CERTIFICATES_FILE} must be a map with a "profiles" key`)
+  }
+  doc.set('profiles', doc.createNode(node))
+  const out = doc.toString({ lineWidth: 0 })
+  // Round-trip through the reader so a bad profile is caught before writing.
+  parseCertificateProfiles(out)
+  return out
+}
+
+/** Names that mean something else in the client_certificate option. */
+export const RESERVED_PROFILE_NAMES = ['auto', 'none']
+
+/**
+ * A user-facing reason for a `createSecureContext` failure. Covers both
+ * Node's OpenSSL (CLI) and Electron's BoringSSL (app), which word the same
+ * failures differently (`bad decrypt` vs `BAD_DECRYPT`, `mac verify failure`
+ * vs `INCORRECT_PASSWORD`). Never includes key material.
+ */
+export function describeKeyLoadError(err: any): string {
+  const text = `${err?.code ?? ''} ${err?.message ?? err ?? ''}`.replace(/_/g, ' ')
+  if (/bad decrypt|incorrect password|mac verify|bad password|passphrase/i.test(text)) {
+    return 'wrong or missing passphrase'
+  }
+  if (/unknown algorithm|unsupported pkcs12/i.test(text)) {
+    return 'the key is encrypted with an algorithm that is not supported; re-export it with AES, '
+      + 'for example `openssl pkcs8 -topk8 -v2 aes-256-cbc -in key.pem -out key-aes.pem`'
+  }
+  if (/no start line|bad end line|bad base64|header too long/i.test(text)) {
+    return 'the certificate or key is not a valid PEM file'
+  }
+  if (/key values mismatch/i.test(text)) {
+    return 'the key does not belong to the certificate'
+  }
+  return 'the certificate or key could not be parsed'
 }

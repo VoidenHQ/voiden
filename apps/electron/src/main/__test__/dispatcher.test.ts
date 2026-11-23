@@ -42,7 +42,9 @@ describe.skipIf(!hasOpenssl)('getDispatcher with a client certificate (mTLS)', (
   let dir: string;
   let server: https.Server;
   let proxy: http.Server;
+  let plainServer: https.Server;
   let port: number;
+  let plainPort: number;
   let proxyPort: number;
   const seen: (string | null)[] = [];
   const read = (name: string) => fs.readFileSync(path.join(dir, name));
@@ -67,6 +69,11 @@ describe.skipIf(!hasOpenssl)('getDispatcher with a client certificate (mTLS)', (
     await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
     port = (server.address() as net.AddressInfo).port;
 
+    // Same server certificate (signed by a CA the client doesn't trust), no client certificate required.
+    plainServer = https.createServer({ cert: read('server.pem'), key: read('server.key') }, (_req, res) => res.end('ok'));
+    await new Promise<void>((r) => plainServer.listen(0, '127.0.0.1', r));
+    plainPort = (plainServer.address() as net.AddressInfo).port;
+
     // Minimal CONNECT proxy: tunnels bytes without touching TLS.
     proxy = http.createServer();
     proxy.on('connect', (req, clientSocket, head) => {
@@ -87,6 +94,8 @@ describe.skipIf(!hasOpenssl)('getDispatcher with a client certificate (mTLS)', (
   afterAll(async () => {
     proxy.closeAllConnections?.();
     server.closeAllConnections?.();
+    plainServer.closeAllConnections?.();
+    await new Promise<void>((r) => plainServer.close(() => r()));
     await new Promise<void>((r) => proxy.close(() => r()));
     await new Promise<void>((r) => server.close(() => r()));
     fs.rmSync(dir, { recursive: true, force: true });
@@ -126,5 +135,76 @@ describe.skipIf(!hasOpenssl)('getDispatcher with a client certificate (mTLS)', (
     const res = await fetch(url(), { dispatcher });
     expect(await res.text()).toBe('ok');
     expect(seen).toEqual(['voiden-client']);
+  });
+
+  describe('TLS verification', () => {
+    const plainUrl = () => `https://localhost:${plainPort}/`;
+    const viaProxy = (extra: object = {}) => ({
+      ...extra,
+      proxy: { enabled: true, activeProxyId: 'p', proxies: [{ id: 'p', name: 'local', host: '127.0.0.1', port: proxyPort }] },
+    });
+
+    it('rejects an untrusted server certificate by default', async () => {
+      const { dispatcher } = getDispatcher({}, plainUrl());
+      await expect(fetch(plainUrl(), { dispatcher })).rejects.toThrow();
+    });
+
+    it('a per-request override disables verification when the setting is off', async () => {
+      const { dispatcher } = getDispatcher({}, plainUrl(), undefined, { disableTlsVerification: true });
+      expect(await (await fetch(plainUrl(), { dispatcher })).text()).toBe('ok');
+    });
+
+    it('a per-request override re-enables verification when the setting is on', async () => {
+      const settings = { requests: { disable_tls_verification: true } };
+      const { dispatcher } = getDispatcher(settings, plainUrl(), undefined, { disableTlsVerification: false });
+      await expect(fetch(plainUrl(), { dispatcher })).rejects.toThrow();
+    });
+
+    it('honours the setting through an HTTP proxy without a client certificate', async () => {
+      const { dispatcher } = getDispatcher(viaProxy({ requests: { disable_tls_verification: true } }), plainUrl());
+      expect(await (await fetch(plainUrl(), { dispatcher })).text()).toBe('ok');
+    });
+
+    it('honours a per-request override through an HTTP proxy', async () => {
+      const { dispatcher } = getDispatcher(viaProxy(), plainUrl(), undefined, { disableTlsVerification: true });
+      expect(await (await fetch(plainUrl(), { dispatcher })).text()).toBe('ok');
+    });
+
+    it('still verifies through an HTTP proxy by default', async () => {
+      const { dispatcher } = getDispatcher(viaProxy(), plainUrl());
+      await expect(fetch(plainUrl(), { dispatcher })).rejects.toThrow();
+    });
+  });
+
+  describe('TLS details', () => {
+    it('captures protocol, cipher and both certificates of an mTLS connection', async () => {
+      const { dispatcher, getTlsInfo } = getDispatcher({}, url(), tls());
+      expect(getTlsInfo()).toBeUndefined();
+      await (await fetch(url(), { dispatcher })).text();
+      const info = getTlsInfo();
+      expect(info).toMatchObject({ isSecure: true, authorized: true });
+      expect(info?.protocol).toMatch(/^TLSv1\.[23]$/);
+      expect(info?.cipher).toBeTruthy();
+      expect(info?.certificate).toMatchObject({ subject: 'localhost', issuer: 'voiden-test-ca' });
+      expect(info?.certificate?.expiry).toMatch(/^\d{4}-/);
+      expect(info?.clientCertificate).toMatchObject({ subject: 'voiden-client', issuer: 'voiden-test-ca' });
+    });
+
+    it('captures details through an HTTP proxy tunnel', async () => {
+      const settings = { proxy: { enabled: true, activeProxyId: 'p', proxies: [{ id: 'p', name: 'local', host: '127.0.0.1', port: proxyPort }] } };
+      const { dispatcher, getTlsInfo } = getDispatcher(settings, url(), tls());
+      await (await fetch(url(), { dispatcher })).text();
+      expect(getTlsInfo()).toMatchObject({ isSecure: true, authorized: true, certificate: { subject: 'localhost' } });
+    });
+
+    it('reports an unverified server certificate when verification is off', async () => {
+      const plainUrl = `https://localhost:${plainPort}/`;
+      const { dispatcher, getTlsInfo } = getDispatcher({}, plainUrl, undefined, { disableTlsVerification: true });
+      await (await fetch(plainUrl, { dispatcher })).text();
+      const info = getTlsInfo();
+      expect(info?.authorized).toBe(false);
+      expect(info?.authorizationError).toBeTruthy();
+      expect(info?.clientCertificate).toBeUndefined();
+    });
   });
 });

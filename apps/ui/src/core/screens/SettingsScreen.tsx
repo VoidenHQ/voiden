@@ -1,5 +1,5 @@
 import { useSettings, ProxyConfig, SYSTEM_DEFAULT_FONT, VALID_FONT_FAMILIES } from "@/core/settings/hooks/useSettings";
-import { Check, RefreshCw, Plus, Trash2, Edit2, Palette, FileText, Network, Search, Keyboard, ChevronUp, ChevronDown, Settings, Plug, Code2, Sparkles, Download, Copy, RotateCcw } from "lucide-react";
+import { Check, RefreshCw, Plus, Trash2, Edit2, Palette, FileText, Network, Search, Keyboard, ChevronUp, ChevronDown, Settings, Plug, Code2, Sparkles, Download, Copy, RotateCcw, X, ShieldCheck, FolderOpen, AlertCircle } from "lucide-react";
 import { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import { usePluginStore, type PluginSettingsSection } from "@/plugins";
 import { loadThemeById, getAvailableThemes } from "@/utils/themeLoader";
@@ -7,6 +7,7 @@ import { Kbd } from "@/core/components/ui/kbd";
 import { CliCommandMessage, type CliResultMessage } from "@/core/settings/components/CliCommandMessage";
 import { useTerminalShells } from "@/core/terminal/hooks";
 import { useSidebarTabsPosition, type SidebarTabsPosition } from "@/core/stores/sidebarTabsPosition";
+import { useGetProjects } from "@/core/projects/hooks/useProjects";
 
 const FONT_SIZE_MIN = 10;
 const FONT_SIZE_MAX = 20;
@@ -69,15 +70,590 @@ const Select = ({ className = "", ...props }: React.SelectHTMLAttributes<HTMLSel
   />
 );
 
-const Input = ({ className = "", ...props }: React.InputHTMLAttributes<HTMLInputElement>) => (
+const Input = ({ className = "", style, ...props }: React.InputHTMLAttributes<HTMLInputElement>) => (
   <input
     {...props}
     className={`px-3 py-1.5 rounded-md bg-editor text-text text-sm border border-border-subtle focus:outline-none focus:ring-1 ${className}`}
     style={{
-      '--tw-ring-color': 'var(--icon-primary)'
+      '--tw-ring-color': 'var(--icon-primary)',
+      ...style,
     } as React.CSSProperties}
   />
 );
+
+// ── Client certificates (mTLS, #634) ──────────────────────────────────────────
+// Edits the active project's .voiden/certificates.yaml through the main process.
+
+type CertForm = {
+  name: string;
+  hosts: string;
+  type: "pem" | "pfx";
+  cert: string;
+  key: string;
+  pfx: string;
+  ca: string;
+  passphrase: string;
+};
+
+const EMPTY_CERT_FORM: CertForm = { name: "", hosts: "", type: "pem", cert: "", key: "", pfx: "", ca: "", passphrase: "" };
+
+const RESERVED_CERT_NAMES = ["auto", "none"];
+
+type CertCheck =
+  | { ok: true; subject?: string; issuer?: string; validTo?: string; expired?: boolean }
+  | { ok: false; error: string };
+
+type CertList = Awaited<ReturnType<NonNullable<typeof window.electron>["clientCertificates"]["list"]>>;
+
+const toForm = (p: ClientCertificateProfile): CertForm => ({
+  name: p.name,
+  hosts: p.hosts.join(", "),
+  type: p.pfx ? "pfx" : "pem",
+  cert: p.cert ?? "",
+  key: p.key ?? "",
+  pfx: p.pfx ?? "",
+  ca: p.ca ?? "",
+  passphrase: p.passphrase ?? "",
+});
+
+const toProfile = (f: CertForm): ClientCertificateProfile => {
+  const v = (s: string) => (s.trim() ? s.trim() : undefined);
+  return {
+    name: f.name.trim(),
+    hosts: f.hosts.split(",").map((h) => h.trim()).filter(Boolean),
+    ...(f.type === "pem" ? { cert: v(f.cert), key: v(f.key) } : { pfx: v(f.pfx) }),
+    ca: v(f.ca),
+    passphrase: f.passphrase ? f.passphrase : undefined,
+  };
+};
+
+/** A settings-style row whose control sits below the title (for wide inputs like paths). */
+const FieldRow = ({
+  title,
+  description,
+  error,
+  border = true,
+  children,
+}: {
+  title: string;
+  description?: React.ReactNode;
+  error?: string;
+  border?: boolean;
+  children: React.ReactNode;
+}) => (
+  <div className={`px-4 py-3.5 ${border ? "border-b border-border-subtle" : ""}`}>
+    <div className="text-sm text-text">{title}</div>
+    {description && <div className="text-xs text-comment mt-0.5 leading-relaxed">{description}</div>}
+    <div className="mt-2.5">{children}</div>
+    {error && (
+      <div className="flex items-center gap-1 text-xs mt-1.5" style={{ color: "var(--icon-error)" }}>
+        <AlertCircle className="w-3 h-3 flex-shrink-0" />
+        {error}
+      </div>
+    )}
+  </div>
+);
+
+const FilePicker = ({
+  value,
+  onChange,
+  extensions,
+  defaultPath,
+  invalid,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  extensions: string[];
+  defaultPath?: string;
+  invalid?: boolean;
+}) => {
+  const browse = async () => {
+    const paths = await window.electron?.dialog.openFile({
+      properties: ["openFile", "showHiddenFiles"],
+      defaultPath,
+      filters: [
+        { name: "Certificate files", extensions },
+        { name: "All files", extensions: ["*"] },
+      ],
+    });
+    if (paths && paths[0]) onChange(paths[0]);
+  };
+  return (
+    <div className="flex gap-2">
+      <Input
+        className="flex-1 min-w-0 font-mono text-xs"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={`./certs/client.${extensions[0]}`}
+        spellCheck={false}
+        title={value}
+        style={invalid ? { borderColor: "var(--icon-error)" } : undefined}
+      />
+      <button
+        type="button"
+        onClick={browse}
+        className="flex items-center gap-1.5 px-3 py-1 rounded-md border border-border-subtle text-sm text-text hover:bg-panel/50 transition-colors flex-shrink-0"
+      >
+        <FolderOpen className="w-3.5 h-3.5" />
+        Browse
+      </button>
+    </div>
+  );
+};
+
+const ClientCertificatesSettings = ({
+  activeProject,
+  matchesSearch,
+}: {
+  activeProject?: string;
+  matchesSearch: (text: string) => boolean;
+}) => {
+  const [data, setData] = useState<CertList | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState<CertForm>(EMPTY_CERT_FORM);
+  const [errors, setErrors] = useState<Partial<Record<keyof CertForm, string>>>({});
+  const [check, setCheck] = useState<CertCheck | null>(null);
+  const [checking, setChecking] = useState(false);
+
+  const reload = useCallback(async () => {
+    const result = await window.electron?.clientCertificates?.list();
+    setData(result ?? null);
+  }, []);
+
+  // Re-read when the project changes or the window regains focus (the file may be edited by hand).
+  useEffect(() => {
+    reload();
+    window.addEventListener("focus", reload);
+    return () => window.removeEventListener("focus", reload);
+  }, [reload, activeProject]);
+
+  // Bring the "Check certificate" result into view; it sits below the form.
+  const checkRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (check) checkRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [check]);
+
+  // Esc closes the dialog. Capture phase so editor shortcuts underneath don't swallow it.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        setOpen(false);
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [open]);
+
+  if (!matchesSearch("Client certificates mTLS mutual TLS certificate pfx p12 pem key CA certificates.yaml")) return null;
+
+  const projectRoot = data && data.projectRoot ? data.projectRoot : null;
+  const profiles = data && data.projectRoot ? data.profiles : [];
+  const fileError = data && data.projectRoot ? data.error : undefined;
+
+  const persist = async (next: ClientCertificateProfile[]) => {
+    const result = await window.electron?.clientCertificates.save(next);
+    if (result && !result.ok) {
+      setSaveError(result.error);
+      return false;
+    }
+    setSaveError(null);
+    await reload();
+    return true;
+  };
+
+  const update = (patch: Partial<CertForm>) => {
+    setForm((f) => ({ ...f, ...patch }));
+    setCheck(null);
+    setErrors((e) => {
+      const next = { ...e };
+      for (const k of Object.keys(patch)) delete next[k as keyof CertForm];
+      return next;
+    });
+  };
+
+  const openForm = (index: number | null) => {
+    setEditingIndex(index);
+    setForm(index === null ? EMPTY_CERT_FORM : toForm(profiles[index]));
+    setErrors({});
+    setCheck(null);
+    setSaveError(null);
+    setOpen(true);
+  };
+
+  const validate = () => {
+    const next: typeof errors = {};
+    const name = form.name.trim();
+    if (!name) next.name = "Name is required";
+    else if (RESERVED_CERT_NAMES.includes(name.toLowerCase())) next.name = `"${name}" is reserved for the client_certificate option`;
+    else if (profiles.some((p, i) => i !== editingIndex && p.name === name)) next.name = "Another profile has this name";
+    if (!form.hosts.split(",").some((h) => h.trim())) next.hosts = "Add at least one host";
+    if (form.type === "pem" && !form.cert.trim()) next.cert = "Choose the certificate file";
+    if (form.type === "pem" && !form.key.trim()) next.key = "Choose the private key file";
+    if (form.type === "pfx" && !form.pfx.trim()) next.pfx = "Choose the PFX/P12 file";
+    setErrors(next);
+    return Object.keys(next).length === 0;
+  };
+
+  const runCheck = async () => {
+    if (!validate()) return;
+    setChecking(true);
+    try {
+      const result = await window.electron?.clientCertificates.check(toProfile(form));
+      setCheck(result ?? { ok: false, error: "Checking certificates needs the desktop app." });
+    } catch (e: any) {
+      setCheck({ ok: false, error: e?.message ?? String(e) });
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  const handleSave = async () => {
+    if (!validate()) return;
+    const profile = toProfile(form);
+    const next = editingIndex === null ? [...profiles, profile] : profiles.map((p, i) => (i === editingIndex ? profile : p));
+    if (await persist(next)) setOpen(false);
+  };
+
+  const move = (index: number, by: -1 | 1) => {
+    const next = [...profiles];
+    const [item] = next.splice(index, 1);
+    next.splice(index + by, 0, item);
+    persist(next);
+  };
+
+  const openFile = async () => {
+    if (!data || !data.projectRoot) return;
+    await window.electron?.state.addPanelTab("main", {
+      id: crypto.randomUUID(),
+      type: "document",
+      title: "certificates.yaml",
+      source: data.file,
+      directory: null,
+    } as any);
+  };
+
+  const plaintextPassphrase = !!form.passphrase && !form.passphrase.includes("{{");
+  const visible = profiles
+    .map((p, index) => ({ p, index }))
+    .filter(({ p }) => matchesSearch(`${p.name} ${p.hosts.join(" ")} client certificates mTLS`));
+
+  return (
+    <>
+      <GroupLabel>
+        <div className="flex items-center justify-between">
+          <span>Client certificates (mTLS)</span>
+          {projectRoot && !fileError && (
+            <div className="flex items-center gap-1.5">
+              {data && data.projectRoot && data.exists && (
+                <button
+                  onClick={openFile}
+                  className="flex items-center gap-1 text-xs px-2 py-0.5 rounded border border-border-subtle text-text hover:bg-panel/50 transition-colors"
+                >
+                  <FileText className="w-3 h-3" /> Open file
+                </button>
+              )}
+              <button
+                onClick={() => openForm(null)}
+                className="flex items-center gap-1 text-xs px-2 py-0.5 rounded border border-border-subtle text-text hover:bg-panel/50 transition-colors"
+              >
+                <Plus className="w-3 h-3" /> Add
+              </button>
+            </div>
+          )}
+        </div>
+      </GroupLabel>
+
+      <Card>
+        {!projectRoot ? (
+          <div className="text-xs text-comment px-4 py-4 text-center">
+            Client certificates are set per project. Open a project to manage them.
+          </div>
+        ) : fileError ? (
+          <div className="flex items-start justify-between gap-3 px-4 py-3.5">
+            <div className="flex items-start gap-1.5 text-xs" style={{ color: "var(--icon-error)" }}>
+              <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-px" />
+              <span className="leading-relaxed">{fileError}</span>
+            </div>
+            <button
+              onClick={openFile}
+              className="flex items-center gap-1 text-xs px-2 py-0.5 rounded border border-border-subtle text-text hover:bg-panel/50 transition-colors flex-shrink-0"
+            >
+              <FileText className="w-3 h-3" /> Fix in file
+            </button>
+          </div>
+        ) : profiles.length === 0 ? (
+          <div className="text-xs text-comment px-4 py-4 text-center">
+            No client certificates in this project. Add one for APIs that require mutual TLS (mTLS).
+          </div>
+        ) : (
+          visible.map(({ p, index }, idx, arr) => (
+            <div
+              key={p.name}
+              className={`flex items-center justify-between gap-3 px-4 py-3.5 ${idx < arr.length - 1 ? "border-b border-border-subtle" : ""}`}
+            >
+              <div className="flex-1 min-w-0">
+                <div className="text-sm text-text break-words">{p.name}</div>
+                <div className="text-xs text-comment mt-0.5 truncate" title={p.hosts.join(", ")}>
+                  <span className="uppercase mr-1.5 opacity-80">{p.pfx ? "PFX" : "PEM"}</span>
+                  {p.hosts.join(", ")}
+                </div>
+              </div>
+              <div className="flex items-center gap-1">
+                {profiles.length > 1 && (
+                  <>
+                    <button
+                      onClick={() => move(index, -1)}
+                      disabled={index === 0}
+                      className="p-1 hover:bg-panel/50 rounded text-comment hover:text-text transition-colors disabled:opacity-30 disabled:pointer-events-none"
+                      title="Move up (checked earlier)"
+                    >
+                      <ChevronUp className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => move(index, 1)}
+                      disabled={index === profiles.length - 1}
+                      className="p-1 hover:bg-panel/50 rounded text-comment hover:text-text transition-colors disabled:opacity-30 disabled:pointer-events-none"
+                      title="Move down (checked later)"
+                    >
+                      <ChevronDown className="w-3.5 h-3.5" />
+                    </button>
+                  </>
+                )}
+                <button
+                  onClick={() => openForm(index)}
+                  className="p-1 hover:bg-panel/50 rounded text-comment hover:text-text transition-colors"
+                  title="Edit certificate"
+                >
+                  <Edit2 className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  onClick={() => persist(profiles.filter((_, i) => i !== index))}
+                  className="p-1 hover:bg-panel/50 rounded transition-colors"
+                  style={{ color: "var(--icon-error)" }}
+                  title="Delete certificate"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+          ))
+        )}
+      </Card>
+      {saveError && !open && (
+        <div className="flex items-center gap-1 text-xs mt-2 px-1" style={{ color: "var(--icon-error)" }}>
+          <AlertCircle className="w-3 h-3 flex-shrink-0" />
+          {saveError}
+        </div>
+      )}
+      <p className="text-[11px] text-comment mt-2 px-1 leading-relaxed">
+        Saved in this project's <code className="font-mono">.voiden/certificates.yaml</code>, which is committed so the team
+        shares it. Requests use the first profile whose hosts match; to choose for one request, add a{" "}
+        <code className="font-mono">client_certificate</code> row to its Options block with a profile name,{" "}
+        <code className="font-mono">auto</code> or <code className="font-mono">none</code>.
+      </p>
+
+      {open && (
+        <div
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setOpen(false);
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="client-cert-dialog-title"
+            className="bg-editor text-text border border-border rounded-xl w-full max-w-xl max-h-[88vh] flex flex-col shadow-2xl overflow-hidden"
+          >
+            <div className="flex items-start justify-between gap-4 px-6 pt-5 pb-4 border-b border-border-subtle">
+              <div className="min-w-0">
+                <div id="client-cert-dialog-title" className="text-lg font-semibold text-text leading-tight">
+                  {editingIndex === null ? "Add client certificate" : "Edit client certificate"}
+                </div>
+                <div className="text-xs text-comment mt-1 leading-relaxed">
+                  Sent during the TLS handshake to servers that require mutual TLS (mTLS). Paths and the passphrase can use{" "}
+                  <code className="font-mono">{"{{variables}}"}</code> from the active environment.
+                </div>
+              </div>
+              <button
+                onClick={() => setOpen(false)}
+                className="p-1 -mr-1 rounded text-comment hover:text-text hover:bg-panel/50 transition-colors"
+                title="Close"
+                aria-label="Close"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-6 pb-5">
+              <GroupLabel>General</GroupLabel>
+              <Card>
+                <FieldRow
+                  title="Name"
+                  description={<>Pick it for one request with <code className="font-mono">client_certificate</code> in the Options block.</>}
+                  error={errors.name}
+                >
+                  <Input
+                    className="w-full"
+                    value={form.name}
+                    onChange={(e) => update({ name: e.target.value })}
+                    placeholder="payments-mtls"
+                    spellCheck={false}
+                    autoFocus
+                    style={errors.name ? { borderColor: "var(--icon-error)" } : undefined}
+                  />
+                </FieldRow>
+                <FieldRow
+                  title="Hosts"
+                  description={
+                    <>
+                      Comma-separated. <code className="font-mono">*.example.com</code> matches subdomains; add{" "}
+                      <code className="font-mono">:port</code> to match one port.
+                    </>
+                  }
+                  error={errors.hosts}
+                  border={false}
+                >
+                  <Input
+                    className="w-full"
+                    value={form.hosts}
+                    onChange={(e) => update({ hosts: e.target.value })}
+                    placeholder="api.example.com, *.internal, localhost:8443"
+                    spellCheck={false}
+                    style={errors.hosts ? { borderColor: "var(--icon-error)" } : undefined}
+                  />
+                </FieldRow>
+              </Card>
+
+              <GroupLabel>Certificate</GroupLabel>
+              <Card>
+                <Row
+                  title="Format"
+                  description={form.type === "pfx" ? "One bundle file (.pfx, .p12)." : "Separate certificate and key files (.pem, .crt, .key)."}
+                  control={
+                    <Select value={form.type} onChange={(e) => update({ type: e.target.value as CertForm["type"] })}>
+                      <option value="pem">PEM certificate + key</option>
+                      <option value="pfx">PFX / P12 bundle</option>
+                    </Select>
+                  }
+                />
+                {form.type === "pem" ? (
+                  <>
+                    <FieldRow title="Certificate file" error={errors.cert}>
+                      <FilePicker value={form.cert} onChange={(v) => update({ cert: v })} extensions={["pem", "crt", "cer"]} defaultPath={projectRoot ?? undefined} invalid={!!errors.cert} />
+                    </FieldRow>
+                    <FieldRow title="Private key file" error={errors.key}>
+                      <FilePicker value={form.key} onChange={(v) => update({ key: v })} extensions={["key", "pem"]} defaultPath={projectRoot ?? undefined} invalid={!!errors.key} />
+                    </FieldRow>
+                  </>
+                ) : (
+                  <FieldRow title="PFX / P12 file" error={errors.pfx}>
+                    <FilePicker value={form.pfx} onChange={(v) => update({ pfx: v })} extensions={["pfx", "p12"]} defaultPath={projectRoot ?? undefined} invalid={!!errors.pfx} />
+                  </FieldRow>
+                )}
+                <FieldRow
+                  title="Passphrase"
+                  description={
+                    <>
+                      Optional. {form.type === "pfx" ? "The password the PFX file was exported with." : "Only needed if the private key is encrypted."} Use a
+                      variable from your private environment, e.g. <code className="font-mono">{"{{CLIENT_CERT_PASS}}"}</code>.
+                    </>
+                  }
+                  border={false}
+                >
+                  <Input
+                    className="w-full font-mono text-xs"
+                    value={form.passphrase}
+                    onChange={(e) => update({ passphrase: e.target.value })}
+                    placeholder="{{CLIENT_CERT_PASS}}"
+                    autoComplete="off"
+                    spellCheck={false}
+                  />
+                  {plaintextPassphrase && (
+                    <div className="flex items-start gap-1 text-xs mt-1.5 leading-relaxed" style={{ color: "var(--icon-warning, var(--icon-error))" }}>
+                      <AlertCircle className="w-3 h-3 flex-shrink-0 mt-0.5" />
+                      This is saved as plain text in certificates.yaml, which is committed. Put it in a private environment variable instead.
+                    </div>
+                  )}
+                </FieldRow>
+              </Card>
+
+              <GroupLabel>Server trust</GroupLabel>
+              <Card>
+                <FieldRow
+                  title="CA certificate"
+                  description="Optional. For servers signed by a private CA. When set, only this CA is trusted for matching hosts."
+                  border={false}
+                >
+                  <FilePicker value={form.ca} onChange={(v) => update({ ca: v })} extensions={["pem", "crt", "cer"]} defaultPath={projectRoot ?? undefined} />
+                </FieldRow>
+              </Card>
+
+              {saveError && (
+                <div className="flex items-start gap-1 text-xs mt-4" style={{ color: "var(--icon-error)" }}>
+                  <AlertCircle className="w-3 h-3 flex-shrink-0 mt-0.5" />
+                  {saveError}
+                </div>
+              )}
+
+              {check && (
+                <div ref={checkRef} className="mt-5">
+                  <Card>
+                    <div className="px-4 py-3.5">
+                      <div
+                        className="flex items-center gap-1.5 text-sm"
+                        style={{ color: !check.ok || check.expired ? "var(--icon-error)" : "var(--icon-success)" }}
+                      >
+                        {check.ok && !check.expired ? <Check className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
+                        {check.ok ? (check.expired ? "Certificate loads, but it has expired" : "Certificate loads") : "Certificate can't be used"}
+                      </div>
+                      {check.ok ? (
+                        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 mt-2 text-xs">
+                          {check.subject && (<><dt className="text-comment">Subject</dt><dd className="text-text truncate">{check.subject}</dd></>)}
+                          {check.issuer && (<><dt className="text-comment">Issuer</dt><dd className="text-text truncate">{check.issuer}</dd></>)}
+                          {check.validTo && (<><dt className="text-comment">Expires</dt><dd className="text-text">{new Date(check.validTo).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })}</dd></>)}
+                        </dl>
+                      ) : (
+                        <div className="text-xs text-comment mt-1 leading-relaxed">{check.error}</div>
+                      )}
+                    </div>
+                  </Card>
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between gap-2 px-6 py-3.5 border-t border-border-subtle">
+              <button
+                onClick={runCheck}
+                disabled={checking}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border-subtle text-sm text-text hover:bg-panel/50 transition-colors disabled:opacity-50"
+              >
+                {checking ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <ShieldCheck className="w-3.5 h-3.5" />}
+                {checking ? "Checking…" : "Check certificate"}
+              </button>
+              <div className="flex gap-2">
+                <button onClick={() => setOpen(false)} className="px-3 py-1.5 bg-panel hover:bg-active rounded-md text-sm">
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSave}
+                  className="px-3 py-1.5 rounded-md text-sm hover:opacity-90 transition-opacity"
+                  style={{ backgroundColor: "var(--icon-primary)", color: "var(--ui-bg)" }}
+                >
+                  {editingIndex === null ? "Add" : "Save"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+};
 
 // ── Terminal default shell (#598) ─────────────────────────────────────────────
 
@@ -446,6 +1022,9 @@ export const SettingsScreen = () => {
   };
 
   // Search filter logic
+  const { data: projectsData } = useGetProjects();
+  const activeProject = (projectsData as any)?.activeProject as string | undefined;
+
   const matchesSearch = (text: string) => {
     if (!searchQuery) return true;
     return text.toLowerCase().includes(searchQuery.toLowerCase());
@@ -1391,6 +1970,8 @@ export const SettingsScreen = () => {
                 </Card>
               </>
             )}
+
+            <ClientCertificatesSettings activeProject={activeProject} matchesSearch={matchesSearch} />
           </section>
 
           {/* ── Integrations ─────────────────────────────────────── */}

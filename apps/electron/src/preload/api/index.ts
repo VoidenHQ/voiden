@@ -9,6 +9,7 @@ import { loggerAPI, processMonitorAPI } from "../loggerBridge";
 import {
   directoriesApi,
   dialogApi,
+  clientCertificatesApi,
   editorApi,
   pluginsApi,
   tabApi,
@@ -59,6 +60,7 @@ export const electronApi = {
   script: scriptApi,
   fileLink: fileLinkApi,
   userSettings: userSettingsApi,
+  clientCertificates: clientCertificatesApi,
   pluginSettings: pluginSettingsApi,
   fonts: fontsApi,
   cli: cliApi,

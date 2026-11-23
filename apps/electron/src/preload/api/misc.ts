@@ -33,6 +33,15 @@ export const pathApi = {
     ipcRenderer.invoke("path:findProjectRoot", filePath),
 };
 
+export const clientCertificatesApi = {
+  /** Profiles in the active project's .voiden/certificates.yaml. */
+  list: () => ipcRenderer.invoke("client-certificates:list"),
+  /** Replaces the profiles in certificates.yaml (other content in the file is kept). */
+  save: (profiles: unknown[]) => ipcRenderer.invoke("client-certificates:save", profiles),
+  /** Loads one profile in the main process and reports subject / expiry, or a readable error. */
+  check: (profile: unknown) => ipcRenderer.invoke("client-certificates:check", profile),
+};
+
 export const dialogApi = {
   openFile: (options: Electron.OpenDialogOptions) =>
     ipcRenderer.invoke("dialog:openFile", options),

@@ -240,6 +240,11 @@ async function convertToRestApiRequestState(data: Request, requestFilePath?: str
     metadata: {
       ...(data.options?.follow_redirects === 'false' ? { follow_redirects: false } : {}),
       ...(data.options?.client_certificate?.trim() ? { client_certificate: data.options.client_certificate.trim() } : {}),
+      // Per-request TLS override: only an explicit true/false counts; anything
+      // else (empty cell, typo) falls back to the app-wide setting.
+      ...(['true', 'false'].includes(data.options?.disable_tls_verification?.trim().toLowerCase() ?? '')
+        ? { disable_tls_verification: data.options!.disable_tls_verification.trim().toLowerCase() === 'true' }
+        : {}),
     },
   };
 

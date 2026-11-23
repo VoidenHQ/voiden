@@ -11,7 +11,8 @@ import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
 import { createClient, Client } from "graphql-ws";
 import { isAbsolute } from "node:path";
-import { executeSecureRequest, resolveClientCertificate, type SecureRequestAdapter } from "@voiden/executors";
+import { executeSecureRequest, resolveClientCertificate, tlsOverride, type SecureRequestAdapter, type ClientCertificateConnectOptions } from "@voiden/executors";
+import tls from "node:tls";
 import { getDispatcher } from "./dispatcher";
 import { getPluginExecutor } from "../pluginExecutors";
 
@@ -45,6 +46,10 @@ interface GrpcRegistryEntry {
   service: string;
   callType: GrpcConfig['callType'];
   metadata: grpc.Metadata;
+  /** From the request URL scheme (grpcs:). Older entries fall back to a port heuristic. */
+  secure?: boolean;
+  /** mTLS material for the target, resolved from .voiden/certificates.yaml. */
+  clientCertificate?: ClientCertificateConnectOptions;
 }
 
 // Global registry for gRPC connections
@@ -337,6 +342,17 @@ const makeId = () => {
 }
 
 
+/**
+ * Channel credentials for a gRPC target. TLS targets present the client
+ * certificate when one applies; grpc-js can't take a PFX or an encrypted key
+ * directly, so it goes through a Node SecureContext.
+ */
+function grpcChannelCredentials(insecure: boolean, clientCertificate?: ClientCertificateConnectOptions): grpc.ChannelCredentials {
+  if (insecure) return grpc.credentials.createInsecure();
+  if (!clientCertificate) return grpc.credentials.createSsl();
+  return grpc.credentials.createFromSecureContext(tls.createSecureContext(clientCertificate));
+}
+
 // Shared gRPC opener used by both send-request and send-secure-request
 async function handleGrpcConnection(url: string, protocol: string, headers: Record<string, string> | undefined, settings: any) {
   const u = new URL(url);
@@ -628,7 +644,7 @@ export function registerRequestIpcHandler() {
         }
       },
 
-      getDispatcher: (url: string, clientCertificate) => getDispatcher(settings, url, clientCertificate),
+      getDispatcher: (url: string, clientCertificate, options) => getDispatcher(settings, url, clientCertificate, options),
       resolveClientCertificate: clientCertificateFor,
       followRedirects,
       isElectron: true,
@@ -643,7 +659,7 @@ export function registerRequestIpcHandler() {
 
         if (protocol === "ws" || protocol === "wss") {
           const clientCertificate = await clientCertificateFor(resolvedUrl, requestState.metadata?.client_certificate);
-          const { dispatcher, proxyInfo } = getDispatcher(settings, resolvedUrl, clientCertificate?.connect);
+          const { dispatcher, proxyInfo } = getDispatcher(settings, resolvedUrl, clientCertificate?.connect, tlsOverride(requestState));
           return handleWsConnection(resolvedUrl, {
             headers: resolvedHeaders,
             dispatcher,
@@ -654,7 +670,8 @@ export function registerRequestIpcHandler() {
         }
 
         if (protocol === "grpc" || protocol === "grpcs") {
-          return await handleGrpcRequest(requestState, settings, activeProject || "");
+          const clientCertificate = await clientCertificateFor(resolvedUrl, requestState.metadata?.client_certificate);
+          return await handleGrpcRequest(requestState, settings, activeProject || "", clientCertificate?.connect);
         }
 
         if (protocol === "graphql-subscription") {
@@ -1361,10 +1378,8 @@ export function registerRequestIpcHandler() {
       const [host, portStr] = target.split(':');
       const port = parseInt(portStr || '443', 10);
 
-      const insecure = port !== 443 && !target.includes('ssl');
-      const creds = insecure
-        ? grpc.credentials.createInsecure()
-        : grpc.credentials.createSsl();
+      const insecure = entry.secure !== undefined ? !entry.secure : port !== 443 && !target.includes('ssl');
+      const creds = grpcChannelCredentials(insecure, entry.clientCertificate);
 
       const channelOptions: grpc.ChannelOptions = {
         "grpc.ssl_target_name_override": host,
@@ -1520,10 +1535,8 @@ export function registerRequestIpcHandler() {
             return { ok: false, error: errorMsg };
           }
 
-          const insecure = port !== 443 && !target.includes('ssl');
-          const creds = insecure
-            ? grpc.credentials.createInsecure()
-            : grpc.credentials.createSsl();
+          const insecure = entry.secure !== undefined ? !entry.secure : port !== 443 && !target.includes('ssl');
+          const creds = grpcChannelCredentials(insecure, entry.clientCertificate);
 
           const channelOptions: grpc.ChannelOptions = {
             "grpc.ssl_target_name_override": host,
@@ -1997,7 +2010,8 @@ function sendToWindow(event, sendData) {
 async function handleGrpcRequest(
   requestState: any,
   settings: any,
-  activeProject: string
+  activeProject: string,
+  clientCertificate?: ClientCertificateConnectOptions,
 ): Promise<any> {
   const grpcConfig = requestState.grpc;
 
@@ -2103,6 +2117,8 @@ async function handleGrpcRequest(
       service,
       callType,
       metadata: grpcMetadata,
+      secure: !insecure,
+      clientCertificate,
     });
 
     // Return connection info without actually connecting
