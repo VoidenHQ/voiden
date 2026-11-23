@@ -71,8 +71,17 @@ const HL_A = "rounded-sm bg-[color-mix(in_srgb,var(--vcs-removed)_30%,transparen
 const HL_B = "rounded-sm bg-[color-mix(in_srgb,var(--vcs-added)_30%,transparent)]";
 const PILL = "font-mono text-[11px] px-1.5 rounded-sm whitespace-nowrap";
 
+/** Status 0 (or anything below 100) means no HTTP response came back: the request failed. */
+const isFailedStatus = (s?: number) => s !== undefined && s < 100;
+
 const statusColor = (s?: number) =>
-  s === undefined ? "var(--syntax-comment)" : s < 300 ? "var(--success, #4ade80)" : s < 400 ? "var(--warning, #facc15)" : "var(--error, #f87171)";
+  s === undefined
+    ? "var(--syntax-comment)"
+    : isFailedStatus(s) || s >= 400
+      ? "var(--error, #f87171)"
+      : s < 300
+        ? "var(--success, #4ade80)"
+        : "var(--warning, #facc15)";
 
 const methodColor = (m?: string) => (m ? `var(--http-${m.toLowerCase()}, var(--editor-fg))` : "var(--syntax-comment)");
 
@@ -84,7 +93,7 @@ function MethodTag({ method, strike }: { method?: string; strike?: boolean }) {
   );
 }
 
-const fmtMs = (ms?: number) => (ms === undefined ? "—" : ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(2)} s`);
+const fmtMs = (ms?: number) => (ms === undefined || ms < 0 ? "—" : ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(2)} s`);
 const fmtBytes = (n: number) => (n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`);
 
 function relTime(ts: number): string {
@@ -505,7 +514,7 @@ function Stat({ label, now, was, delta, tone }: { label: string; now: ReactNode;
     <div className={cn("flex flex-col gap-1 px-3 py-2 min-w-0", tone === "changed" && ROW_BG.changed)}>
       <span className="text-[10px] font-semibold uppercase tracking-wider text-comment">{label}</span>
       <span className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 font-mono text-[13px] font-semibold tabular-nums min-w-0">
-        <span className="whitespace-nowrap">{now}</span>
+        <span className="whitespace-nowrap min-w-0 max-w-full overflow-hidden">{now}</span>
         {delta}
       </span>
       <span className="font-mono text-[11px] text-comment tabular-nums truncate">{was ?? " "}</span>
@@ -513,14 +522,16 @@ function Stat({ label, now, was, delta, tone }: { label: string; now: ReactNode;
   );
 }
 
-function TrendDelta({ a, b }: { a?: number; b?: number }) {
-  if (a === undefined || b === undefined || a === 0) return null;
+/** `neutral`: the change says nothing good or bad (e.g. a failed run is "faster" only because it never got a response). */
+function TrendDelta({ a, b, neutral }: { a?: number; b?: number; neutral?: boolean }) {
+  if (a === undefined || b === undefined || a <= 0 || b < 0) return null;
   if (a === b) return <span className={cn(PILL, "text-comment bg-hover font-normal")}>±0</span>;
   const pct = Math.round(((b - a) / a) * 100);
   const up = b > a;
   const Icon = up ? TrendingUp : TrendingDown;
+  const tone = neutral ? "text-comment bg-hover" : up ? cn("text-vcs-removed", ROW_BG.removed) : cn("text-vcs-added", ROW_BG.added);
   return (
-    <span className={cn(PILL, "inline-flex items-center gap-0.5 font-normal", up ? "text-vcs-removed" : "text-vcs-added", up ? ROW_BG.removed : ROW_BG.added)}>
+    <span className={cn(PILL, "inline-flex items-center gap-0.5 font-normal", tone)}>
       <Icon size={11} />
       {pct > 0 ? "+" : ""}{pct === 0 ? "<1" : pct}%
     </span>
@@ -638,6 +649,7 @@ export function ResponseDiffView({ runKey: key, fill = false }: { runKey: string
   const total: ChangeCounts = emptyCounts();
   (Object.keys(total) as (keyof ChangeCounts)[]).forEach((k) => (total[k] = diff.headerCounts[k] + diff.bodyCounts[k]));
   const statusSame = runA.status === runB.status;
+  const eitherFailed = isFailedStatus(runA.status) || isFailedStatus(runB.status);
   const methodChanged = !!runA.method && !!runB.method && runA.method !== runB.method;
   const urlChanged = !!runA.url && !!runB.url && runA.url !== runB.url;
   const sameBody = runA.bodyText === runB.bodyText;
@@ -820,11 +832,17 @@ export function ResponseDiffView({ runKey: key, fill = false }: { runKey: string
           <Stat
             label="Status"
             tone={statusSame ? undefined : "changed"}
-            now={<span className="inline-flex items-center gap-1.5"><StatusDot status={runB.status} />{runB.status ?? "—"} <span className="font-normal text-comment font-sans text-xs">{runB.statusMessage}</span></span>}
+            now={
+              <span className="flex items-center gap-1.5 min-w-0" title={runB.statusMessage || undefined}>
+                <StatusDot status={runB.status} />
+                <span className="flex-shrink-0">{runB.status ?? "—"}</span>
+                <span className="font-normal text-comment font-sans text-xs truncate min-w-0">{runB.statusMessage}</span>
+              </span>
+            }
             was={statusSame ? "unchanged" : `was ${runA.status ?? "—"} ${runA.statusMessage ?? ""}`}
           />
-          <Stat label="Time" now={fmtMs(runB.elapsedMs)} was={`was ${fmtMs(runA.elapsedMs)}`} delta={<TrendDelta a={runA.elapsedMs} b={runB.elapsedMs} />} />
-          <Stat label="Size" now={fmtBytes(runB.bytes)} was={`was ${fmtBytes(runA.bytes)}`} delta={<TrendDelta a={runA.bytes} b={runB.bytes} />} />
+          <Stat label="Time" now={fmtMs(runB.elapsedMs)} was={`was ${fmtMs(runA.elapsedMs)}`} delta={<TrendDelta a={runA.elapsedMs} b={runB.elapsedMs} neutral={eitherFailed} />} />
+          <Stat label="Size" now={fmtBytes(runB.bytes)} was={`was ${fmtBytes(runA.bytes)}`} delta={<TrendDelta a={runA.bytes} b={runB.bytes} neutral={eitherFailed} />} />
         </div>
 
         <Section title="Headers" icon={<List size={13} />} meta={`${runB.headers.length} in B`} counts={diff.headerCounts} sticky={fill}>
