@@ -23,6 +23,12 @@ import {
   validateResolvedStrings,
 } from './unresolvedVariables.js'
 
+/** The request's per-request TLS verification override, if it set one. */
+export function tlsOverride(requestState: { metadata?: Record<string, any> }): { disableTlsVerification?: boolean } | undefined {
+  const value = requestState.metadata?.disable_tls_verification
+  return typeof value === 'boolean' ? { disableTlsVerification: value } : undefined
+}
+
 // ─── Adapter interface ────────────────────────────────────────────────────────
 
 export interface SecureRequestAdapter {
@@ -33,8 +39,20 @@ export interface SecureRequestAdapter {
   /**
    * Return an undici-compatible dispatcher and optional proxy metadata for a URL.
    * Electron passes an Agent or ProxyAgent; CLI omits this for plain fetch.
+   *
+   * `options.disableTlsVerification` is the request's `disable_tls_verification`
+   * option; when present it overrides the app-wide setting for this request.
    */
-  getDispatcher?(url: string, clientCertificate?: ClientCertificateConnectOptions): { dispatcher?: any; proxyInfo?: any }
+  getDispatcher?(
+    url: string,
+    clientCertificate?: ClientCertificateConnectOptions,
+    options?: { disableTlsVerification?: boolean },
+  ): {
+    dispatcher?: any
+    proxyInfo?: any
+    /** Real TLS details of the connection, read after the response arrives. */
+    getTlsInfo?: () => any
+  }
   /**
    * Resolve the mTLS client certificate for a URL (see resolveClientCertificate).
    * `choice` is the request's `client_certificate` option: `auto`, `none` or a profile name.
@@ -455,14 +473,16 @@ export async function executeSecureRequest(
   // ── 10. Apply dispatcher (proxy / TLS agent) ──────────────────────────────
   let proxyInfo: any
   let clientCertificateProfile: string | undefined
+  let getTlsInfo: (() => any) | undefined
   if (adapter.getDispatcher) {
     const clientCertificate = adapter.resolveClientCertificate
       ? await adapter.resolveClientCertificate(url, requestState.metadata?.client_certificate)
       : null
     clientCertificateProfile = clientCertificate?.profile
-    const { dispatcher, proxyInfo: pi } = adapter.getDispatcher(url, clientCertificate?.connect)
+    const { dispatcher, proxyInfo: pi, getTlsInfo: gt } = adapter.getDispatcher(url, clientCertificate?.connect, tlsOverride(requestState))
     if (dispatcher) fetchOptions.dispatcher = dispatcher
     proxyInfo = pi
+    getTlsInfo = gt
   }
 
   // ── 11. Add default HTTP headers ──────────────────────────────────────────
@@ -476,8 +496,18 @@ export async function executeSecureRequest(
   // ── 13. Build request metadata for display ────────────────────────────────
   const requestMetaHeaders = Object.entries(headers).map(([k, v]) => ({ key: k, value: v as string }))
   const isHttps = new URL(url).protocol === 'https:'
+  // Real details when the adapter captured them (the app does); otherwise only
+  // that the URL was HTTPS, never made-up protocol or cipher values.
+  const captured = isHttps ? getTlsInfo?.() : undefined
   const tlsInfo = isHttps
-    ? { protocol: 'TLS 1.3', cipher: 'TLS_AES_128_GCM_SHA256', isSecure: true }
+    ? captured
+      ? {
+          ...captured,
+          ...(captured.clientCertificate && clientCertificateProfile
+            ? { clientCertificate: { ...captured.clientCertificate, name: clientCertificateProfile } }
+            : {}),
+        }
+      : { isSecure: true }
     : undefined
   const responseProtocol = requestState.protocolType === 'graphql' ? 'graphql' : 'rest'
 

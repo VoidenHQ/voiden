@@ -11,6 +11,8 @@ import {
   parseCertificateProfiles,
   resolveClientCertificate,
   selectClientCertificateProfile,
+  describeKeyLoadError,
+  serializeCertificateProfiles,
 } from '../clientCertificates.js'
 
 const profilesYaml = `
@@ -313,5 +315,55 @@ profiles:
 `)
     const resolved = await resolveClientCertificate({ url: url(), projectRoot: root, choice: 'other' })
     expect(resolved?.profile).toBe('other')
+  })
+})
+
+describe('describeKeyLoadError', () => {
+  // Messages captured from Node 22 (OpenSSL 3, used by the CLI) and Electron 44 (BoringSSL, used by the app).
+  const cases: [string, { code?: string; message: string }, RegExp][] = [
+    ['Node: wrong PEM passphrase', { code: 'ERR_OSSL_BAD_DECRYPT', message: 'error:1C800064:Provider routines::bad decrypt' }, /wrong or missing passphrase/],
+    ['Electron: wrong PEM passphrase', { code: 'ERR_OSSL_BAD_DECRYPT', message: 'error:1e000065:Cipher functions:OPENSSL_internal:BAD_DECRYPT' }, /wrong or missing passphrase/],
+    ['Node: wrong PFX passphrase', { message: 'mac verify failure' }, /wrong or missing passphrase/],
+    ['Electron: wrong PFX passphrase', { message: 'INCORRECT_PASSWORD' }, /wrong or missing passphrase/],
+    ['Electron: legacy-encrypted key', { code: 'ERR_OSSL_UNKNOWN_ALGORITHM', message: 'error:13000077:PKCS8 routines:OPENSSL_internal:UNKNOWN_ALGORITHM' }, /not supported; re-export it with AES/],
+    ['Node: legacy PFX', { code: 'ERR_CRYPTO_UNSUPPORTED_OPERATION', message: 'Unsupported PKCS12 PFX data' }, /not supported; re-export it with AES/],
+    ['Electron: not PEM', { code: 'ERR_OSSL_PEM_NO_START_LINE', message: 'error:0900006e:PEM routines:OPENSSL_internal:NO_START_LINE' }, /not a valid PEM file/],
+    ['Electron: key/cert mismatch', { code: 'ERR_OSSL_X509_KEY_VALUES_MISMATCH', message: 'error:0b000074:X.509 certificate routines:OPENSSL_internal:KEY_VALUES_MISMATCH' }, /does not belong to the certificate/],
+    ['Node: key/cert mismatch', { code: 'ERR_OSSL_X509_KEY_VALUES_MISMATCH', message: 'error:05800074:x509 certificate routines::key values mismatch' }, /does not belong to the certificate/],
+    ['unknown', { message: 'something else' }, /could not be parsed/],
+  ]
+  for (const [name, err, expected] of cases) {
+    it(name, () => expect(describeKeyLoadError(err)).toMatch(expected))
+  }
+})
+
+describe('serializeCertificateProfiles', () => {
+  it('writes a new file with a header and the profiles', () => {
+    const out = serializeCertificateProfiles('', [
+      { name: 'pay', hosts: ['*.pay.internal', 'api:8443'], cert: './c.pem', key: './c.key', passphrase: '{{PASS}}' },
+    ])
+    expect(out).toMatch(/^# Client certificates/)
+    expect(parseCertificateProfiles(out)).toEqual([
+      { name: 'pay', hosts: ['*.pay.internal', 'api:8443'], cert: './c.pem', key: './c.key', passphrase: '{{PASS}}' },
+    ])
+  })
+
+  it('keeps comments and other keys of an existing file, and profile order', () => {
+    const existing = '# my notes\nprofiles:\n  old:\n    hosts: [x]\n    pfx: a.p12\nother: keep-me\n'
+    const out = serializeCertificateProfiles(existing, [...parseCertificateProfiles(existing), { name: 'pfx2', hosts: ['y.com'], pfx: 'b.p12' }])
+    expect(out).toMatch(/^# my notes/)
+    expect(out).toMatch(/other: keep-me/)
+    expect(parseCertificateProfiles(out).map(p => p.name)).toEqual(['old', 'pfx2'])
+  })
+
+  it('can remove every profile', () => {
+    expect(parseCertificateProfiles(serializeCertificateProfiles('profiles:\n  a:\n    hosts: [x]\n    pfx: a\n', []))).toEqual([])
+  })
+
+  it('rejects reserved and duplicate names and invalid profiles', () => {
+    expect(() => serializeCertificateProfiles('', [{ name: 'auto', hosts: ['x'], pfx: 'a' }])).toThrow(/reserved/)
+    expect(() => serializeCertificateProfiles('', [{ name: 'a', hosts: ['x'], pfx: 'a' }, { name: 'a', hosts: ['y'], pfx: 'b' }])).toThrow(/Two profiles/)
+    expect(() => serializeCertificateProfiles('', [{ name: 'x', hosts: [], pfx: 'a' }])).toThrow(/hosts/)
+    expect(() => serializeCertificateProfiles('', [{ name: 'x', hosts: ['h'], cert: 'c' }])).toThrow(/both "cert" and "key"/)
   })
 })
