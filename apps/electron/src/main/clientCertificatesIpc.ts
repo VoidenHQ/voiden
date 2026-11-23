@@ -28,7 +28,7 @@ export type ClientCertificateCheck =
 
 const message = (err: any) => (err instanceof ClientCertificateError ? err.message : String(err?.message ?? err));
 
-/** Store paths inside the project as `./relative` so the file works for everyone who clones it. */
+/** Store paths inside the project as `./relative` so the file survives moving the project folder. */
 function portablePath(projectRoot: string, p?: string): string | undefined {
   const value = p?.trim();
   if (!value || value.includes("{{") || !path.isAbsolute(value)) return value || undefined;

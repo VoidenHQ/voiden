@@ -341,7 +341,6 @@ const ClientCertificatesSettings = ({
     } as any);
   };
 
-  const plaintextPassphrase = !!form.passphrase && !isVariableReference(form.passphrase);
   const visible = profiles
     .map((p, index) => ({ p, index }))
     .filter(({ p }) => matchesSearch(`${p.name} ${p.hosts.join(" ")} client certificates mTLS`));
@@ -455,7 +454,7 @@ const ClientCertificatesSettings = ({
         </div>
       )}
       <p className="text-[11px] text-comment mt-2 px-1 leading-relaxed">
-        Saved in <code className="font-mono">.voiden/certificates.yaml</code>. The first profile matching the host is used.
+        Saved in <code className="font-mono">.voiden/certificates.yaml</code>, local to you and never committed. The first profile matching the host is used.
       </p>
 
       {open && (
@@ -567,12 +566,6 @@ const ClientCertificatesSettings = ({
                       </button>
                     )}
                   </div>
-                  {plaintextPassphrase && (
-                    <div className="flex items-start gap-1 text-xs mt-1.5 leading-relaxed" style={{ color: "var(--icon-warning, var(--icon-error))" }}>
-                      <AlertCircle className="w-3 h-3 flex-shrink-0 mt-0.5" />
-                      Saved as plain text in a committed file. Use a variable instead.
-                    </div>
-                  )}
                 </FieldRow>
               </Card>
 

@@ -17,7 +17,8 @@
  *     passphrase: "{{PARTNER_PFX_PASS}}"
  * ```
  *
- * The file holds paths and variable references only. This module picks the
+ * The file is local to each user (kept out of git) and holds paths, variable
+ * references and optionally a passphrase. This module picks the
  * profile for a URL, reads the referenced files and returns undici/`tls`
  * `connect` options. Key material is only ever returned to the caller (the
  * main process / CLI) and is never part of an error message.
@@ -330,10 +331,9 @@ export async function readCertificateProfiles(
   return { exists: true, text, profiles: parseCertificateProfiles(text) }
 }
 
-const FILE_HEADER = `# Client certificates (mTLS) for this project. This file is committed and
-# shared with the team: it holds paths and {{variables}} only, never key material.
-# Paths are relative to the project root. Keep passphrases in a private
-# environment variable, e.g. passphrase: "{{CLIENT_CERT_PASS}}".
+const FILE_HEADER = `# Client certificates (mTLS) for this project. Local to you: Voiden keeps this
+# file out of git. Relative paths start at the project root; paths and the
+# passphrase may use {{variables}} from the active environment.
 # The first profile whose hosts match a request is used; pick one per request
 # with the client_certificate option.
 `

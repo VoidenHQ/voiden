@@ -20,9 +20,9 @@ profiles:
 ```
 
 - A profile uses either `cert` + `key` (PEM) or `pfx` (PKCS#12). `ca` is optional.
-- `cert`, `key`, `pfx`, `ca` and `passphrase` may contain `{{variables}}`, so a profile can switch certificates with the selected environment. Keep passphrases in the private environment rather than in the file.
+- `cert`, `key`, `pfx`, `ca` and `passphrase` may contain `{{variables}}`, so a profile can switch certificates with the selected environment. The passphrase can also be written directly.
 - Relative paths are resolved against the project root.
-- The file holds paths only, so it is committed to Git (the `.voiden/` ignore rules let `certificates.yaml` through).
+- The file is local to you: Voiden's `.voiden/` ignore rules keep it out of Git, like private environments. Client certificates usually belong to one person, and the file may hold a passphrase.
 
 ## Host matching
 
