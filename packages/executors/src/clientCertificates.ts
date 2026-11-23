@@ -281,6 +281,10 @@ export async function loadClientCertificateProfile(
     if (!template) continue
     const resolvedPath = (await replaceVar(template)).trim()
     if (!resolvedPath) throw new ClientCertificateError(`${where}: "${field}" resolved to an empty path`)
+    const unresolvedPath = /\{\{\s*([^{}]+?)\s*\}\}/.exec(resolvedPath)
+    if (unresolvedPath) {
+      throw new ClientCertificateError(`${where}: "${field}" uses {{${unresolvedPath[1]}}}, which is not set in the active environment`)
+    }
     const absolutePath = isAbsolute(resolvedPath) ? resolvedPath : resolve(projectRoot, resolvedPath)
     try {
       connect[field] = await readFile(absolutePath)
@@ -292,6 +296,12 @@ export async function loadClientCertificateProfile(
 
   if (profile.passphrase !== undefined) {
     connect.passphrase = await replaceVar(profile.passphrase)
+    const unresolved = /\{\{\s*([^{}]+?)\s*\}\}/.exec(connect.passphrase)
+    if (unresolved) {
+      throw new ClientCertificateError(
+        `${where}: passphrase uses {{${unresolved[1]}}}, which is not set in the active environment`,
+      )
+    }
   }
 
   // Parse the key now so a wrong passphrase or malformed file is reported

@@ -13,6 +13,7 @@ import {
   selectClientCertificateProfile,
   describeKeyLoadError,
   serializeCertificateProfiles,
+  loadClientCertificateProfile,
 } from '../clientCertificates.js'
 
 const profilesYaml = `
@@ -367,3 +368,18 @@ describe('serializeCertificateProfiles', () => {
     expect(() => serializeCertificateProfiles('', [{ name: 'x', hosts: ['h'], cert: 'c' }])).toThrow(/both "cert" and "key"/)
   })
 })
+
+describe('unresolved variables', () => {
+  const read = async () => Buffer.from('x')
+  it('names a passphrase variable that is not set instead of reporting a wrong passphrase', async () => {
+    await expect(
+      loadClientCertificateProfile({ name: 'p', hosts: ['h'], pfx: 'a.p12', passphrase: '{{CLIENT_CERT_PASS}}' }, { projectRoot: '/proj', readFile: read }),
+    ).rejects.toThrow('Client certificate profile "p": passphrase uses {{CLIENT_CERT_PASS}}, which is not set in the active environment')
+  })
+  it('names a path variable that is not set', async () => {
+    await expect(
+      loadClientCertificateProfile({ name: 'p', hosts: ['h'], cert: './{{ENV}}/c.pem', key: 'k' }, { projectRoot: '/proj', readFile: read }),
+    ).rejects.toThrow('"cert" uses {{ENV}}, which is not set')
+  })
+})
+

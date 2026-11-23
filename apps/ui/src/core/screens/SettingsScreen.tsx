@@ -1,5 +1,5 @@
 import { useSettings, ProxyConfig, SYSTEM_DEFAULT_FONT, VALID_FONT_FAMILIES } from "@/core/settings/hooks/useSettings";
-import { Check, RefreshCw, Plus, Trash2, Edit2, Palette, FileText, Network, Search, Keyboard, ChevronUp, ChevronDown, Settings, Plug, Code2, Sparkles, Download, Copy, RotateCcw, X, ShieldCheck, FolderOpen, AlertCircle } from "lucide-react";
+import { Check, RefreshCw, Plus, Trash2, Edit2, Palette, FileText, Network, Search, Keyboard, ChevronUp, ChevronDown, Settings, Plug, Code2, Sparkles, Download, Copy, RotateCcw, X, ShieldCheck, FolderOpen, AlertCircle, Eye, EyeOff } from "lucide-react";
 import { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import { usePluginStore, type PluginSettingsSection } from "@/plugins";
 import { loadThemeById, getAvailableThemes } from "@/utils/themeLoader";
@@ -29,7 +29,7 @@ const Row = ({ title, description, control, border = true }: RowProps) => (
   <div className={`flex items-center justify-between gap-6 px-4 py-3.5 ${border ? 'border-b border-border-subtle' : ''}`}>
     <div className="flex-1 min-w-0">
       <div className="text-sm text-text">{title}</div>
-      <div className="text-xs text-comment mt-0.5 leading-relaxed">{description}</div>
+      {description && <div className="text-xs text-comment mt-0.5 leading-relaxed">{description}</div>}
     </div>
     <div className="flex-shrink-0">{control}</div>
   </div>
@@ -98,6 +98,9 @@ type CertForm = {
 const EMPTY_CERT_FORM: CertForm = { name: "", hosts: "", type: "pem", cert: "", key: "", pfx: "", ca: "", passphrase: "" };
 
 const RESERVED_CERT_NAMES = ["auto", "none"];
+
+/** Starts like `{{NAME}}`: a variable from the active environment, not a secret, so it stays readable (also while typing). */
+const isVariableReference = (value: string) => value.trimStart().startsWith("{{");
 
 type CertCheck =
   | { ok: true; subject?: string; issuer?: string; validTo?: string; expired?: boolean }
@@ -216,6 +219,7 @@ const ClientCertificatesSettings = ({
   const [errors, setErrors] = useState<Partial<Record<keyof CertForm, string>>>({});
   const [check, setCheck] = useState<CertCheck | null>(null);
   const [checking, setChecking] = useState(false);
+  const [showPassphrase, setShowPassphrase] = useState(false);
 
   const reload = useCallback(async () => {
     const result = await window.electron?.clientCertificates?.list();
@@ -281,6 +285,7 @@ const ClientCertificatesSettings = ({
     setErrors({});
     setCheck(null);
     setSaveError(null);
+    setShowPassphrase(false);
     setOpen(true);
   };
 
@@ -336,7 +341,7 @@ const ClientCertificatesSettings = ({
     } as any);
   };
 
-  const plaintextPassphrase = !!form.passphrase && !form.passphrase.includes("{{");
+  const plaintextPassphrase = !!form.passphrase && !isVariableReference(form.passphrase);
   const visible = profiles
     .map((p, index) => ({ p, index }))
     .filter(({ p }) => matchesSearch(`${p.name} ${p.hosts.join(" ")} client certificates mTLS`));
@@ -450,10 +455,7 @@ const ClientCertificatesSettings = ({
         </div>
       )}
       <p className="text-[11px] text-comment mt-2 px-1 leading-relaxed">
-        Saved in this project's <code className="font-mono">.voiden/certificates.yaml</code>, which is committed so the team
-        shares it. Requests use the first profile whose hosts match; to choose for one request, add a{" "}
-        <code className="font-mono">client_certificate</code> row to its Options block with a profile name,{" "}
-        <code className="font-mono">auto</code> or <code className="font-mono">none</code>.
+        Saved in <code className="font-mono">.voiden/certificates.yaml</code>. The first profile matching the host is used.
       </p>
 
       {open && (
@@ -474,10 +476,6 @@ const ClientCertificatesSettings = ({
                 <div id="client-cert-dialog-title" className="text-lg font-semibold text-text leading-tight">
                   {editingIndex === null ? "Add client certificate" : "Edit client certificate"}
                 </div>
-                <div className="text-xs text-comment mt-1 leading-relaxed">
-                  Sent during the TLS handshake to servers that require mutual TLS (mTLS). Paths and the passphrase can use{" "}
-                  <code className="font-mono">{"{{variables}}"}</code> from the active environment.
-                </div>
               </div>
               <button
                 onClick={() => setOpen(false)}
@@ -492,11 +490,7 @@ const ClientCertificatesSettings = ({
             <div className="flex-1 overflow-y-auto px-6 pb-5">
               <GroupLabel>General</GroupLabel>
               <Card>
-                <FieldRow
-                  title="Name"
-                  description={<>Pick it for one request with <code className="font-mono">client_certificate</code> in the Options block.</>}
-                  error={errors.name}
-                >
+                <FieldRow title="Name" error={errors.name}>
                   <Input
                     className="w-full"
                     value={form.name}
@@ -507,17 +501,7 @@ const ClientCertificatesSettings = ({
                     style={errors.name ? { borderColor: "var(--icon-error)" } : undefined}
                   />
                 </FieldRow>
-                <FieldRow
-                  title="Hosts"
-                  description={
-                    <>
-                      Comma-separated. <code className="font-mono">*.example.com</code> matches subdomains; add{" "}
-                      <code className="font-mono">:port</code> to match one port.
-                    </>
-                  }
-                  error={errors.hosts}
-                  border={false}
-                >
+                <FieldRow title="Hosts" error={errors.hosts} border={false}>
                   <Input
                     className="w-full"
                     value={form.hosts}
@@ -533,7 +517,7 @@ const ClientCertificatesSettings = ({
               <Card>
                 <Row
                   title="Format"
-                  description={form.type === "pfx" ? "One bundle file (.pfx, .p12)." : "Separate certificate and key files (.pem, .crt, .key)."}
+                  description=""
                   control={
                     <Select value={form.type} onChange={(e) => update({ type: e.target.value as CertForm["type"] })}>
                       <option value="pem">PEM certificate + key</option>
@@ -556,27 +540,37 @@ const ClientCertificatesSettings = ({
                   </FieldRow>
                 )}
                 <FieldRow
-                  title="Passphrase"
-                  description={
-                    <>
-                      Optional. {form.type === "pfx" ? "The password the PFX file was exported with." : "Only needed if the private key is encrypted."} Use a
-                      variable from your private environment, e.g. <code className="font-mono">{"{{CLIENT_CERT_PASS}}"}</code>.
-                    </>
-                  }
+                  title="Passphrase (optional)"
+                  description={<>Type the password, or use a variable from your environment, e.g. <code className="font-mono">{"{{CLIENT_CERT_PASS}}"}</code>.</>}
                   border={false}
                 >
-                  <Input
-                    className="w-full font-mono text-xs"
-                    value={form.passphrase}
-                    onChange={(e) => update({ passphrase: e.target.value })}
-                    placeholder="{{CLIENT_CERT_PASS}}"
-                    autoComplete="off"
-                    spellCheck={false}
-                  />
+                  <div className="flex gap-2">
+                    <Input
+                      className="flex-1 min-w-0 font-mono text-xs"
+                      // A {{variable}} reference isn't secret, so it stays readable.
+                      type={showPassphrase || isVariableReference(form.passphrase) ? "text" : "password"}
+                      value={form.passphrase}
+                      onChange={(e) => update({ passphrase: e.target.value })}
+                      placeholder="••••••••"
+                      autoComplete="off"
+                      spellCheck={false}
+                    />
+                    {form.passphrase && !isVariableReference(form.passphrase) && (
+                      <button
+                        type="button"
+                        onClick={() => setShowPassphrase((v) => !v)}
+                        className="p-1.5 rounded-md border border-border-subtle text-comment hover:text-text hover:bg-panel/50 transition-colors flex-shrink-0"
+                        title={showPassphrase ? "Hide passphrase" : "Show passphrase"}
+                        aria-label={showPassphrase ? "Hide passphrase" : "Show passphrase"}
+                      >
+                        {showPassphrase ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                      </button>
+                    )}
+                  </div>
                   {plaintextPassphrase && (
                     <div className="flex items-start gap-1 text-xs mt-1.5 leading-relaxed" style={{ color: "var(--icon-warning, var(--icon-error))" }}>
                       <AlertCircle className="w-3 h-3 flex-shrink-0 mt-0.5" />
-                      This is saved as plain text in certificates.yaml, which is committed. Put it in a private environment variable instead.
+                      Saved as plain text in a committed file. Use a variable instead.
                     </div>
                   )}
                 </FieldRow>
@@ -584,11 +578,7 @@ const ClientCertificatesSettings = ({
 
               <GroupLabel>Server trust</GroupLabel>
               <Card>
-                <FieldRow
-                  title="CA certificate"
-                  description="Optional. For servers signed by a private CA. When set, only this CA is trusted for matching hosts."
-                  border={false}
-                >
+                <FieldRow title="CA certificate (optional)" description="For servers signed by a private CA." border={false}>
                   <FilePicker value={form.ca} onChange={(v) => update({ ca: v })} extensions={["pem", "crt", "cer"]} defaultPath={projectRoot ?? undefined} />
                 </FieldRow>
               </Card>
@@ -803,6 +793,9 @@ const PluginSectionFields = ({ section }: { section: PluginSettingsSection }) =>
 };
 
 export const SettingsScreen = () => {
+  const { data: projectsData } = useGetProjects();
+  const activeProject = (projectsData as any)?.activeProject as string | undefined;
+
   const { settings, loading, save, saveImmediate, reset, onChange } = useSettings();
   const sidebarTabsPosition = useSidebarTabsPosition((s) => s.position);
   const setSidebarTabsPosition = useSidebarTabsPosition((s) => s.setPosition);
@@ -1022,9 +1015,6 @@ export const SettingsScreen = () => {
   };
 
   // Search filter logic
-  const { data: projectsData } = useGetProjects();
-  const activeProject = (projectsData as any)?.activeProject as string | undefined;
-
   const matchesSearch = (text: string) => {
     if (!searchQuery) return true;
     return text.toLowerCase().includes(searchQuery.toLowerCase());
