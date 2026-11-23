@@ -18,6 +18,7 @@ Complete guide to all Voiden documentation.
 | [Development Workflow](build/DEVELOPMENT.md) | Daily development guide |
 | [Quick Reference](getting-started/QUICK_REFERENCE.md) | Command cheatsheet |
 | [Folder Environments](getting-started/FOLDER_ENVIRONMENTS.md) | Per-folder `.env` inheritance for requests |
+| [Client Certificates](getting-started/CLIENT_CERTIFICATES.md) | mTLS profiles in `.voiden/certificates.yaml` |
 
 ### Architecture
 | Document | Description |

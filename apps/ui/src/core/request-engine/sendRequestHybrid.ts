@@ -239,6 +239,7 @@ async function convertToRestApiRequestState(data: Request, requestFilePath?: str
     preRequestResult: data.preRequestResult,
     metadata: {
       ...(data.options?.follow_redirects === 'false' ? { follow_redirects: false } : {}),
+      ...(data.options?.client_certificate?.trim() ? { client_certificate: data.options.client_certificate.trim() } : {}),
     },
   };
 

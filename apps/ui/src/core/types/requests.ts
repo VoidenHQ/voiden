@@ -230,6 +230,8 @@ export interface BaseRequestMeta {
     host: string;
     port: number;
   };
+  /** Name of the mTLS client certificate profile used, if any. */
+  clientCertificate?: string;
 }
 
 export interface Assertion {

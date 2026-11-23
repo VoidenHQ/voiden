@@ -16,6 +16,7 @@ import type { RestApiRequestState } from './pipeline/types.js'
 import { executeWebSocket } from './websocket.js'
 import { executeGrpc } from './grpc.js'
 import { executeMcpOperation } from './mcp.js'
+import type { ClientCertificateConnectOptions, ResolvedClientCertificate } from './clientCertificates.js'
 import {
   assertNoUnresolvedTemplates,
   UnresolvedVariablesError,
@@ -33,7 +34,14 @@ export interface SecureRequestAdapter {
    * Return an undici-compatible dispatcher and optional proxy metadata for a URL.
    * Electron passes an Agent or ProxyAgent; CLI omits this for plain fetch.
    */
-  getDispatcher?(url: string): { dispatcher?: any; proxyInfo?: any }
+  getDispatcher?(url: string, clientCertificate?: ClientCertificateConnectOptions): { dispatcher?: any; proxyInfo?: any }
+  /**
+   * Resolve the mTLS client certificate for a URL (see resolveClientCertificate).
+   * `choice` is the request's `client_certificate` option: `auto`, `none` or a profile name.
+   * Should throw ClientCertificateError when the configuration is broken so the
+   * request fails with a clear message instead of going out without a certificate.
+   */
+  resolveClientCertificate?(url: string, choice?: string): Promise<ResolvedClientCertificate | null>
   /** Whether to follow HTTP redirects. Defaults to true. */
   followRedirects?: boolean
   /**
@@ -77,6 +85,8 @@ export interface SecureHttpResult {
     headers: { key: string; value: string }[]
     httpVersion: string
     proxy?: any
+    /** Name of the client certificate profile used for this request, if any. */
+    clientCertificate?: string
     tlsInfo?: any
     body?: string | null
     bodyContentType?: string | null
@@ -444,8 +454,13 @@ export async function executeSecureRequest(
 
   // ── 10. Apply dispatcher (proxy / TLS agent) ──────────────────────────────
   let proxyInfo: any
+  let clientCertificateProfile: string | undefined
   if (adapter.getDispatcher) {
-    const { dispatcher, proxyInfo: pi } = adapter.getDispatcher(url)
+    const clientCertificate = adapter.resolveClientCertificate
+      ? await adapter.resolveClientCertificate(url, requestState.metadata?.client_certificate)
+      : null
+    clientCertificateProfile = clientCertificate?.profile
+    const { dispatcher, proxyInfo: pi } = adapter.getDispatcher(url, clientCertificate?.connect)
     if (dispatcher) fetchOptions.dispatcher = dispatcher
     proxyInfo = pi
   }
@@ -504,6 +519,7 @@ export async function executeSecureRequest(
       headers: requestMetaHeaders,
       httpVersion: (response as any).httpVersion ?? 'HTTP/1.1',
       proxy: proxyInfo,
+      clientCertificate: clientCertificateProfile,
       tlsInfo,
       body: requestBodySent,
       bodyContentType: requestBodyContentType,
