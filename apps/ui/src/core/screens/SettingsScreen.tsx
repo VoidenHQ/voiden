@@ -220,6 +220,17 @@ const ClientCertificatesSettings = ({
   const [check, setCheck] = useState<CertCheck | null>(null);
   const [checking, setChecking] = useState(false);
   const [showPassphrase, setShowPassphrase] = useState(false);
+  // The form as it was when the dialog opened, to tell whether closing would lose edits.
+  const [initialForm, setInitialForm] = useState<CertForm>(EMPTY_CERT_FORM);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+
+  const isDirty = (Object.keys(form) as (keyof CertForm)[]).some((k) => form[k] !== initialForm[k]);
+
+  /** Backdrop, Esc, X and Cancel all go through here: ask first when there are unsaved edits. */
+  const requestClose = () => {
+    if (isDirty) setConfirmDiscard(true);
+    else setOpen(false);
+  };
 
   const reload = useCallback(async () => {
     const result = await window.electron?.clientCertificates?.list();
@@ -245,12 +256,14 @@ const ClientCertificatesSettings = ({
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.stopPropagation();
-        setOpen(false);
+        // Esc on the discard prompt means "keep editing".
+        if (confirmDiscard) setConfirmDiscard(false);
+        else requestClose();
       }
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [open]);
+  });
 
   if (!matchesSearch("Client certificates mTLS mutual TLS certificate pfx p12 pem key CA certificates.yaml")) return null;
 
@@ -281,7 +294,10 @@ const ClientCertificatesSettings = ({
 
   const openForm = (index: number | null) => {
     setEditingIndex(index);
-    setForm(index === null ? EMPTY_CERT_FORM : toForm(profiles[index]));
+    const start = index === null ? EMPTY_CERT_FORM : toForm(profiles[index]);
+    setForm(start);
+    setInitialForm(start);
+    setConfirmDiscard(false);
     setErrors({});
     setCheck(null);
     setSaveError(null);
@@ -461,15 +477,50 @@ const ClientCertificatesSettings = ({
         <div
           className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
           onMouseDown={(e) => {
-            if (e.target === e.currentTarget) setOpen(false);
+            if (e.target === e.currentTarget) requestClose();
           }}
         >
           <div
             role="dialog"
             aria-modal="true"
             aria-labelledby="client-cert-dialog-title"
-            className="bg-editor text-text border border-border rounded-xl w-full max-w-xl max-h-[88vh] flex flex-col shadow-2xl overflow-hidden"
+            className="relative bg-editor text-text border border-border rounded-xl w-full max-w-xl max-h-[88vh] flex flex-col shadow-2xl overflow-hidden"
           >
+            {confirmDiscard && (
+              <div className="absolute inset-0 z-10 bg-black/40 flex items-center justify-center p-6">
+                <div
+                  role="alertdialog"
+                  aria-labelledby="client-cert-discard-title"
+                  className="bg-editor border border-border rounded-lg shadow-2xl w-full max-w-sm p-5"
+                >
+                  <div id="client-cert-discard-title" className="text-sm font-semibold text-text">
+                    Discard unsaved changes?
+                  </div>
+                  <p className="text-xs text-comment mt-1.5 leading-relaxed">
+                    Your edits to this certificate haven't been saved and will be lost.
+                  </p>
+                  <div className="flex justify-end gap-2 mt-4">
+                    <button
+                      onClick={() => setConfirmDiscard(false)}
+                      autoFocus
+                      className="px-3 py-1.5 bg-panel hover:bg-active rounded-md text-sm"
+                    >
+                      Keep editing
+                    </button>
+                    <button
+                      onClick={() => {
+                        setConfirmDiscard(false);
+                        setOpen(false);
+                      }}
+                      className="px-3 py-1.5 rounded-md text-sm hover:opacity-90 transition-opacity"
+                      style={{ backgroundColor: "var(--icon-error)", color: "var(--ui-bg)" }}
+                    >
+                      Discard
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
             <div className="flex items-start justify-between gap-4 px-6 pt-5 pb-4 border-b border-border-subtle">
               <div className="min-w-0">
                 <div id="client-cert-dialog-title" className="text-lg font-semibold text-text leading-tight">
@@ -477,7 +528,7 @@ const ClientCertificatesSettings = ({
                 </div>
               </div>
               <button
-                onClick={() => setOpen(false)}
+                onClick={requestClose}
                 className="p-1 -mr-1 rounded text-comment hover:text-text hover:bg-panel/50 transition-colors"
                 title="Close"
                 aria-label="Close"
@@ -619,7 +670,7 @@ const ClientCertificatesSettings = ({
                 {checking ? "Checking…" : "Check certificate"}
               </button>
               <div className="flex gap-2">
-                <button onClick={() => setOpen(false)} className="px-3 py-1.5 bg-panel hover:bg-active rounded-md text-sm">
+                <button onClick={requestClose} className="px-3 py-1.5 bg-panel hover:bg-active rounded-md text-sm">
                   Cancel
                 </button>
                 <button
