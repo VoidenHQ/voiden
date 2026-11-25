@@ -1,6 +1,27 @@
 {
   "releases": [
     {
+      "version": "2.5.0-beta.1",
+      "date": "November 2026",
+      "whatsnew": [
+        {
+          "icon": "🔐",
+          "title": "Client Certificates (mTLS)",
+          "description": "Call APIs that require a client certificate. Add PEM or PFX profiles in Settings and Voiden presents the right one for each host, over HTTP, WebSocket and gRPC."
+        },
+        {
+          "icon": "🔀",
+          "title": "Compare Response Runs",
+          "description": "Pick two runs of the same request and see exactly what changed in status, timing, headers and body, with noise like timestamps and request IDs filtered out."
+        },
+        {
+          "icon": "🧩",
+          "title": "Custom Protocols for Plugins",
+          "description": "Plugins can now bring their own request protocols, so Voiden can talk to more than HTTP, WebSocket and gRPC."
+        }
+      ]
+    },
+    {
       "version": "2.4.1",
       "date": "November 2026",
       "whatsnew": [
