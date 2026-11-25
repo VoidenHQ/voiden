@@ -130,6 +130,19 @@ function defaultPort(protocol: string): string {
 }
 
 /**
+ * Reduce a host pattern to `host[:port]`. People paste a full URL
+ * (`https://localhost:8443/hello`) where a host is expected; drop the scheme,
+ * credentials, path, query and fragment so it still matches.
+ */
+export function normalizeHostPattern(pattern: string): string {
+  let host = pattern.trim()
+  host = host.replace(/^[a-z][a-z0-9+.-]*:\/\//i, '')
+  host = host.replace(/^[^/?#@]*@/, '')
+  host = host.split(/[/?#]/)[0]
+  return host
+}
+
+/**
  * Whether a host pattern matches a URL.
  *
  * - Case-insensitive.
@@ -149,7 +162,7 @@ export function hostMatchesPattern(pattern: string, url: string): boolean {
   const hostname = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '')
   const port = parsed.port || defaultPort(parsed.protocol)
 
-  let host = pattern.trim().toLowerCase()
+  let host = normalizeHostPattern(pattern).toLowerCase()
   let patternPort: string | undefined
   const portMatch = /^(\[[^\]]+\]|[^:]+):(\d+)$/.exec(host)
   if (portMatch) {

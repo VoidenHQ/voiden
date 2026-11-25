@@ -64,6 +64,13 @@ describe('parseCertificateProfiles', () => {
 })
 
 describe('hostMatchesPattern', () => {
+  it('accepts a full URL pasted as the pattern', () => {
+    expect(hostMatchesPattern('https://localhost:8443/hello', 'https://localhost:8443/hello')).toBe(true)
+    expect(hostMatchesPattern('https://localhost:8443/hello', 'https://localhost:9443/')).toBe(false)
+    expect(hostMatchesPattern('https://api.bank.com/v1?x=1', 'https://api.bank.com/other')).toBe(true)
+    expect(hostMatchesPattern('https://user@api.bank.com', 'https://api.bank.com/')).toBe(true)
+  })
+
   it('matches hosts case-insensitively', () => {
     expect(hostMatchesPattern('API.Bank.com', 'https://api.bank.COM/v1')).toBe(true)
     expect(hostMatchesPattern('api.bank.com', 'https://other.bank.com/')).toBe(false)

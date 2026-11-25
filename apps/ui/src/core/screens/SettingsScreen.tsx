@@ -1,6 +1,7 @@
 import { useSettings, ProxyConfig, SYSTEM_DEFAULT_FONT, VALID_FONT_FAMILIES } from "@/core/settings/hooks/useSettings";
 import { Check, RefreshCw, Plus, Trash2, Edit2, Palette, FileText, Network, Search, Keyboard, ChevronUp, ChevronDown, Settings, Plug, Code2, Sparkles, Download, Copy, RotateCcw, X, ShieldCheck, FolderOpen, AlertCircle, Eye, EyeOff } from "lucide-react";
 import { useEffect, useMemo, useState, useRef, useCallback } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { usePluginStore, type PluginSettingsSection } from "@/plugins";
 import { loadThemeById, getAvailableThemes } from "@/utils/themeLoader";
 import { Kbd } from "@/core/components/ui/kbd";
@@ -119,11 +120,15 @@ const toForm = (p: ClientCertificateProfile): CertForm => ({
   passphrase: p.passphrase ?? "",
 });
 
+/** `https://localhost:8443/hello` → `localhost:8443`: a host pattern is host[:port] only. */
+const toHostPattern = (h: string) =>
+  h.trim().replace(/^[a-z][a-z0-9+.-]*:\/\//i, "").replace(/^[^/?#@]*@/, "").split(/[/?#]/)[0];
+
 const toProfile = (f: CertForm): ClientCertificateProfile => {
   const v = (s: string) => (s.trim() ? s.trim() : undefined);
   return {
     name: f.name.trim(),
-    hosts: f.hosts.split(",").map((h) => h.trim()).filter(Boolean),
+    hosts: f.hosts.split(",").map(toHostPattern).filter(Boolean),
     ...(f.type === "pem" ? { cert: v(f.cert), key: v(f.key) } : { pfx: v(f.pfx) }),
     ca: v(f.ca),
     passphrase: f.passphrase ? f.passphrase : undefined,
@@ -223,6 +228,8 @@ const ClientCertificatesSettings = ({
   // The form as it was when the dialog opened, to tell whether closing would lose edits.
   const [initialForm, setInitialForm] = useState<CertForm>(EMPTY_CERT_FORM);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<number | null>(null);
+  const queryClient = useQueryClient();
 
   const isDirty = (Object.keys(form) as (keyof CertForm)[]).some((k) => form[k] !== initialForm[k]);
 
@@ -252,8 +259,14 @@ const ClientCertificatesSettings = ({
 
   // Esc closes the dialog. Capture phase so editor shortcuts underneath don't swallow it.
   useEffect(() => {
-    if (!open) return;
+    if (!open && pendingDelete === null) return;
     const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && pendingDelete !== null) {
+        e.stopPropagation();
+        setPendingDelete(null);
+        return;
+      }
+      if (!open) return;
       if (e.key === "Escape") {
         e.stopPropagation();
         // Esc on the discard prompt means "keep editing".
@@ -348,13 +361,17 @@ const ClientCertificatesSettings = ({
 
   const openFile = async () => {
     if (!data || !data.projectRoot) return;
-    await window.electron?.state.addPanelTab("main", {
+    const response = await window.electron?.state.addPanelTab("main", {
       id: crypto.randomUUID(),
       type: "document",
       title: "certificates.yaml",
       source: data.file,
       directory: null,
     } as any);
+    if (response?.tabId) {
+      await window.electron?.state.activatePanelTab("main", response.tabId);
+      queryClient.invalidateQueries({ queryKey: ["panel:tabs"] });
+    }
   };
 
   const visible = profiles
@@ -451,7 +468,7 @@ const ClientCertificatesSettings = ({
                   <Edit2 className="w-3.5 h-3.5" />
                 </button>
                 <button
-                  onClick={() => persist(profiles.filter((_, i) => i !== index))}
+                  onClick={() => setPendingDelete(index)}
                   className="p-1 hover:bg-panel/50 rounded transition-colors"
                   style={{ color: "var(--icon-error)" }}
                   title="Delete certificate"
@@ -472,6 +489,45 @@ const ClientCertificatesSettings = ({
       <p className="text-[11px] text-comment mt-2 px-1 leading-relaxed">
         Saved in <code className="font-mono">.voiden/certificates.yaml</code>, local to you and never committed. The first profile matching the host is used.
       </p>
+
+      {pendingDelete !== null && profiles[pendingDelete] && (
+        <div
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setPendingDelete(null);
+          }}
+        >
+          <div
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="client-cert-delete-title"
+            className="bg-editor text-text border border-border rounded-lg shadow-2xl w-full max-w-sm p-5"
+          >
+            <div id="client-cert-delete-title" className="text-sm font-semibold text-text break-words">
+              Delete "{profiles[pendingDelete].name}"?
+            </div>
+            <p className="text-xs text-comment mt-1.5 leading-relaxed">
+              Requests to {profiles[pendingDelete].hosts.join(", ")} will no longer present this certificate. The certificate files on disk are not deleted.
+            </p>
+            <div className="flex justify-end gap-2 mt-4">
+              <button onClick={() => setPendingDelete(null)} autoFocus className="px-3 py-1.5 bg-panel hover:bg-active rounded-md text-sm">
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  const index = pendingDelete;
+                  setPendingDelete(null);
+                  persist(profiles.filter((_, i) => i !== index));
+                }}
+                className="px-3 py-1.5 rounded-md text-sm hover:opacity-90 transition-opacity"
+                style={{ backgroundColor: "var(--icon-error)", color: "var(--ui-bg)" }}
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {open && (
         <div
