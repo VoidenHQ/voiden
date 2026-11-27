@@ -486,6 +486,11 @@ const LEGACY_VOIDEN_IGNORE_LINES: Record<string, string> = {
   '!.voiden/env-*-public.yaml': '!**/.voiden/env-*-public.yaml',
 };
 
+// Lines written by earlier versions that must go (not just be rewritten).
+// Client certificate profiles (.voiden/certificates.yaml) were briefly let
+// through; they are local to each user and may hold a passphrase.
+const REMOVED_VOIDEN_IGNORE_LINES = new Set(['!**/.voiden/certificates.yaml']);
+
 // Matches the basenames let through by the negation lines above.
 const VOIDEN_PUBLIC_ENV_RE = /^env(-[^/]+)?-public\.yaml$/;
 
@@ -527,6 +532,7 @@ export async function ensureVoidenGitignore(rootDir: string): Promise<void> {
 
   content = content
     .split('\n')
+    .filter((l) => !REMOVED_VOIDEN_IGNORE_LINES.has(l.trim()))
     .map((l) => LEGACY_VOIDEN_IGNORE_LINES[l.trim()] ?? l)
     .join('\n');
 

@@ -1,6 +1,7 @@
 import { ipcMain, BrowserWindow, protocol } from "electron";
 import { Blob } from "node:buffer";
-import { Agent, ProxyAgent, request as undiciRequest, WebSocket, fetch, FormData } from "undici";
+import type { Agent, ProxyAgent } from "undici";
+import { request as undiciRequest, WebSocket, fetch, FormData } from "undici";
 import { getSettings } from "../settings";
 import { replaceVariablesSecure } from "../env";
 import { getActiveProject } from "../state";
@@ -10,7 +11,10 @@ import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
 import { createClient, Client } from "graphql-ws";
 import { isAbsolute } from "node:path";
-import { executeSecureRequest, type SecureRequestAdapter } from "@voiden/executors";
+import { executeSecureRequest, resolveClientCertificate, tlsOverride, type SecureRequestAdapter, type ClientCertificateConnectOptions } from "@voiden/executors";
+import tls from "node:tls";
+import { getDispatcher } from "./dispatcher";
+import { getPluginExecutor } from "../pluginExecutors";
 
 
 const lastByWcAndKey = new Map<string, number>();
@@ -42,6 +46,10 @@ interface GrpcRegistryEntry {
   service: string;
   callType: GrpcConfig['callType'];
   metadata: grpc.Metadata;
+  /** From the request URL scheme (grpcs:). Older entries fall back to a port heuristic. */
+  secure?: boolean;
+  /** mTLS material for the target, resolved from .voiden/certificates.yaml. */
+  clientCertificate?: ClientCertificateConnectOptions;
 }
 
 // Global registry for gRPC connections
@@ -194,89 +202,6 @@ function createMultipartBlob(bytes: ArrayBuffer | ArrayLike<number>, type?: stri
   });
 }
 
-/**
- * Get dispatcher (Agent or ProxyAgent) based on settings
- * Returns the dispatcher and proxy info for metadata
- */
-function getDispatcher(
-  settings: any,
-  requestUrl: string,
-): { dispatcher?: Agent | ProxyAgent; proxyInfo?: { name: string; host: string; port: number } } {
-  const disableTls = settings?.requests?.disable_tls_verification === true;
-  const timeoutSec = settings?.requests?.timeout ?? 300;
-  const timeoutMs = timeoutSec > 0 ? timeoutSec * 1000 : 0;
-  const proxyEnabled = settings?.proxy?.enabled === true;
-  const activeProxyId = settings?.proxy?.activeProxyId;
-
-  // If no proxy is enabled, return TLS agent if needed
-  if (!proxyEnabled || !activeProxyId) {
-    if (disableTls) {
-      return { dispatcher: new Agent({ connect: { rejectUnauthorized: false }, bodyTimeout: timeoutMs, headersTimeout: timeoutMs }) };
-    }
-    return { dispatcher: new Agent({ bodyTimeout: timeoutMs, headersTimeout: timeoutMs }) };
-  }
-
-  // Find the active proxy configuration
-  const activeProxy = settings.proxy.proxies?.find((p: any) => p.id === activeProxyId);
-  if (!activeProxy) {
-    if (disableTls) {
-      return { dispatcher: new Agent({ connect: { rejectUnauthorized: false }, bodyTimeout: timeoutMs, headersTimeout: timeoutMs }) };
-    }
-    return { dispatcher: new Agent({ bodyTimeout: timeoutMs, headersTimeout: timeoutMs }) };
-  }
-
-  // Check if domain is excluded from proxy
-  if (activeProxy.excludedDomains && activeProxy.excludedDomains.length > 0) {
-    try {
-      const hostname = new URL(requestUrl).hostname;
-      const isExcluded = activeProxy.excludedDomains.some((pattern: string) => {
-        if (pattern.startsWith("*.")) {
-          // Wildcard match: *.internal matches api.internal, service.internal
-          const suffix = pattern.substring(1); // Remove * to get .internal
-          return hostname.endsWith(suffix) || hostname === suffix.substring(1); // Match .internal or internal
-        }
-        // Exact match
-        return hostname === pattern;
-      });
-
-      if (isExcluded) {
-        if (disableTls) {
-          return { dispatcher: new Agent({ connect: { rejectUnauthorized: false }, bodyTimeout: timeoutMs, headersTimeout: timeoutMs }) };
-        }
-        return { dispatcher: new Agent({ bodyTimeout: timeoutMs, headersTimeout: timeoutMs }) };
-      }
-    } catch (error) {
-      // Continue with proxy on parse error
-    }
-  }
-
-  // Build proxy URL
-  const protocol = "http"; // Proxies typically use HTTP protocol
-  let proxyUrl = `${protocol}://${activeProxy.host}:${activeProxy.port}`;
-
-  // Add auth if enabled
-  if (activeProxy.auth && activeProxy.username) {
-    const username = encodeURIComponent(activeProxy.username);
-    const password = activeProxy.password ? encodeURIComponent(activeProxy.password) : "";
-    proxyUrl = `${protocol}://${username}:${password}@${activeProxy.host}:${activeProxy.port}`;
-  }
-
-  // Create ProxyAgent with TLS settings
-  return {
-    dispatcher: new ProxyAgent({
-      uri: proxyUrl,
-      connect: disableTls ? { rejectUnauthorized: false } : undefined,
-      bodyTimeout: timeoutMs,
-      headersTimeout: timeoutMs,
-    }),
-    proxyInfo: {
-      name: activeProxy.name,
-      host: activeProxy.host,
-      port: activeProxy.port,
-    },
-  };
-}
-
 function applyProxyEnvForGrpc(settings: any, requestUrl: string) {
   try {
     const proxyEnabled = settings?.proxy?.enabled === true;
@@ -416,6 +341,17 @@ const makeId = () => {
   return Math.random().toString(36).substring(2, 10) + Math.random().toString(36).substring(2, 10);
 }
 
+
+/**
+ * Channel credentials for a gRPC target. TLS targets present the client
+ * certificate when one applies; grpc-js can't take a PFX or an encrypted key
+ * directly, so it goes through a Node SecureContext.
+ */
+function grpcChannelCredentials(insecure: boolean, clientCertificate?: ClientCertificateConnectOptions): grpc.ChannelCredentials {
+  if (insecure) return grpc.credentials.createInsecure();
+  if (!clientCertificate) return grpc.credentials.createSsl();
+  return grpc.credentials.createFromSecureContext(tls.createSecureContext(clientCertificate));
+}
 
 // Shared gRPC opener used by both send-request and send-secure-request
 async function handleGrpcConnection(url: string, protocol: string, headers: Record<string, string> | undefined, settings: any) {
@@ -644,14 +580,42 @@ export function registerRequestIpcHandler() {
 
     if (signalState?.aborted) return { ok: false, status: 0, statusText: "aborted", error: "Request aborted" };
 
+    // ── Plugin-provided protocol (see pluginExecutors.ts) ───────────────────
+    const pluginExecutor = getPluginExecutor(requestState?.protocolType);
+    if (pluginExecutor) {
+      const requestFilePath: string | undefined = requestState.metadata?.requestFilePath;
+      try {
+        return await pluginExecutor(requestState, {
+          projectPath: activeProject || undefined,
+          requestFilePath,
+          resolveVariables: activeProject
+            ? (text: string) => replaceVariablesSecure(text, activeProject, requestFilePath, _event)
+            : (text: string) => Promise.resolve(text),
+        });
+      } catch (error: any) {
+        const message = error?.message || String(error);
+        return {
+          ok: false, status: 0, statusText: message, error: message,
+          protocol: requestState.protocolType, protocolType: requestState.protocolType,
+          requestMeta: { method: requestState.method, url: requestState.url, headers: [] },
+        };
+      }
+    }
+
     const followRedirects = requestState.metadata?.follow_redirects !== undefined
       ? requestState.metadata.follow_redirects
       : settings?.requests?.follow_redirects ?? true;
 
+    const replaceVar = activeProject
+      ? (text: string) => replaceVariablesSecure(text, activeProject, requestState.metadata?.requestFilePath, _event)
+      : (text: string) => Promise.resolve(text);
+
+    // mTLS: pick a profile from .voiden/certificates.yaml. Key material stays in this process.
+    const clientCertificateFor = (url: string, choice?: string) =>
+      resolveClientCertificate({ url, choice, projectRoot: activeProject || undefined, replaceVar });
+
     const adapter: SecureRequestAdapter = {
-      replaceVar: activeProject
-        ? (text: string) => replaceVariablesSecure(text, activeProject, requestState.metadata?.requestFilePath, _event)
-        : (text: string) => Promise.resolve(text),
+      replaceVar,
 
       readFile: async (filePath: string) => {
         // Determine whether the stored path is genuinely absolute.
@@ -680,7 +644,8 @@ export function registerRequestIpcHandler() {
         }
       },
 
-      getDispatcher: (url: string) => getDispatcher(settings, url),
+      getDispatcher: (url: string, clientCertificate, options) => getDispatcher(settings, url, clientCertificate, options),
+      resolveClientCertificate: clientCertificateFor,
       followRedirects,
       isElectron: true,
     };
@@ -693,7 +658,8 @@ export function registerRequestIpcHandler() {
         const { protocol, resolvedUrl, resolvedHeaders, resolvedBody } = result;
 
         if (protocol === "ws" || protocol === "wss") {
-          const { dispatcher, proxyInfo } = getDispatcher(settings, resolvedUrl);
+          const clientCertificate = await clientCertificateFor(resolvedUrl, requestState.metadata?.client_certificate);
+          const { dispatcher, proxyInfo } = getDispatcher(settings, resolvedUrl, clientCertificate?.connect, tlsOverride(requestState));
           return handleWsConnection(resolvedUrl, {
             headers: resolvedHeaders,
             dispatcher,
@@ -704,7 +670,8 @@ export function registerRequestIpcHandler() {
         }
 
         if (protocol === "grpc" || protocol === "grpcs") {
-          return await handleGrpcRequest(requestState, settings, activeProject || "");
+          const clientCertificate = await clientCertificateFor(resolvedUrl, requestState.metadata?.client_certificate);
+          return await handleGrpcRequest(requestState, settings, activeProject || "", clientCertificate?.connect);
         }
 
         if (protocol === "graphql-subscription") {
@@ -1411,10 +1378,8 @@ export function registerRequestIpcHandler() {
       const [host, portStr] = target.split(':');
       const port = parseInt(portStr || '443', 10);
 
-      const insecure = port !== 443 && !target.includes('ssl');
-      const creds = insecure
-        ? grpc.credentials.createInsecure()
-        : grpc.credentials.createSsl();
+      const insecure = entry.secure !== undefined ? !entry.secure : port !== 443 && !target.includes('ssl');
+      const creds = grpcChannelCredentials(insecure, entry.clientCertificate);
 
       const channelOptions: grpc.ChannelOptions = {
         "grpc.ssl_target_name_override": host,
@@ -1570,10 +1535,8 @@ export function registerRequestIpcHandler() {
             return { ok: false, error: errorMsg };
           }
 
-          const insecure = port !== 443 && !target.includes('ssl');
-          const creds = insecure
-            ? grpc.credentials.createInsecure()
-            : grpc.credentials.createSsl();
+          const insecure = entry.secure !== undefined ? !entry.secure : port !== 443 && !target.includes('ssl');
+          const creds = grpcChannelCredentials(insecure, entry.clientCertificate);
 
           const channelOptions: grpc.ChannelOptions = {
             "grpc.ssl_target_name_override": host,
@@ -2047,7 +2010,8 @@ function sendToWindow(event, sendData) {
 async function handleGrpcRequest(
   requestState: any,
   settings: any,
-  activeProject: string
+  activeProject: string,
+  clientCertificate?: ClientCertificateConnectOptions,
 ): Promise<any> {
   const grpcConfig = requestState.grpc;
 
@@ -2153,6 +2117,8 @@ async function handleGrpcRequest(
       service,
       callType,
       metadata: grpcMetadata,
+      secure: !insecure,
+      clientCertificate,
     });
 
     // Return connection info without actually connecting

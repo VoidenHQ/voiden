@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain } from "electron";
 import path from "node:path";
 import { ipcStateHandlers } from "./main/state";
 import { registerSettingsIpc, getSettings } from "./main/settings";
+import { registerClientCertificateIpc } from "./main/clientCertificatesIpc";
 import { registerFontsIpc } from "./main/fonts";
 import { closeAllWatchers } from "./main/fileWatcher";
 import { createWindow, initializeWelcomeTabs, setSplash } from "./main/window";
@@ -174,6 +175,7 @@ app.on("ready", async () => {
   logger.info('system', 'STARTUP: app:ready fired — registering IPC handlers', { t: appReadyTime });
 
   registerSettingsIpc();
+  registerClientCertificateIpc();
   registerFontsIpc();
   registerUpdateIpcHandlers();
   registerFileIpcHandlers();

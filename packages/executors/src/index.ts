@@ -6,7 +6,7 @@ export type { McpOperation, McpRequest, McpOperationResult } from './mcp.js'
 export { executeMcpOperation } from './mcp.js'
 
 export type { SecureRequestAdapter, SecureHandoffResult, SecureHttpResult, SecureRequestResult } from './secureRequest.js'
-export { executeSecureRequest, hasHttpHeader, deleteHttpHeader, addDefaultHttpHeaders, getFileMimeType } from './secureRequest.js'
+export { executeSecureRequest, tlsOverride, hasHttpHeader, deleteHttpHeader, addDefaultHttpHeaders, getFileMimeType } from './secureRequest.js'
 
 export {
   UnresolvedVariablesError,
@@ -14,6 +14,26 @@ export {
   formatUnresolvedVariablesError,
   validateResolvedStrings,
 } from './unresolvedVariables.js'
+
+export type {
+  ClientCertificateProfile,
+  ClientCertificateConnectOptions,
+  ResolvedClientCertificate,
+  ResolveClientCertificateParams,
+} from './clientCertificates.js'
+export {
+  CERTIFICATES_FILE,
+  ClientCertificateError,
+  parseCertificateProfiles,
+  hostMatchesPattern,
+  selectClientCertificateProfile,
+  resolveClientCertificate,
+  describeKeyLoadError,
+  loadClientCertificateProfile,
+  readCertificateProfiles,
+  serializeCertificateProfiles,
+  RESERVED_PROFILE_NAMES,
+} from './clientCertificates.js'
 
 export * from './pipeline/index.js'
 

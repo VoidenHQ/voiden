@@ -37,6 +37,11 @@ export function saveCursor(key: string, cursor: Cursor) {
  * Put the cursor where the user left this file, or at the end of the file the first time
  * it's opened. "End" is the end of the last top-level text block, so nothing is inserted
  * and the file isn't marked as edited.
+ *
+ * The view is deliberately not scrolled to the cursor. A freshly opened file belongs at the
+ * top (the scroll restore in VoidenEditor snaps any editor-driven scroll back there), but
+ * that snap-back runs a frame late, so scrolling here shows the end of the file for one
+ * frame before it jumps back to the top.
  */
 export function placeInitialCursor(editor: Editor, saved: Cursor | null) {
   const { doc } = editor.state;
@@ -57,5 +62,5 @@ export function placeInitialCursor(editor: Editor, saved: Cursor | null) {
     });
     selection = endPos >= 0 ? TextSelection.create(doc, endPos) : Selection.atEnd(doc);
   }
-  editor.view.dispatch(editor.state.tr.setSelection(selection).scrollIntoView());
+  editor.view.dispatch(editor.state.tr.setSelection(selection));
 }

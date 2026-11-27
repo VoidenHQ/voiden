@@ -1,5 +1,36 @@
 [
   {
+    "version": "v2.5.0-beta.1",
+    "date": "25/11/2026",
+    "title": "Client Certificates and Response Compare",
+    "description": "Beta release: client certificates (mTLS) for HTTP, WebSocket and gRPC with a Settings editor, a Compare mode to see what changed between two runs of a request, and custom protocol executors for plugins.",
+    "icon": "Lock",
+    "iconColor": "text-cyan-400",
+    "bgColor": "bg-gradient-to-br from-slate-900 to-cyan-950",
+    "changes": {
+      "Added": [
+        "Client certificates (mTLS) for HTTP and WebSocket requests, matched to hosts from .voiden/certificates.yaml (#635) — contributed by [@officialasishkumar](https://github.com/officialasishkumar)",
+        "Client certificate profiles can be added and edited in Settings, with PEM or PFX files and an optional CA",
+        "gRPC requests can present a client certificate too",
+        "Each request can pick a certificate profile, use auto matching or turn certificates off",
+        "Compare two runs of a request side by side in the response panel: status, timing, headers and body",
+        "Body changes can be viewed by JSON key, side by side or inline, with a Hide noise toggle for timestamps and request IDs",
+        "Plugins can register request executors for their own protocols"
+      ],
+      "Improved": [
+        "The response panel shows the real TLS details of the connection",
+        "Compare keeps its runs per request and flags runs that hit a different endpoint",
+        "The client certificate passphrase is masked in Settings",
+        "The certificate dialog asks before discarding unsaved changes"
+      ],
+      "Fixed": [
+        "certificates.yaml stays local and out of Git",
+        "An unset {{variable}} in a certificate path or passphrase now shows a clear error",
+        "Failed runs show their status in red in Compare, without overlapping text or misleading deltas"
+      ]
+    }
+  },
+  {
     "version": "v2.4.1",
     "date": "16/11/2026",
     "title": "Stable: New Start Tab, Guided Tour and Import Flow",

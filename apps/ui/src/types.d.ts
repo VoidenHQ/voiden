@@ -46,6 +46,16 @@ export interface SearchResult {
 export {};
 
 declare global {
+  /** A profile in .voiden/certificates.yaml (mirrors @voiden/executors ClientCertificateProfile). */
+  type ClientCertificateProfile = {
+    name: string;
+    hosts: string[];
+    cert?: string;
+    key?: string;
+    pfx?: string;
+    ca?: string;
+    passphrase?: string;
+  };
   interface Window {
     __EXTENSION_HOOK__?: string;
     electron?: {
@@ -506,6 +516,17 @@ declare global {
       };
       fileLink: {
         exists: (absolutePath: string) => Promise<boolean>;
+      };
+      clientCertificates: {
+        list: () => Promise<
+          | { projectRoot: null }
+          | { projectRoot: string; file: string; exists: boolean; profiles: ClientCertificateProfile[]; error?: string }
+        >;
+        save: (profiles: ClientCertificateProfile[]) => Promise<{ ok: true } | { ok: false; error: string }>;
+        check: (profile: ClientCertificateProfile) => Promise<
+          | { ok: true; subject?: string; issuer?: string; validTo?: string; expired?: boolean }
+          | { ok: false; error: string }
+        >;
       };
       userSettings: {
         get: () => Promise<any>;
