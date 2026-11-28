@@ -1315,6 +1315,7 @@ export const createPlugin = (
         try {
           const { appendToHistory } = await import('@/core/history/historyManager');
           const { useHistoryStore } = await import('@/core/history/historyStore');
+          const { captureFileCommit } = await import('@/core/history/fileCommit');
           const projects = await getProjects();
           const projectPath = projects?.activeProject ?? null;
           if (!projectPath) return;
@@ -1327,6 +1328,8 @@ export const createPlugin = (
             source: extensionId,
             ...partial,
           };
+          // Plugins save when a session ends (WebSocket, gRPC), so this is the file's commit at that point.
+          entry.commit ??= await captureFileCommit(filePath);
           const updated = await appendToHistory(projectPath, filePath, entry, retentionDays);
           const store = useHistoryStore.getState();
           if (store.currentFilePath === filePath) {

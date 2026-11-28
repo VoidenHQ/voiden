@@ -6,6 +6,8 @@ import { FileAttachmentMeta, HistoryEntryWithFile } from '../types';
 import { getProjectPathFn, importCurlFn } from '../pipelineHooks';
 import { buildCurlForEntry, getHistoryRenderer, buildVoidFileForEntry, useEditorEnhancementStore, subscribePluginEvent } from '@/plugins';
 import { historyAdapterRegistry } from '../adapterRegistry';
+import { matchesCommit } from '../fileCommit';
+import { HistoryCommitBadge } from './HistoryCommitBadge';
 import { getSchema } from '@tiptap/core';
 import { voidenExtensions } from '@/core/editors/voiden/extensions';
 import { METHOD_COLORS } from '@/constants';
@@ -369,8 +371,8 @@ const EntryRow: React.FC<EntryRowProps> = ({ entry, query, copiedId, projectPath
           <Highlight text={urlDisplay} query={query} />
         </p>
 
-        {/* Source file + attachment hint */}
-        {(fileName || (entry.request.fileAttachments && entry.request.fileAttachments.length > 0)) && (
+        {/* Source file + the commit it was at + attachment hint */}
+        {(fileName || entry.commit || (entry.request.fileAttachments && entry.request.fileAttachments.length > 0)) && (
           <div className="flex items-center gap-1 mt-1">
             <FileText size={9} className="text-comment/60 shrink-0" />
             {fileName && (
@@ -383,6 +385,7 @@ const EntryRow: React.FC<EntryRowProps> = ({ entry, query, copiedId, projectPath
                 </span>
               </Tip>
             )}
+            {entry.commit && <HistoryCommitBadge commit={entry.commit} />}
             {entry.request.fileAttachments && entry.request.fileAttachments.length > 0 && (
               <span className="flex items-center gap-0.5 text-[9px] text-comment/60 ml-auto shrink-0">
                 <Paperclip size={8} />
@@ -675,6 +678,7 @@ export const GlobalHistorySidebar: React.FC = () => {
         const method = (e.request.method ?? '').toLowerCase();
         const file = (e.filePath ?? '').toLowerCase();
         if (url.includes(q) || method.includes(q) || file.includes(q)) return true;
+        if (matchesCommit(e, q)) return true;
         if (String(e.response.status ?? '').includes(q)) return true;
         if (e.request.fileAttachments?.some(
           (a) => a.name.toLowerCase().includes(q) || a.key.toLowerCase().includes(q),
@@ -980,7 +984,7 @@ export const GlobalHistorySidebar: React.FC = () => {
           <Search size={11} className="absolute left-2 top-1/2 -translate-y-1/2 text-comment/70 pointer-events-none" />
           <input
             type="text"
-            placeholder="Search URL, method, file…"
+            placeholder="Search URL, method, file, commit…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onClick={(e) => e.stopPropagation()}

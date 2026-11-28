@@ -272,6 +272,11 @@ declare global {
           label: string;
           dataUrl?: string;
         } | null>;
+        /**
+         * The last commit that changed a file (absolute path), in the file's own repository, and
+         * whether the file has uncommitted changes. Null when the file was never committed.
+         */
+        getFileCommit: (filePath: string) => Promise<{ hash: string; subject: string; dirty: boolean } | null>;
         /** Resolve a binary conflict by keeping one whole version. */
         resolveBinaryConflict: (file: string, side: "current" | "incoming", repo?: string | null) => Promise<{ success: boolean }>;
         /** `repo` pins the call to one repo; omitted, the repo selected in Source Control is used. */
