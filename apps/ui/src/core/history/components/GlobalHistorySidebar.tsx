@@ -332,7 +332,7 @@ const EntryRow: React.FC<EntryRowProps> = ({ entry, query, copiedId, projectPath
             ? 'border-active'
             : 'border-border hover:border-border/80 hover:bg-muted/30'
         }`}
-      onClick={() => { if (isSelecting) { onToggleSelect(entry.id); } else { setExpanded((v) => !v); } }}
+      onClick={() => { if (isSelecting) { onToggleSelect(entry.id); } else { onReplay(entry); } }}
     >
       <div className="px-3 pt-2.5 pb-2">
         {/* Method + status + time */}

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { readHistory, appendToHistory, clearHistory } from '../historyManager';
+import { readHistory, appendToHistory, clearHistory, readAllHistory } from '../historyManager';
+import { initHistoryContext, preProcessingHistoryHook, postProcessingHistoryHook } from '../pipelineHooks';
 import type { HistoryEntry } from '../types';
 
 /**
@@ -135,5 +136,25 @@ describe('historyManager - per-file identity (#520)', () => {
 
     const history = await readHistory(projectPath, fileA, 90);
     expect(history.entries).toEqual([]);
+  });
+
+  it('records requests run from an unsaved tab (no file path) in global history', async () => {
+    (globalThis as any).window.electron.userSettings = {
+      get: async () => ({ history: { enabled: true, retention_days: 7 } }),
+    };
+    initHistoryContext(async () => '/workspace', async () => {});
+
+    // Unsaved tab: editor.storage.source is null
+    await preProcessingHistoryHook({ editor: { storage: { source: null } } });
+    await postProcessingHistoryHook({
+      requestState: { method: 'GET', url: 'https://example.com/roles', headers: [] },
+      responseState: { status: 0, statusText: '', error: 'getaddrinfo ENOTFOUND', headers: [] },
+    });
+
+    const all = await readAllHistory('/workspace', 7);
+    expect(all).toHaveLength(1);
+    expect(all[0].request?.method).toBe('GET');
+    expect(all[0].request?.url).toBe('https://example.com/roles');
+    expect(all[0].response?.error).toBe('getaddrinfo ENOTFOUND');
   });
 });
