@@ -5,6 +5,8 @@ import { readHistory, clearHistory, checkAttachmentChanges, AttachmentChange } f
 import { getProjectPathFn, importCurlFn } from '../pipelineHooks';
 import { HistoryEntry, getEntryMeta, getEntryPluginId } from '../types';
 import { historyAdapterRegistry } from '../adapterRegistry';
+import { matchesCommit } from '../fileCommit';
+import { HistoryCommitBadge } from './HistoryCommitBadge';
 import { voidenTheme } from '@/core/editors/code/CodeEditor';
 import { renderLang } from '@/core/editors/code/lib/extensions/renderLang';
 import { Clock, RotateCcw, Copy, Check, Trash2, Search, Zap, MoreHorizontal, Download, Square, CheckSquare, X, ChevronDown, ChevronRight, ChevronsUpDown, ChevronsDownUp, Loader2, FileText, AlertTriangle, Paperclip } from 'lucide-react';
@@ -402,13 +404,18 @@ const EntryCard: React.FC<EntryCardProps> = ({ entry, isCopied, query, sourceFil
           <Highlight text={urlDisplay} query={query} />
         </p>
 
-        {/* Source file */}
-        {sourceFile && (
+        {/* Source file + the commit it was at */}
+        {(sourceFile || entry.commit) && (
           <div className="flex items-center gap-1 mt-1">
-            <FileText size={9} className="text-comment/60 shrink-0" />
-            <span className="text-[10px] text-comment truncate">
-              <Highlight text={sourceFile} query={query} />
-            </span>
+            {sourceFile && (
+              <>
+                <FileText size={9} className="text-comment/60 shrink-0" />
+                <span className="text-[10px] text-comment truncate">
+                  <Highlight text={sourceFile} query={query} />
+                </span>
+              </>
+            )}
+            {entry.commit && <HistoryCommitBadge commit={entry.commit} />}
           </div>
         )}
 
@@ -937,6 +944,7 @@ export const HistorySidebar: React.FC = () => {
       if ((m.method ?? '').toLowerCase().includes(q)) return true;
       if (String(m.statusCode ?? '').includes(q)) return true;
       if (activeSource && activeSource.toLowerCase().includes(q)) return true;
+      if (matchesCommit(e, q)) return true;
       if (e.request?.fileAttachments?.some(
         (a) => a.name.toLowerCase().includes(q) || a.key.toLowerCase().includes(q),
       )) return true;
@@ -987,7 +995,7 @@ export const HistorySidebar: React.FC = () => {
           <Search size={11} className="text-comment shrink-0" />
           <input
             type="text"
-            placeholder="Search URL, method, file…"
+            placeholder="Search URL, method, file, commit…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             onClick={(e) => e.stopPropagation()}

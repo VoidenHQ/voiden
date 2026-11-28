@@ -1,21 +1,24 @@
 /**
  * Pipeline hooks for voiden-history (core feature).
  *
- * pre-processing  (priority 50): captures the active tab's file path and project path.
+ * pre-processing  (priority 50): captures the active tab's file path and project path,
+ *   and starts looking up the commit the file is at while the request is in flight.
  * post-processing (priority 50): asks the adapter registry which plugin owns this
  *   request, delegates entry building to it, then persists the result.
  *   Falls back to inline REST-API logic if no adapter is registered yet.
  */
 
-import { FileAttachmentMeta, HistoryEntry } from './types';
+import { FileAttachmentMeta, HistoryEntry, HistoryEntryCommit } from './types';
 import { useHistoryStore } from './historyStore';
 import { appendToHistory } from './historyManager';
 import { historyAdapterRegistry } from './adapterRegistry';
+import { captureFileCommit } from './fileCommit';
 import { stringifyJsonSafe } from '@/core/request-engine/parseJsonSafe';
 
 /** Cached between pre-processing and post-processing within a single request */
 let cachedFilePath: string | null = null;
 let cachedProjectPath: string | null = null;
+let cachedFileCommit: Promise<HistoryEntryCommit | undefined> | null = null;
 
 /**
  * Injected during core init — provides access to the project path getter
@@ -36,12 +39,55 @@ export function initHistoryContext(
 }
 
 /**
+ * Socket protocols (wss/ws/grpc/grpcs) save their own history via saveSessionToHistory
+ * when the session ends, so the pipeline saves no entry for them.
+ */
+const savesOwnHistory = (protocolType: unknown): boolean =>
+  protocolType === 'wss' || protocolType === 'ws' || protocolType === 'grpc' || protocolType === 'grpcs';
+
+/**
+ * Looks up the file's commit only when history is on, since the entry is the only thing that
+ * uses it. Started before the request is sent and not awaited, so it never delays the request.
+ */
+async function captureCommitForHistory(filePath: string): Promise<HistoryEntryCommit | undefined> {
+  try {
+    const settings = await (window as any).electron?.userSettings?.get();
+    return settings?.history?.enabled ? await captureFileCommit(filePath) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** How long saving an entry waits for a commit lookup that is still running once the response is in. */
+export const COMMIT_LOOKUP_GRACE_MS = 1000;
+
+/**
+ * The response is shown only after post-processing, so a slow Git (a first lookup in a large
+ * repository) must not hold it up: past the grace period the entry is saved without the commit.
+ */
+async function settleFileCommit(
+  lookup: Promise<HistoryEntryCommit | undefined> | null,
+): Promise<HistoryEntryCommit | undefined> {
+  if (!lookup) return undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const grace = new Promise<undefined>((resolve) => {
+    timer = setTimeout(() => resolve(undefined), COMMIT_LOOKUP_GRACE_MS);
+  });
+  try {
+    return await Promise.race([lookup, grace]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
  * Stage 1 hook (pre-processing, priority 50).
  * Captures the current tab's source file path and project root path.
  */
 export async function preProcessingHistoryHook(_context: any): Promise<void> {
   cachedFilePath = null;
   cachedProjectPath = null;
+  cachedFileCommit = null;
 
   try {
     // editor.storage.source is set when the editor mounts and is always
@@ -49,6 +95,11 @@ export async function preProcessingHistoryHook(_context: any): Promise<void> {
     // onRequestBuilt callback that fires *after* pre-processing completes.
     const source: string | null = _context?.editor?.storage?.source ?? null;
     cachedFilePath = source;
+    // Started now, not after the response: the lookup runs alongside the request, and
+    // edits made while a slow request is in flight don't count as this run's changes.
+    if (source && !savesOwnHistory(_context?.requestState?.protocolType)) {
+      cachedFileCommit = captureCommitForHistory(source);
+    }
 
     if (getProjectPathFn) {
       cachedProjectPath = await getProjectPathFn();
@@ -68,19 +119,19 @@ export async function preProcessingHistoryHook(_context: any): Promise<void> {
 export async function postProcessingHistoryHook(context: any): Promise<void> {
   const filePath = cachedFilePath;
   const projectPath = cachedProjectPath;
+  const fileCommit = cachedFileCommit;
 
   cachedFilePath = null;
   cachedProjectPath = null;
+  cachedFileCommit = null;
 
   if (!filePath || !projectPath) return;
 
   const { requestState, responseState } = context;
   if (!requestState || !responseState) return;
 
-  // Socket protocols (wss/ws/grpc/grpcs) save their own history via saveSessionToHistory
-  // when the session ends — skip the REST pipeline entry to avoid duplicates.
-  const proto = requestState.protocolType;
-  if (proto === 'wss' || proto === 'ws' || proto === 'grpc' || proto === 'grpcs') return;
+  // Skip the REST pipeline entry for socket protocols to avoid duplicates.
+  if (savesOwnHistory(requestState.protocolType)) return;
 
   try {
     // Respect user settings — history is opt-in (disabled unless explicitly enabled)
@@ -112,6 +163,9 @@ export async function postProcessingHistoryHook(context: any): Promise<void> {
       // ── Fallback path: inline REST-API logic (no adapter registered yet) ──
       entry = await buildFallbackEntry(requestState, responseState, projectPath);
     }
+
+    const commit = await settleFileCommit(fileCommit);
+    if (commit) entry.commit = commit;
 
     const updated = await appendToHistory(projectPath, filePath, entry, retentionDays);
     const store = useHistoryStore.getState();

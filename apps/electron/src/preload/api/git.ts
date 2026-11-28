@@ -11,6 +11,7 @@ export const gitApi = {
   diffFile: (baseBranch: string, compareBranch: string, filePath: string, repo?: string | null) => ipcRenderer.invoke("git:diffFile", baseBranch, compareBranch, filePath, repo),
   getFileAtBranch: (branch: string, filePath: string, repo?: string | null) => ipcRenderer.invoke("git:getFileAtBranch", branch, filePath, repo),
   getFileBlob: (ref: string | null, filePath: string, repo?: string | null) => ipcRenderer.invoke("git:getFileBlob", ref, filePath, repo),
+  getFileCommit: (filePath: string) => ipcRenderer.invoke("git:getFileCommit", filePath),
   resolveBinaryConflict: (file: string, side: "current" | "incoming", repo?: string | null) => ipcRenderer.invoke("git:resolveBinaryConflict", file, side, repo),
   getRepoRoot: (repo?: string | null) => ipcRenderer.invoke("git:getRepoRoot", repo),
   listRepos: (refresh?: boolean): Promise<{

@@ -5,6 +5,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { logger } from "./logger";
 import { readCommittedBlob, readWorkingBlob } from "./gitBlob";
+import { readFileCommit } from "./gitFileCommit";
 
 interface GitStatusCache {
   timestamp: number;
@@ -420,6 +421,11 @@ ipcMain.handle("git:getFileBlob", async (event: IpcMainInvokeEvent, ref: string 
     return null;
   }
 });
+
+// The commit a .void file is at, and whether it has uncommitted changes, so a
+// request's history entry can record which version of the file it ran (#641).
+// The file's own repository is used, not the one selected in Source Control.
+ipcMain.handle("git:getFileCommit", async (_event: IpcMainInvokeEvent, filePath: string) => readFileCommit(filePath));
 
 ipcMain.handle("git:getFileAtBranch", async (event:IpcMainInvokeEvent, branch: string, filePath: string, repo?: string | null) => {
   const projectPath = await getGitRepoPath(event, repo);

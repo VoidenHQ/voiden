@@ -64,11 +64,26 @@ export interface HistoryResponseEntry {
   headers?: Array<{ key: string; value: string }>;
 }
 
+/**
+ * The Git version of the .void file a request ran from: the last commit that changed the file.
+ * Lets history show which version of a request produced each response.
+ */
+export interface HistoryEntryCommit {
+  /** Full commit hash */
+  hash: string;
+  /** First line of the commit message */
+  subject: string;
+  /** The file had uncommitted or unsaved changes, so the request may differ from the commit */
+  dirty: boolean;
+}
+
 // ─── Entry ───────────────────────────────────────────────────────────────────
 
 export interface HistoryEntry {
   id: string;
   timestamp: number;
+  /** Commit the .void file was at when the request ran. Absent when the file wasn't committed in Git. */
+  commit?: HistoryEntryCommit;
 
   // ── New adapter-based fields (present on entries created after the refactor) ──
 
