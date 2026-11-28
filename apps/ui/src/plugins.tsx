@@ -1660,7 +1660,11 @@ export const getPlugins = async () => {
     initHistoryContext(
       async () => {
         const p = await getProjects();
-        return p?.activeProject ?? null;
+        if (p?.activeProject) return p.activeProject;
+        // No project open — keep history in the default projects directory so
+        // requests are still recorded and shown in global history.
+        const settings = await (window as any).electron?.userSettings?.get();
+        return settings?.projects?.default_directory || null;
       },
       async (title: string, curlString: string) => {
         const tabId = crypto.randomUUID();
@@ -1679,9 +1683,12 @@ export const getPlugins = async () => {
             let handled = false;
             for (const importer of curlImporters) {
               try { handled = await importer(curlString, editor); } catch { /* skip */ }
-              if (handled) return;
+              if (handled) break;
             }
-            pasteOrchestrator.handlePatternText(editor.view, curlString);
+            if (!handled) pasteOrchestrator.handlePatternText(editor.view, curlString);
+            // Importing replaces the whole document, which leaves everything
+            // selected — put the cursor at the start instead.
+            editor.commands.focus('start');
           } else {
             setTimeout(() => tryPaste(attempts - 1), 200);
           }

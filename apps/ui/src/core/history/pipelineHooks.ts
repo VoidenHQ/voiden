@@ -72,7 +72,9 @@ export async function postProcessingHistoryHook(context: any): Promise<void> {
   cachedFilePath = null;
   cachedProjectPath = null;
 
-  if (!filePath || !projectPath) return;
+  // Unsaved tabs have no file path yet — still record them (under an empty path)
+  // so every executed request shows up in global history.
+  if (!projectPath) return;
 
   const { requestState, responseState } = context;
   if (!requestState || !responseState) return;
@@ -113,11 +115,11 @@ export async function postProcessingHistoryHook(context: any): Promise<void> {
       entry = await buildFallbackEntry(requestState, responseState, projectPath);
     }
 
-    const updated = await appendToHistory(projectPath, filePath, entry, retentionDays);
+    const updated = await appendToHistory(projectPath, filePath ?? '', entry, retentionDays);
     const store = useHistoryStore.getState();
-    store.setEntries(filePath, updated.entries);
+    if (filePath) store.setEntries(filePath, updated.entries);
     // Prepend to global history view so it refreshes without manual reload
-    const entryWithFile = { ...entry, filePath };
+    const entryWithFile = { ...entry, filePath: filePath ?? '' };
     store.setAllEntries([entryWithFile, ...store.allEntries.filter((e) => e.id !== entryWithFile.id)]);
   } catch (e) {
     console.error('[history] Failed to save history entry:', e);
